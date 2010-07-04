@@ -1,0 +1,5 @@
+google-go (2010.07.01-1) unstable; urgency=low
+
+  * Initial release (Closes: #574371)
+
+ -- Ivan Wong <ivanwyc@gmail.com>  Sun, 04 Jul 2010 18:05:36 +0800

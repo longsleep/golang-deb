@@ -1,0 +1,27 @@
+Source: google-go
+Section: devel
+Priority: optional
+Maintainer: Ivan Wong <ivanwyc@gmail.com>
+Build-Depends: debhelper (>= 7), bison, ed, gawk
+Standards-Version: 3.8.4
+Homepage: http://golang.org/
+
+Package: google-go
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Google's Go programming language compiler
+ This is the compiler for Google's Go programming language:
+  - The compilers produce fast code fast. Typical builds take
+    a fraction of a second yet the resulting programs run
+    nearly as quickly as comparable C or C++ code.
+  - Go is type safe and memory safe. Go has pointers but no
+    pointer arithmetic. For random access, use slices, which
+    know their limits.
+  - Go promotes writing systems and servers as sets of
+    lightweight communicating processes, called goroutines,
+    with strong support from the language. Run thousands of
+    goroutines if you want—and say good-bye to stack overflows.
+  - Go has fast builds, clean syntax, garbage collection,
+    methods for any type, and run-time reflection. It feels
+    like a dynamic language but has the speed and safety of
+    a static language. It's a joy to use.

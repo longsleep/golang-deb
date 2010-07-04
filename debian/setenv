@@ -1,0 +1,11 @@
+#!/bin/bash
+
+export GOROOT=`pwd`
+export GOOS=`uname | tr [A-Z] [a-z]`
+case `uname -m` in
+*86) GOARCH=386 ;;
+x86_64) GOARCH=amd64 ;;
+arm*) GOARCH=arm ;;
+esac
+export GOARCH
+export GOBIN=`pwd`/debian/gobin

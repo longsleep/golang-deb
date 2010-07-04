@@ -1,0 +1,79 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+configure:
+
+build: build-stamp
+
+build-stamp:
+	dh_testdir
+	bash $(CURDIR)/debian/wrapper make.bash
+	bash $(CURDIR)/debian/userenv > $(CURDIR)/debian/bin/goenv
+	touch $@
+
+clean: 
+	dh_testdir
+	dh_testroot
+	rm -f build-stamp
+	if test -f $(CURDIR)/debian/gobin/gomake; then bash $(CURDIR)/debian/wrapper clean.bash; fi
+	#rm -rf $(CURDIR)/pkg/*
+	rm -rf $(CURDIR)/debian/bin/goenv
+	rm -rf $(CURDIR)/debian/gobin
+	dh_clean 
+
+install: build
+	dh_testdir
+	dh_testroot
+	dh_prep
+	dh_installdirs
+	mkdir -p $(CURDIR)/debian/google-go/usr/lib/google-go
+	cp -aH $(CURDIR)/pkg $(CURDIR)/debian/google-go/usr/lib/google-go/
+	mkdir -p $(CURDIR)/debian/google-go/usr/lib/google-go/src/pkg/runtime
+	for f in cgocall.h runtime.h; do \
+		cp $(CURDIR)/src/pkg/runtime/$$f $(CURDIR)/debian/google-go/usr/lib/google-go/src/pkg/runtime/; \
+	done
+	cp -aH $(CURDIR)/debian/gobin $(CURDIR)/debian/google-go/usr/lib/google-go/bin
+	cp -aH $(CURDIR)/debian/bin $(CURDIR)/debian/google-go/usr/
+	mkdir -p $(CURDIR)/debian/google-go/usr/share/lintian/overrides
+	cp $(CURDIR)/debian/lintian-overrides $(CURDIR)/debian/google-go/usr/share/lintian/overrides/google-go
+
+
+# Build architecture-independent files here.
+binary-indep: build install
+# We have nothing to do by default.
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_installchangelogs 
+	dh_installdocs
+#	dh_install
+	dh_installman
+	dh_link
+	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xhgpatch -Xbin/cgo -Xebnflint -Xgofmt
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_shlibdeps
+	dh_gencontrol
+	dh_md5sums
+	dh_builddeb
+
+get-orig-source:
+	rm -rf $(CURDIR)/go
+	hg clone -r release https://go.googlecode.com/hg/ $(CURDIR)/go
+	cd $(CURDIR)/go; \
+	hg pull; \
+	hg update release; \
+	VERSION=`hg identify -t | perl -e '<> =~ /release\.(\d+)-(\d+)-(\d+)/; print "$$1.$$2.$$3"'`; \
+	cd ..; \
+	mv go google-go-$$VERSION; \
+	tar czf google-go_$$VERSION.orig.tar.gz google-go-$$VERSION --exclude='.hg*'; \
+	rm -rf google-go-$$VERSION
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install configure get-orig-source

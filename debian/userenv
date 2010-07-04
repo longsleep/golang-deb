@@ -1,0 +1,13 @@
+#!/bin/bash
+
+source `dirname "$BASH_SOURCE"`/setenv
+
+cat <<EOF
+#!/bin/bash
+
+export GOROOT=/usr/lib/google-go
+export GOOS=$GOOS
+export GOARCH=$GOARCH
+export GOBIN=/usr/bin
+EOF
+

@@ -1,0 +1,7 @@
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/cgo
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/ebnflint
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/godoc
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/gofmt
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/goinstall
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/goyacc
+google-go binary: statically-linked-binary ./usr/lib/google-go/bin/hgpatch
