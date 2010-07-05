@@ -1,8 +1,0 @@
-#!/bin/bash
-
-source `dirname "$BASH_SOURCE"`/setenv
-
-mkdir -p $GOBIN
-
-cd src && "./$@"
-

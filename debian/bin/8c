@@ -1,4 +1,0 @@
-#!/bin/bash
-source /usr/bin/goenv
-$GOROOT/bin/8c "$@"
-

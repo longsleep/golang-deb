@@ -1,79 +1,155 @@
 #!/usr/bin/make -f
-# -*- makefile -*-
+# This file is in the public domain.
+# You may freely use, modify, distribute, and relicense it.
 
-# Uncomment this to turn on verbose mode.
-#export DH_VERBOSE=1
+PACKAGE = google-go
 
-configure:
+DESTDIR := $(CURDIR)/debian/$(PACKAGE)
+libexecdir := /usr/lib/golang
 
-build: build-stamp
+build clean install binary-arch binary-indep binary:
+	+dh --parallel $(opt_no_act) $@
 
-build-stamp:
-	dh_testdir
-	bash $(CURDIR)/debian/wrapper make.bash
-	bash $(CURDIR)/debian/userenv > $(CURDIR)/debian/bin/goenv
-	touch $@
+override_dh_auto_clean:
+	rm -f debian/build.stamp
+	echo '#!/bin/sh' >debian/gomake+
+	echo 'exec $(MAKE) "$$@"' >>debian/gomake+
+	chmod +x debian/gomake+
+	mkdir -p $(GOBIN)
+	mv debian/gomake+ $(GOBIN)/gomake
+	cd src && bash ./clean.bash
+	: NEEDSWORK: update src/pkg/Makefile.
+	cd src/pkg && $(GOBIN)/gomake exp/ogle.clean
+	rm -f src/pkg/Make.deps
+	rm -f test/pass.out test/run.out test/times.out
+	rm -f debian/env.sh
 
-clean: 
-	dh_testdir
-	dh_testroot
-	rm -f build-stamp
-	if test -f $(CURDIR)/debian/gobin/gomake; then bash $(CURDIR)/debian/wrapper clean.bash; fi
-	#rm -rf $(CURDIR)/pkg/*
-	rm -rf $(CURDIR)/debian/bin/goenv
-	rm -rf $(CURDIR)/debian/gobin
-	dh_clean 
+override_dh_auto_build: debian/build.stamp debian/env.sh
 
-install: build
-	dh_testdir
-	dh_testroot
-	dh_prep
-	dh_installdirs
-	mkdir -p $(CURDIR)/debian/google-go/usr/lib/google-go
-	cp -aH $(CURDIR)/pkg $(CURDIR)/debian/google-go/usr/lib/google-go/
-	mkdir -p $(CURDIR)/debian/google-go/usr/lib/google-go/src/pkg/runtime
-	for f in cgocall.h runtime.h; do \
-		cp $(CURDIR)/src/pkg/runtime/$$f $(CURDIR)/debian/google-go/usr/lib/google-go/src/pkg/runtime/; \
+override_dh_auto_test:
+	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
+
+override_dh_prep:
+	dh_prep -Xdebian/google-go
+
+override_dh_auto_install:
+	mkdir -p $(DESTDIR)$(libexecdir)
+	: library
+	cp -a pkg $(DESTDIR)$(libexecdir)/
+	: runtime
+	mkdir -p $(DESTDIR)$(libexecdir)/src/pkg/runtime
+	install -m644 src/pkg/runtime/cgocall.h $(DESTDIR)$(libexecdir)/src/pkg/runtime/
+	install -m644 src/pkg/runtime/runtime.h $(DESTDIR)$(libexecdir)/src/pkg/runtime/
+	install -m644 debian/env.sh $(DESTDIR)$(libexecdir)/env.sh
+	: web apps
+	mkdir -p $(DESTDIR)$(libexecdir)/lib
+	cp -a lib/codereview $(DESTDIR)$(libexecdir)/lib/
+	cp -a lib/godoc $(DESTDIR)$(libexecdir)/lib/
+	: documentation
+	rm -fr $(DESTDIR)/usr/share/doc/$(PACKAGE)/html
+	mkdir -p $(DESTDIR)/usr/share/doc/$(PACKAGE)
+	cp -a doc $(DESTDIR)/usr/share/doc/$(PACKAGE)/html
+	dh_link /usr/share/doc/$(PACKAGE)/html $(libexecdir)/doc
+	: wrappers
+	mkdir -p $(DESTDIR)/usr/bin
+	for i in $(GOBIN)/*; \
+	do \
+		f=$$(basename "$$i") && \
+		wrapper=$(DESTDIR)/usr/bin/$$f && \
+		echo '#!/bin/sh' >$$wrapper+ && \
+		echo '. $(libexecdir)/env.sh' >>$$wrapper+ && \
+		echo 'exec $(libexecdir)/bin/'$$f' "$$@"' >>$$wrapper+ && \
+		chmod 755 $$wrapper+ && \
+		{ \
+			cmp -s $$wrapper+ $$wrapper || \
+			mv $$wrapper+ $$wrapper; \
+		}; \
 	done
-	cp -aH $(CURDIR)/debian/gobin $(CURDIR)/debian/google-go/usr/lib/google-go/bin
-	cp -aH $(CURDIR)/debian/bin $(CURDIR)/debian/google-go/usr/
-	mkdir -p $(CURDIR)/debian/google-go/usr/share/lintian/overrides
-	cp $(CURDIR)/debian/lintian-overrides $(CURDIR)/debian/google-go/usr/share/lintian/overrides/google-go
 
-
-# Build architecture-independent files here.
-binary-indep: build install
-# We have nothing to do by default.
-
-# Build architecture-dependent files here.
-binary-arch: build install
-	dh_testdir
-	dh_testroot
-	dh_installchangelogs 
-	dh_installdocs
-#	dh_install
-	dh_installman
-	dh_link
+override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xhgpatch -Xbin/cgo -Xebnflint -Xgofmt
-	dh_compress
-	dh_fixperms
-	dh_installdeb
-	dh_shlibdeps
-	dh_gencontrol
-	dh_md5sums
-	dh_builddeb
 
+debian/build.stamp:
+	rm -f debian/build.stamp
+	mkdir -p $(GOBIN)
+	cd src && bash ./make.bash
+	>debian/build.stamp
+
+debian/env.sh:
+	>$@+
+	echo '# runtime parameters for Go' >>$@+
+	if test "$$GOARM"; \
+	then \
+		echo 'export GOROOT GOOS GOARCH GOARM GOBIN' >>$@+ && \
+		echo ": $${GOARM=$$GOARM}" >>$@+; \
+	else \
+		echo 'export GOROOT GOOS GOARCH GOBIN' >>$@+; \
+	fi
+	echo ': $${GOROOT=$(libexecdir)}' >>$@+
+	echo ': $${GOOS=$(GOOS)}' >>$@+
+	echo ': $${GOARCH=$(GOARCH)}' >>$@+
+	echo ': $${GOBIN=$(libexecdir)/bin}' >>$@+
+	cmp -s $@ $@+ || mv $@+ $@
+
+opt_no_act =
+no_check = ! :
+
+ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
+    $(warning no support for disabling optimization)
+endif
+
+ifneq (,$(findstring n,$(MAKEFLAGS)))
+    opt_no_act = --no-act
+endif
+
+ifneq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+    no_check = :
+endif
+
+GOROOT := $(CURDIR)
+GOBIN := $(DESTDIR)$(libexecdir)/bin
+GOARM :=
+
+DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
+DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
+
+ifeq ($(DEB_HOST_ARCH_OS), kfreebsd)
+    GOOS := freebsd
+else
+    ifeq (,$(findstring $(DEB_HOST_ARCH_OS), linux freebsd darwin))
+        $(warning unrecognized kernel $(DEB_HOST_ARCH_OS)! continuing.)
+    endif
+    GOOS := $(DEB_HOST_ARCH_OS)
+endif
+
+ifeq ($(DEB_HOST_ARCH_CPU), i386)
+    GOARCH := 386
+else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
+    GOARCH := amd64
+else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), arm armeb armel))
+    GOARCH := arm
+    GOARM := 5
+else
+    $(warning unrecognized instruction set $(DEB_HOST_ARCH_CPU)! continuing.)
+    GOARCH := $(DEB_HOST_ARCH_CPU)
+endif
+
+export GOROOT GOOS GOARCH GOARM GOBIN
+
+REPO = https://go.googlecode.com/hg/
+REV = release
 get-orig-source:
-	rm -rf $(CURDIR)/go
-	hg clone -r release https://go.googlecode.com/hg/ $(CURDIR)/go
-	cd $(CURDIR)/go; \
-	hg pull; \
-	hg update release; \
-	VERSION=`hg identify -t | perl -e '<> =~ /release\.(\d+)-(\d+)-(\d+)/; print "$$1.$$2.$$3"'`; \
-	cd ..; \
-	mv go google-go-$$VERSION; \
-	tar czf google-go_$$VERSION.orig.tar.gz google-go-$$VERSION --exclude='.hg*'; \
-	rm -rf google-go-$$VERSION
-
-binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install configure get-orig-source
+	mkdir debian-orig-source
+	-set -e; cd debian-orig-source; \
+	hg clone -r "$(REV)" "$(REPO)" go; \
+	( \
+		cd go; \
+		hg pull; \
+		hg update $(REV); \
+		VERSION=$$( \
+			hg identify -t | \
+			perl -e '<> =~ /release\.(\d+)-(\d+)-(\d+)/; print "$$1.$$2.$$3"' \
+		); \
+		hg archive -ttgz -p"google-go-$$VERSION/" -X'.hg*' ../../google-go_$$VERSION.orig.tar.gz
+	)
+	rm -fr debian-orig-source
