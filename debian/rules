@@ -141,15 +141,15 @@ REV = release
 get-orig-source:
 	mkdir debian-orig-source
 	-set -e; cd debian-orig-source; \
-	hg clone -r "$(REV)" "$(REPO)" go; \
+	hg clone -U -r"$(REV)" "$(REPO)" go; \
 	( \
 		cd go; \
 		hg pull; \
-		hg update $(REV); \
 		VERSION=$$( \
-			hg identify -t | \
+			hg identify -t -r"$(REV)" | \
 			perl -e '<> =~ /release\.(\d+)-(\d+)-(\d+)/; print "$$1.$$2.$$3"' \
 		); \
-		hg archive -ttgz -p"google-go-$$VERSION/" -X'.hg*' ../../google-go_$$VERSION.orig.tar.gz
+		hg archive -ttgz -p"google-go-$$VERSION/" -r"$(REV)" -X'.hg*' \
+			../../google-go_$$VERSION.orig.tar.gz; \
 	)
 	rm -fr debian-orig-source
