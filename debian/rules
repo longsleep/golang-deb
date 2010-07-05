@@ -84,7 +84,7 @@ debian/env.sh:
 	if test "$$GOARM"; \
 	then \
 		echo 'export GOROOT GOOS GOARCH GOARM GOBIN' >>$@+ && \
-		echo ": $${GOARM=$$GOARM}" >>$@+; \
+		echo ": \$${GOARM=$$GOARM}" >>$@+; \
 	else \
 		echo 'export GOROOT GOOS GOARCH GOBIN' >>$@+; \
 	fi
