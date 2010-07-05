@@ -2,7 +2,7 @@ Source: google-go
 Section: devel
 Priority: optional
 Maintainer: Ivan Wong <ivanwyc@gmail.com>
-Build-Depends: debhelper (>= 7.4.10), bison, ed, gawk
+Build-Depends: debhelper (>= 7.4.10), bison, ed, awk
 Standards-Version: 3.8.4
 Homepage: http://golang.org/
 
