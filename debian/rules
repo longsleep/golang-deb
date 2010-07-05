@@ -54,6 +54,7 @@ override_dh_auto_install:
 	mkdir -p $(DESTDIR)/usr/share/doc/$(PACKAGE)
 	cp -a doc $(DESTDIR)/usr/share/doc/$(PACKAGE)/html
 	dh_link /usr/share/doc/$(PACKAGE)/html $(libexecdir)/doc
+	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
 	: wrappers
 	mkdir -p $(DESTDIR)/usr/bin
 	for i in $(GOBIN)/*; \
