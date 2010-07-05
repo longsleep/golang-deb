@@ -60,7 +60,7 @@ override_dh_auto_install:
 		echo '. $(libexecdir)/env.sh' >>$$wrapper+ && \
 		echo 'exec $(libexecdir)/bin/'$$f' "$$@"' >>$$wrapper+ && \
 		chmod 755 $$wrapper+ && \
-		if cmp -s $$wrapper+ $$wrapper; \
+		if ! cmp -s $$wrapper+ $$wrapper; \
 		then \
 			mv $$wrapper+ $$wrapper; \
 		else \
