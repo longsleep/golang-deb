@@ -33,6 +33,9 @@ override_dh_auto_test:
 override_dh_prep:
 	dh_prep -Xdebian/google-go
 
+override_dh_compress:
+	dh_compress -Xusr/share/doc/$(PACKAGE)/html
+
 override_dh_auto_install:
 	mkdir -p $(DESTDIR)$(libexecdir)
 	: library
