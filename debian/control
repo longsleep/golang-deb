@@ -8,7 +8,7 @@ Homepage: http://golang.org/
 
 Package: google-go
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
 Description: Google's Go programming language compiler
  This is the compiler for Google's Go programming language:
   - The compilers produce fast code fast. Typical builds take
