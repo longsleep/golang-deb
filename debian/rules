@@ -11,6 +11,7 @@ build clean install binary-arch binary-indep binary:
 	+dh --parallel $(opt_no_act) $@
 
 override_dh_auto_clean:
+	rm -f debian/*+
 	rm -f debian/build.stamp
 	echo '#!/bin/sh' >debian/gomake+
 	echo 'exec $(MAKE) "$$@"' >>debian/gomake+
@@ -91,7 +92,12 @@ debian/env.sh:
 	echo ': $${GOOS=$(GOOS)}' >>$@+
 	echo ': $${GOARCH=$(GOARCH)}' >>$@+
 	echo ': $${GOBIN=$(libexecdir)/bin}' >>$@+
-	cmp -s $@ $@+ || mv $@+ $@
+	if ! cmp -s $@ $@+; \
+	then \
+		mv $@+ $@; \
+	else \
+		rm $@+; \
+	fi
 
 opt_no_act =
 no_check = ! :
