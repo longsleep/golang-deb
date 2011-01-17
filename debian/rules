@@ -22,7 +22,8 @@ override_dh_auto_clean:
 override_dh_auto_build: debian/build.stamp
 
 override_dh_auto_test:
-	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
+	:
+#	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
 
 #override_dh_compress:
 #	dh_compress -Xusr/share/doc/golang-doc/html
