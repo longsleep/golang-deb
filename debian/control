@@ -25,3 +25,9 @@ Description: Google's Go programming language compiler
     methods for any type, and run-time reflection. It feels
     like a dynamic language but has the speed and safety of
     a static language. It's a joy to use.
+
+Package: golang-doc
+Architecture: all
+Depends: ${misc:Depends}
+Description: Documentation for Google's Go programming language
+ Dummy description for now
