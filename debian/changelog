@@ -1,3 +1,27 @@
+golang (2011.01.12-1~1.gbpf3a97d) UNRELEASED; urgency=low
+
+  ** SNAPSHOT build @f3a97d6cb4a9429edfcd59f3d37a4324f44265a6 **
+
+  [ Jonathan Nieder ]
+  * Fill out copyright file
+  * Rewrite debian/rules using dh driver
+  * debian: fix get-orig-source rule
+  * debian: do not install extra files on repeated build
+  * debian: fix reversed ‘if’
+  * debian: do not leave around stale debian/env.sh+ file
+  * debian: Build-Depends on awk instead of gawk
+  * debian: add run-time dependency on perl
+  * debian: add build-time dependency on perl
+  * debian: fix setting of GOARM on arm
+  * debian: do not compress files in web page
+  * debian: install favicon
+
+  [ Ondřej Surý ]
+  * Add patch to allow IPv4 on IPv6 sockets (Courtesy of Florian Weimer)
+  * Use GOROOT_FINAL and change GOBIN to /usr/bin
+
+ -- Ondřej Surý <ondrej@debian.org>  Mon, 17 Jan 2011 13:11:29 +0100
+
 google-go (2010.07.01-1) unstable; urgency=low
 
   * Initial release (Closes: #574371)
