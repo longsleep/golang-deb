@@ -6,6 +6,7 @@ PACKAGE = google-go
 
 DESTDIR := $(CURDIR)/debian/$(PACKAGE)
 libexecdir := /usr/lib/golang
+bindir := /usr/bin
 
 build clean install binary-arch binary-indep binary:
 	+dh --parallel $(opt_no_act) $@
@@ -119,7 +120,8 @@ ifneq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 endif
 
 GOROOT := $(CURDIR)
-GOBIN := $(DESTDIR)$(libexecdir)/bin
+GOROOT_FINAL := $(libexecdir)
+GOBIN := $(DESTDIR)$(bindir)
 GOARM :=
 
 DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
