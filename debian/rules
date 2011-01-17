@@ -14,12 +14,6 @@ build clean install binary-arch binary-indep binary:
 override_dh_auto_clean:
 	rm -f debian/*+
 	rm -f debian/build.stamp
-	echo '#!/bin/sh' >debian/gomake+
-	echo 'exec $(MAKE) "$$@"' >>debian/gomake+
-	chmod +x debian/gomake+
-	mkdir -p $(GOBIN)
-	mv debian/gomake+ $(GOBIN)/gomake
-	cd src && bash ./clean.bash
 	: NEEDSWORK: update src/pkg/Makefile.
 	#cd src/pkg && $(GOBIN)/gomake exp/ogle.clean
 	rm -f src/pkg/Make.deps
