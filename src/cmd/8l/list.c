@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Printing.
+
 #include	"l.h"
 #include	"../ld/lib.h"
 
@@ -40,6 +42,7 @@ listinit(void)
 	fmtinstall('D', Dconv);
 	fmtinstall('S', Sconv);
 	fmtinstall('P', Pconv);
+	fmtinstall('I', Iconv);
 }
 
 static	Prog	*bigP;
@@ -47,7 +50,6 @@ static	Prog	*bigP;
 int
 Pconv(Fmt *fp)
 {
-	char str[STRINGSZ];
 	Prog *p;
 
 	p = va_arg(fp->args, Prog*);
@@ -55,23 +57,23 @@ Pconv(Fmt *fp)
 	switch(p->as) {
 	case ATEXT:
 		if(p->from.scale) {
-			sprint(str, "(%d)	%A	%D,%d,%D",
+			fmtprint(fp, "(%d)	%A	%D,%d,%D",
 				p->line, p->as, &p->from, p->from.scale, &p->to);
 			break;
 		}
 	default:
-		sprint(str, "(%d)	%A	%D,%D",
+		fmtprint(fp, "(%d)	%A	%D,%D",
 			p->line, p->as, &p->from, &p->to);
 		break;
 	case ADATA:
-	case AINIT:
-	case ADYNT:
-		sprint(str, "(%d)	%A	%D/%d,%D",
+	case AINIT_:
+	case ADYNT_:
+		fmtprint(fp, "(%d)	%A	%D/%d,%D",
 			p->line, p->as, &p->from, p->from.scale, &p->to);
 		break;
 	}
 	bigP = P;
-	return fmtstrcpy(fp, str);
+	return 0;
 }
 
 int
@@ -102,15 +104,15 @@ Dconv(Fmt *fp)
 	i = a->type;
 	if(i >= D_INDIR && i < 2*D_INDIR) {
 		if(a->offset)
-			sprint(str, "%ld(%R)", a->offset, i-D_INDIR);
+			snprint(str, sizeof str, "%d(%R)", a->offset, i-D_INDIR);
 		else
-			sprint(str, "(%R)", i-D_INDIR);
+			snprint(str, sizeof str, "(%R)", i-D_INDIR);
 		goto brk;
 	}
 	switch(i) {
 
 	default:
-		sprint(str, "%R", i);
+		snprint(str, sizeof str, "%R", i);
 		break;
 
 	case D_NONE:
@@ -120,54 +122,54 @@ Dconv(Fmt *fp)
 	case D_BRANCH:
 		if(bigP != P && bigP->pcond != P)
 			if(a->sym != S)
-				sprint(str, "%lux+%s", bigP->pcond->pc,
+				snprint(str, sizeof str, "%ux+%s", bigP->pcond->pc,
 					a->sym->name);
 			else
-				sprint(str, "%lux", bigP->pcond->pc);
+				snprint(str, sizeof str, "%ux", bigP->pcond->pc);
 		else
-			sprint(str, "%ld(PC)", a->offset);
+			snprint(str, sizeof str, "%d(PC)", a->offset);
 		break;
 
 	case D_EXTERN:
-		sprint(str, "%s+%ld(SB)", xsymname(a->sym), a->offset);
+		snprint(str, sizeof str, "%s+%d(SB)", xsymname(a->sym), a->offset);
 		break;
 
 	case D_STATIC:
-		sprint(str, "%s<%d>+%ld(SB)", xsymname(a->sym),
+		snprint(str, sizeof str, "%s<%d>+%d(SB)", xsymname(a->sym),
 			a->sym->version, a->offset);
 		break;
 
 	case D_AUTO:
-		sprint(str, "%s+%ld(SP)", xsymname(a->sym), a->offset);
+		snprint(str, sizeof str, "%s+%d(SP)", xsymname(a->sym), a->offset);
 		break;
 
 	case D_PARAM:
 		if(a->sym)
-			sprint(str, "%s+%ld(FP)", a->sym->name, a->offset);
+			snprint(str, sizeof str, "%s+%d(FP)", a->sym->name, a->offset);
 		else
-			sprint(str, "%ld(FP)", a->offset);
+			snprint(str, sizeof str, "%d(FP)", a->offset);
 		break;
 
 	case D_CONST:
-		sprint(str, "$%ld", a->offset);
+		snprint(str, sizeof str, "$%d", a->offset);
 		break;
 
 	case D_CONST2:
-		sprint(str, "$%ld-%ld", a->offset, a->offset2);
+		snprint(str, sizeof str, "$%d-%d", a->offset, a->offset2);
 		break;
 
 	case D_FCONST:
-		sprint(str, "$(%.8lux,%.8lux)", a->ieee.h, a->ieee.l);
+		snprint(str, sizeof str, "$(%.8ux,%.8ux)", a->ieee.h, a->ieee.l);
 		break;
 
 	case D_SCONST:
-		sprint(str, "$\"%S\"", a->scon);
+		snprint(str, sizeof str, "$\"%S\"", a->scon);
 		break;
 
 	case D_ADDR:
 		a->type = a->index;
 		a->index = D_NONE;
-		sprint(str, "$%D", a);
+		snprint(str, sizeof str, "$%D", a);
 		a->index = a->type;
 		a->type = D_ADDR;
 		goto conv;
@@ -316,19 +318,48 @@ Sconv(Fmt *fp)
 	return fmtstrcpy(fp, str);
 }
 
+int
+Iconv(Fmt *fp)
+{
+	int i, n;
+	uchar *p;
+	char *s;
+	Fmt fmt;
+	
+	n = fp->prec;
+	fp->prec = 0;
+	if(!(fp->flags&FmtPrec) || n < 0)
+		return fmtstrcpy(fp, "%I");
+	fp->flags &= ~FmtPrec;
+	p = va_arg(fp->args, uchar*);
+
+	// format into temporary buffer and
+	// call fmtstrcpy to handle padding.
+	fmtstrinit(&fmt);
+	for(i=0; i<n; i++)
+		fmtprint(&fmt, "%.2ux", *p++);
+	s = fmtstrflush(&fmt);
+	fmtstrcpy(fp, s);
+	free(s);
+	return 0;
+}
+
 void
 diag(char *fmt, ...)
 {
-	char buf[STRINGSZ], *tn;
+	char buf[STRINGSZ], *tn, *sep;
 	va_list arg;
 
-	tn = "??none??";
-	if(curtext != P && curtext->from.sym != S)
-		tn = curtext->from.sym->name;
+	tn = "";
+	sep = "";
+	if(cursym != S) {
+		tn = cursym->name;
+		sep = ": ";
+	}
 	va_start(arg, fmt);
 	vseprint(buf, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
-	print("%s: %s\n", tn, buf);
+	print("%s%s%s\n", tn, sep, buf);
 
 	nerrors++;
 	if(nerrors > 20) {

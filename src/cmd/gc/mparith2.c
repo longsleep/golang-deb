@@ -319,7 +319,11 @@ mpmulfract(Mpint *a, Mpint *b)
 	s.neg = 0;
 	mpmovecfix(&q, 0);
 
-	for(i=0; i<Mpprec; i++) {
+	x = *--a1;
+	if(x != 0)
+		yyerror("mpmulfract not normal");
+
+	for(i=0; i<Mpprec-1; i++) {
 		x = *--a1;
 		if(x == 0) {
 			mprshw(&s);
@@ -532,7 +536,7 @@ mpgetfix(Mpint *a)
 	vlong v;
 
 	if(a->ovf) {
-		yyerror("ovf in mpgetfix");
+		yyerror("constant overflow");
 		return 0;
 	}
 

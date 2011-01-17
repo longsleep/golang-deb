@@ -7,23 +7,58 @@
 #include "defs.h"
 #include "malloc.h"
 
+enum {
+	MEM_COMMIT = 0x1000,
+	MEM_RESERVE = 0x2000,
+	MEM_RELEASE = 0x8000,
+	
+	PAGE_EXECUTE_READWRITE = 0x40,
+};
+
+static void
+abort(int8 *name)
+{
+	uintptr errno;
+
+	errno = (uintptr)runtime·stdcall(runtime·GetLastError, 0);
+	runtime·printf("%s failed with errno=%d\n", name, errno);
+	runtime·throw(name);
+}
+
+#pragma dynimport runtime·VirtualAlloc VirtualAlloc "kernel32.dll"
+#pragma dynimport runtime·VirtualFree VirtualFree "kernel32.dll"
+extern void *runtime·VirtualAlloc;
+extern void *runtime·VirtualFree;
+
 void*
-SysAlloc(uintptr n)
+runtime·SysAlloc(uintptr n)
 {
-	return stdcall(VirtualAlloc, 4, nil, n, 0x3000, 0x40);
+	void *v;
+
+	v = runtime·stdcall(runtime·VirtualAlloc, 4, nil, n, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	if(v == 0)
+		abort("VirtualAlloc");
+	return v;
 }
 
 void
-SysUnused(void *v, uintptr n)
+runtime·SysUnused(void *v, uintptr n)
 {
 	USED(v);
 	USED(n);
 }
 
 void
-SysFree(void *v, uintptr n)
+runtime·SysFree(void *v, uintptr n)
 {
-	USED(v);
-	USED(n);
+	uintptr r;
+
+	r = (uintptr)runtime·stdcall(runtime·VirtualFree, 3, v, 0, MEM_RELEASE);
+	if(r == 0)
+		abort("VirtualFree");
 }
 
+void
+runtime·SysMemInit(void)
+{
+}

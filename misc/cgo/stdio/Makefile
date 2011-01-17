@@ -2,16 +2,19 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../../src/Make.$(GOARCH)
+include ../../../src/Make.inc
 
 TARG=stdio
 CGOFILES=\
-	file.go
+	align.go\
+	file.go\
+	test.go\
+	test1.go\
 
 CLEANFILES+=hello fib chain run.out
 
 include ../../../src/Make.pkg
 
 %: install %.go
-	$(QUOTED_GOBIN)/$(GC) $*.go
-	$(QUOTED_GOBIN)/$(LD) -o $@ $*.$O
+	$(GC) $*.go
+	$(LD) -o $@ $*.$O

@@ -102,17 +102,13 @@ func Clean(path string) string {
 	return string(buf[0:w])
 }
 
-// Split splits path immediately following the final slash,
+// Split splits path immediately following the final path separator,
 // separating it into a directory and file name component.
-// If there is no slash in path, DirFile returns an empty dir and
+// If there is no separator in path, Split returns an empty dir and
 // file set to path.
 func Split(path string) (dir, file string) {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[0 : i+1], path[i+1:]
-		}
-	}
-	return "", path
+	i := strings.LastIndexAny(path, PathSeps)
+	return path[:i+1], path[i+1:]
 }
 
 // Join joins any number of path elements into a single path, adding a
@@ -140,7 +136,7 @@ func Ext(path string) string {
 }
 
 // Visitor methods are invoked for corresponding file tree entries
-// visited by Walk. The parameter path is the full path of d relative
+// visited by Walk. The parameter path is the full path of f relative
 // to root.
 type Visitor interface {
 	VisitDir(path string, f *os.FileInfo) bool
@@ -207,4 +203,10 @@ func Base(name string) string {
 		return "/"
 	}
 	return name
+}
+
+// IsAbs returns true if the path is absolute.
+func IsAbs(path string) bool {
+	// TODO: Add Windows support
+	return strings.HasPrefix(path, "/")
 }

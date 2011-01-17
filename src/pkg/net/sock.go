@@ -38,10 +38,16 @@ func socket(net string, f, p, t int, la, ra syscall.Sockaddr, toAddr func(syscal
 	// Allow broadcast.
 	syscall.SetsockoptInt(s, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 
+	if f == syscall.AF_INET6 {
+		// using ip, tcp, udp, etc.
+		// allow both protocols even if the OS default is otherwise.
+		syscall.SetsockoptInt(s, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
+	}
+
 	if la != nil {
 		e = syscall.Bind(s, la)
 		if e != 0 {
-			syscall.Close(s)
+			closesocket(s)
 			return nil, os.Errno(e)
 		}
 	}
@@ -49,7 +55,7 @@ func socket(net string, f, p, t int, la, ra syscall.Sockaddr, toAddr func(syscal
 	if ra != nil {
 		e = syscall.Connect(s, ra)
 		if e != 0 {
-			syscall.Close(s)
+			closesocket(s)
 			return nil, os.Errno(e)
 		}
 	}
@@ -61,7 +67,7 @@ func socket(net string, f, p, t int, la, ra syscall.Sockaddr, toAddr func(syscal
 
 	fd, err = newFD(s, f, p, net, laddr, raddr)
 	if err != nil {
-		syscall.Close(s)
+		closesocket(s)
 		return nil, err
 	}
 
@@ -127,6 +133,12 @@ func setKeepAlive(fd *netFD, keepalive bool) os.Error {
 	fd.incref()
 	defer fd.decref()
 	return setsockoptInt(fd.sysfd, syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, boolint(keepalive))
+}
+
+func setNoDelay(fd *netFD, noDelay bool) os.Error {
+	fd.incref()
+	defer fd.decref()
+	return setsockoptInt(fd.sysfd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay))
 }
 
 func setLinger(fd *netFD, sec int) os.Error {

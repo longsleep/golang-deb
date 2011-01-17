@@ -156,10 +156,11 @@ mpmovefixflt(Mpflt *a, Mpint *b)
 
 // convert (truncate) b to a.
 // return -1 (but still convert) if b was non-integer.
-int
-mpmovefltfix(Mpint *a, Mpflt *b)
+static int
+mpexactfltfix(Mpint *a, Mpflt *b)
 {
 	Mpflt f;
+
 	*a = b->val;
 	mpshiftfix(a, b->exp);
 	if(b->exp < 0) {
@@ -170,6 +171,35 @@ mpmovefltfix(Mpint *a, Mpflt *b)
 			return -1;
 	}
 	return 0;
+}
+
+int
+mpmovefltfix(Mpint *a, Mpflt *b)
+{
+	Mpflt f;
+	int i;
+
+	if(mpexactfltfix(a, b) == 0)
+		return 0;
+
+	// try rounding down a little
+	f = *b;
+	f.val.a[0] = 0;
+	if(mpexactfltfix(a, &f) == 0)
+		return 0;
+
+	// try rounding up a little
+	for(i=1; i<Mpprec; i++) {
+		f.val.a[i]++;
+		if(f.val.a[i] != Mpbase)
+			break;
+		f.val.a[i] = 0;
+	}
+	mpnorm(&f);
+	if(mpexactfltfix(a, &f) == 0)
+		return 0;
+
+	return -1;
 }
 
 void
@@ -188,6 +218,8 @@ static	double	tab[] = { 1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7 };
 static void
 mppow10flt(Mpflt *a, int p)
 {
+	if(p < 0)
+		abort();
 	if(p < nelem(tab)) {
 		mpmovecflt(a, tab[p]);
 		return;
@@ -267,6 +299,10 @@ mpatoflt(Mpflt *a, char *as)
 				}
 				if(c >= '0' && c <= '9') {
 					ex = ex*10 + (c-'0');
+					if(ex > 1e8) {
+						yyerror("exponent out of range");
+						errorexit();
+					}
 					continue;
 				}
 				break;
@@ -439,6 +475,8 @@ Fconv(Fmt *fp)
 		// for well in range, convert to double and use print's %g
 		if(-900 < fvp->exp && fvp->exp < 900) {
 			d = mpgetflt(fvp);
+			if(d >= 0 && (fp->flags & FmtSign))
+				fmtprint(fp, "+");
 			return fmtprint(fp, "%g", d);
 		}
 		// TODO(rsc): for well out of range, print

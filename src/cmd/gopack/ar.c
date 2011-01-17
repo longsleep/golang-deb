@@ -593,25 +593,43 @@ scanobj(Biobuf *b, Arfile *ap, long size)
 	vlong offset;
 	Dir *d;
 	static int lastobj = -1;
+	uchar buf[4];
 
 	if (!allobj)			/* non-object file encountered */
 		return;
 	offset = Boffset(b);
 	obj = objtype(b, 0);
 	if (obj < 0) {			/* not an object file */
+		/* maybe a foreign object file */
+		Bseek(b, offset, 0);
+		memset(buf, 0, sizeof buf);
+		Bread(b, buf, 4);
+		
+		/* maybe a foreign object file?  that's okay */
+		if((buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F') ||   // ELF
+		   (buf[0] == 0xFE && buf[1] == 0xED && buf[2] == 0xFA && (buf[3]&~1) == 0xCE) ||  // Mach-O big-endian
+		   (buf[3] == 0xFE && buf[2] == 0xED && buf[1] == 0xFA && (buf[0]&~1) == 0xCE)) {  // Mach-O little-endian
+			Bseek(b, offset, 0);
+			return;
+		}
+		
 		if (!gflag || strcmp(file, pkgdef) != 0) {  /* don't clear allobj if it's pkg defs */
 			fprint(2, "gopack: non-object file %s\n", file);
+			errors++;
 			allobj = 0;
 		}
 		d = dirfstat(Bfildes(b));
-		if (d != nil && d->length == 0)
+		if (d != nil && d->length == 0) {
 			fprint(2, "gopack: zero length file %s\n", file);
+			errors++;
+		}
 		free(d);
 		Bseek(b, offset, 0);
 		return;
 	}
 	if (lastobj >= 0 && obj != lastobj) {
 		fprint(2, "gopack: inconsistent object file %s\n", file);
+		errors++;
 		allobj = 0;
 		Bseek(b, offset, 0);
 		return;
@@ -619,6 +637,7 @@ scanobj(Biobuf *b, Arfile *ap, long size)
 	lastobj = obj;
 	if (!readar(b, obj, offset+size, 0)) {
 		fprint(2, "gopack: invalid symbol reference in file %s\n", file);
+		errors++;
 		allobj = 0;
 		Bseek(b, offset, 0);
 		return;
@@ -718,8 +737,8 @@ foundstart:
 	first = 1;
 	start = end = 0;
 	for (n=0; n<size; n+=Blinelen(b)) {
-		line = Brdline(b, '\n');
-		if (line == 0)
+		line = Brdstr(b, '\n', 0);
+		if (line == nil)
 			goto bad;
 		if (first && strstrn(line, Blinelen(b), "package ")) {
 			if (Blinelen(b) > sizeof(pkgbuf)-1)
@@ -742,14 +761,19 @@ foundstart:
 				safe = 0;
 			start = Boffset(b);  // after package statement
 			first = 0;
+			free(line);
 			continue;
 		}
-		if(line[0] == '$' && line[1] == '$')
+		if(line[0] == '$' && line[1] == '$') {
+			free(line);
 			goto foundend;
+		}
 		end = Boffset(b);  // before closing $$
+		free(line);
 	}
 bad:
 	fprint(2, "gopack: bad package import section in %s\n", file);
+	errors++;
 	return;
 
 foundend:
@@ -795,6 +819,7 @@ objsym(Sym *s, void *p)
 	if(s->type == 'T' && duplicate(as->name, &ofile)) {
 		dupfound = 1;
 		fprint(2, "duplicate text symbol: %s and %s: %s\n", as->file, ofile, as->name);
+		errors++;
 		free(as->name);
 		free(as);
 		return;

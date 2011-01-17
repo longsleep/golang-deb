@@ -633,10 +633,10 @@ dsymptr(Sym *s, int off, Sym *x, int xoff)
 
 
 void
-genembedtramp(Type *rcvr, Type *method, Sym *newnam)
+genembedtramp(Type *rcvr, Type *method, Sym *newnam, int iface)
 {
 	// TODO(kaib): re-implement genembedtramp
-	genwrapper(rcvr, method, newnam);
+	genwrapper(rcvr, method, newnam, iface);
 /*
 	Sym *e;
 	int c, d, o;
@@ -705,7 +705,7 @@ out:
 	p->to.type = D_OREG;
 	p->to.reg = NREG;
 	p->to.name = D_EXTERN;
-	p->to.sym = methodsym(method->sym, ptrto(f->type));
+	p->to.sym = methodsym(method->sym, ptrto(f->type), 0);
 //print("4. %P\n", p);
 
 	pc->as = ARET;	// overwrite AEND

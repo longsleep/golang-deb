@@ -1,4 +1,3 @@
-// if [ $GOOS == nacl ]; then echo survived SIGCHLD; exit 0; fi  # NaCl has no signals.
 // $G $D/$F.go && $L $F.$A && ./$A.out
 
 // Copyright 2009 The Go Authors. All rights reserved.
@@ -10,6 +9,6 @@ package main
 import "syscall"
 
 func main() {
-	syscall.Syscall(syscall.SYS_KILL, uintptr(syscall.Getpid()), syscall.SIGCHLD, 0);
-	println("survived SIGCHLD");
+	syscall.Kill(syscall.Getpid(), syscall.SIGCHLD)
+	println("survived SIGCHLD")
 }

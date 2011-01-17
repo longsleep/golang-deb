@@ -102,12 +102,12 @@ _* | *_ | _)
 freebsd_386)
 	mkerrors="$mkerrors -f -m32"
 	mksyscall="./mksyscall.sh -l32"
-	mksysnum="./mksysnum_freebsd.sh /usr/src/sys/kern/syscalls.master"
+	mksysnum="curl -s 'http://svn.freebsd.org/viewvc/base/head/sys/kern/syscalls.master?view=markup' | ./mksysnum_freebsd.sh"
 	mktypes="godefs -gsyscall -f-m32"
 	;;
 freebsd_amd64)
 	mkerrors="$mkerrors -f -m64"
-	mksysnum="./mksysnum_freebsd.sh /usr/src/sys/kern/syscalls.master"
+	mksysnum="curl -s 'http://svn.freebsd.org/viewvc/base/head/sys/kern/syscalls.master?view=markup' | ./mksysnum_freebsd.sh"
 	mktypes="godefs -gsyscall -f-m64"
 	;;
 darwin_386)
@@ -137,24 +137,22 @@ nacl_386)
 	NACL="/home/rsc/pub/nacl/native_client"
 	NACLRUN="$NACL/src/trusted/service_runtime"
 	NACLSDK="$NACL/src/third_party/nacl_sdk/linux/sdk/nacl-sdk/nacl"
-	mksyscall="./mksyscall.sh -l32"
+	mksyscall="./mksyscall.sh -l32 -nacl"
 	mksysnum="./mksysnum_nacl.sh $NACLRUN/include/bits/nacl_syscalls.h"
 	mktypes="godefs -gsyscall -f-m32 -f-I$NACLSDK/include -f-I$NACL"
 	mkerrors="./mkerrors_nacl.sh $NACLRUN/include/sys/errno.h"
 	;;
 linux_arm)
-	ARM="/home/kaib/public/linux-2.6.28"
-	mksyscall="./mksyscall.sh -l32"
-	mksysnum="./mksysnum_linux.sh $ARM/arch/arm/include/asm/unistd.h"
-#	mktypes="godefs -gsyscall -carm-gcc -f-I$ARM/arch/arm/include -f-I$ARM/include -f-D__deprecated='' -f-I$ARM/arch/arm/mach-at91/include -f-DCONFIG_ARCH_AT91SAM9260 "
-	mktypes="godefs -gsyscall -carm-gcc"
-	mkerrors='GORUN="qemu-arm -cpu cortex-a8" ./mkerrors.sh'
+	mkerrors="$mkerrors"
+	mksyscall="./mksyscall.sh -b32"
+	mksysnum="./mksysnum_linux.sh /usr/include/asm/unistd.h"
+	mktypes="godefs -gsyscall"
 	;;
 windows_386)
 	mksyscall="./mksyscall_windows.sh -l32"
 	mksysnum=
 	mktypes=
-	mkerrors=
+	mkerrors="./mkerrors_windows.sh -f -m32"
 	;;
 *)
 	echo 'unrecognized $GOOS_$GOARCH: ' "$GOOSARCH" 1>&2

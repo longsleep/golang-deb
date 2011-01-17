@@ -100,16 +100,16 @@ lsort(Sig *l, int(*f)(Sig*, Sig*))
  * return function type, receiver as first argument (or not).
  */
 Type*
-methodfunc(Type *f, int use_receiver)
+methodfunc(Type *f, Type *receiver)
 {
 	NodeList *in, *out;
 	Node *d;
 	Type *t;
 
 	in = nil;
-	if(use_receiver) {
+	if(receiver) {
 		d = nod(ODCLFIELD, N, N);
-		d->type = getthisx(f)->type->type;
+		d->type = receiver;
 		in = list(in, d);
 	}
 	for(t=getinargx(f)->type; t; t=t->down) {
@@ -183,14 +183,14 @@ methods(Type *t)
 		a = b;
 
 		a->name = method->name;
-		a->isym = methodsym(method, it);
-		a->tsym = methodsym(method, t);
-		a->type = methodfunc(f->type, 1);
-		a->mtype = methodfunc(f->type, 0);
+		a->isym = methodsym(method, it, 1);
+		a->tsym = methodsym(method, t, 0);
+		a->type = methodfunc(f->type, t);
+		a->mtype = methodfunc(f->type, nil);
 
 		if(!(a->isym->flags & SymSiggen)) {
 			a->isym->flags |= SymSiggen;
-			if(!eqtype(this, it)) {
+			if(!eqtype(this, it) || this->width < types[tptr]->width) {
 				if(oldlist == nil)
 					oldlist = pc;
 				// Is okay to call genwrapper here always,
@@ -199,9 +199,9 @@ methods(Type *t)
 				// is a pointer adjustment and a JMP.
 				if(isptr[it->etype] && isptr[this->etype]
 				&& f->embedded && !isifacemethod(f->type))
-					genembedtramp(it, f, a->isym);
+					genembedtramp(it, f, a->isym, 1);
 				else
-					genwrapper(it, f, a->isym);
+					genwrapper(it, f, a->isym, 1);
 			}
 		}
 
@@ -212,9 +212,9 @@ methods(Type *t)
 					oldlist = pc;
 				if(isptr[t->etype] && isptr[this->etype]
 				&& f->embedded && !isifacemethod(f->type))
-					genembedtramp(t, f, a->tsym);
+					genembedtramp(t, f, a->tsym, 0);
 				else
-					genwrapper(t, f, a->tsym);
+					genwrapper(t, f, a->tsym, 0);
 			}
 		}
 	}
@@ -241,22 +241,27 @@ imethods(Type *t)
 	Sig *a, *all, *last;
 	int o;
 	Type *f;
+	Sym *method, *isym;
+	Prog *oldlist;
 
 	all = nil;
 	last = nil;
 	o = 0;
+	oldlist = nil;
 	for(f=t->type; f; f=f->down) {
 		if(f->etype != TFIELD)
 			fatal("imethods: not field");
 		if(f->type->etype != TFUNC || f->sym == nil)
 			continue;
+		method = f->sym;
 		a = mal(sizeof(*a));
-		a->name = f->sym->name;
-		if(!exportname(f->sym->name))
-			a->pkg = f->sym->pkg;
+		a->name = method->name;
+		if(!exportname(method->name))
+			a->pkg = method->pkg;
 		a->mtype = f->type;
 		a->offset = 0;
-		a->type = methodfunc(f->type, 0);
+		a->type = methodfunc(f->type, nil);
+
 		if(last && sigcmp(last, a) >= 0)
 			fatal("sigcmp vs sortinter %s %s", last->name, a->name);
 		if(last == nil)
@@ -264,7 +269,34 @@ imethods(Type *t)
 		else
 			last->link = a;
 		last = a;
+		
+		// Compiler can only refer to wrappers for
+		// named interface types.
+		if(t->sym == S)
+			continue;
+		
+		// NOTE(rsc): Perhaps an oversight that
+		// IfaceType.Method is not in the reflect data.
+		// Generate the method body, so that compiled
+		// code can refer to it.
+		isym = methodsym(method, t, 0);
+		if(!(isym->flags & SymSiggen)) {
+			isym->flags |= SymSiggen;
+			if(oldlist == nil)
+				oldlist = pc;
+			genwrapper(t, f, isym, 0);
+		}
 	}
+
+	if(oldlist) {
+		// old list ended with AEND; change to ANOP
+		// so that the trampolines that follow can be found.
+		nopout(oldlist);
+
+		// start new data list
+		newplist();
+	}
+
 	return all;
 }
 
@@ -545,7 +577,6 @@ dcommontype(Sym *s, int ot, Type *t)
 {
 	int i;
 	Sym *s1;
-	Type *elem;
 	char *p;
 
 	dowidth(t);
@@ -566,26 +597,23 @@ dcommontype(Sym *s, int ot, Type *t)
 	//		alg uint8;
 	//		align uint8;
 	//		fieldAlign uint8;
+	//		kind uint8;
 	//		string *string;
 	//		*nameInfo;
 	//	}
 	ot = duintptr(s, ot, t->width);
 	ot = duint32(s, ot, typehash(t));
 	ot = duint8(s, ot, algtype(t));
-	elem = t;
-	while(elem->etype == TARRAY && elem->bound >= 0)
-		elem = elem->type;
-	i = elem->width;
-	if(i > maxround)
-		i = maxround;
-	ot = duint8(s, ot, i);	// align
-	ot = duint8(s, ot, i);	// fieldAlign
+	ot = duint8(s, ot, t->align);	// align
+	ot = duint8(s, ot, t->align);	// fieldAlign
 	i = kinds[t->etype];
 	if(t->etype == TARRAY && t->bound < 0)
 		i = KindSlice;
+	if(isptr[t->etype] && t->type->etype == TANY)
+		i = KindUnsafePointer;
 	if(!haspointers(t))
 		i |= KindNoPointers;
-	ot = duint8(s, ot, i);
+	ot = duint8(s, ot, i);  // kind
 	longsymnames = 1;
 	p = smprint("%-T", t);
 	longsymnames = 0;
@@ -643,11 +671,10 @@ typename(Type *t)
 static Sym*
 dtypesym(Type *t)
 {
-	int ot, n, isddd;
+	int ot, n, isddd, dupok;
 	Sym *s, *s1, *s2;
 	Sig *a, *m;
-	Type *t1;
-	Sym *tsym;
+	Type *t1, *tbase;
 
 	if(isideal(t))
 		fatal("dtypesym %T", t);
@@ -660,30 +687,22 @@ dtypesym(Type *t)
 	// special case (look for runtime below):
 	// when compiling package runtime,
 	// emit the type structures for int, float, etc.
-	t1 = T;
-	if(isptr[t->etype])
-		t1 = t->type;
-	tsym = S;
-	if(t1)
-		tsym = t1->sym;
-	else
-		tsym = t->sym;
+	tbase = t;
+	if(isptr[t->etype] && t->sym == S && t->type->sym != S)
+		tbase = t->type;
+	dupok = tbase->sym == S;
 
 	if(compiling_runtime) {
-		if(t == types[t->etype])
+		if(tbase == types[tbase->etype])	// int, float, etc
 			goto ok;
-		if(t1 && t1 == types[t1->etype])
-			goto ok;
-		if(t1 && t1->etype == tptr && t1->type->etype == TANY)
+		if(tbase->etype == tptr && tbase->type->etype == TANY)	// unsafe.Pointer
 			goto ok;
 	}
 
-	// named types from other files are defined in those files
-	if(t->sym && !t->local)
+	// named types from other files are defined only by those files
+	if(tbase->sym && !tbase->local)
 		return s;
-	if(!t->sym && t1 && t1->sym && !t1->local)
-		return s;
-	if(isforw[t->etype] || (t1 && isforw[t1->etype]))
+	if(isforw[tbase->etype])
 		return s;
 
 ok:
@@ -778,6 +797,7 @@ ok:
 	case TPTR32:
 	case TPTR64:
 		if(t->type->etype == TANY) {
+			// ../../pkg/runtime/type.go:/UnsafePointerType
 			ot = dcommontype(s, ot, t);
 			break;
 		}
@@ -818,7 +838,7 @@ ok:
 		break;
 	}
 
-	ggloblsym(s, ot, tsym == nil);
+	ggloblsym(s, ot, dupok);
 	return s;
 }
 
@@ -846,7 +866,7 @@ dumptypestructs(void)
 			continue;
 		t = n->type;
 		dtypesym(t);
-		if(t->sym && !isptr[t->etype])
+		if(t->sym)
 			dtypesym(ptrto(t));
 	}
 

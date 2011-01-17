@@ -8,6 +8,7 @@ package syscall
 //sys	Fchown(fd int, uid int, gid int) (errno int)
 //sys	Fstat(fd int, stat *Stat_t) (errno int)
 //sys	Fstatfs(fd int, buf *Statfs_t) (errno int)
+//sys	Ftruncate(fd int, length int64) (errno int)
 //sys	Getegid() (egid int)
 //sys	Geteuid() (euid int)
 //sys	Getgid() (gid int)
@@ -17,6 +18,8 @@ package syscall
 //sys	Lchown(path string, uid int, gid int) (errno int)
 //sys	Listen(s int, n int) (errno int)
 //sys	Lstat(path string, stat *Stat_t) (errno int)
+//sys	Pread(fd int, p []byte, offset int64) (n int, errno int) = SYS_PREAD64
+//sys	Pwrite(fd int, p []byte, offset int64) (n int, errno int) = SYS_PWRITE64
 //sys	Seek(fd int, offset int64, whence int) (off int64, errno int) = SYS_LSEEK
 //sys	Select(nfd int, r *FdSet, w *FdSet, e *FdSet, timeout *Timeval) (n int, errno int)
 //sys	Setfsgid(gid int) (errno int)
@@ -27,9 +30,11 @@ package syscall
 //sys	Setresuid(ruid int, euid int, suid int) (errno int)
 //sys	Setreuid(ruid int, euid int) (errno int)
 //sys	Shutdown(fd int, how int) (errno int)
+//sys	Splice(rfd int, roff *int64, wfd int, woff *int64, len int, flags int) (n int64, errno int)
 //sys	Stat(path string, stat *Stat_t) (errno int)
 //sys	Statfs(path string, buf *Statfs_t) (errno int)
 //sys	SyncFileRange(fd int, off int64, n int64, flags int) (errno int)
+//sys	Truncate(path string, length int64) (errno int)
 //sys	accept(s int, rsa *RawSockaddrAny, addrlen *_Socklen) (fd int, errno int)
 //sys	bind(s int, addr uintptr, addrlen _Socklen) (errno int)
 //sys	connect(s int, addr uintptr, addrlen _Socklen) (errno int)
@@ -37,12 +42,18 @@ package syscall
 //sys	setgroups(n int, list *_Gid_t) (errno int)
 //sys	setsockopt(s int, level int, name int, val uintptr, vallen int) (errno int)
 //sys	socket(domain int, typ int, proto int) (fd int, errno int)
+//sys	socketpair(domain int, typ int, proto int, fd *[2]int) (errno int)
 //sys	getpeername(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
 //sys	getsockname(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
 //sys	recvfrom(fd int, p []byte, flags int, from *RawSockaddrAny, fromlen *_Socklen) (n int, errno int)
 //sys	sendto(s int, buf []byte, flags int, to uintptr, addrlen _Socklen) (errno int)
+//sys	recvmsg(s int, msg *Msghdr, flags int) (n int, errno int)
+//sys	sendmsg(s int, msg *Msghdr, flags int) (errno int)
 
 func Getpagesize() int { return 4096 }
+
+func Gettimeofday(tv *Timeval) (errno int)
+func Time(t *Time_t) (tt Time_t, errno int)
 
 func TimespecToNsec(ts Timespec) int64 { return int64(ts.Sec)*1e9 + int64(ts.Nsec) }
 
@@ -64,3 +75,15 @@ func NsecToTimeval(nsec int64) (tv Timeval) {
 func (r *PtraceRegs) PC() uint64 { return r.Rip }
 
 func (r *PtraceRegs) SetPC(pc uint64) { r.Rip = pc }
+
+func (iov *Iovec) SetLen(length int) {
+	iov.Len = uint64(length)
+}
+
+func (msghdr *Msghdr) SetControllen(length int) {
+	msghdr.Controllen = uint64(length)
+}
+
+func (cmsg *Cmsghdr) SetLen(length int) {
+	cmsg.Len = uint64(length)
+}

@@ -66,12 +66,11 @@ ilookup(char *name)
 }
 
 static void loadpkgdata(char*, char*, char*, int);
-static void loaddynimport(char*, char*, int);
+static void loaddynimport(char*, char*, char*, int);
 static void loaddynexport(char*, char*, char*, int);
 static int parsemethod(char**, char*, char**);
 static int parsepkgdata(char*, char*, char**, char*, char**, char**, char**);
 
-static int ndynexp;
 static Sym **dynexp;
 
 void
@@ -194,7 +193,7 @@ ldpkg(Biobuf *f, char *pkg, int64 len, char *filename, int whence)
 				errorexit();
 			return;
 		}
-		loaddynimport(filename, p0 + 1, p1 - (p0+1));
+		loaddynimport(filename, pkg, p0 + 1, p1 - (p0+1));
 	}
 
 	// look for dynexp section
@@ -266,6 +265,10 @@ expandpkg(char *t0, char *pkg)
 
 	// use malloc, not mal, so that caller can free
 	w0 = malloc(strlen(t0) + strlen(pkg)*n);
+	if(w0 == nil) {
+		diag("out of memory");
+		errorexit();
+	}
 	w = w0;
 	for(p=t=t0; (p=strstr(p, "\"\".")) != nil; p=t) {
 		memmove(w, t, p - t);
@@ -282,7 +285,7 @@ static int
 parsepkgdata(char *file, char *pkg, char **pp, char *ep, char **prefixp, char **namep, char **defp)
 {
 	char *p, *prefix, *name, *def, *edef, *meth;
-	int n;
+	int n, inquote;
 
 	// skip white space
 	p = *pp;
@@ -319,8 +322,19 @@ loop:
 
 	// name: a.b followed by space
 	name = p;
-	while(p < ep && *p != ' ')
+	inquote = 0;
+	while(p < ep) {
+		if (*p == ' ' && !inquote)
+			break;
+
+		if(*p == '\\')
+			p++;
+		else if(*p == '"')
+			inquote = !inquote;
+
 		p++;
+	}
+
 	if(p >= ep)
 		return -1;
 	*p++ = '\0';
@@ -397,7 +411,7 @@ parsemethod(char **pp, char *ep, char **methp)
 }
 
 static void
-loaddynimport(char *file, char *p, int n)
+loaddynimport(char *file, char *pkg, char *p, int n)
 {
 	char *pend, *next, *name, *def, *p0, *lib;
 	Sym *s;
@@ -431,10 +445,21 @@ loaddynimport(char *file, char *p, int n)
 		// successful parse: now can edit the line
 		*strchr(name, ' ') = 0;
 		*strchr(def, ' ') = 0;
+		
+		if(strcmp(name, "_") == 0 && strcmp(def, "_") == 0) {
+			// allow #pragma dynimport _ _ "foo.so"
+			// to force a link of foo.so.
+			adddynlib(lib);
+			continue;
+		}
 
+		name = expandpkg(name, pkg);
 		s = lookup(name, 0);
-		s->dynimplib = lib;
-		s->dynimpname = def;
+		if(s->type == 0 || s->type == SXREF) {
+			s->dynimplib = lib;
+			s->dynimpname = def;
+			s->type = SDYNIMPORT;
+		}
 	}
 	return;
 
@@ -499,38 +524,19 @@ err:
 static int markdepth;
 
 static void
-markdata(Prog *p, Sym *s)
-{
-	markdepth++;
-	if(p != P && debug['v'] > 1)
-		Bprint(&bso, "%d markdata %s\n", markdepth, s->name);
-	for(; p != P; p=p->dlink)
-		if(p->to.sym)
-			mark(p->to.sym);
-	markdepth--;
-}
-
-static void
-marktext(Prog *p)
+marktext(Sym *s)
 {
 	Auto *a;
+	Prog *p;
 
-	if(p == P)
+	if(s == S)
 		return;
-	if(p->as != ATEXT) {
-		diag("marktext: %P", p);
-		return;
-	}
-	for(a=p->to.autom; a; a=a->link)
-		mark(a->gotype);
 	markdepth++;
 	if(debug['v'] > 1)
-		Bprint(&bso, "%d marktext %s\n", markdepth, p->from.sym->name);
-	for(a=p->to.autom; a; a=a->link)
+		Bprint(&bso, "%d marktext %s\n", markdepth, s->name);
+	for(a=s->autom; a; a=a->link)
 		mark(a->gotype);
-	for(p=p->link; p != P; p=p->link) {
-		if(p->as == ATEXT || p->as == ADATA || p->as == AGLOBL)
-			break;
+	for(p=s->text; p != P; p=p->link) {
 		if(p->from.sym)
 			mark(p->from.sym);
 		if(p->to.sym)
@@ -542,45 +548,21 @@ marktext(Prog *p)
 void
 mark(Sym *s)
 {
+	int i;
+
 	if(s == S || s->reachable)
 		return;
 	s->reachable = 1;
 	if(s->text)
-		marktext(s->text);
-	if(s->data)
-		markdata(s->data, s);
+		marktext(s);
+	for(i=0; i<s->nr; i++)
+		mark(s->r[i].sym);
 	if(s->gotype)
 		mark(s->gotype);
-}
-
-static void
-sweeplist(Prog **first, Prog **last)
-{
-	int reachable;
-	Prog *p, *q;
-
-	reachable = 1;
-	q = P;
-	for(p=*first; p != P; p=p->link) {
-		switch(p->as) {
-		case ATEXT:
-		case ADATA:
-		case AGLOBL:
-			reachable = p->from.sym->reachable;
-		}
-		if(reachable) {
-			if(q == P)
-				*first = p;
-			else
-				q->link = p;
-			q = p;
-		}
-	}
-	if(q == P)
-		*first = P;
-	else
-		q->link = P;
-	*last = q;
+	if(s->sub)
+		mark(s->sub);
+	if(s->outer)
+		mark(s->outer);
 }
 
 static char*
@@ -602,10 +584,43 @@ morename[] =
 	"runtime.morestack48",
 };
 
+static int
+isz(Auto *a)
+{
+	for(; a; a=a->link)
+		if(a->type == D_FILE || a->type == D_FILE1)
+			return 1;
+	return 0;
+}
+
+static void
+addz(Sym *s, Auto *z)
+{
+	Auto *a, *last;
+
+	// strip out non-z
+	last = nil;
+	for(a = z; a != nil; a = a->link) {
+		if(a->type == D_FILE || a->type == D_FILE1) {
+			if(last == nil)
+				z = a;
+			else
+				last->link = a;
+			last = a;
+		}
+	}
+	if(last) {
+		last->link = s->autom;
+		s->autom = z;
+	}
+}
+
 void
 deadcode(void)
 {
 	int i;
+	Sym *s, *last;
+	Auto *z;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f deadcode\n", cputime());
@@ -616,7 +631,38 @@ deadcode(void)
 
 	for(i=0; i<ndynexp; i++)
 		mark(dynexp[i]);
+	
+	// remove dead text but keep file information (z symbols).
+	last = nil;
+	z = nil;
+	for(s = textp; s != nil; s = s->next) {
+		if(!s->reachable) {
+			if(isz(s->autom))
+				z = s->autom;
+			continue;
+		}
+		if(last == nil)
+			textp = s;
+		else
+			last->next = s;
+		last = s;
+		if(z != nil) {
+			if(!isz(s->autom))
+				addz(s, z);
+			z = nil;
+		}
+	}
+	if(last == nil)
+		textp = nil;
+	else
+		last->next = nil;
+}
 
-	// remove dead data
-	sweeplist(&datap, &edatap);
+void
+addexport(void)
+{
+	int i;
+	
+	for(i=0; i<ndynexp; i++)
+		adddynsym(dynexp[i]);
 }

@@ -7,38 +7,39 @@
 // See http://fxr.watson.org/fxr/source/bsd/kern/syscalls.c?v=xnu-1228
 // or /usr/include/sys/syscall.h (on a Mac) for system call numbers.
 //
+// The low 24 bits are the system call number.
+// The high 8 bits specify the kind of system call: 1=Mach, 2=BSD, 3=Machine-Dependent.
+//
 
 #include "amd64/asm.h"
 
 // Exit the entire program (like C exit)
-TEXT	exit(SB),7,$0
+TEXT runtime·exit(SB),7,$0
 	MOVL	8(SP), DI		// arg 1 exit status
 	MOVL	$(0x2000000+1), AX	// syscall entry
 	SYSCALL
-	CALL	notok(SB)
+	CALL	runtime·notok(SB)
 	RET
 
 // Exit this OS thread (like pthread_exit, which eventually
 // calls __bsdthread_terminate).
-TEXT	exit1(SB),7,$0
+TEXT runtime·exit1(SB),7,$0
 	MOVL	8(SP), DI		// arg 1 exit status
 	MOVL	$(0x2000000+361), AX	// syscall entry
 	SYSCALL
-	CALL	notok(SB)
+	CALL	runtime·notok(SB)
 	RET
 
-TEXT	write(SB),7,$0
+TEXT runtime·write(SB),7,$0
 	MOVL	8(SP), DI		// arg 1 fd
 	MOVQ	16(SP), SI		// arg 2 buf
 	MOVL	24(SP), DX		// arg 3 count
 	MOVL	$(0x2000000+4), AX	// syscall entry
 	SYSCALL
-	JCC	2(PC)
-	CALL	notok(SB)
 	RET
 
 // void gettime(int64 *sec, int32 *usec)
-TEXT gettime(SB), 7, $32
+TEXT runtime·gettime(SB), 7, $32
 	MOVQ	SP, DI	// must be non-nil, unused
 	MOVQ	$0, SI
 	MOVQ	$(0x2000000+116), AX
@@ -49,7 +50,7 @@ TEXT gettime(SB), 7, $32
 	MOVL	DX, (DI)
 	RET
 
-TEXT	sigaction(SB),7,$0
+TEXT runtime·sigaction(SB),7,$0
 	MOVL	8(SP), DI		// arg 1 sig
 	MOVQ	16(SP), SI		// arg 2 act
 	MOVQ	24(SP), DX		// arg 3 oact
@@ -58,24 +59,40 @@ TEXT	sigaction(SB),7,$0
 	MOVL	$(0x2000000+46), AX	// syscall entry
 	SYSCALL
 	JCC	2(PC)
-	CALL	notok(SB)
+	CALL	runtime·notok(SB)
 	RET
 
-TEXT sigtramp(SB),7,$40
-	MOVQ	m_gsignal(m), g
+TEXT runtime·sigtramp(SB),7,$64
+	get_tls(BX)
+	
+	// save g
+	MOVQ	g(BX), BP
+	MOVQ	BP, 40(SP)
+	
+	// g = m->gsignal
+	MOVQ	m(BX), BP
+	MOVQ	m_gsignal(BP), BP
+	MOVQ	BP, g(BX)
+
 	MOVL	DX, 0(SP)
 	MOVQ	CX, 8(SP)
 	MOVQ	R8, 16(SP)
 	MOVQ	R8, 24(SP)	// save ucontext
 	MOVQ	SI, 32(SP)	// save infostyle
 	CALL	DI
+
+	// restore g
+	get_tls(BX)
+	MOVQ	40(SP), BP
+	MOVQ	BP, g(BX)
+
 	MOVL	$(0x2000000+184), AX	// sigreturn(ucontext, infostyle)
 	MOVQ	24(SP), DI	// saved ucontext
 	MOVQ	32(SP), SI	// saved infostyle
 	SYSCALL
 	INT $3	// not reached
 
-TEXT	·mmap(SB),7,$0
+TEXT runtime·mmap(SB),7,$0
 	MOVQ	8(SP), DI		// arg 1 addr
 	MOVQ	16(SP), SI		// arg 2 len
 	MOVL	24(SP), DX		// arg 3 prot
@@ -84,26 +101,33 @@ TEXT	·mmap(SB),7,$0
 	MOVL	36(SP), R9		// arg 6 offset
 	MOVL	$(0x2000000+197), AX	// syscall entry
 	SYSCALL
-	JCC	2(PC)
-	CALL	notok(SB)
 	RET
 
-TEXT	notok(SB),7,$0
+TEXT runtime·munmap(SB),7,$0
+	MOVQ	8(SP), DI		// arg 1 addr
+	MOVQ	16(SP), SI		// arg 2 len
+	MOVL	$(0x2000000+73), AX	// syscall entry
+	SYSCALL
+	JCC	2(PC)
+	CALL	runtime·notok(SB)
+	RET
+
+TEXT runtime·notok(SB),7,$0
 	MOVL	$0xf1, BP
 	MOVQ	BP, (BP)
 	RET
 
-TEXT sigaltstack(SB),7,$0
+TEXT runtime·sigaltstack(SB),7,$0
 	MOVQ	new+8(SP), DI
 	MOVQ	old+16(SP), SI
 	MOVQ	$(0x2000000+53), AX
 	SYSCALL
 	JCC	2(PC)
-	CALL	notok(SB)
+	CALL	runtime·notok(SB)
 	RET
 
 // void bsdthread_create(void *stk, M *m, G *g, void (*fn)(void))
-TEXT bsdthread_create(SB),7,$0
+TEXT runtime·bsdthread_create(SB),7,$0
 	// Set up arguments to bsdthread_create system call.
 	// The ones in quotes pass through to the thread callback
 	// uninterpreted, so we can put whatever we want there.
@@ -132,21 +156,36 @@ TEXT bsdthread_create(SB),7,$0
 //	R8 = stack
 //	R9 = flags (= 0)
 //	SP = stack - C_64_REDZONE_LEN (= stack - 128)
-TEXT bsdthread_start(SB),7,$0
+TEXT runtime·bsdthread_start(SB),7,$0
 	MOVQ	R8, SP		// empirically, SP is very wrong but R8 is right
-	MOVQ	CX, m
-	MOVQ	m_g0(m), g
-	CALL	stackcheck(SB)
-	MOVQ	SI, m_procid(m)	// thread port is m->procid
+
+	PUSHQ	DX
+	PUSHQ	CX
+	PUSHQ	SI
+
+	// set up thread local storage pointing at m->tls.
+	LEAQ	m_tls(CX), DI
+	CALL	runtime·settls(SB)
+
+	POPQ	SI
+	POPQ	CX
+	POPQ	DX
+	
+	get_tls(BX)
+	MOVQ	CX, m(BX)
+	MOVQ	SI, m_procid(CX)	// thread port is m->procid
+	MOVQ	m_g0(CX), AX
+	MOVQ	AX, g(BX)
+	CALL	runtime·stackcheck(SB)	// smashes AX, CX
 	CALL	DX	// fn
-	CALL	exit1(SB)
+	CALL	runtime·exit1(SB)
 	RET
 
 // void bsdthread_register(void)
 // registers callbacks for threadstart (see bsdthread_create above
 // and wqthread and pthsize (not used).  returns 0 on success.
-TEXT bsdthread_register(SB),7,$0
-	MOVQ	$bsdthread_start(SB), DI	// threadstart
+TEXT runtime·bsdthread_register(SB),7,$0
+	MOVQ	$runtime·bsdthread_start(SB), DI	// threadstart
 	MOVQ	$0, SI	// wqthread, not used by us
 	MOVQ	$0, DX	// pthsize, not used by us
 	MOVQ	$0, R10	// dummy_value [sic]
@@ -155,13 +194,13 @@ TEXT bsdthread_register(SB),7,$0
 	MOVQ	$(0x2000000+366), AX	// bsdthread_register
 	SYSCALL
 	JCC 2(PC)
-	CALL	notok(SB)
+	CALL	runtime·notok(SB)
 	RET
 
 // Mach system calls use 0x1000000 instead of the BSD's 0x2000000.
 
 // uint32 mach_msg_trap(void*, uint32, uint32, uint32, uint32, uint32, uint32)
-TEXT mach_msg_trap(SB),7,$0
+TEXT runtime·mach_msg_trap(SB),7,$0
 	MOVQ	8(SP), DI
 	MOVL	16(SP), SI
 	MOVL	20(SP), DX
@@ -175,17 +214,17 @@ TEXT mach_msg_trap(SB),7,$0
 	POPQ	R11
 	RET
 
-TEXT mach_task_self(SB),7,$0
+TEXT runtime·mach_task_self(SB),7,$0
 	MOVL	$(0x1000000+28), AX	// task_self_trap
 	SYSCALL
 	RET
 
-TEXT mach_thread_self(SB),7,$0
+TEXT runtime·mach_thread_self(SB),7,$0
 	MOVL	$(0x1000000+27), AX	// thread_self_trap
 	SYSCALL
 	RET
 
-TEXT mach_reply_port(SB),7,$0
+TEXT runtime·mach_reply_port(SB),7,$0
 	MOVL	$(0x1000000+26), AX	// mach_reply_port
 	SYSCALL
 	RET
@@ -194,14 +233,14 @@ TEXT mach_reply_port(SB),7,$0
 // instead of requiring the use of RPC.
 
 // uint32 mach_semaphore_wait(uint32)
-TEXT mach_semaphore_wait(SB),7,$0
+TEXT runtime·mach_semaphore_wait(SB),7,$0
 	MOVL	8(SP), DI
 	MOVL	$(0x1000000+36), AX	// semaphore_wait_trap
 	SYSCALL
 	RET
 
 // uint32 mach_semaphore_timedwait(uint32, uint32, uint32)
-TEXT mach_semaphore_timedwait(SB),7,$0
+TEXT runtime·mach_semaphore_timedwait(SB),7,$0
 	MOVL	8(SP), DI
 	MOVL	12(SP), SI
 	MOVL	16(SP), DX
@@ -210,15 +249,28 @@ TEXT mach_semaphore_timedwait(SB),7,$0
 	RET
 
 // uint32 mach_semaphore_signal(uint32)
-TEXT mach_semaphore_signal(SB),7,$0
+TEXT runtime·mach_semaphore_signal(SB),7,$0
 	MOVL	8(SP), DI
 	MOVL	$(0x1000000+33), AX	// semaphore_signal_trap
 	SYSCALL
 	RET
 
 // uint32 mach_semaphore_signal_all(uint32)
-TEXT mach_semaphore_signal_all(SB),7,$0
+TEXT runtime·mach_semaphore_signal_all(SB),7,$0
 	MOVL	8(SP), DI
 	MOVL	$(0x1000000+34), AX	// semaphore_signal_all_trap
+	SYSCALL
+	RET
+
+// set tls base to DI
+TEXT runtime·settls(SB),7,$32
+	/*
+	* Same as in ../386/sys.s:/ugliness, different constant.
+	* See ../../../../libcgo/darwin_amd64.c for the derivation
+	* of the constant.
+	*/
+	SUBQ $0x8a0, DI
+
+	MOVL	$(0x3000000+3), AX	// thread_fast_set_cthread_self - machdep call #3
 	SYSCALL
 	RET

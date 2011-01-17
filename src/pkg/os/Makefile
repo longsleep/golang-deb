@@ -2,13 +2,13 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=os
 GOFILES=\
 	dir_$(GOOS).go\
-	env.go\
 	error.go\
+	env.go\
 	exec.go\
 	file.go\
 	getwd.go\
@@ -32,11 +32,6 @@ GOFILES_linux=\
 	env_unix.go\
 	file_unix.go\
 	sys_linux.go\
-
-GOFILES_nacl=\
-	env_unix.go\
-	file_unix.go\
-	sys_nacl.go\
 
 GOFILES_windows=\
 	env_windows.go\

@@ -58,7 +58,7 @@ allocparams(void)
 		if(w >= MAXWIDTH)
 			fatal("bad width");
 		stksize += w;
-		stksize = rnd(stksize, w);
+		stksize = rnd(stksize, n->type->align);
 		n->xoffset = -stksize;
 	}
 	lineno = lno;
@@ -139,8 +139,10 @@ gen(Node *n)
 	Prog *scontin, *sbreak;
 	Prog *p1, *p2, *p3;
 	Label *lab;
+	int32 wasregalloc;
 
 	lno = setlineno(n);
+	wasregalloc = anyregalloc();
 
 	if(n == N)
 		goto ret;
@@ -246,9 +248,6 @@ gen(Node *n)
 
 		gen(n->nincr);				// contin:	incr
 		patch(p1, pc);				// test:
-		if(n->ntest != N)
-			if(n->ntest->ninit != nil)
-				genlist(n->ntest->ninit);
 		bgen(n->ntest, 0, breakpc);		//		if(!test) goto break
 		genlist(n->nbody);				//		body
 		gjmp(continpc);
@@ -261,9 +260,6 @@ gen(Node *n)
 		p1 = gjmp(P);			//		goto test
 		p2 = gjmp(P);			// p2:		goto else
 		patch(p1, pc);				// test:
-		if(n->ntest != N)
-			if(n->ntest->ninit != nil)
-				genlist(n->ntest->ninit);
 		bgen(n->ntest, 0, p2);			//		if(!test) goto p2
 		genlist(n->nbody);				//		then
 		p3 = gjmp(P);			//		goto done
@@ -342,6 +338,11 @@ gen(Node *n)
 	}
 
 ret:
+	if(anyregalloc() != wasregalloc) {
+		dump("node", n);
+		fatal("registers left allocated");
+	}
+
 	lineno = lno;
 }
 
@@ -432,7 +433,7 @@ cgen_discard(Node *nr)
 
 	switch(nr->op) {
 	case ONAME:
-		if(!(nr->class & PHEAP) && nr->class != PEXTERN && nr->class != PFUNC)
+		if(!(nr->class & PHEAP) && nr->class != PEXTERN && nr->class != PFUNC && nr->class != PPARAMREF)
 			gused(nr);
 		break;
 
@@ -651,7 +652,6 @@ tempname(Node *n, Type *t)
 	snprint(namebuf, sizeof(namebuf), "autotmp_%.4d", statuniqgen);
 	statuniqgen++;
 	s = lookup(namebuf);
-
 	memset(n, 0, sizeof(*n));
 	n->op = ONAME;
 	n->sym = s;
@@ -664,7 +664,7 @@ tempname(Node *n, Type *t)
 	dowidth(t);
 	w = t->width;
 	stksize += w;
-	stksize = rnd(stksize, w);
+	stksize = rnd(stksize, t->align);
 	n->xoffset = -stksize;
 	n->pun = anyregalloc();
 }

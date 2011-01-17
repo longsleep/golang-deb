@@ -26,7 +26,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-include ../Make.conf
+include ../Make.inc
+O:=$(HOST_O)
 
 LIB=libmach.a
 OFILES=\
@@ -52,21 +53,12 @@ ifneq ($(GOOS),windows)
 OFILES+=\
 	$(shell uname | tr A-Z a-z).$O\
 
+else
+OFILES+=\
+	windows.$O\
+
 endif
 
 HFILES=../../include/mach.h elf.h macho.h obj.h
 
-install: $(LIB)
-	cp $(LIB) ../../lib
-
-$(LIB): $(OFILES)
-	ar rsc $(LIB) $(OFILES)
-
-$(OFILES): $(HFILES)
-
-clean:
-	rm -f *.$O $(LIB)
-
-nuke: clean
-	rm -f "$(GOROOT)"/lib/$(LIB)
-
+include ../Make.clib

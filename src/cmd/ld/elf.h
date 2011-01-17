@@ -964,7 +964,10 @@ extern	int	numelfshdr;
 extern	int	iself;
 int	elfwriteinterp(void);
 void	elfinterp(ElfShdr*, uint64, char*);
-void	elfdynhash(int);
+void	elfdynhash(void);
+ElfPhdr* elfphload(Segment*);
+ElfShdr* elfshbits(Section*);
+void	elfsetstring(char*, int);
 
 /*
  * Total amount of space to reserve at the start of the file
@@ -972,5 +975,4 @@ void	elfdynhash(int);
  * May waste some.
  * On FreeBSD, cannot be larger than a page.
  */
-#define	ELFRESERVE	2048
-
+#define	ELFRESERVE	3072

@@ -18,10 +18,7 @@ import (
 )
 
 
-const (
-	debug       = false // enable for debugging
-	maxNewlines = 3     // maximum vertical white space
-)
+const debug = false // enable for debugging
 
 
 type whiteSpace int
@@ -41,8 +38,8 @@ var (
 	esc       = []byte{tabwriter.Escape}
 	htab      = []byte{'\t'}
 	htabs     = []byte("\t\t\t\t\t\t\t\t")
-	newlines  = []byte("\n\n\n\n\n\n\n\n") // more than maxNewlines
-	formfeeds = []byte("\f\f\f\f\f\f\f\f") // more than maxNewlines
+	newlines  = []byte("\n\n\n\n\n\n\n\n") // more than the max determined by nlines
+	formfeeds = []byte("\f\f\f\f\f\f\f\f") // more than the max determined by nlines
 
 	esc_quot = []byte("&#34;") // shorter than "&quot;"
 	esc_apos = []byte("&#39;") // shorter than "&apos;"
@@ -65,12 +62,15 @@ type printer struct {
 	// Configuration (does not change after initialization)
 	output io.Writer
 	Config
+	fset   *token.FileSet
 	errors chan os.Error
 
 	// Current state
-	written int  // number of bytes written
-	indent  int  // current indentation
-	escape  bool // true if in escape sequence
+	nesting int         // nesting level (0: top-level (package scope), >0: functions/decls.)
+	written int         // number of bytes written
+	indent  int         // current indentation
+	escape  bool        // true if in escape sequence
+	lastTok token.Token // the last token printed (token.ILLEGAL if it's whitespace)
 
 	// Buffered whitespace
 	buffer []whiteSpace
@@ -95,9 +95,10 @@ type printer struct {
 }
 
 
-func (p *printer) init(output io.Writer, cfg *Config) {
+func (p *printer) init(output io.Writer, cfg *Config, fset *token.FileSet) {
 	p.output = output
 	p.Config = *cfg
+	p.fset = fset
 	p.errors = make(chan os.Error)
 	p.buffer = make([]whiteSpace, 0, 16) // whitespace sequences are short
 }
@@ -106,9 +107,28 @@ func (p *printer) init(output io.Writer, cfg *Config) {
 func (p *printer) internalError(msg ...interface{}) {
 	if debug {
 		fmt.Print(p.pos.String() + ": ")
-		fmt.Println(msg)
+		fmt.Println(msg...)
 		panic("go/printer")
 	}
+}
+
+
+// nlines returns the adjusted number of linebreaks given the desired number
+// of breaks n such that min <= result <= max where max depends on the current
+// nesting level.
+//
+func (p *printer) nlines(n, min int) int {
+	if n < min {
+		return min
+	}
+	max := 3 // max. number of newlines at the top level (p.nesting == 0)
+	if p.nesting > 0 {
+		max = 2 // max. number of newlines everywhere else
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 
@@ -192,6 +212,11 @@ func (p *printer) write(data []byte) {
 
 		case tabwriter.Escape:
 			p.escape = !p.escape
+
+			// ignore escape chars introduced by printer - they are
+			// invisible and must not affect p.pos (was issue #1089)
+			p.pos.Offset--
+			p.pos.Column--
 		}
 	}
 
@@ -207,9 +232,7 @@ func (p *printer) write(data []byte) {
 
 func (p *printer) writeNewlines(n int, useFF bool) {
 	if n > 0 {
-		if n > maxNewlines {
-			n = maxNewlines
-		}
+		n = p.nlines(n, 0)
 		if useFF {
 			p.write(formfeeds[0:n])
 		} else {
@@ -292,8 +315,8 @@ func (p *printer) writeCommentPrefix(pos, next token.Position, isFirst, isKeywor
 	}
 
 	if pos.IsValid() && pos.Filename != p.last.Filename {
-		// comment in a different file - separate with newlines
-		p.writeNewlines(maxNewlines, true)
+		// comment in a different file - separate with newlines (writeNewlines will limit the number)
+		p.writeNewlines(10, true)
 		return
 	}
 
@@ -380,7 +403,6 @@ func (p *printer) writeCommentPrefix(pos, next token.Position, isFirst, isKeywor
 
 func (p *printer) writeCommentLine(comment *ast.Comment, pos token.Position, line []byte) {
 	// line must pass through unchanged, bracket it with tabwriter.Escape
-	esc := []byte{tabwriter.Escape}
 	line = bytes.Join([][]byte{esc, line, esc}, nil)
 
 	// apply styler, if any
@@ -576,7 +598,7 @@ func (p *printer) writeComment(comment *ast.Comment) {
 
 	// shortcut common case of //-style comments
 	if text[1] == '/' {
-		p.writeCommentLine(comment, comment.Pos(), text)
+		p.writeCommentLine(comment, p.fset.Position(comment.Pos()), text)
 		return
 	}
 
@@ -588,7 +610,7 @@ func (p *printer) writeComment(comment *ast.Comment) {
 	// write comment lines, separated by formfeed,
 	// without a line break after the last line
 	linebreak := formfeeds[0:1]
-	pos := comment.Pos()
+	pos := p.fset.Position(comment.Pos())
 	for i, line := range lines {
 		if i > 0 {
 			p.write(linebreak)
@@ -649,14 +671,14 @@ func (p *printer) intersperseComments(next token.Position, tok token.Token) (dro
 	var last *ast.Comment
 	for ; p.commentBefore(next); p.cindex++ {
 		for _, c := range p.comments[p.cindex].List {
-			p.writeCommentPrefix(c.Pos(), next, last == nil, tok.IsKeyword())
+			p.writeCommentPrefix(p.fset.Position(c.Pos()), next, last == nil, tok.IsKeyword())
 			p.writeComment(c)
 			last = c
 		}
 	}
 
 	if last != nil {
-		if last.Text[1] == '*' && last.Pos().Line == next.Line {
+		if last.Text[1] == '*' && p.fset.Position(last.Pos()).Line == next.Line {
 			// the last comment is a /*-style comment and the next item
 			// follows on the same line: separate with an extra blank
 			p.write([]byte{' '})
@@ -726,6 +748,26 @@ func (p *printer) writeWhitespace(n int) {
 // ----------------------------------------------------------------------------
 // Printing interface
 
+
+func mayCombine(prev token.Token, next byte) (b bool) {
+	switch prev {
+	case token.INT:
+		b = next == '.' // 1.
+	case token.ADD:
+		b = next == '+' // ++
+	case token.SUB:
+		b = next == '-' // --
+	case token.QUO:
+		b = next == '*' // /*
+	case token.LSS:
+		b = next == '-' || next == '<' // <- or <<
+	case token.AND:
+		b = next == '&' || next == '^' // && or &^
+	}
+	return
+}
+
+
 // print prints a list of "items" (roughly corresponding to syntactic
 // tokens, but also including whitespace and formatting information).
 // It is the only print function that should be called directly from
@@ -743,6 +785,7 @@ func (p *printer) print(args ...interface{}) {
 		var data []byte
 		var tag HTMLTag
 		var tok token.Token
+
 		switch x := f.(type) {
 		case whiteSpace:
 			if x == ignore {
@@ -765,7 +808,7 @@ func (p *printer) print(args ...interface{}) {
 			if p.Styler != nil {
 				data, tag = p.Styler.Ident(x)
 			} else {
-				data = []byte(x.Name())
+				data = []byte(x.Name)
 			}
 			tok = token.IDENT
 		case *ast.BasicLit:
@@ -779,22 +822,38 @@ func (p *printer) print(args ...interface{}) {
 			// bytes since they do not appear in legal UTF-8 sequences)
 			// TODO(gri): do this more efficiently.
 			data = []byte("\xff" + string(data) + "\xff")
-			tok = token.INT // representing all literal tokens
+			tok = x.Kind
 		case token.Token:
+			s := x.String()
+			if mayCombine(p.lastTok, s[0]) {
+				// the previous and the current token must be
+				// separated by a blank otherwise they combine
+				// into a different incorrect token sequence
+				// (except for token.INT followed by a '.' this
+				// should never happen because it is taken care
+				// of via binary expression formatting)
+				if len(p.buffer) != 0 {
+					p.internalError("whitespace buffer not empty")
+				}
+				p.buffer = p.buffer[0:1]
+				p.buffer[0] = ' '
+			}
 			if p.Styler != nil {
 				data, tag = p.Styler.Token(x)
 			} else {
-				data = []byte(x.String())
+				data = []byte(s)
 			}
 			tok = x
-		case token.Position:
+		case token.Pos:
 			if x.IsValid() {
-				next = x // accurate position of next item
+				next = p.fset.Position(x) // accurate position of next item
 			}
+			tok = p.lastTok
 		default:
 			fmt.Fprintf(os.Stderr, "print: unsupported argument type %T\n", f)
 			panic("go/printer type")
 		}
+		p.lastTok = tok
 		p.pos = next
 
 		if data != nil {
@@ -816,11 +875,11 @@ func (p *printer) print(args ...interface{}) {
 // before the next position in the source code.
 //
 func (p *printer) commentBefore(next token.Position) bool {
-	return p.cindex < len(p.comments) && p.comments[p.cindex].List[0].Pos().Offset < next.Offset
+	return p.cindex < len(p.comments) && p.fset.Position(p.comments[p.cindex].List[0].Pos()).Offset < next.Offset
 }
 
 
-// Flush prints any pending comments and whitespace occuring
+// Flush prints any pending comments and whitespace occurring
 // textually before the position of the next token tok. Flush
 // returns true if a pending formfeed character was dropped
 // from the whitespace buffer as a result of interspersing
@@ -844,81 +903,85 @@ func (p *printer) flush(next token.Position, tok token.Token) (droppedFF bool) {
 // A trimmer is an io.Writer filter for stripping tabwriter.Escape
 // characters, trailing blanks and tabs, and for converting formfeed
 // and vtab characters into newlines and htabs (in case no tabwriter
-// is used).
+// is used). Text bracketed by tabwriter.Escape characters is passed
+// through unchanged.
 //
 type trimmer struct {
 	output io.Writer
-	buf    bytes.Buffer
+	space  bytes.Buffer
+	state  int
 }
 
 
-// Design note: It is tempting to eliminate extra blanks occuring in
+// trimmer is implemented as a state machine.
+// It can be in one of the following states:
+const (
+	inSpace = iota
+	inEscape
+	inText
+)
+
+
+// Design note: It is tempting to eliminate extra blanks occurring in
 //              whitespace in this function as it could simplify some
 //              of the blanks logic in the node printing functions.
 //              However, this would mess up any formatting done by
 //              the tabwriter.
 
 func (p *trimmer) Write(data []byte) (n int, err os.Error) {
-	// m < 0: no unwritten data except for whitespace
-	// m >= 0: data[m:n] unwritten and no whitespace
-	m := 0
-	if p.buf.Len() > 0 {
-		m = -1
-	}
-
+	m := 0 // if p.state != inSpace, data[m:n] is unwritten
 	var b byte
 	for n, b = range data {
-		switch b {
-		default:
-			// write any pending whitespace
-			if m < 0 {
-				if _, err = p.output.Write(p.buf.Bytes()); err != nil {
-					return
-				}
-				p.buf.Reset()
+		if b == '\v' {
+			b = '\t' // convert to htab
+		}
+		switch p.state {
+		case inSpace:
+			switch b {
+			case '\t', ' ':
+				p.space.WriteByte(b) // WriteByte returns no errors
+			case '\f', '\n':
+				p.space.Reset()                        // discard trailing space
+				_, err = p.output.Write(newlines[0:1]) // write newline
+			case tabwriter.Escape:
+				_, err = p.output.Write(p.space.Bytes())
+				p.space.Reset()
+				p.state = inEscape
+				m = n + 1 // drop tabwriter.Escape
+			default:
+				_, err = p.output.Write(p.space.Bytes())
+				p.space.Reset()
+				p.state = inText
 				m = n
 			}
-
-		case '\v':
-			b = '\t' // convert to htab
-			fallthrough
-
-		case '\t', ' ', tabwriter.Escape:
-			// write any pending (non-whitespace) data
-			if m >= 0 {
-				if _, err = p.output.Write(data[m:n]); err != nil {
-					return
-				}
-				m = -1
+		case inEscape:
+			if b == tabwriter.Escape {
+				_, err = p.output.Write(data[m:n])
+				p.state = inSpace
 			}
-			// collect whitespace but discard tabwriter.Escapes.
-			if b != tabwriter.Escape {
-				p.buf.WriteByte(b) // WriteByte returns no errors
+		case inText:
+			switch b {
+			case '\t', ' ':
+				_, err = p.output.Write(data[m:n])
+				p.state = inSpace
+				p.space.WriteByte(b) // WriteByte returns no errors
+			case '\f':
+				data[n] = '\n' // convert to newline
+			case tabwriter.Escape:
+				_, err = p.output.Write(data[m:n])
+				p.state = inEscape
+				m = n + 1 // drop tabwriter.Escape
 			}
-
-		case '\f', '\n':
-			// discard whitespace
-			p.buf.Reset()
-			// write any pending (non-whitespace) data
-			if m >= 0 {
-				if _, err = p.output.Write(data[m:n]); err != nil {
-					return
-				}
-				m = -1
-			}
-			// convert formfeed into newline
-			if _, err = p.output.Write(newlines[0:1]); err != nil {
-				return
-			}
+		}
+		if err != nil {
+			return
 		}
 	}
 	n = len(data)
 
-	// write any pending non-whitespace
-	if m >= 0 {
-		if _, err = p.output.Write(data[m:n]); err != nil {
-			return
-		}
+	if p.state != inSpace {
+		_, err = p.output.Write(data[m:n])
+		p.state = inSpace
 	}
 
 	return
@@ -965,10 +1028,11 @@ type Config struct {
 
 // Fprint "pretty-prints" an AST node to output and returns the number
 // of bytes written and an error (if any) for a given configuration cfg.
+// Position information is interpreted relative to the file set fset.
 // The node type must be *ast.File, or assignment-compatible to ast.Expr,
 // ast.Decl, ast.Spec, or ast.Stmt.
 //
-func (cfg *Config) Fprint(output io.Writer, node interface{}) (int, os.Error) {
+func (cfg *Config) Fprint(output io.Writer, fset *token.FileSet, node interface{}) (int, os.Error) {
 	// redirect output through a trimmer to eliminate trailing whitespace
 	// (Input to a tabwriter must be untrimmed since trailing tabs provide
 	// formatting information. The tabwriter could provide trimming
@@ -1000,13 +1064,15 @@ func (cfg *Config) Fprint(output io.Writer, node interface{}) (int, os.Error) {
 
 	// setup printer and print node
 	var p printer
-	p.init(output, cfg)
+	p.init(output, cfg, fset)
 	go func() {
 		switch n := node.(type) {
 		case ast.Expr:
+			p.nesting = 1
 			p.useNodeComments = true
 			p.expr(n, ignoreMultiLine)
 		case ast.Stmt:
+			p.nesting = 1
 			p.useNodeComments = true
 			// A labeled statement will un-indent to position the
 			// label. Set indent to 1 so we don't get indent "underflow".
@@ -1015,17 +1081,20 @@ func (cfg *Config) Fprint(output io.Writer, node interface{}) (int, os.Error) {
 			}
 			p.stmt(n, false, ignoreMultiLine)
 		case ast.Decl:
+			p.nesting = 1
 			p.useNodeComments = true
 			p.decl(n, ignoreMultiLine)
 		case ast.Spec:
+			p.nesting = 1
 			p.useNodeComments = true
 			p.spec(n, 1, false, ignoreMultiLine)
 		case *ast.File:
+			p.nesting = 0
 			p.comments = n.Comments
 			p.useNodeComments = n.Comments == nil
 			p.file(n)
 		default:
-			p.errors <- os.NewError(fmt.Sprintf("printer.Fprint: unsupported node type %T", n))
+			p.errors <- fmt.Errorf("printer.Fprint: unsupported node type %T", n)
 			runtime.Goexit()
 		}
 		p.flush(token.Position{Offset: infinity, Line: infinity}, token.EOF)
@@ -1045,7 +1114,7 @@ func (cfg *Config) Fprint(output io.Writer, node interface{}) (int, os.Error) {
 // Fprint "pretty-prints" an AST node to output.
 // It calls Config.Fprint with default settings.
 //
-func Fprint(output io.Writer, node interface{}) os.Error {
-	_, err := (&Config{Tabwidth: 8}).Fprint(output, node) // don't care about number of bytes written
+func Fprint(output io.Writer, fset *token.FileSet, node interface{}) os.Error {
+	_, err := (&Config{Tabwidth: 8}).Fprint(output, fset, node) // don't care about number of bytes written
 	return err
 }

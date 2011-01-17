@@ -9,7 +9,7 @@ import (
 	"crypto/rsa"
 	"io"
 	"io/ioutil"
-	"once"
+	"sync"
 	"time"
 )
 
@@ -20,7 +20,7 @@ const (
 	maxHandshake    = 65536        // maximum handshake we support (protocol max is 16 MB)
 
 	minVersion = 0x0301 // minimum supported version - TLS 1.0
-	maxVersion = 0x0302 // maximum supported version - TLS 1.1
+	maxVersion = 0x0301 // maximum supported version - TLS 1.0
 )
 
 // TLS record types.
@@ -35,35 +35,65 @@ const (
 
 // TLS handshake message types.
 const (
-	typeClientHello       uint8 = 1
-	typeServerHello       uint8 = 2
-	typeCertificate       uint8 = 11
-	typeServerHelloDone   uint8 = 14
-	typeClientKeyExchange uint8 = 16
-	typeFinished          uint8 = 20
-	typeNextProtocol      uint8 = 67 // Not IANA assigned
-)
-
-// TLS cipher suites.
-var (
-	TLS_RSA_WITH_RC4_128_SHA uint16 = 5
+	typeClientHello        uint8 = 1
+	typeServerHello        uint8 = 2
+	typeCertificate        uint8 = 11
+	typeServerKeyExchange  uint8 = 12
+	typeCertificateRequest uint8 = 13
+	typeServerHelloDone    uint8 = 14
+	typeCertificateVerify  uint8 = 15
+	typeClientKeyExchange  uint8 = 16
+	typeFinished           uint8 = 20
+	typeCertificateStatus  uint8 = 22
+	typeNextProtocol       uint8 = 67 // Not IANA assigned
 )
 
 // TLS compression types.
-var (
+const (
 	compressionNone uint8 = 0
 )
 
 // TLS extension numbers
 var (
-	extensionServerName   uint16 = 0
-	extensionNextProtoNeg uint16 = 13172 // not IANA assigned
+	extensionServerName      uint16 = 0
+	extensionStatusRequest   uint16 = 5
+	extensionSupportedCurves uint16 = 10
+	extensionSupportedPoints uint16 = 11
+	extensionNextProtoNeg    uint16 = 13172 // not IANA assigned
 )
 
+// TLS Elliptic Curves
+// http://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-8
+var (
+	curveP256 uint16 = 23
+	curveP384 uint16 = 24
+	curveP521 uint16 = 25
+)
+
+// TLS Elliptic Curve Point Formats
+// http://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-9
+var (
+	pointFormatUncompressed uint8 = 0
+)
+
+// TLS CertificateStatusType (RFC 3546)
+const (
+	statusTypeOCSP uint8 = 1
+)
+
+// Certificate types (for certificateRequestMsg)
+const (
+	certTypeRSASign    = 1 // A certificate containing an RSA key
+	certTypeDSSSign    = 2 // A certificate containing a DSA key
+	certTypeRSAFixedDH = 3 // A certificate containing a static DH key
+	certTypeDSSFixedDH = 4 // A certficiate containing a static DH key
+	// Rest of these are reserved by the TLS spec
+)
+
+// ConnectionState records basic TLS details about the connection.
 type ConnectionState struct {
 	HandshakeComplete  bool
-	CipherSuite        string
-	Error              alert
+	CipherSuite        uint16
 	NegotiatedProtocol string
 }
 
@@ -71,16 +101,76 @@ type ConnectionState struct {
 // has been passed to a TLS function it must not be modified.
 type Config struct {
 	// Rand provides the source of entropy for nonces and RSA blinding.
+	// If Rand is nil, TLS uses the cryptographic random reader in package
+	// crypto/rand.
 	Rand io.Reader
+
 	// Time returns the current time as the number of seconds since the epoch.
-	Time         func() int64
+	// If Time is nil, TLS uses the system time.Seconds.
+	Time func() int64
+
+	// Certificates contains one or more certificate chains
+	// to present to the other side of the connection.
+	// Server configurations must include at least one certificate.
 	Certificates []Certificate
-	RootCAs      *CASet
+
+	// RootCAs defines the set of root certificate authorities
+	// that clients use when verifying server certificates.
+	// If RootCAs is nil, TLS uses the host's root CA set.
+	RootCAs *CASet
+
 	// NextProtos is a list of supported, application level protocols.
 	// Currently only server-side handling is supported.
 	NextProtos []string
+
+	// ServerName is included in the client's handshake to support virtual
+	// hosting.
+	ServerName string
+
+	// AuthenticateClient controls whether a server will request a certificate
+	// from the client. It does not require that the client send a
+	// certificate nor does it require that the certificate sent be
+	// anything more than self-signed.
+	AuthenticateClient bool
+
+	// CipherSuites is a list of supported cipher suites. If CipherSuites
+	// is nil, TLS uses a list of suites supported by the implementation.
+	CipherSuites []uint16
 }
 
+func (c *Config) rand() io.Reader {
+	r := c.Rand
+	if r == nil {
+		return rand.Reader
+	}
+	return r
+}
+
+func (c *Config) time() int64 {
+	t := c.Time
+	if t == nil {
+		t = time.Seconds
+	}
+	return t()
+}
+
+func (c *Config) rootCAs() *CASet {
+	s := c.RootCAs
+	if s == nil {
+		s = defaultRoots()
+	}
+	return s
+}
+
+func (c *Config) cipherSuites() []uint16 {
+	s := c.CipherSuites
+	if s == nil {
+		s = defaultCipherSuites()
+	}
+	return s
+}
+
+// A Certificate is a chain of one or more certificates, leaf first.
 type Certificate struct {
 	Certificate [][]byte
 	PrivateKey  *rsa.PrivateKey
@@ -98,11 +188,6 @@ type handshakeMessage interface {
 	unmarshal([]byte) bool
 }
 
-type encryptor interface {
-	// XORKeyStream xors the contents of the slice with bytes from the key stream.
-	XORKeyStream(buf []byte)
-}
-
 // mutualVersion returns the protocol version to use given the advertised
 // version of the peer.
 func mutualVersion(vers uint16) (uint16, bool) {
@@ -115,12 +200,10 @@ func mutualVersion(vers uint16) (uint16, bool) {
 	return vers, true
 }
 
-// The defaultConfig is used in place of a nil *Config in the TLS server and client.
-var varDefaultConfig *Config
+var emptyConfig Config
 
 func defaultConfig() *Config {
-	once.Do(initDefaultConfig)
-	return varDefaultConfig
+	return &emptyConfig
 }
 
 // Possible certificate files; stop after finding one.
@@ -132,7 +215,26 @@ var certFiles = []string{
 	"/usr/share/curl/curl-ca-bundle.crt", // OS X
 }
 
-func initDefaultConfig() {
+var once sync.Once
+
+func defaultRoots() *CASet {
+	once.Do(initDefaults)
+	return varDefaultRoots
+}
+
+func defaultCipherSuites() []uint16 {
+	once.Do(initDefaults)
+	return varDefaultCipherSuites
+}
+
+func initDefaults() {
+	initDefaultRoots()
+	initDefaultCipherSuites()
+}
+
+var varDefaultRoots *CASet
+
+func initDefaultRoots() {
 	roots := NewCASet()
 	for _, file := range certFiles {
 		data, err := ioutil.ReadFile(file)
@@ -141,10 +243,16 @@ func initDefaultConfig() {
 			break
 		}
 	}
+	varDefaultRoots = roots
+}
 
-	varDefaultConfig = &Config{
-		Rand:    rand.Reader,
-		Time:    time.Seconds,
-		RootCAs: roots,
+var varDefaultCipherSuites []uint16
+
+func initDefaultCipherSuites() {
+	varDefaultCipherSuites = make([]uint16, len(cipherSuites))
+	i := 0
+	for id, _ := range cipherSuites {
+		varDefaultCipherSuites[i] = id
+		i++
 	}
 }

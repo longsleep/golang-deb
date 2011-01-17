@@ -299,17 +299,17 @@ type Resrv struct {
 }
 
 var resrv = []Resrv{
-	Resrv{"binary", BINARY},
-	Resrv{"left", LEFT},
-	Resrv{"nonassoc", BINARY},
-	Resrv{"prec", PREC},
-	Resrv{"right", RIGHT},
-	Resrv{"start", START},
-	Resrv{"term", TERM},
-	Resrv{"token", TERM},
-	Resrv{"type", TYPEDEF},
-	Resrv{"union", UNION},
-	Resrv{"struct", UNION},
+	{"binary", BINARY},
+	{"left", LEFT},
+	{"nonassoc", BINARY},
+	{"prec", PREC},
+	{"right", RIGHT},
+	{"start", START},
+	{"term", TERM},
+	{"token", TERM},
+	{"type", TYPEDEF},
+	{"union", UNION},
+	{"struct", UNION},
 }
 
 var zznewstate = 0
@@ -1032,7 +1032,7 @@ func chfind(t int, s string) int {
 func cpyunion() {
 
 	if !lflag {
-		fmt.Fprintf(ftable, "\n//line %v %v\n", lineno, infile)
+		fmt.Fprintf(ftable, "\n//line %v:%v\n", infile, lineno)
 	}
 	fmt.Fprintf(ftable, "type\tyySymType\tstruct")
 
@@ -1075,7 +1075,7 @@ func cpycode() {
 		lineno++
 	}
 	if !lflag {
-		fmt.Fprintf(ftable, "\n//line %v %v\n", lineno, infile)
+		fmt.Fprintf(ftable, "\n//line %v:%v\n", infile, lineno)
 	}
 	for c != EOF {
 		if c == '%' {
@@ -1158,7 +1158,7 @@ func dumpprod(curprod []int, max int) {
 func cpyact(curprod []int, max int) {
 
 	if !lflag {
-		fmt.Fprintf(fcode, "\n//line %v %v\n", lineno, infile)
+		fmt.Fprintf(fcode, "\n//line %v:%v\n", infile, lineno)
 	}
 
 	lno := lineno
@@ -2066,6 +2066,7 @@ nextk:
 func output() {
 	var c, u, v int
 
+	fmt.Fprintf(ftable, "\n//line yacctab:1\n")
 	fmt.Fprintf(ftable, "var\tyyExca = []int {\n")
 
 	noset := mkset()
@@ -2825,8 +2826,10 @@ func others() {
 		c = getrune(finput)
 	}
 
-	parts := strings.Split(yaccpar, "yyrun()", 2)
 	// copy yaccpar
+	fmt.Fprintf(ftable, "\n//line yaccpar:1\n")
+
+	parts := strings.Split(yaccpar, "yyrun()", 2)
 	fmt.Fprintf(ftable, "%v", parts[0])
 	ftable.Write(fcode.Bytes())
 	fmt.Fprintf(ftable, "%v", parts[1])
@@ -3035,7 +3038,7 @@ func open(s string) *bufio.Reader {
 	return bufio.NewReader(fi)
 }
 
-func create(s string, m int) *bufio.Writer {
+func create(s string, m uint32) *bufio.Writer {
 	fo, err := os.Open(s, os.O_WRONLY|os.O_CREAT|os.O_TRUNC, m)
 	if err != nil {
 		error("error opening %v: %v", s, err)
@@ -3049,7 +3052,7 @@ func create(s string, m int) *bufio.Writer {
 //
 func error(s string, v ...interface{}) {
 	nerrors++
-	fmt.Fprintf(stderr, s, v)
+	fmt.Fprintf(stderr, s, v...)
 	fmt.Fprintf(stderr, ": %v:%v\n", infile, lineno)
 	if fatfl != 0 {
 		summary()
@@ -3136,7 +3139,7 @@ out:
 		c = yyTok2[1] /* unknown char */
 	}
 	if yyDebug >= 3 {
-		fmt.Printf("lex %.4x %s\n", uint(yychar), yyTokname(c))
+		fmt.Printf("lex %U %s\n", uint(yychar), yyTokname(c))
 	}
 	return c
 }
@@ -3241,7 +3244,7 @@ yydefault:
 			Errflag = 3
 
 			/* find a state where "error" is a legal shift action */
-			for yyp >= len(YYS) {
+			for yyp >= 0 {
 				yyn = yyPact[YYS[yyp].yys] + yyErrCode
 				if yyn >= 0 && yyn < yyLast {
 					yystate = yyAct[yyn] /* simulate a shift of "error" */

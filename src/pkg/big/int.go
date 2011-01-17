@@ -6,8 +6,10 @@
 
 package big
 
-import "fmt"
-
+import (
+	"fmt"
+	"rand"
+)
 
 // An Int represents a signed multi-precision integer.
 // The zero value for an Int represents the value 0.
@@ -18,6 +20,23 @@ type Int struct {
 
 
 var intOne = &Int{false, natOne}
+
+
+// Sign returns:
+//
+//	-1 if x <  0
+//	 0 if x == 0
+//	+1 if x >  0
+//
+func (x *Int) Sign() int {
+	if len(x.abs) == 0 {
+		return 0
+	}
+	if x.neg {
+		return -1
+	}
+	return 1
+}
 
 
 // SetInt64 sets z to x and returns z.
@@ -43,6 +62,14 @@ func NewInt(x int64) *Int {
 func (z *Int) Set(x *Int) *Int {
 	z.abs = z.abs.set(x.abs)
 	z.neg = x.neg
+	return z
+}
+
+
+// Abs sets z to |x| (the absolute value of x) and returns z.
+func (z *Int) Abs(x *Int) *Int {
+	z.abs = z.abs.set(x.abs)
+	z.neg = false
 	return z
 }
 
@@ -347,10 +374,12 @@ func (z *Int) SetString(s string, base int) (*Int, bool) {
 		return z, false
 	}
 
-	neg := false
-	if s[0] == '-' {
-		neg = true
+	neg := s[0] == '-'
+	if neg || s[0] == '+' {
 		s = s[1:]
+		if len(s) == 0 {
+			return z, false
+		}
 	}
 
 	var scanned int
@@ -518,6 +547,18 @@ func ProbablyPrime(z *Int, n int) bool {
 }
 
 
+// Rand sets z to a pseudo-random number in [0, n) and returns z. 
+func (z *Int) Rand(rnd *rand.Rand, n *Int) *Int {
+	z.neg = false
+	if n.neg == true || len(n.abs) == 0 {
+		z.abs = nil
+		return z
+	}
+	z.abs = z.abs.random(rnd, n.abs, n.abs.bitLen())
+	return z
+}
+
+
 // ModInverse sets z to the multiplicative inverse of g in the group ℤ/pℤ (where
 // p is a prime) and returns z.
 func (z *Int) ModInverse(g, p *Int) *Int {
@@ -563,7 +604,7 @@ func (z *Int) And(x, y *Int) *Int {
 		if x.neg {
 			// (-x) & (-y) == ^(x-1) & ^(y-1) == ^((x-1) | (y-1)) == -(((x-1) | (y-1)) + 1)
 			x1 := nat{}.sub(x.abs, natOne)
-			y1 := z.abs.sub(y.abs, natOne)
+			y1 := nat{}.sub(y.abs, natOne)
 			z.abs = z.abs.add(z.abs.or(x1, y1), natOne)
 			z.neg = true // z cannot be zero if x and y are negative
 			return z
@@ -581,7 +622,7 @@ func (z *Int) And(x, y *Int) *Int {
 	}
 
 	// x & (-y) == x & ^(y-1) == x &^ (y-1)
-	y1 := z.abs.sub(y.abs, natOne)
+	y1 := nat{}.sub(y.abs, natOne)
 	z.abs = z.abs.andNot(x.abs, y1)
 	z.neg = false
 	return z
@@ -594,7 +635,7 @@ func (z *Int) AndNot(x, y *Int) *Int {
 		if x.neg {
 			// (-x) &^ (-y) == ^(x-1) &^ ^(y-1) == ^(x-1) & (y-1) == (y-1) &^ (x-1)
 			x1 := nat{}.sub(x.abs, natOne)
-			y1 := z.abs.sub(y.abs, natOne)
+			y1 := nat{}.sub(y.abs, natOne)
 			z.abs = z.abs.andNot(y1, x1)
 			z.neg = false
 			return z
@@ -608,14 +649,14 @@ func (z *Int) AndNot(x, y *Int) *Int {
 
 	if x.neg {
 		// (-x) &^ y == ^(x-1) &^ y == ^(x-1) & ^y == ^((x-1) | y) == -(((x-1) | y) + 1)
-		x1 := z.abs.sub(x.abs, natOne)
+		x1 := nat{}.sub(x.abs, natOne)
 		z.abs = z.abs.add(z.abs.or(x1, y.abs), natOne)
 		z.neg = true // z cannot be zero if x is negative and y is positive
 		return z
 	}
 
 	// x &^ (-y) == x &^ ^(y-1) == x & (y-1)
-	y1 := z.abs.add(y.abs, natOne)
+	y1 := nat{}.add(y.abs, natOne)
 	z.abs = z.abs.and(x.abs, y1)
 	z.neg = false
 	return z
@@ -628,7 +669,7 @@ func (z *Int) Or(x, y *Int) *Int {
 		if x.neg {
 			// (-x) | (-y) == ^(x-1) | ^(y-1) == ^((x-1) & (y-1)) == -(((x-1) & (y-1)) + 1)
 			x1 := nat{}.sub(x.abs, natOne)
-			y1 := z.abs.sub(y.abs, natOne)
+			y1 := nat{}.sub(y.abs, natOne)
 			z.abs = z.abs.add(z.abs.and(x1, y1), natOne)
 			z.neg = true // z cannot be zero if x and y are negative
 			return z
@@ -646,7 +687,7 @@ func (z *Int) Or(x, y *Int) *Int {
 	}
 
 	// x | (-y) == x | ^(y-1) == ^((y-1) &^ x) == -(^((y-1) &^ x) + 1)
-	y1 := z.abs.sub(y.abs, natOne)
+	y1 := nat{}.sub(y.abs, natOne)
 	z.abs = z.abs.add(z.abs.andNot(y1, x.abs), natOne)
 	z.neg = true // z cannot be zero if one of x or y is negative
 	return z
@@ -659,7 +700,7 @@ func (z *Int) Xor(x, y *Int) *Int {
 		if x.neg {
 			// (-x) ^ (-y) == ^(x-1) ^ ^(y-1) == (x-1) ^ (y-1)
 			x1 := nat{}.sub(x.abs, natOne)
-			y1 := z.abs.sub(y.abs, natOne)
+			y1 := nat{}.sub(y.abs, natOne)
 			z.abs = z.abs.xor(x1, y1)
 			z.neg = false
 			return z
@@ -677,7 +718,7 @@ func (z *Int) Xor(x, y *Int) *Int {
 	}
 
 	// x ^ (-y) == x ^ ^(y-1) == ^(x ^ (y-1)) == -((x ^ (y-1)) + 1)
-	y1 := z.abs.sub(y.abs, natOne)
+	y1 := nat{}.sub(y.abs, natOne)
 	z.abs = z.abs.add(z.abs.xor(x.abs, y1), natOne)
 	z.neg = true // z cannot be zero if only one of x or y is negative
 	return z

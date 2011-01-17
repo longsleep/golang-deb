@@ -197,9 +197,50 @@ afunclit(Addr *a)
 	}
 }
 
+static	int	resvd[] =
+{
+	9,	// reserved for m
+	10,	// reserved for g
+};
+
+void
+ginit(void)
+{
+	int i;
+
+	for(i=0; i<nelem(reg); i++)
+		reg[i] = 0;
+	for(i=0; i<nelem(resvd); i++)
+		reg[resvd[i]]++;
+}
+
+void
+gclean(void)
+{
+	int i;
+
+	for(i=0; i<nelem(resvd); i++)
+		reg[resvd[i]]--;
+
+	for(i=0; i<nelem(reg); i++)
+		if(reg[i])
+			yyerror("reg %R left allocated\n", i);
+}
+
 int32
 anyregalloc(void)
 {
+	int i, j;
+
+	for(i=0; i<nelem(reg); i++) {
+		if(reg[i] == 0)
+			goto ok;
+		for(j=0; j<nelem(resvd); j++)
+			if(resvd[j] == i)
+				goto ok;
+		return 1;
+	ok:;
+	}
 	return 0;
 }
 
@@ -264,6 +305,11 @@ regalloc(Node *n, Type *t, Node *o)
 				goto out;
 		yyerror("out of floating point registers");
 		goto err;
+
+	case TCOMPLEX64:
+	case TCOMPLEX128:
+		tempname(n, t);
+		return;
 	}
 	yyerror("regalloc: unknown type %T", t);
 
@@ -293,6 +339,8 @@ regfree(Node *n)
 		print("regalloc fix %d float %d\n", fixfree, floatfree);
 	}
 
+	if(n->op == ONAME && iscomplex[n->type->etype])
+		return;
 	if(n->op != OREGISTER && n->op != OINDREG)
 		fatal("regfree: not a register");
 	i = n->val.u.reg;
@@ -497,6 +545,11 @@ gmove(Node *f, Node *t)
 	ft = simsimtype(f->type);
 	tt = simsimtype(t->type);
 	cvt = t->type;
+
+	if(iscomplex[ft] || iscomplex[tt]) {
+		complexmove(f, t);
+		return;
+	}
 
 	// cannot have two memory operands;
 	// except 64-bit, which always copies via registers anyway.
@@ -715,56 +768,109 @@ gmove(Node *f, Node *t)
 	* float to integer
 	*/
 	case CASE(TFLOAT32, TINT8):
-	case CASE(TFLOAT32, TINT16):
-	case CASE(TFLOAT32, TINT32):
 	case CASE(TFLOAT32, TUINT8):
+	case CASE(TFLOAT32, TINT16):
 	case CASE(TFLOAT32, TUINT16):
+	case CASE(TFLOAT32, TINT32):
 	case CASE(TFLOAT32, TUINT32):
-		fa = AMOVF;
-		a = AMOVFW;
-		ta = AMOVW;
-		goto fltconv;
+//	case CASE(TFLOAT32, TUINT64):
 
 	case CASE(TFLOAT64, TINT8):
-	case CASE(TFLOAT64, TINT16):
-	case CASE(TFLOAT64, TINT32):
 	case CASE(TFLOAT64, TUINT8):
+	case CASE(TFLOAT64, TINT16):
 	case CASE(TFLOAT64, TUINT16):
+	case CASE(TFLOAT64, TINT32):
 	case CASE(TFLOAT64, TUINT32):
-		fa = AMOVD;
-		a = AMOVDW;
+//	case CASE(TFLOAT64, TUINT64):
+		fa = AMOVF;
+		a = AMOVFW;
+		if(ft == TFLOAT64) {
+			fa = AMOVD;
+			a = AMOVDW;
+		}
 		ta = AMOVW;
-		goto fltconv;
+		switch(tt) {
+		case TINT8:
+			ta = AMOVB;
+			break;
+		case TUINT8:
+			ta = AMOVBU;
+			break;
+		case TINT16:
+			ta = AMOVH;
+			break;
+		case TUINT16:
+			ta = AMOVHU;
+			break;
+		}
 
-	case CASE(TFLOAT32, TUINT64):
-	case CASE(TFLOAT64, TUINT64):
-		fatal("gmove TFLOAT, UINT64 not implemented");
+		regalloc(&r1, types[ft], f);
+		regalloc(&r2, types[tt], t);
+		gins(fa, f, &r1);	// load to fpu
+		p1 = gins(a, &r1, &r1);	// convert to w
+		switch(tt) {
+		case TUINT8:
+		case TUINT16:
+		case TUINT32:
+			p1->scond |= C_UBIT;
+		}
+		gins(AMOVW, &r1, &r2);	// copy to cpu
+		gins(ta, &r2, t);	// store
+		regfree(&r1);
+		regfree(&r2);
 		return;
 
 	/*
 	 * integer to float
 	 */
 	case CASE(TINT8, TFLOAT32):
-	case CASE(TINT16, TFLOAT32):
-	case CASE(TINT32, TFLOAT32):
 	case CASE(TUINT8, TFLOAT32):
+	case CASE(TINT16, TFLOAT32):
 	case CASE(TUINT16, TFLOAT32):
+	case CASE(TINT32, TFLOAT32):
 	case CASE(TUINT32, TFLOAT32):
-		fa = AMOVW;
-		a = AMOVWF;
-		ta = AMOVF;
-		goto fltconv;
-
 	case CASE(TINT8, TFLOAT64):
-	case CASE(TINT16, TFLOAT64):
-	case CASE(TINT32, TFLOAT64):
 	case CASE(TUINT8, TFLOAT64):
+	case CASE(TINT16, TFLOAT64):
 	case CASE(TUINT16, TFLOAT64):
+	case CASE(TINT32, TFLOAT64):
 	case CASE(TUINT32, TFLOAT64):
 		fa = AMOVW;
-		a = AMOVWD;
-		ta = AMOVD;
-		goto fltconv;
+		switch(ft) {
+		case TINT8:
+			fa = AMOVB;
+			break;
+		case TUINT8:
+			fa = AMOVBU;
+			break;
+		case TINT16:
+			fa = AMOVH;
+			break;
+		case TUINT16:
+			fa = AMOVHU;
+			break;
+		}
+		a = AMOVWF;
+		ta = AMOVF;
+		if(tt == TFLOAT64) {
+			a = AMOVWD;
+			ta = AMOVD;
+		}
+		regalloc(&r1, types[ft], f);
+		regalloc(&r2, types[tt], t);
+		gins(fa, f, &r1);	// load to cpu
+		gins(AMOVW, &r1, &r2);	// copy to fpu
+		p1 = gins(a, &r2, &r2);	// convert
+		switch(ft) {
+		case TUINT8:
+		case TUINT16:
+		case TUINT32:
+			p1->scond |= C_UBIT;
+		}
+		gins(ta, &r2, t);	// store
+		regfree(&r1);
+		regfree(&r2);
+		return;
 
 	case CASE(TUINT64, TFLOAT32):
 	case CASE(TUINT64, TFLOAT64):
@@ -829,16 +935,6 @@ trunc64:
 	gins(a, &r1, t);
 	regfree(&r1);
 	splitclean();
-	return;
-
-fltconv:
-	regalloc(&r1, types[ft], f);
-	regalloc(&r2, types[tt], t);
-	gins(fa, f, &r1);
-	gins(a, &r1, &r2);
-	gins(ta, &r2, t);
-	regfree(&r1);
-	regfree(&r2);
 	return;
 
 fatal:
@@ -951,7 +1047,7 @@ gshift(int as, Node *lhs, int32 stype, int32 sval, Node *rhs)
 {
 	Prog *p;
 
-	if (sval <= 0 || sval > 32)
+	if(sval <= 0 || sval > 32)
 		fatal("bad shift value: %d", sval);
 
 	sval = sval&0x1f;
@@ -983,7 +1079,7 @@ checkoffset(Addr *a, int canemitcode)
 	if(a->offset < unmappedzero)
 		return;
 	if(!canemitcode)
-		fatal("checkoffset %#llx, cannot emit code", a->offset);
+		fatal("checkoffset %#x, cannot emit code", a->offset);
 
 	// cannot rely on unmapped nil page at 0 to catch
 	// reference with large offset.  instead, emit explicit
@@ -1014,7 +1110,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 		break;
 
 	case OREGISTER:
-		if (n->val.u.reg <= REGALLOC_RMAX) {
+		if(n->val.u.reg <= REGALLOC_RMAX) {
 			a->type = D_REG;
 			a->reg = n->val.u.reg;
 		} else {
@@ -1314,13 +1410,19 @@ optoas(int op, Type *t)
 
 	case CASE(OAS, TBOOL):
 	case CASE(OAS, TINT8):
-	case CASE(OAS, TUINT8):
 		a = AMOVB;
 		break;
 
+	case CASE(OAS, TUINT8):
+		a = AMOVBU;
+		break;
+
 	case CASE(OAS, TINT16):
-	case CASE(OAS, TUINT16):
 		a = AMOVH;
+		break;
+
+	case CASE(OAS, TUINT16):
+		a = AMOVHU;
 		break;
 
 	case CASE(OAS, TINT32):
@@ -1554,7 +1656,7 @@ sudoaddable(int as, Node *n, Addr *a, int *w)
 	int64 v;
 	Node n1, n2, n3, n4, *nn, *l, *r;
 	Node *reg, *reg1;
-	Prog *p1;
+	Prog *p1, *p2;
 	Type *t;
 
 	if(n->type == T)
@@ -1579,6 +1681,8 @@ sudoaddable(int as, Node *n, Addr *a, int *w)
 		goto odot;
 
 	case OINDEX:
+		if(n->left->type->etype == TSTRING)
+			return 0;
 		cleani += 2;
 		reg = &clean[cleani-1];
 		reg1 = &clean[cleani-2];
@@ -1692,8 +1796,8 @@ oindex:
 	if(issigned[r->type->etype])
 		t = types[TINT32];
 	regalloc(reg1, t, N);
-	regalloc(&n3, r->type, reg1);
-	cgen(r, &n3);
+	regalloc(&n3, types[TINT32], reg1);
+	p2 = cgenindex(r, &n3);
 	gmove(&n3, reg1);
 	regfree(&n3);
 
@@ -1734,6 +1838,8 @@ oindex:
 		gcmp(optoas(OCMP, types[TUINT32]), reg1, &n3);
 		regfree(&n3);
 		p1 = gbranch(optoas(OLT, types[TUINT32]), T);
+		if(p2)
+			patch(p2, pc);
 		ginscall(panicindex, 0);
 		patch(p1, pc);
 	}
@@ -1746,14 +1852,20 @@ oindex:
 		gmove(&n2, reg);
 	}
 
-	if (*w == 1)
+	switch(*w) {
+	case 1:
 		gins(AADD, reg1, reg);
-	else if(*w == 2)
+		break;
+	case 2:
 		gshift(AADD, reg1, SHIFT_LL, 1, reg);
-	else if(*w == 4)
+		break;
+	case 4:
 		gshift(AADD, reg1, SHIFT_LL, 2, reg);
-	else if(*w == 8)
+		break;
+	case 8:
 		gshift(AADD, reg1, SHIFT_LL, 3, reg);
+		break;
+	}
 
 	naddr(reg1, a, 1);
 	a->type = D_OREG;
@@ -1799,19 +1911,6 @@ oindex_const:
 		n1.type = types[tptr];
 		n1.xoffset = Array_array;
 		gmove(&n1, reg);
-
-	} else
-	if(!debug['B']) {
-		if(v < 0) {
-			yyerror("out of bounds on array");
-		} else
-		if(o & OPtrto) {
-			if(v >= l->type->type->bound)
-				yyerror("out of bounds on array");
-		} else
-		if(v >= l->type->bound) {
-			yyerror("out of bounds on array");
-		}
 	}
 
 	n2 = *reg;

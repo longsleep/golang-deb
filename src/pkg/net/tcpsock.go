@@ -30,7 +30,12 @@ type TCPAddr struct {
 // Network returns the address's network name, "tcp".
 func (a *TCPAddr) Network() string { return "tcp" }
 
-func (a *TCPAddr) String() string { return joinHostPort(a.IP.String(), itoa(a.Port)) }
+func (a *TCPAddr) String() string {
+	if a == nil {
+		return "<nil>"
+	}
+	return joinHostPort(a.IP.String(), itoa(a.Port))
+}
 
 func (a *TCPAddr) family() int {
 	if a == nil || len(a.IP) <= 4 {
@@ -73,7 +78,7 @@ type TCPConn struct {
 
 func newTCPConn(fd *netFD) *TCPConn {
 	c := &TCPConn{fd}
-	setsockoptInt(fd.sysfd, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, 1)
+	c.SetNoDelay(true)
 	return c
 }
 
@@ -192,6 +197,22 @@ func (c *TCPConn) SetKeepAlive(keepalive bool) os.Error {
 	return setKeepAlive(c.fd, keepalive)
 }
 
+// SetNoDelay controls whether the operating system should delay
+// packet transmission in hopes of sending fewer packets
+// (Nagle's algorithm).  The default is true (no delay), meaning
+// that data is sent as soon as possible after a Write.
+func (c *TCPConn) SetNoDelay(noDelay bool) os.Error {
+	if !c.ok() {
+		return os.EINVAL
+	}
+	return setNoDelay(c.fd, noDelay)
+}
+
+// File returns a copy of the underlying os.File, set to blocking mode.
+// It is the caller's responsibility to close f when finished.
+// Closing c does not affect f, and closing f does not affect c.
+func (c *TCPConn) File() (f *os.File, err os.Error) { return c.fd.dup() }
+
 // DialTCP is like Dial but can only connect to TCP networks
 // and returns a TCPConn structure.
 func DialTCP(net string, laddr, raddr *TCPAddr) (c *TCPConn, err os.Error) {
@@ -223,7 +244,7 @@ func ListenTCP(net string, laddr *TCPAddr) (l *TCPListener, err os.Error) {
 	}
 	errno := syscall.Listen(fd.sysfd, listenBacklog())
 	if errno != 0 {
-		syscall.Close(fd.sysfd)
+		closesocket(fd.sysfd)
 		return nil, &OpError{"listen", "tcp", laddr, os.Errno(errno)}
 	}
 	l = new(TCPListener)
@@ -265,3 +286,8 @@ func (l *TCPListener) Close() os.Error {
 
 // Addr returns the listener's network address, a *TCPAddr.
 func (l *TCPListener) Addr() Addr { return l.fd.laddr }
+
+// File returns a copy of the underlying os.File, set to blocking mode.
+// It is the caller's responsibility to close f when finished.
+// Closing c does not affect f, and closing f does not affect c.
+func (l *TCPListener) File() (f *os.File, err os.Error) { return l.fd.dup() }

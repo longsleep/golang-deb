@@ -127,59 +127,59 @@ func TestStrInsertDeleteClear(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		if a.Len() != i {
-			t.Errorf("T%: A) wrong Len() %d (expected %d)", a, a.Len(), i)
+			t.Errorf("%T: A) wrong Len() %d (expected %d)", a, a.Len(), i)
 		}
 		if len(a) != i {
-			t.Errorf("T%: A) wrong len() %d (expected %d)", a, len(a), i)
+			t.Errorf("%T: A) wrong len() %d (expected %d)", a, len(a), i)
 		}
 		a.Insert(0, int2StrValue(val(i)))
 		if elem2StrValue(a.Last()) != int2StrValue(val(0)) {
-			t.Error("T%: B", a)
+			t.Errorf("%T: B", a)
 		}
 	}
 	for i := n - 1; i >= 0; i-- {
 		if elem2StrValue(a.Last()) != int2StrValue(val(0)) {
-			t.Error("T%: C", a)
+			t.Errorf("%T: C", a)
 		}
 		if elem2StrValue(a.At(0)) != int2StrValue(val(i)) {
-			t.Error("T%: D", a)
+			t.Errorf("%T: D", a)
 		}
 		if elem2StrValue(a[0]) != int2StrValue(val(i)) {
-			t.Error("T%: D2", a)
+			t.Errorf("%T: D2", a)
 		}
 		a.Delete(0)
 		if a.Len() != i {
-			t.Errorf("T%: E) wrong Len() %d (expected %d)", a, a.Len(), i)
+			t.Errorf("%T: E) wrong Len() %d (expected %d)", a, a.Len(), i)
 		}
 		if len(a) != i {
-			t.Errorf("T%: E) wrong len() %d (expected %d)", a, len(a), i)
+			t.Errorf("%T: E) wrong len() %d (expected %d)", a, len(a), i)
 		}
 	}
 
 	if a.Len() != 0 {
-		t.Errorf("T%: F) wrong Len() %d (expected 0)", a, a.Len())
+		t.Errorf("%T: F) wrong Len() %d (expected 0)", a, a.Len())
 	}
 	if len(a) != 0 {
-		t.Errorf("T%: F) wrong len() %d (expected 0)", a, len(a))
+		t.Errorf("%T: F) wrong len() %d (expected 0)", a, len(a))
 	}
 	for i := 0; i < n; i++ {
 		a.Push(int2StrValue(val(i)))
 		if a.Len() != i+1 {
-			t.Errorf("T%: G) wrong Len() %d (expected %d)", a, a.Len(), i+1)
+			t.Errorf("%T: G) wrong Len() %d (expected %d)", a, a.Len(), i+1)
 		}
 		if len(a) != i+1 {
-			t.Errorf("T%: G) wrong len() %d (expected %d)", a, len(a), i+1)
+			t.Errorf("%T: G) wrong len() %d (expected %d)", a, len(a), i+1)
 		}
 		if elem2StrValue(a.Last()) != int2StrValue(val(i)) {
-			t.Error("T%: H", a)
+			t.Errorf("%T: H", a)
 		}
 	}
 	a.Resize(0, 0)
 	if a.Len() != 0 {
-		t.Errorf("T%: I wrong Len() %d (expected 0)", a, a.Len())
+		t.Errorf("%T: I wrong Len() %d (expected 0)", a, a.Len())
 	}
 	if len(a) != 0 {
-		t.Errorf("T%: I wrong len() %d (expected 0)", a, len(a))
+		t.Errorf("%T: I wrong len() %d (expected 0)", a, len(a))
 	}
 
 	const m = 5
@@ -189,21 +189,21 @@ func TestStrInsertDeleteClear(t *testing.T) {
 			x := val(i)
 			a.Push(int2StrValue(x))
 			if elem2StrValue(a.Pop()) != int2StrValue(x) {
-				t.Error("T%: J", a)
+				t.Errorf("%T: J", a)
 			}
 			if a.Len() != j+1 {
-				t.Errorf("T%: K) wrong Len() %d (expected %d)", a, a.Len(), j+1)
+				t.Errorf("%T: K) wrong Len() %d (expected %d)", a, a.Len(), j+1)
 			}
 			if len(a) != j+1 {
-				t.Errorf("T%: K) wrong len() %d (expected %d)", a, len(a), j+1)
+				t.Errorf("%T: K) wrong len() %d (expected %d)", a, len(a), j+1)
 			}
 		}
 	}
 	if a.Len() != m {
-		t.Errorf("T%: L) wrong Len() %d (expected %d)", a, a.Len(), m)
+		t.Errorf("%T: L) wrong Len() %d (expected %d)", a, a.Len(), m)
 	}
 	if len(a) != m {
-		t.Errorf("T%: L) wrong len() %d (expected %d)", a, len(a), m)
+		t.Errorf("%T: L) wrong len() %d (expected %d)", a, len(a), m)
 	}
 }
 
@@ -211,14 +211,14 @@ func TestStrInsertDeleteClear(t *testing.T) {
 func verify_sliceStr(t *testing.T, x *StringVector, elt, i, j int) {
 	for k := i; k < j; k++ {
 		if elem2StrValue(x.At(k)) != int2StrValue(elt) {
-			t.Errorf("T%: M) wrong [%d] element %v (expected %v)", x, k, elem2StrValue(x.At(k)), int2StrValue(elt))
+			t.Errorf("%T: M) wrong [%d] element %v (expected %v)", x, k, elem2StrValue(x.At(k)), int2StrValue(elt))
 		}
 	}
 
 	s := x.Slice(i, j)
 	for k, n := 0, j-i; k < n; k++ {
 		if elem2StrValue(s.At(k)) != int2StrValue(elt) {
-			t.Errorf("T%: N) wrong [%d] element %v (expected %v)", x, k, elem2StrValue(x.At(k)), int2StrValue(elt))
+			t.Errorf("%T: N) wrong [%d] element %v (expected %v)", x, k, elem2StrValue(x.At(k)), int2StrValue(elt))
 		}
 	}
 }
@@ -227,10 +227,10 @@ func verify_sliceStr(t *testing.T, x *StringVector, elt, i, j int) {
 func verify_patternStr(t *testing.T, x *StringVector, a, b, c int) {
 	n := a + b + c
 	if x.Len() != n {
-		t.Errorf("T%: O) wrong Len() %d (expected %d)", x, x.Len(), n)
+		t.Errorf("%T: O) wrong Len() %d (expected %d)", x, x.Len(), n)
 	}
 	if len(*x) != n {
-		t.Errorf("T%: O) wrong len() %d (expected %d)", x, len(*x), n)
+		t.Errorf("%T: O) wrong len() %d (expected %d)", x, len(*x), n)
 	}
 	verify_sliceStr(t, x, 0, 0, a)
 	verify_sliceStr(t, x, 1, a, a+b)
@@ -326,61 +326,14 @@ func TestStrDo(t *testing.T) {
 }
 
 
-func TestStrIter(t *testing.T) {
-	const Len = 100
-	x := new(StringVector).Resize(Len, 0)
-	for i := 0; i < Len; i++ {
-		x.Set(i, int2StrValue(i*i))
-	}
-	i := 0
-	for v := range x.Iter() {
-		if elem2StrValue(v) != int2StrValue(i*i) {
-			t.Error(tname(x), "Iter expected", i*i, "got", elem2StrValue(v))
-		}
-		i++
-	}
-	if i != Len {
-		t.Error(tname(x), "Iter stopped at", i, "not", Len)
-	}
-	y := new(StringVector).Resize(Len, 0)
-	for i := 0; i < Len; i++ {
-		(*y)[i] = int2StrValue(i * i)
-	}
-	i = 0
-	for v := range y.Iter() {
-		if elem2StrValue(v) != int2StrValue(i*i) {
-			t.Error(tname(y), "y, Iter expected", i*i, "got", elem2StrValue(v))
-		}
-		i++
-	}
-	if i != Len {
-		t.Error(tname(y), "y, Iter stopped at", i, "not", Len)
-	}
-	var z StringVector
-	z.Resize(Len, 0)
-	for i := 0; i < Len; i++ {
-		z[i] = int2StrValue(i * i)
-	}
-	i = 0
-	for v := range z.Iter() {
-		if elem2StrValue(v) != int2StrValue(i*i) {
-			t.Error(tname(z), "z, Iter expected", i*i, "got", elem2StrValue(v))
-		}
-		i++
-	}
-	if i != Len {
-		t.Error(tname(z), "z, Iter stopped at", i, "not", Len)
-	}
-}
-
-func TestStrVectorData(t *testing.T) {
-	// verify Data() returns a slice of a copy, not a slice of the original vector
+func TestStrVectorCopy(t *testing.T) {
+	// verify Copy() returns a copy, not simply a slice of the original vector
 	const Len = 10
 	var src StringVector
 	for i := 0; i < Len; i++ {
 		src.Push(int2StrValue(i * i))
 	}
-	dest := src.Data()
+	dest := src.Copy()
 	for i := 0; i < Len; i++ {
 		src[i] = int2StrValue(-1)
 		v := elem2StrValue(dest[i])

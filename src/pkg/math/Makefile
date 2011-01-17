@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=math
 
@@ -10,6 +10,9 @@ OFILES_amd64=\
 	exp_amd64.$O\
 	fabs_amd64.$O\
 	fdim_amd64.$O\
+	hypot_amd64.$O\
+	log_amd64.$O\
+	sincos_amd64.$O\
 	sqrt_amd64.$O\
 
 OFILES_386=\
@@ -26,6 +29,7 @@ OFILES_386=\
 	hypot_386.$O\
 	ldexp_386.$O\
 	log_386.$O\
+	log10_386.$O\
 	log1p_386.$O\
 	modf_386.$O\
 	remainder_386.$O\
@@ -50,6 +54,7 @@ ALLGOFILES=\
 	copysign.go\
 	erf.go\
 	exp.go\
+	exp_port.go\
 	exp2.go\
 	expm1.go\
 	fabs.go\
@@ -63,11 +68,12 @@ ALLGOFILES=\
 	j0.go\
 	j1.go\
 	jn.go\
-	logb.go\
 	lgamma.go\
 	ldexp.go\
 	log.go\
+	log10.go\
 	log1p.go\
+	logb.go\
 	modf.go\
 	nextafter.go\
 	pow.go\

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// The json package implements encoding and decoding of JSON objects as
+// defined in RFC 4627.
 package json
 
 import (
@@ -11,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"utf8"
 )
 
 // Marshal returns the JSON encoding of v.
@@ -34,6 +37,7 @@ import (
 // a member of the object.  By default the object's key name is the
 // struct field name converted to lower case.  If the struct field
 // has a tag, that tag will be used as the name instead.
+// Only exported fields will be encoded.
 //
 // Map values encode as JSON objects.
 // The map's key type must be string; the object keys are used directly
@@ -76,6 +80,43 @@ func MarshalIndent(v interface{}, prefix, indent string) ([]byte, os.Error) {
 	return buf.Bytes(), nil
 }
 
+// MarshalForHTML is like Marshal but applies HTMLEscape to the output.
+func MarshalForHTML(v interface{}) ([]byte, os.Error) {
+	b, err := Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	HTMLEscape(&buf, b)
+	return buf.Bytes(), nil
+}
+
+// HTMLEscape appends to dst the JSON-encoded src with <, >, and &
+// characters inside string literals changed to \u003c, \u003e, \u0026
+// so that the JSON will be safe to embed inside HTML <script> tags.
+// For historical reasons, web browsers don't honor standard HTML
+// escaping within <script> tags, so an alternative JSON encoding must
+// be used.
+func HTMLEscape(dst *bytes.Buffer, src []byte) {
+	// < > & can only appear in string literals,
+	// so just scan the string one byte at a time.
+	start := 0
+	for i, c := range src {
+		if c == '<' || c == '>' || c == '&' {
+			if start < i {
+				dst.Write(src[start:i])
+			}
+			dst.WriteString(`\u00`)
+			dst.WriteByte(hex[c>>4])
+			dst.WriteByte(hex[c&0xF])
+			start = i + 1
+		}
+	}
+	if start < len(src) {
+		dst.Write(src[start:])
+	}
+}
+
 // Marshaler is the interface implemented by objects that
 // can marshal themselves into valid JSON.
 type Marshaler interface {
@@ -88,6 +129,14 @@ type UnsupportedTypeError struct {
 
 func (e *UnsupportedTypeError) String() string {
 	return "json: unsupported type: " + e.Type.String()
+}
+
+type InvalidUTF8Error struct {
+	S string
+}
+
+func (e *InvalidUTF8Error) String() string {
+	return "json: invalid UTF-8 in string: " + strconv.Quote(e.S)
 }
 
 type MarshalerError struct {
@@ -171,11 +220,17 @@ func (e *encodeState) reflectValue(v reflect.Value) {
 		e.WriteByte('{')
 		t := v.Type().(*reflect.StructType)
 		n := v.NumField()
+		first := true
 		for i := 0; i < n; i++ {
-			if i > 0 {
+			f := t.Field(i)
+			if f.PkgPath != "" {
+				continue
+			}
+			if first {
+				first = false
+			} else {
 				e.WriteByte(',')
 			}
-			f := t.Field(i)
 			if f.Tag != "" {
 				e.string(f.Tag)
 			} else {
@@ -242,18 +297,36 @@ func (sv stringValues) get(i int) string   { return sv[i].(*reflect.StringValue)
 
 func (e *encodeState) string(s string) {
 	e.WriteByte('"')
-	for _, c := range s {
-		switch {
-		case c < 0x20:
-			e.WriteString(`\u00`)
-			e.WriteByte(hex[c>>4])
-			e.WriteByte(hex[c&0xF])
-		case c == '\\' || c == '"':
-			e.WriteByte('\\')
-			fallthrough
-		default:
-			e.WriteRune(c)
+	start := 0
+	for i := 0; i < len(s); {
+		if b := s[i]; b < utf8.RuneSelf {
+			if 0x20 <= b && b != '\\' && b != '"' {
+				i++
+				continue
+			}
+			if start < i {
+				e.WriteString(s[start:i])
+			}
+			if b == '\\' || b == '"' {
+				e.WriteByte('\\')
+				e.WriteByte(b)
+			} else {
+				e.WriteString(`\u00`)
+				e.WriteByte(hex[b>>4])
+				e.WriteByte(hex[b&0xF])
+			}
+			i++
+			start = i
+			continue
 		}
+		c, size := utf8.DecodeRuneInString(s[i:])
+		if c == utf8.RuneError && size == 1 {
+			e.error(&InvalidUTF8Error{s})
+		}
+		i += size
+	}
+	if start < len(s) {
+		e.WriteString(s[start:])
 	}
 	e.WriteByte('"')
 }

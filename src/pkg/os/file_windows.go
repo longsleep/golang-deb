@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// The os package provides a platform-independent interface to operating
-// system functionality.  The design is Unix-like.
 package os
 
 import (
@@ -17,9 +15,11 @@ type dirInfo struct {
 	usefirststat bool
 }
 
+const DevNull = "NUL"
+
 func (file *File) isdir() bool { return file != nil && file.dirinfo != nil }
 
-func openFile(name string, flag int, perm int) (file *File, err Error) {
+func openFile(name string, flag int, perm uint32) (file *File, err Error) {
 	r, e := syscall.Open(name, flag|syscall.O_CLOEXEC, perm)
 	if e != 0 {
 		return nil, &PathError{"open", name, Errno(e)}
@@ -49,15 +49,28 @@ func openDir(name string) (file *File, err Error) {
 // Open opens the named file with specified flag (O_RDONLY etc.) and perm, (0666 etc.)
 // if applicable.  If successful, methods on the returned File can be used for I/O.
 // It returns the File and an Error, if any.
-func Open(name string, flag int, perm int) (file *File, err Error) {
+func Open(name string, flag int, perm uint32) (file *File, err Error) {
 	// TODO(brainman): not sure about my logic of assuming it is dir first, then fall back to file
 	r, e := openDir(name)
 	if e == nil {
+		if flag&O_WRONLY != 0 || flag&O_RDWR != 0 {
+			r.Close()
+			return nil, &PathError{"open", name, EISDIR}
+		}
 		return r, nil
 	}
 	r, e = openFile(name, flag, perm)
 	if e == nil {
 		return r, nil
+	}
+	// Imitating Unix behavior by replacing syscall.ERROR_PATH_NOT_FOUND with
+	// os.ENOTDIR. Not sure if we should go into that.
+	if e2, ok := e.(*PathError); ok {
+		if e3, ok := e2.Error.(Errno); ok {
+			if e3 == Errno(syscall.ERROR_PATH_NOT_FOUND) {
+				return nil, &PathError{"open", name, ENOTDIR}
+			}
+		}
 	}
 	return nil, e
 }
@@ -108,11 +121,17 @@ func (file *File) Stat() (fi *FileInfo, err Error) {
 
 // Readdir reads the contents of the directory associated with file and
 // returns an array of up to count FileInfo structures, as would be returned
-// by Stat, in directory order.  Subsequent calls on the same file will yield
+// by Lstat, in directory order.  Subsequent calls on the same file will yield
 // further FileInfos.
 // A negative count means to read until EOF.
 // Readdir returns the array and an Error, if any.
 func (file *File) Readdir(count int) (fi []FileInfo, err Error) {
+	if file == nil || file.fd < 0 {
+		return nil, EINVAL
+	}
+	if !file.isdir() {
+		return nil, &PathError{"Readdir", file.name, ENOTDIR}
+	}
 	di := file.dirinfo
 	size := count
 	if size < 0 {
@@ -138,15 +157,7 @@ func (file *File) Readdir(count int) (fi []FileInfo, err Error) {
 			continue
 		}
 		count--
-		if len(fi) == cap(fi) {
-			nfi := make([]FileInfo, len(fi), 2*len(fi))
-			for i := 0; i < len(fi); i++ {
-				nfi[i] = fi[i]
-			}
-			fi = nfi
-		}
-		fi = fi[0 : len(fi)+1]
-		fi[len(fi)-1] = f
+		fi = append(fi, f)
 	}
 	return fi, nil
 }

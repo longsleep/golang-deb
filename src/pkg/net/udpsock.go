@@ -30,7 +30,12 @@ type UDPAddr struct {
 // Network returns the address's network name, "udp".
 func (a *UDPAddr) Network() string { return "udp" }
 
-func (a *UDPAddr) String() string { return joinHostPort(a.IP.String(), itoa(a.Port)) }
+func (a *UDPAddr) String() string {
+	if a == nil {
+		return "<nil>"
+	}
+	return joinHostPort(a.IP.String(), itoa(a.Port))
+}
 
 func (a *UDPAddr) family() int {
 	if a == nil || len(a.IP) <= 4 {
@@ -269,3 +274,8 @@ func (c *UDPConn) BindToDevice(device string) os.Error {
 	defer c.fd.decref()
 	return os.NewSyscallError("setsockopt", syscall.BindToDevice(c.fd.sysfd, device))
 }
+
+// File returns a copy of the underlying os.File, set to blocking mode.
+// It is the caller's responsibility to close f when finished.
+// Closing c does not affect f, and closing f does not affect c.
+func (c *UDPConn) File() (f *os.File, err os.Error) { return c.fd.dup() }

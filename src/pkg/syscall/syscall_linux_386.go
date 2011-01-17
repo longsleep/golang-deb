@@ -30,6 +30,7 @@ func NsecToTimeval(nsec int64) (tv Timeval) {
 //sys	Chown(path string, uid int, gid int) (errno int) = SYS_CHOWN32
 //sys	Fchown(fd int, uid int, gid int) (errno int) = SYS_FCHOWN32
 //sys	Fstat(fd int, stat *Stat_t) (errno int) = SYS_FSTAT64
+//sys	Ftruncate(fd int, length int64) (errno int) = SYS_FTRUNCATE64
 //sys	Getegid() (egid int) = SYS_GETEGID32
 //sys	Geteuid() (euid int) = SYS_GETEUID32
 //sys	Getgid() (gid int) = SYS_GETGID32
@@ -38,6 +39,8 @@ func NsecToTimeval(nsec int64) (tv Timeval) {
 //sys	Iopl(level int) (errno int)
 //sys	Lchown(path string, uid int, gid int) (errno int) = SYS_LCHOWN32
 //sys	Lstat(path string, stat *Stat_t) (errno int) = SYS_LSTAT64
+//sys	Pread(fd int, p []byte, offset int64) (n int, errno int) = SYS_PREAD64
+//sys	Pwrite(fd int, p []byte, offset int64) (n int, errno int) = SYS_PWRITE64
 //sys	Setfsgid(gid int) (errno int) = SYS_SETFSGID32
 //sys	Setfsuid(uid int) (errno int) = SYS_SETFSUID32
 //sys	Setgid(gid int) (errno int) = SYS_SETGID32
@@ -45,8 +48,10 @@ func NsecToTimeval(nsec int64) (tv Timeval) {
 //sys	Setresgid(rgid int, egid int, sgid int) (errno int) = SYS_SETRESGID32
 //sys	Setresuid(ruid int, euid int, suid int) (errno int) = SYS_SETRESUID32
 //sys	Setreuid(ruid int, euid int) (errno int) = SYS_SETREUID32
+//sys	Splice(rfd int, roff *int64, wfd int, woff *int64, len int, flags int) (n int, errno int)
 //sys	Stat(path string, stat *Stat_t) (errno int) = SYS_STAT64
 //sys	SyncFileRange(fd int, off int64, n int64, flags int) (errno int)
+//sys	Truncate(path string, length int64) (errno int) = SYS_TRUNCATE64
 //sys	getgroups(n int, list *_Gid_t) (nn int, errno int) = SYS_GETGROUPS32
 //sys	setgroups(n int, list *_Gid_t) (errno int) = SYS_SETGROUPS32
 //sys	Select(nfd int, r *FdSet, w *FdSet, e *FdSet, timeout *Timeval) (n int, errno int) = SYS__NEWSELECT
@@ -54,6 +59,10 @@ func NsecToTimeval(nsec int64) (tv Timeval) {
 // Underlying system call writes to newoffset via pointer.
 // Implemented in assembly to avoid allocation.
 func Seek(fd int, offset int64, whence int) (newoffset int64, errno int)
+
+// Vsyscalls on amd64.
+//sys	Gettimeofday(tv *Timeval) (errno int)
+//sys	Time(t *Time_t) (tt Time_t, errno int)
 
 // On x86 Linux, all the socket calls go through an extra indirection,
 // I think because the 5-register system call interface can't handle
@@ -100,10 +109,8 @@ func getpeername(s int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int) {
 	return
 }
 
-func socketpair(domain int, typ int, proto int) (fd [2]int, errno int) {
-	var f [2]int
-	_, errno = socketcall(_SOCKETPAIR, uintptr(domain), uintptr(typ), uintptr(proto), uintptr(unsafe.Pointer(&f)), 0, 0)
-	fd = f
+func socketpair(domain int, typ int, flags int, fd *[2]int) (errno int) {
+	_, errno = socketcall(_SOCKETPAIR, uintptr(domain), uintptr(typ), uintptr(flags), uintptr(unsafe.Pointer(fd)), 0, 0)
 	return
 }
 
@@ -145,6 +152,16 @@ func sendto(s int, p []byte, flags int, to uintptr, addrlen _Socklen) (errno int
 	return
 }
 
+func recvmsg(s int, msg *Msghdr, flags int) (n int, errno int) {
+	n, errno = socketcall(_RECVMSG, uintptr(s), uintptr(unsafe.Pointer(msg)), uintptr(flags), 0, 0, 0)
+	return
+}
+
+func sendmsg(s int, msg *Msghdr, flags int) (errno int) {
+	_, errno = socketcall(_SENDMSG, uintptr(s), uintptr(unsafe.Pointer(msg)), uintptr(flags), 0, 0, 0)
+	return
+}
+
 func Listen(s int, n int) (errno int) {
 	_, errno = socketcall(_LISTEN, uintptr(s), uintptr(n), 0, 0, 0, 0)
 	return
@@ -170,3 +187,15 @@ func Statfs(path string, buf *Statfs_t) (errno int) {
 func (r *PtraceRegs) PC() uint64 { return uint64(uint32(r.Eip)) }
 
 func (r *PtraceRegs) SetPC(pc uint64) { r.Eip = int32(pc) }
+
+func (iov *Iovec) SetLen(length int) {
+	iov.Len = uint32(length)
+}
+
+func (msghdr *Msghdr) SetControllen(length int) {
+	msghdr.Controllen = uint32(length)
+}
+
+func (cmsg *Cmsghdr) SetLen(length int) {
+	cmsg.Len = uint32(length)
+}

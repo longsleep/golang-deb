@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Printing.
+
 #include	"l.h"
 #include	"../ld/lib.h"
 
@@ -42,46 +44,36 @@ listinit(void)
 	fmtinstall('D', Dconv);
 	fmtinstall('S', Sconv);
 	fmtinstall('P', Pconv);
+	fmtinstall('I', Iconv);
 }
 
 int
 Pconv(Fmt *fp)
 {
-	char str[STRINGSZ], str1[STRINGSZ];
 	Prog *p;
 
 	p = va_arg(fp->args, Prog*);
-	if(p == P)
-		return fmtstrcpy(fp, "<P>");
-
 	bigP = p;
-
-	snprint(str1, sizeof(str1), "(%ld)", p->line);
 	switch(p->as) {
 	case ATEXT:
 		if(p->from.scale) {
-			snprint(str, sizeof(str), "%-7s %-7A %D,%d,%lD",
-				str1, p->as, &p->from, p->from.scale, &p->to);
+			fmtprint(fp, "(%d)	%A	%D,%d,%D",
+				p->line, p->as, &p->from, p->from.scale, &p->to);
 			break;
 		}
-		snprint(str, sizeof(str), "%-7s %-7A %D,%lD",
-			str1, p->as, &p->from, &p->to);
-		break;
-
 	default:
-		snprint(str, sizeof(str), "%-7s %-7A %D,%D",
-			str1, p->as, &p->from, &p->to);
+		fmtprint(fp, "(%d)	%A	%D,%D",
+			p->line, p->as, &p->from, &p->to);
 		break;
-
 	case ADATA:
-	case AINIT:
-	case ADYNT:
-		snprint(str, sizeof(str), "%-7s %-7A %D/%d,%D",
-			str1, p->as, &p->from, p->from.scale, &p->to);
+	case AINIT_:
+	case ADYNT_:
+		fmtprint(fp, "(%d)	%A	%D/%d,%D",
+			p->line, p->as, &p->from, p->from.scale, &p->to);
 		break;
 	}
 	bigP = P;
-	return fmtstrcpy(fp, str);
+	return 0;
 }
 
 int
@@ -187,7 +179,7 @@ Dconv(Fmt *fp)
 		break;
 
 	case D_FCONST:
-		snprint(str, sizeof(str), "$(%.8lux,%.8lux)", a->ieee.h, a->ieee.l);
+		snprint(str, sizeof(str), "$(%.8ux,%.8ux)", a->ieee.h, a->ieee.l);
 		break;
 
 	case D_SCONST:
@@ -402,19 +394,48 @@ Sconv(Fmt *fp)
 	return fmtstrcpy(fp, str);
 }
 
+int
+Iconv(Fmt *fp)
+{
+	int i, n;
+	uchar *p;
+	char *s;
+	Fmt fmt;
+	
+	n = fp->prec;
+	fp->prec = 0;
+	if(!(fp->flags&FmtPrec) || n < 0)
+		return fmtstrcpy(fp, "%I");
+	fp->flags &= ~FmtPrec;
+	p = va_arg(fp->args, uchar*);
+
+	// format into temporary buffer and
+	// call fmtstrcpy to handle padding.
+	fmtstrinit(&fmt);
+	for(i=0; i<n; i++)
+		fmtprint(&fmt, "%.2ux", *p++);
+	s = fmtstrflush(&fmt);
+	fmtstrcpy(fp, s);
+	free(s);
+	return 0;
+}
+
 void
 diag(char *fmt, ...)
 {
-	char buf[STRINGSZ], *tn;
+	char buf[STRINGSZ], *tn, *sep;
 	va_list arg;
 
-	tn = "??none??";
-	if(curtext != P && curtext->from.sym != S)
-		tn = curtext->from.sym->name;
+	tn = "";
+	sep = "";
+	if(cursym != S) {
+		tn = cursym->name;
+		sep = ": ";
+	}
 	va_start(arg, fmt);
 	vseprint(buf, buf+sizeof(buf), fmt, arg);
 	va_end(arg);
-	print("%s: %s\n", tn, buf);
+	print("%s%s%s\n", tn, sep, buf);
 
 	nerrors++;
 	if(nerrors > 20) {

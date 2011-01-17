@@ -203,9 +203,8 @@ thumbaclass(Adr *a, Prog *p)
 					a->sym->name, TNAME);
 				a->sym->type = SDATA;
 			}
-			instoffset = a->sym->value + a->offset + INITDAT;
-			return C_LEXT;	/* INITDAT unknown at this stage */
-			// return immacon(instoffset, p, C_SEXT, C_LEXT);
+			instoffset = a->sym->value + a->offset;
+			return C_ADDR;	/* INITDAT unknown at this stage */
 		case D_AUTO:
 			instoffset = autosize + a->offset;
 			return immauto(instoffset, p);
@@ -235,8 +234,8 @@ thumbaclass(Adr *a, Prog *p)
 					s->name, TNAME);
 				s->type = SDATA;
 			}
-			instoffset = s->value + a->offset + INITDAT;
-			if(s->type == STEXT || s->type == SLEAF){
+			instoffset = s->value + a->offset;
+			if(s->type == STEXT){
 				instoffset = s->value + a->offset;
 #ifdef CALLEEBX
 				instoffset += fnpinc(s);
@@ -252,7 +251,7 @@ thumbaclass(Adr *a, Prog *p)
 		return C_GOK;
 	case D_FCONST:
 		diag("D_FCONST in thumaclass");
-		return C_FCON;
+		return C_LFCON;
 	case D_CONST:
 		switch(a->name) {
 		case D_NONE:
@@ -275,7 +274,6 @@ thumbaclass(Adr *a, Prog *p)
 				break;
 			case SCONST:
 			case STEXT:
-			case SLEAF:
 				instoffset = s->value + a->offset;
 #ifdef CALLEEBX
 				instoffset += fnpinc(s);
@@ -285,7 +283,7 @@ thumbaclass(Adr *a, Prog *p)
 #endif
 				return C_LCON;
 			}
-			instoffset = s->value + a->offset + INITDAT;
+			instoffset = s->value + a->offset;
 			return C_LCON;	/* INITDAT unknown at this stage */
 			// return immcon(instoffset, p);
 		case D_AUTO:
@@ -358,8 +356,8 @@ thumbaclass(Adr *a, Prog *p)
 // as a1 a2 a3 type size param lit vers
 Optab thumboptab[] =
 {
-	{ ATEXT,		C_LEXT,		C_NONE,		C_LCON,		0,	0,	0 },
-	{ ATEXT,		C_LEXT,		C_REG,		C_LCON,		0,	0,	0 },
+	{ ATEXT,		C_ADDR,		C_NONE,		C_LCON,		0,	0,	0 },
+	{ ATEXT,		C_ADDR,		C_REG,		C_LCON,		0,	0,	0 },
 	{ AMVN,		C_REG,		C_NONE,		C_REG,		1,	2,	0 },
 	{ ASRL,		C_REG,		C_NONE,		C_REG,		1,	2,	0 },
 	{ ACMP,		C_REG,		C_REG,		C_NONE,		1,	2,	0 },
@@ -412,37 +410,27 @@ Optab thumboptab[] =
 	{ ASWI,		C_NONE,		C_NONE,		C_LCON,		16,	2,	0 },
 	{ AWORD,		C_NONE,		C_NONE,		C_LCON,		17,	4,	0 },
 	{ AWORD,		C_NONE,		C_NONE,		C_GCON,		17,	4,	0 },
-	{ AWORD,		C_NONE,		C_NONE,		C_LEXT,		17,	4, 	0 },
+	{ AWORD,		C_NONE,		C_NONE,		C_ADDR,		17,	4, 	0 },
 	{ ADWORD,	C_LCON,		C_NONE,		C_LCON,		50,	8,	0 },
 	{ AMOVW,		C_SAUTO,		C_NONE,		C_REG,		18,	2,	REGSP },
 	{ AMOVW,		C_LAUTO,		C_NONE,		C_REG,		33,	6,	0,	LFROM  },
 	// { AMOVW,		C_OFFPC,		C_NONE,		C_REG,		18,	2,	REGPC,	LFROM  },
-	{ AMOVW,		C_SEXT,		C_NONE,		C_REG,		30,	4,	0 },
 	{ AMOVW,		C_SOREG,		C_NONE,		C_REG,		19,	2,	0 },
-	{ AMOVHU,	C_SEXT,		C_NONE,		C_REG,		30,	4,	0 },
 	{ AMOVHU,	C_SOREG,		C_NONE,		C_REG,		19,	2,	0 },
-	{ AMOVBU,	C_SEXT,		C_NONE,		C_REG,		30,	4,	0 },
 	{ AMOVBU,	C_SOREG,		C_NONE,		C_REG,		19,	2,	0 },
 	{ AMOVW,		C_REG,		C_NONE,		C_SAUTO,		20,	2,	0 },
 	{ AMOVW,		C_REG,		C_NONE,		C_LAUTO,		34,	6,	0,	LTO },
-	{ AMOVW,		C_REG,		C_NONE,		C_SEXT,		31,	4,	0 },
 	{ AMOVW,		C_REG,		C_NONE,		C_SOREG,		21,	2,	0 },
-	{ AMOVH,		C_REG,		C_NONE,		C_SEXT,		31,	4,	0 },
 	{ AMOVH,		C_REG,		C_NONE,		C_SOREG,		21,	2,	0 },
-	{ AMOVB,		C_REG,		C_NONE,		C_SEXT,		31,	4,	0 },
 	{ AMOVB,		C_REG,		C_NONE,		C_SOREG,		21,	2,	0 },
-	{ AMOVHU,	C_REG,		C_NONE,		C_SEXT,		31,	4,	0 },
 	{ AMOVHU,	C_REG,		C_NONE,		C_SOREG,		21,	2,	0 },
-	{ AMOVBU,	C_REG,		C_NONE,		C_SEXT,		31,	4,	0 },
 	{ AMOVBU,	C_REG,		C_NONE,		C_SOREG,		21,	2,	0 },
 	{ AMOVW,		C_REG,		C_NONE,		C_REG,		22,	2,	0 },
 	{ AMOVB,		C_REG,		C_NONE,		C_REG,		23,	4,	0 },
 	{ AMOVH,		C_REG,		C_NONE,		C_REG,		23,	4,	0 },
 	{ AMOVBU,	C_REG,		C_NONE,		C_REG,		23,	4,	0 },
 	{ AMOVHU,	C_REG,		C_NONE,		C_REG,		23,	4,	0 },
-	{ AMOVH,		C_SEXT,		C_NONE,		C_REG,		32,	6,	0 },
 	{ AMOVH,		C_SOREG,		C_NONE,		C_REG,		24,	4,	0 },
-	{ AMOVB,		C_SEXT,		C_NONE,		C_REG,		32,	6,	0 },
 	{ AMOVB,		C_SOREG,		C_NONE,		C_REG,		24,	4,	0 },
 	{ AMOVW,		C_SACON,	C_NONE,		C_REG,		25,	2,	0 },
 	{ AMOVW,		C_LACON,	C_NONE,		C_REG,		35,	4,	0 },
@@ -469,16 +457,16 @@ Optab thumboptab[] =
 	{ AMOVB,		C_REG,		C_NONE,		C_GOREG,		29,	4,	0,	LTO },
 	{ AMOVHU,	C_REG,		C_NONE,		C_GOREG,		29,	4,	0,	LTO },
 	{ AMOVBU,	C_REG,		C_NONE,		C_GOREG,		29,	4,	0,	LTO },
-	{ AMOVW,		C_LEXT,		C_NONE,		C_REG,		30,	4,	0,	LFROM },
-	{ AMOVH,		C_LEXT,		C_NONE,		C_REG,		32,	6,	0,	LFROM },
-	{ AMOVB,		C_LEXT,		C_NONE,		C_REG,		32,	6,	0,	LFROM },
-	{ AMOVHU,	C_LEXT,		C_NONE,		C_REG,		30,	4,	0,	LFROM },
-	{ AMOVBU,	C_LEXT,		C_NONE,		C_REG,		30,	4,	0,	LFROM },
-	{ AMOVW,		C_REG,		C_NONE,		C_LEXT,		31,	4,	0,	LTO },
-	{ AMOVH,		C_REG,		C_NONE,		C_LEXT,		31,	4,	0,	LTO },
-	{ AMOVB,		C_REG,		C_NONE,		C_LEXT,		31,	4,	0,	LTO },
-	{ AMOVHU,	C_REG,		C_NONE,		C_LEXT,		31,	4,	0,	LTO },
-	{ AMOVBU,	C_REG,		C_NONE,		C_LEXT,		31,	4,	0,	LTO },
+	{ AMOVW,		C_ADDR,		C_NONE,		C_REG,		30,	4,	0,	LFROM },
+	{ AMOVH,		C_ADDR,		C_NONE,		C_REG,		32,	6,	0,	LFROM },
+	{ AMOVB,		C_ADDR,		C_NONE,		C_REG,		32,	6,	0,	LFROM },
+	{ AMOVHU,	C_ADDR,		C_NONE,		C_REG,		30,	4,	0,	LFROM },
+	{ AMOVBU,	C_ADDR,		C_NONE,		C_REG,		30,	4,	0,	LFROM },
+	{ AMOVW,		C_REG,		C_NONE,		C_ADDR,		31,	4,	0,	LTO },
+	{ AMOVH,		C_REG,		C_NONE,		C_ADDR,		31,	4,	0,	LTO },
+	{ AMOVB,		C_REG,		C_NONE,		C_ADDR,		31,	4,	0,	LTO },
+	{ AMOVHU,	C_REG,		C_NONE,		C_ADDR,		31,	4,	0,	LTO },
+	{ AMOVBU,	C_REG,		C_NONE,		C_ADDR,		31,	4,	0,	LTO },
 
 	{ AXXX,		C_NONE,		C_NONE,		C_NONE,		0,	2,	0 },
 };
@@ -683,7 +671,7 @@ thumbasmout(Prog *p, Optab *o)
 	rt = p->to.reg;
 	r = p->reg;
 	o1 = o2 = o3 = o4 = o5 = o6 = o7 = 0;
-if(debug['P']) print("%ulx: %P	type %d %d\n", (uint32)(p->pc), p, o->type, p->align);
+if(debug['P']) print("%ux: %P	type %d %d\n", (uint32)(p->pc), p, o->type, p->align);
 	opcount[o->type] += o->size;
 	switch(o->type) {
 	default:
@@ -691,7 +679,7 @@ if(debug['P']) print("%ulx: %P	type %d %d\n", (uint32)(p->pc), p, o->type, p->al
 		prasm(p);
 		break;
 	case 0:		/* pseudo ops */
-if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
+if(debug['G']) print("%ux: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 		break;
 	case 1:		/* op R, -, R or op R, R, - */
 		o1 = thumboprr(p->as);
@@ -981,6 +969,7 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 		}
 		break;
 	case 30:		/* AMOVW... *addr, R */
+		diag("likely broken");  // does this still refer to SB?
 		thumbaclass(&p->from, p);
 		o1 = mv(p, rt, instoffset);		// MOV addr, rtmp
 		o2 = thumbopmv(p->as, 1);
@@ -988,6 +977,7 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 		o2 |= (rt<<3) | rt;			// MOV* 0(rtmp), R
 		break;
 	case 31:		/* AMOVW... R, *addr */
+		diag("likely broken");  // does this still refer to SB?
 		thumbaclass(&p->to, p);
 		o1 = mv(p, REGTMPT, instoffset);
 		o2 = thumbopmv(p->as, 0);
@@ -1162,29 +1152,29 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 	switch(o->size) {
 	default:
 		if(debug['a'])
-			Bprint(&bso, " %.8lux:\t\t%P\n", v, p);
+			Bprint(&bso, " %.8ux:\t\t%P\n", v, p);
 		break;
 	case 2:
 		if(debug['a'])
-			Bprint(&bso, " %.8lux: %.8lux\t%P\n", v, o1, p);
+			Bprint(&bso, " %.8ux: %.8ux\t%P\n", v, o1, p);
 		hputl(o1);
 		break;
 	case 4:
 		if(debug['a'])
-			Bprint(&bso, " %.8lux: %.8lux %.8lux\t%P\n", v, o1, o2, p);
+			Bprint(&bso, " %.8ux: %.8ux %.8ux\t%P\n", v, o1, o2, p);
 		hputl(o1);
 		hputl(o2);
 		break;
 	case 6:
 		if(debug['a'])
-			Bprint(&bso, "%.8lux: %.8lux %.8lux %.8lux\t%P\n", v, o1, o2, o3, p);
+			Bprint(&bso, "%.8ux: %.8ux %.8ux %.8ux\t%P\n", v, o1, o2, o3, p);
 		hputl(o1);
 		hputl(o2);
 		hputl(o3);
 		break;
 	case 8:
 		if(debug['a'])
-			Bprint(&bso, "%.8lux: %.8lux %.8lux %.8lux %.8lux\t%P\n", v, o1, o2, o3, o4, p);
+			Bprint(&bso, "%.8ux: %.8ux %.8ux %.8ux %.8ux\t%P\n", v, o1, o2, o3, o4, p);
 		hputl(o1);
 		hputl(o2);
 		hputl(o3);
@@ -1192,7 +1182,7 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 		break;
 	case 10:
 		if(debug['a'])
-			Bprint(&bso, "%.8lux: %.8lux %.8lux %.8lux %.8lux %.8lux\t%P\n", v, o1, o2, o3, o4, o5, p);
+			Bprint(&bso, "%.8ux: %.8ux %.8ux %.8ux %.8ux %.8ux\t%P\n", v, o1, o2, o3, o4, o5, p);
 		hputl(o1);
 		hputl(o2);
 		hputl(o3);
@@ -1201,7 +1191,7 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 		break;
 	case 12:
 		if(debug['a'])
-			Bprint(&bso, "%.8lux: %.8lux %.8lux %.8lux %.8lux %.8lux %.8lux\t%P\n", v, o1, o2, o3, o4, o5, o6, p);
+			Bprint(&bso, "%.8ux: %.8ux %.8ux %.8ux %.8ux %.8ux %.8ux\t%P\n", v, o1, o2, o3, o4, o5, o6, p);
 		hputl(o1);
 		hputl(o2);
 		hputl(o3);
@@ -1211,7 +1201,7 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 		break;
 	case 14:
 		if(debug['a'])
-			Bprint(&bso, "%.8lux: %.8lux %.8lux %.8lux %.8lux %.8lux %.8lux %.8lux\t%P\n", v, o1, o2, o3, o4, o5, o6, o7, p);
+			Bprint(&bso, "%.8ux: %.8ux %.8ux %.8ux %.8ux %.8ux %.8ux %.8ux\t%P\n", v, o1, o2, o3, o4, o5, o6, o7, p);
 		hputl(o1);
 		hputl(o2);
 		hputl(o3);
@@ -1223,12 +1213,12 @@ if(debug['G']) print("%ulx: %s: thumb\n", (uint32)(p->pc), p->from.sym->name);
 	}
 	if(debug['G']){
 		if(o->type == 17){
-			print("%lx:	word %ld\n", p->pc, (o2<<16)+o1);
+			print("%x:	word %d\n", p->pc, (o2<<16)+o1);
 			return;
 		}
 		if(o->type == 50){
-			print("%lx:	word %ld\n", p->pc, (o2<<16)+o1);
-			print("%lx:	word %ld\n", p->pc, (o4<<16)+o3);
+			print("%x:	word %d\n", p->pc, (o2<<16)+o1);
+			print("%x:	word %d\n", p->pc, (o4<<16)+o3);
 			return;
 		}
 		if(o->size > 0) dis(o1, p->pc);

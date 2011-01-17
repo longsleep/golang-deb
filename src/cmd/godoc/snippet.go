@@ -12,41 +12,22 @@ package main
 import (
 	"bytes"
 	"go/ast"
-	"go/printer"
+	"go/token"
 	"fmt"
 )
 
 
 type Snippet struct {
 	Line int
-	Text string
+	Text []byte
 }
 
 
-type snippetStyler struct {
-	Styler               // defined in godoc.go
-	highlight *ast.Ident // identifier to highlight
-}
-
-
-func (s *snippetStyler) LineTag(line int) (text []uint8, tag printer.HTMLTag) {
-	return // no LineTag for snippets
-}
-
-
-func (s *snippetStyler) Ident(id *ast.Ident) (text []byte, tag printer.HTMLTag) {
-	text = []byte(id.Name())
-	if s.highlight == id {
-		tag = printer.HTMLTag{"<span class=highlight>", "</span>"}
-	}
-	return
-}
-
-
-func newSnippet(decl ast.Decl, id *ast.Ident) *Snippet {
+func newSnippet(fset *token.FileSet, decl ast.Decl, id *ast.Ident) *Snippet {
+	// TODO instead of pretty-printing the node, should use the original source instead
 	var buf bytes.Buffer
-	writeNode(&buf, decl, true, &snippetStyler{highlight: id})
-	return &Snippet{id.Pos().Line, buf.String()}
+	writeNode(&buf, fset, decl, true)
+	return &Snippet{fset.Position(id.Pos()).Line, FormatText(buf.Bytes(), -1, true, id.Name, nil)}
 }
 
 
@@ -73,20 +54,20 @@ func findSpec(list []ast.Spec, id *ast.Ident) ast.Spec {
 }
 
 
-func genSnippet(d *ast.GenDecl, id *ast.Ident) *Snippet {
+func genSnippet(fset *token.FileSet, d *ast.GenDecl, id *ast.Ident) *Snippet {
 	s := findSpec(d.Specs, id)
 	if s == nil {
 		return nil //  declaration doesn't contain id - exit gracefully
 	}
 
 	// only use the spec containing the id for the snippet
-	dd := &ast.GenDecl{d.Doc, d.Position, d.Tok, d.Lparen, []ast.Spec{s}, d.Rparen}
+	dd := &ast.GenDecl{d.Doc, d.Pos(), d.Tok, d.Lparen, []ast.Spec{s}, d.Rparen}
 
-	return newSnippet(dd, id)
+	return newSnippet(fset, dd, id)
 }
 
 
-func funcSnippet(d *ast.FuncDecl, id *ast.Ident) *Snippet {
+func funcSnippet(fset *token.FileSet, d *ast.FuncDecl, id *ast.Ident) *Snippet {
 	if d.Name != id {
 		return nil //  declaration doesn't contain id - exit gracefully
 	}
@@ -94,7 +75,7 @@ func funcSnippet(d *ast.FuncDecl, id *ast.Ident) *Snippet {
 	// only use the function signature for the snippet
 	dd := &ast.FuncDecl{d.Doc, d.Recv, d.Name, d.Type, nil}
 
-	return newSnippet(dd, id)
+	return newSnippet(fset, dd, id)
 }
 
 
@@ -102,19 +83,21 @@ func funcSnippet(d *ast.FuncDecl, id *ast.Ident) *Snippet {
 // identifier id. Parts of the declaration not containing the identifier
 // may be removed for a more compact snippet.
 //
-func NewSnippet(decl ast.Decl, id *ast.Ident) (s *Snippet) {
+func NewSnippet(fset *token.FileSet, decl ast.Decl, id *ast.Ident) (s *Snippet) {
 	switch d := decl.(type) {
 	case *ast.GenDecl:
-		s = genSnippet(d, id)
+		s = genSnippet(fset, d, id)
 	case *ast.FuncDecl:
-		s = funcSnippet(d, id)
+		s = funcSnippet(fset, d, id)
 	}
 
 	// handle failure gracefully
 	if s == nil {
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, `<span class="alert">could not generate a snippet for <span class="highlight">%s</span></span>`, id.Name)
 		s = &Snippet{
-			id.Pos().Line,
-			fmt.Sprintf(`could not generate a snippet for <span class="highlight">%s</span>`, id.Name()),
+			fset.Position(id.Pos()).Line,
+			buf.Bytes(),
 		}
 	}
 	return

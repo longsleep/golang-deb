@@ -101,7 +101,7 @@ convlit1(Node **np, Type *t, int explicit)
 		break;
 	case OLSH:
 	case ORSH:
-		convlit1(&n->left, t, explicit);
+		convlit1(&n->left, t, explicit && isideal(n->left->type));
 		t = n->left->type;
 		if(t != T && !isint[t->etype]) {
 			yyerror("invalid operation: %#N (shift of type %T)", n, t);
@@ -202,8 +202,6 @@ convlit1(Node **np, Type *t, int explicit)
 				goto bad;
 			case CTFLT:
 			case CTINT:
-				if(explicit)
-					goto bad;
 				n->val = tocplx(n->val);
 				break;
 			case CTCPLX:
@@ -300,7 +298,7 @@ toflt(Val v)
 		f = mal(sizeof(*f));
 		mpmovefltflt(f, &v.u.cval->real);
 		if(mpcmpfltc(&v.u.cval->imag, 0) != 0)
-			yyerror("constant %#F truncated to real", v.u.fval);
+			yyerror("constant %#F%+#Fi truncated to real", &v.u.cval->real, &v.u.cval->imag);
 		v.ctype = CTFLT;
 		v.u.fval = f;
 		break;
@@ -324,9 +322,9 @@ toint(Val v)
 	case CTCPLX:
 		i = mal(sizeof(*i));
 		if(mpmovefltfix(i, &v.u.cval->real) < 0)
-			yyerror("constant %#F truncated to integer", v.u.fval);
+			yyerror("constant %#F%+#Fi truncated to integer", &v.u.cval->real, &v.u.cval->imag);
 		if(mpcmpfltc(&v.u.cval->imag, 0) != 0)
-			yyerror("constant %#F truncated to real", v.u.fval);
+			yyerror("constant %#F%+#Fi truncated to real", &v.u.cval->real, &v.u.cval->imag);
 		v.ctype = CTINT;
 		v.u.xval = i;
 		break;
@@ -535,6 +533,12 @@ evconst(Node *n)
 	if(v.ctype == CTFLT || rv.ctype == CTFLT) {
 		v = toflt(v);
 		rv = toflt(rv);
+	}
+	if(v.ctype != rv.ctype) {
+		// Use of undefined name as constant?
+		if((v.ctype == 0 || rv.ctype == 0) && nerrors > 0)
+			return;
+		fatal("constant type mismatch %T(%d) %T(%d)", nl->type, v.ctype, nr->type, rv.ctype);
 	}
 
 	// run op
@@ -1085,6 +1089,12 @@ smallintconst(Node *n)
 	case TUINT32:
 	case TBOOL:
 	case TPTR32:
+		return 1;
+	case TINT64:
+	case TUINT64:
+		if(mpcmpfixfix(n->val.u.xval, minintval[TINT32]) < 0
+		|| mpcmpfixfix(n->val.u.xval, maxintval[TINT32]) > 0)
+			break;
 		return 1;
 	}
 	return 0;

@@ -149,6 +149,8 @@ ggloblnod(Node *nam, int32 width)
 	p->to.sym = S;
 	p->to.type = D_CONST;
 	p->to.offset = width;
+	if(nam->readonly)
+		p->from.scale = RODATA;
 }
 
 void
@@ -165,6 +167,7 @@ ggloblsym(Sym *s, int32 width, int dupok)
 	p->to.offset = width;
 	if(dupok)
 		p->from.scale = DUPOK;
+	p->from.scale |= RODATA;
 }
 
 int
@@ -661,6 +664,11 @@ foptoas(int op, Type *t, int flg)
 		return AFCOMDP;
 	case FCASE(OCMP, TFLOAT64, Fpop2):
 		return AFCOMDPP;
+	
+	case FCASE(OMINUS, TFLOAT32, 0):
+		return AFCHS;
+	case FCASE(OMINUS, TFLOAT64, 0):
+		return AFCHS;
 	}
 
 	fatal("foptoas %O %T %#x", op, t, flg);
@@ -707,7 +715,7 @@ gclean(void)
 
 	for(i=D_AL; i<=D_DI; i++)
 		if(reg[i])
-			yyerror("reg %R left allocated at %lux", i, regpc[i]);
+			yyerror("reg %R left allocated at %ux", i, regpc[i]);
 }
 
 int32
@@ -764,7 +772,7 @@ regalloc(Node *n, Type *t, Node *o)
 
 		fprint(2, "registers allocated at\n");
 		for(i=D_AX; i<=D_DI; i++)
-			fprint(2, "\t%R\t%#lux\n", i, regpc[i]);
+			fprint(2, "\t%R\t%#ux\n", i, regpc[i]);
 		yyerror("out of fixed registers");
 		goto err;
 
@@ -1651,7 +1659,7 @@ checkoffset(Addr *a, int canemitcode)
 	if(a->offset < unmappedzero)
 		return;
 	if(!canemitcode)
-		fatal("checkoffset %#llx, cannot emit code", a->offset);
+		fatal("checkoffset %#x, cannot emit code", a->offset);
 
 	// cannot rely on unmapped nil page at 0 to catch
 	// reference with large offset.  instead, emit explicit

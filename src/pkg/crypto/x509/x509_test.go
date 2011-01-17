@@ -5,11 +5,12 @@
 package x509
 
 import (
+	"asn1"
 	"big"
+	"crypto/rand"
 	"crypto/rsa"
 	"encoding/hex"
 	"encoding/pem"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -59,16 +60,16 @@ type matchHostnamesTest struct {
 }
 
 var matchHostnamesTests = []matchHostnamesTest{
-	matchHostnamesTest{"a.b.c", "a.b.c", true},
-	matchHostnamesTest{"a.b.c", "b.b.c", false},
-	matchHostnamesTest{"", "b.b.c", false},
-	matchHostnamesTest{"a.b.c", "", false},
-	matchHostnamesTest{"example.com", "example.com", true},
-	matchHostnamesTest{"example.com", "www.example.com", false},
-	matchHostnamesTest{"*.example.com", "www.example.com", true},
-	matchHostnamesTest{"*.example.com", "xyz.www.example.com", false},
-	matchHostnamesTest{"*.*.example.com", "xyz.www.example.com", true},
-	matchHostnamesTest{"*.www.*.com", "xyz.www.example.com", true},
+	{"a.b.c", "a.b.c", true},
+	{"a.b.c", "b.b.c", false},
+	{"", "b.b.c", false},
+	{"a.b.c", "", false},
+	{"example.com", "example.com", true},
+	{"example.com", "www.example.com", false},
+	{"*.example.com", "www.example.com", true},
+	{"*.example.com", "xyz.www.example.com", false},
+	{"*.*.example.com", "xyz.www.example.com", true},
+	{"*.www.*.com", "xyz.www.example.com", true},
 }
 
 func TestMatchHostnames(t *testing.T) {
@@ -96,8 +97,8 @@ func TestCertificateParse(t *testing.T) {
 		t.Error(err)
 	}
 
-	if !certs[0].IsValidForHost("mail.google.com") {
-		t.Errorf("cert not valid for host")
+	if err := certs[0].VerifyHostname("mail.google.com"); err != nil {
+		t.Error(err)
 	}
 }
 
@@ -145,10 +146,7 @@ var certBytes = "308203223082028ba00302010202106edf0d9499fd4533dd1297fc42a93be13
 	"36dcd585d6ace53f546f961e05af"
 
 func TestCreateSelfSignedCertificate(t *testing.T) {
-	urandom, err := os.Open("/dev/urandom", os.O_RDONLY, 0)
-	if err != nil {
-		t.Errorf("failed to open /dev/urandom")
-	}
+	random := rand.Reader
 
 	block, _ := pem.Decode([]byte(pemPrivateKey))
 	priv, err := ParsePKCS1PrivateKey(block.Bytes)
@@ -161,7 +159,7 @@ func TestCreateSelfSignedCertificate(t *testing.T) {
 		SerialNumber: []byte{1},
 		Subject: Name{
 			CommonName:   "test.example.com",
-			Organization: "Acme Co",
+			Organization: []string{"Acme Co"},
 		},
 		NotBefore: time.SecondsToUTC(1000),
 		NotAfter:  time.SecondsToUTC(100000),
@@ -172,9 +170,11 @@ func TestCreateSelfSignedCertificate(t *testing.T) {
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		DNSNames:              []string{"test.example.com"},
+
+		PolicyIdentifiers: []asn1.ObjectIdentifier{[]int{1, 2, 3}},
 	}
 
-	derBytes, err := CreateCertificate(urandom, &template, &template, &priv.PublicKey, priv)
+	derBytes, err := CreateCertificate(random, &template, &template, &priv.PublicKey, priv)
 	if err != nil {
 		t.Errorf("Failed to create certificate: %s", err)
 		return
@@ -185,6 +185,11 @@ func TestCreateSelfSignedCertificate(t *testing.T) {
 		t.Errorf("Failed to parse certificate: %s", err)
 		return
 	}
+
+	if len(cert.PolicyIdentifiers) != 1 || !cert.PolicyIdentifiers[0].Equal(template.PolicyIdentifiers[0]) {
+		t.Errorf("Failed to parse policy identifiers: got:%#v want:%#v", cert.PolicyIdentifiers, template.PolicyIdentifiers)
+	}
+
 	err = cert.CheckSignatureFrom(cert)
 	if err != nil {
 		t.Errorf("Signature verification failed: %s", err)

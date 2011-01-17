@@ -35,9 +35,8 @@ func (z *Rat) SetFrac(a, b *Int) *Rat {
 func (z *Rat) SetFrac64(a, b int64) *Rat {
 	z.a.SetInt64(a)
 	if b < 0 {
-		z.b.setUint64(uint64(-b))
+		b = -b
 		z.a.neg = !z.a.neg
-		return z.norm()
 	}
 	z.b = z.b.setUint64(uint64(b))
 	return z.norm()
@@ -57,6 +56,23 @@ func (z *Rat) SetInt64(x int64) *Rat {
 	z.a.SetInt64(x)
 	z.b = z.b.setWord(1)
 	return z
+}
+
+
+// Sign returns:
+//
+//	-1 if x <  0
+//	 0 if x == 0
+//	+1 if x >  0
+//
+func (x *Rat) Sign() int {
+	return x.a.Sign()
+}
+
+
+// IsInt returns true if the denominator of x is 1.
+func (x *Rat) IsInt() bool {
+	return len(x.b) == 1 && x.b[0] == 1
 }
 
 
@@ -126,6 +142,14 @@ func (x *Rat) Cmp(y *Rat) (r int) {
 }
 
 
+// Abs sets z to |x| (the absolute value of x) and returns z.
+func (z *Rat) Abs(x *Rat) *Rat {
+	z.a.Abs(&x.a)
+	z.b = z.b.set(x.b)
+	return z
+}
+
+
 // Add sets z to the sum x+y and returns z.
 func (z *Rat) Add(x, y *Rat) *Rat {
 	a1 := mulNat(&x.a, y.b)
@@ -186,26 +210,17 @@ func (z *Rat) Set(x *Rat) *Rat {
 
 
 // SetString sets z to the value of s and returns z and a boolean indicating
-// success. s can be given as a fraction "a/b" or as a decimal number "a.b".
-// If the operation failed, the value of z is undefined.
+// success. s can be given as a fraction "a/b" or as a floating-point number
+// optionally followed by an exponent. If the operation failed, the value of z
+// is undefined.
 func (z *Rat) SetString(s string) (*Rat, bool) {
 	if len(s) == 0 {
 		return z, false
 	}
 
-	// Check for a decimal point
-	sep := strings.Index(s, ".")
-	if sep < 0 {
-		// Check for a quotient
-		sep = strings.Index(s, "/")
-		if sep < 0 {
-			// Just read in the string as an integer
-			if _, ok := z.a.SetString(s, 10); !ok {
-				return z, false
-			}
-			z.b = z.b.setWord(1)
-			return z, true
-		}
+	// check for a quotient
+	sep := strings.Index(s, "/")
+	if sep >= 0 {
 		if _, ok := z.a.SetString(s[0:sep], 10); !ok {
 			return z, false
 		}
@@ -214,59 +229,98 @@ func (z *Rat) SetString(s string) (*Rat, bool) {
 		if z.b, _, n = z.b.scan(s, 10); n != len(s) {
 			return z, false
 		}
-
 		return z.norm(), true
 	}
 
-	s = s[0:sep] + s[sep+1:]
+	// check for a decimal point
+	sep = strings.Index(s, ".")
+	// check for an exponent
+	e := strings.IndexAny(s, "eE")
+	var exp Int
+	if e >= 0 {
+		if e < sep {
+			// The E must come after the decimal point.
+			return z, false
+		}
+		if _, ok := exp.SetString(s[e+1:], 10); !ok {
+			return z, false
+		}
+		s = s[0:e]
+	}
+	if sep >= 0 {
+		s = s[0:sep] + s[sep+1:]
+		exp.Sub(&exp, NewInt(int64(len(s)-sep)))
+	}
+
 	if _, ok := z.a.SetString(s, 10); !ok {
 		return z, false
 	}
-	z.b = z.b.expNN(natTen, nat{Word(len(s) - sep)}, nil)
+	powTen := nat{}.expNN(natTen, exp.abs, nil)
+	if exp.neg {
+		z.b = powTen
+		z.norm()
+	} else {
+		z.a.abs = z.a.abs.mul(z.a.abs, powTen)
+		z.b = z.b.setWord(1)
+	}
 
-	return z.norm(), true
+	return z, true
 }
 
 
-// String returns a string representation of z in the form "a/b".
+// String returns a string representation of z in the form "a/b" (even if b == 1).
 func (z *Rat) String() string {
-	s := z.a.String()
-	if len(z.b) == 1 && z.b[0] == 1 {
-		return s
+	return z.a.String() + "/" + z.b.string(10)
+}
+
+
+// RatString returns a string representation of z in the form "a/b" if b != 1,
+// and in the form "a" if b == 1.
+func (z *Rat) RatString() string {
+	if z.IsInt() {
+		return z.a.String()
 	}
-	return s + "/" + z.b.string(10)
+	return z.String()
 }
 
 
 // FloatString returns a string representation of z in decimal form with prec
 // digits of precision after the decimal point and the last digit rounded.
 func (z *Rat) FloatString(prec int) string {
+	if z.IsInt() {
+		return z.a.String()
+	}
+
 	q, r := nat{}.div(nat{}, z.a.abs, z.b)
 
-	s := ""
-	if z.a.neg {
-		s = "-"
-	}
-	s += q.string(10)
-
-	if len(z.b) == 1 && z.b[0] == 1 {
-		return s
+	p := natOne
+	if prec > 0 {
+		p = nat{}.expNN(natTen, nat{}.setUint64(uint64(prec)), nil)
 	}
 
-	p := nat{}.expNN(natTen, nat{Word(prec)}, nil)
 	r = r.mul(r, p)
 	r, r2 := r.div(nat{}, r, z.b)
 
-	// See if we need to round up
-	r2 = r2.mul(r2, natTwo)
+	// see if we need to round up
+	r2 = r2.add(r2, r2)
 	if z.b.cmp(r2) <= 0 {
 		r = r.add(r, natOne)
+		if r.cmp(p) >= 0 {
+			q = nat{}.add(q, natOne)
+			r = nat{}.sub(r, p)
+		}
 	}
 
-	rs := r.string(10)
-	leadingZeros := prec - len(rs)
-	s += "." + strings.Repeat("0", leadingZeros) + rs
-	s = strings.TrimRight(s, "0")
+	s := q.string(10)
+	if z.a.neg {
+		s = "-" + s
+	}
+
+	if prec > 0 {
+		rs := r.string(10)
+		leadingZeros := prec - len(rs)
+		s += "." + strings.Repeat("0", leadingZeros) + rs
+	}
 
 	return s
 }

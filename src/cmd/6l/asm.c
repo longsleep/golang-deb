@@ -28,9 +28,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Writing object files.
+
 #include	"l.h"
 #include	"../ld/lib.h"
 #include	"../ld/elf.h"
+#include	"../ld/dwarf.h"
 #include	"../ld/macho.h"
 
 #define	Dbufslop	100
@@ -41,7 +44,6 @@ char linuxdynld[] = "/lib64/ld-linux-x86-64.so.2";
 char freebsddynld[] = "/libexec/ld-elf.so.1";
 
 char	zeroes[32];
-Prog*	datsort(Prog *l);
 
 vlong
 entryvalue(void)
@@ -55,15 +57,8 @@ entryvalue(void)
 	s = lookup(a, 0);
 	if(s->type == 0)
 		return INITTEXT;
-	switch(s->type) {
-	case STEXT:
-		break;
-	case SDATA:
-		if(dlm)
-			return s->value+INITDAT;
-	default:
+	if(s->type != STEXT)
 		diag("entry not text: %s", s->name);
-	}
 	return s->value;
 }
 
@@ -113,130 +108,13 @@ vputl(uint64 v)
 	lputl(v>>32);
 }
 
-void
-strnput(char *s, int n)
-{
-	int i;
-
-	for(i=0; i<n; i++) {
-		cput(*s);
-		if(*s != 0)
-			s++;
-	}
-}
-
-vlong
-addstring(Sym *s, char *str)
-{
-	int n, m;
-	vlong r;
-	Prog *p;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	r = s->value;
-	n = strlen(str)+1;
-	while(n > 0) {
-		m = n;
-		if(m > sizeof(p->to.scon))
-			m = sizeof(p->to.scon);
-		p = newdata(s, s->value, m, D_EXTERN);
-		p->to.type = D_SCONST;
-		memmove(p->to.scon, str, m);
-		s->value += m;
-		str += m;
-		n -= m;
-	}
-	return r;
-}
-
-vlong
-adduintxx(Sym *s, uint64 v, int wid)
-{
-	vlong r;
-	Prog *p;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	r = s->value;
-	p = newdata(s, s->value, wid, D_EXTERN);
-	s->value += wid;
-	p->to.type = D_CONST;
-	p->to.offset = v;
-	return r;
-}
-
-vlong
-adduint8(Sym *s, uint8 v)
-{
-	return adduintxx(s, v, 1);
-}
-
-vlong
-adduint16(Sym *s, uint16 v)
-{
-	return adduintxx(s, v, 2);
-}
-
-vlong
-adduint32(Sym *s, uint32 v)
-{
-	return adduintxx(s, v, 4);
-}
-
-vlong
-adduint64(Sym *s, uint64 v)
-{
-	return adduintxx(s, v, 8);
-}
-
-vlong
-addaddr(Sym *s, Sym *t)
-{
-	vlong r;
-	Prog *p;
-	enum { Ptrsize = 8 };
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	r = s->value;
-	p = newdata(s, s->value, Ptrsize, D_EXTERN);
-	s->value += Ptrsize;
-	p->to.type = D_ADDR;
-	p->to.index = D_EXTERN;
-	p->to.offset = 0;
-	p->to.sym = t;
-	return r;
-}
-
-vlong
-addsize(Sym *s, Sym *t)
-{
-	vlong r;
-	Prog *p;
-	enum { Ptrsize = 8 };
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	r = s->value;
-	p = newdata(s, s->value, Ptrsize, D_EXTERN);
-	s->value += Ptrsize;
-	p->to.type = D_SIZE;
-	p->to.index = D_EXTERN;
-	p->to.offset = 0;
-	p->to.sym = t;
-	return r;
-}
-
 vlong
 datoff(vlong addr)
 {
-	if(addr >= INITDAT)
-		return addr - INITDAT + rnd(HEADR+textsize, INITRND);
+	if(addr >= segdata.vaddr)
+		return addr - segdata.vaddr + segdata.fileoff;
+	if(addr >= segtext.vaddr)
+		return addr - segtext.vaddr + segtext.fileoff;
 	diag("datoff %#llx", addr);
 	return 0;
 }
@@ -260,6 +138,8 @@ enum {
 	ElfStrShstrtab,
 	ElfStrSymtab,
 	ElfStrStrtab,
+	ElfStrRelaPlt,
+	ElfStrPlt,
 	NElfStr
 };
 
@@ -281,29 +161,461 @@ needlib(char *name)
 	return 0;
 }
 
+int nelfsym = 1;
+
+static void addpltsym(Sym*);
+static void addgotsym(Sym*);
+
+void
+adddynrel(Sym *s, Reloc *r)
+{
+	Sym *targ, *rela, *got;
+	
+	targ = r->sym;
+	cursym = s;
+
+	switch(r->type) {
+	default:
+		if(r->type >= 256) {
+			diag("unexpected relocation type %d", r->type);
+			return;
+		}
+		break;
+
+	// Handle relocations found in ELF object files.
+	case 256 + R_X86_64_PC32:
+		if(targ->dynimpname != nil && !targ->dynexport)
+			diag("unexpected R_X86_64_PC32 relocation for dynamic symbol %s", targ->name);
+		if(targ->type == 0 || targ->type == SXREF)
+			diag("unknown symbol %s in pcrel", targ->name);
+		r->type = D_PCREL;
+		r->add += 4;
+		return;
+	
+	case 256 + R_X86_64_PLT32:
+		r->type = D_PCREL;
+		r->add += 4;
+		if(targ->dynimpname != nil && !targ->dynexport) {
+			addpltsym(targ);
+			r->sym = lookup(".plt", 0);
+			r->add += targ->plt;
+		}
+		return;
+	
+	case 256 + R_X86_64_GOTPCREL:
+		if(targ->dynimpname == nil || targ->dynexport) {
+			// have symbol
+			// turn MOVQ of GOT entry into LEAQ of symbol itself
+			if(r->off < 2 || s->p[r->off-2] != 0x8b) {
+				diag("unexpected GOT_LOAD reloc for non-dynamic symbol %s", targ->name);
+				return;
+			}
+			s->p[r->off-2] = 0x8d;
+			r->type = D_PCREL;
+			r->add += 4;
+			return;
+		}
+		addgotsym(targ);
+		r->type = D_PCREL;
+		r->sym = lookup(".got", 0);
+		r->add += 4;
+		r->add += targ->got;
+		return;
+	
+	case 256 + R_X86_64_64:
+		if(targ->dynimpname != nil && !targ->dynexport)
+			diag("unexpected R_X86_64_64 relocation for dynamic symbol %s", targ->name);
+		r->type = D_ADDR;
+		return;
+	
+	// Handle relocations found in Mach-O object files.
+	case 512 + MACHO_X86_64_RELOC_UNSIGNED*2 + 0:
+	case 512 + MACHO_X86_64_RELOC_SIGNED*2 + 0:
+	case 512 + MACHO_X86_64_RELOC_BRANCH*2 + 0:
+		// TODO: What is the difference between all these?
+		r->type = D_ADDR;
+		if(targ->dynimpname != nil && !targ->dynexport)
+			diag("unexpected reloc for dynamic symbol %s", targ->name);
+		return;
+
+	case 512 + MACHO_X86_64_RELOC_BRANCH*2 + 1:
+		if(targ->dynimpname != nil && !targ->dynexport) {
+			addpltsym(targ);
+			r->sym = lookup(".plt", 0);
+			r->add = targ->plt;
+			r->type = D_PCREL;
+			return;
+		}
+		// fall through
+	case 512 + MACHO_X86_64_RELOC_UNSIGNED*2 + 1:
+	case 512 + MACHO_X86_64_RELOC_SIGNED*2 + 1:
+	case 512 + MACHO_X86_64_RELOC_SIGNED_1*2 + 1:
+	case 512 + MACHO_X86_64_RELOC_SIGNED_2*2 + 1:
+	case 512 + MACHO_X86_64_RELOC_SIGNED_4*2 + 1:
+		r->type = D_PCREL;
+		if(targ->dynimpname != nil && !targ->dynexport)
+			diag("unexpected pc-relative reloc for dynamic symbol %s", targ->name);
+		return;
+
+	case 512 + MACHO_X86_64_RELOC_GOT_LOAD*2 + 1:
+		if(targ->dynimpname == nil || targ->dynexport) {
+			// have symbol
+			// turn MOVQ of GOT entry into LEAQ of symbol itself
+			if(r->off < 2 || s->p[r->off-2] != 0x8b) {
+				diag("unexpected GOT_LOAD reloc for non-dynamic symbol %s", targ->name);
+				return;
+			}
+			s->p[r->off-2] = 0x8d;
+			r->type = D_PCREL;
+			return;
+		}
+		// fall through
+	case 512 + MACHO_X86_64_RELOC_GOT*2 + 1:
+		if(targ->dynimpname == nil || targ->dynexport)
+			diag("unexpected GOT reloc for non-dynamic symbol %s", targ->name);
+		addgotsym(targ);
+		r->type = D_PCREL;
+		r->sym = lookup(".got", 0);
+		r->add += targ->got;
+		return;
+	}
+	
+	// Handle references to ELF symbols from our own object files.
+	if(targ->dynimpname == nil || targ->dynexport)
+		return;
+
+	switch(r->type) {
+	case D_PCREL:
+		addpltsym(targ);
+		r->sym = lookup(".plt", 0);
+		r->add = targ->plt;
+		return;
+	
+	case D_ADDR:
+		if(s->type != SDATA)
+			break;
+		if(iself) {
+			adddynsym(targ);
+			rela = lookup(".rela", 0);
+			addaddrplus(rela, s, r->off);
+			if(r->siz == 8)
+				adduint64(rela, ELF64_R_INFO(targ->dynid, R_X86_64_64));
+			else
+				adduint64(rela, ELF64_R_INFO(targ->dynid, R_X86_64_32));
+			adduint64(rela, r->add);
+			r->type = 256;	// ignore during relocsym
+			return;
+		}
+		if(HEADTYPE == 6 && s->size == PtrSize && r->off == 0) {
+			// Mach-O relocations are a royal pain to lay out.
+			// They use a compact stateful bytecode representation
+			// that is too much bother to deal with.
+			// Instead, interpret the C declaration
+			//	void *_Cvar_stderr = &stderr;
+			// as making _Cvar_stderr the name of a GOT entry
+			// for stderr.  This is separate from the usual GOT entry,
+			// just in case the C code assigns to the variable,
+			// and of course it only works for single pointers,
+			// but we only need to support cgo and that's all it needs.
+			adddynsym(targ);
+			got = lookup(".got", 0);
+			s->type = got->type | SSUB;
+			s->outer = got;
+			s->sub = got->sub;
+			got->sub = s;
+			s->value = got->size;
+			adduint64(got, 0);
+			adduint32(lookup(".linkedit.got", 0), targ->dynid);
+			r->type = 256;	// ignore during relocsym
+			return;
+		}
+		break;
+	}
+	
+	cursym = s;
+	diag("unsupported relocation for dynamic symbol %s (type=%d stype=%d)", targ->name, r->type, targ->type);
+}
+
+int
+archreloc(Reloc *r, Sym *s, vlong *val)
+{
+	return -1;
+}
+
+static void
+elfsetupplt(void)
+{
+	Sym *plt, *got;
+
+	plt = lookup(".plt", 0);
+	got = lookup(".got.plt", 0);
+	if(plt->size == 0) {
+		// pushq got+8(IP)
+		adduint8(plt, 0xff);
+		adduint8(plt, 0x35);
+		addpcrelplus(plt, got, 8);
+		
+		// jmpq got+16(IP)
+		adduint8(plt, 0xff);
+		adduint8(plt, 0x25);
+		addpcrelplus(plt, got, 16);
+		
+		// nopl 0(AX)
+		adduint32(plt, 0x00401f0f);
+		
+		// assume got->size == 0 too
+		addaddrplus(got, lookup(".dynamic", 0), 0);
+		adduint64(got, 0);
+		adduint64(got, 0);
+	}
+}
+
+static void
+addpltsym(Sym *s)
+{
+	if(s->plt >= 0)
+		return;
+	
+	adddynsym(s);
+	
+	if(iself) {
+		Sym *plt, *got, *rela;
+
+		plt = lookup(".plt", 0);
+		got = lookup(".got.plt", 0);
+		rela = lookup(".rela.plt", 0);
+		if(plt->size == 0)
+			elfsetupplt();
+		
+		// jmpq *got+size(IP)
+		adduint8(plt, 0xff);
+		adduint8(plt, 0x25);
+		addpcrelplus(plt, got, got->size);
+	
+		// add to got: pointer to current pos in plt
+		addaddrplus(got, plt, plt->size);
+		
+		// pushq $x
+		adduint8(plt, 0x68);
+		adduint32(plt, (got->size-24-8)/8);
+		
+		// jmpq .plt
+		adduint8(plt, 0xe9);
+		adduint32(plt, -(plt->size+4));
+		
+		// rela
+		addaddrplus(rela, got, got->size-8);
+		adduint64(rela, ELF64_R_INFO(s->dynid, R_X86_64_JMP_SLOT));
+		adduint64(rela, 0);
+		
+		s->plt = plt->size - 16;
+	} else if(HEADTYPE == 6) {	// Mach-O
+		// To do lazy symbol lookup right, we're supposed
+		// to tell the dynamic loader which library each 
+		// symbol comes from and format the link info
+		// section just so.  I'm too lazy (ha!) to do that
+		// so for now we'll just use non-lazy pointers,
+		// which don't need to be told which library to use.
+		//
+		// http://networkpx.blogspot.com/2009/09/about-lcdyldinfoonly-command.html
+		// has details about what we're avoiding.
+
+		Sym *plt;
+		
+		addgotsym(s);
+		plt = lookup(".plt", 0);
+
+		adduint32(lookup(".linkedit.plt", 0), s->dynid);
+
+		// jmpq *got+size(IP)
+		s->plt = plt->size;
+
+		adduint8(plt, 0xff);
+		adduint8(plt, 0x25);
+		addpcrelplus(plt, lookup(".got", 0), s->got);
+	} else {
+		diag("addpltsym: unsupported binary format");
+	}
+}
+
+static void
+addgotsym(Sym *s)
+{
+	Sym *got, *rela;
+
+	if(s->got >= 0)
+		return;
+
+	adddynsym(s);
+	got = lookup(".got", 0);
+	s->got = got->size;
+	adduint64(got, 0);
+
+	if(iself) {
+		rela = lookup(".rela", 0);
+		addaddrplus(rela, got, s->got);
+		adduint64(rela, ELF64_R_INFO(s->dynid, R_X86_64_GLOB_DAT));
+		adduint64(rela, 0);
+	} else if(HEADTYPE == 6) {	// Mach-O
+		adduint32(lookup(".linkedit.got", 0), s->dynid);
+	} else {
+		diag("addgotsym: unsupported binary format");
+	}
+}
+
+void
+adddynsym(Sym *s)
+{
+	Sym *d, *str;
+	int t;
+	char *name;
+
+	if(s->dynid >= 0)
+		return;
+
+	if(s->dynimpname == nil)
+		diag("adddynsym: no dynamic name for %s", s->name);
+
+	if(iself) {
+		s->dynid = nelfsym++;
+
+		d = lookup(".dynsym", 0);
+		name = s->dynimpname;
+		if(name == nil)
+			name = s->name;
+		adduint32(d, addstring(lookup(".dynstr", 0), name));
+		/* type */
+		t = STB_GLOBAL << 4;
+		if(s->dynexport && s->type == STEXT)
+			t |= STT_FUNC;
+		else
+			t |= STT_OBJECT;
+		adduint8(d, t);
+	
+		/* reserved */
+		adduint8(d, 0);
+	
+		/* section where symbol is defined */
+		if(!s->dynexport && s->dynimpname != nil)
+			adduint16(d, SHN_UNDEF);
+		else {
+			switch(s->type) {
+			default:
+			case STEXT:
+				t = 11;
+				break;
+			case SRODATA:
+				t = 12;
+				break;
+			case SDATA:
+				t = 13;
+				break;
+			case SBSS:
+				t = 14;
+				break;
+			}
+			adduint16(d, t);
+		}
+	
+		/* value */
+		if(s->type == SDYNIMPORT)
+			adduint64(d, 0);
+		else
+			addaddr(d, s);
+	
+		/* size of object */
+		adduint64(d, 0);
+	
+		if(!s->dynexport && s->dynimplib && needlib(s->dynimplib)) {
+			elfwritedynent(lookup(".dynamic", 0), DT_NEEDED,
+				addstring(lookup(".dynstr", 0), s->dynimplib));
+		}
+	} else if(HEADTYPE == 6) {
+		// Mach-o symbol nlist64
+		d = lookup(".dynsym", 0);
+		name = s->dynimpname;
+		if(name == nil)
+			name = s->name;
+		s->dynid = d->size/16;
+		// darwin still puts _ prefixes on all C symbols
+		str = lookup(".dynstr", 0);
+		adduint32(d, str->size);
+		adduint8(str, '_');
+		addstring(str, name);
+		if(s->type == SDYNIMPORT) {
+			adduint8(d, 0x01);	// type - N_EXT - external symbol
+			adduint8(d, 0);	// section
+		} else {
+			adduint8(d, 0x0f);
+			switch(s->type) {
+			default:
+			case STEXT:
+				adduint8(d, 1);
+				break;
+			case SDATA:
+				adduint8(d, 2);
+				break;
+			case SBSS:
+				adduint8(d, 4);
+				break;
+			}
+		}
+		adduint16(d, 0);	// desc
+		if(s->type == SDYNIMPORT)
+			adduint64(d, 0);	// value
+		else
+			addaddr(d, s);
+	} else {
+		diag("adddynsym: unsupported binary format");
+	}
+}
+
+void
+adddynlib(char *lib)
+{
+	Sym *s;
+	
+	if(!needlib(lib))
+		return;
+	
+	if(iself) {
+		s = lookup(".dynstr", 0);
+		if(s->size == 0)
+			addstring(s, "");
+		elfwritedynent(lookup(".dynamic", 0), DT_NEEDED, addstring(s, lib));
+	} else if(HEADTYPE == 6) {	// Mach-O
+		machoadddynlib(lib);
+	} else {
+		diag("adddynlib: unsupported binary format");
+	}
+}
+
 void
 doelf(void)
 {
-	Sym *s, *shstrtab, *dynamic, *dynstr, *d;
-	int h, nsym, t;
+	Sym *s, *shstrtab, *dynstr;
 
 	if(HEADTYPE != 7 && HEADTYPE != 9)
 		return;
 
 	/* predefine strings we need for section headers */
 	shstrtab = lookup(".shstrtab", 0);
+	shstrtab->type = SELFDATA;
+	shstrtab->reachable = 1;
+
 	elfstr[ElfStrEmpty] = addstring(shstrtab, "");
 	elfstr[ElfStrText] = addstring(shstrtab, ".text");
 	elfstr[ElfStrData] = addstring(shstrtab, ".data");
 	elfstr[ElfStrBss] = addstring(shstrtab, ".bss");
+	addstring(shstrtab, ".elfdata");
+	addstring(shstrtab, ".rodata");
 	if(!debug['s']) {
 		elfstr[ElfStrGosymcounts] = addstring(shstrtab, ".gosymcounts");
 		elfstr[ElfStrGosymtab] = addstring(shstrtab, ".gosymtab");
 		elfstr[ElfStrGopclntab] = addstring(shstrtab, ".gopclntab");
-		if(debug['e']) {
-			elfstr[ElfStrSymtab] = addstring(shstrtab, ".symtab");
-			elfstr[ElfStrStrtab] = addstring(shstrtab, ".strtab");
-		}
+		elfstr[ElfStrSymtab] = addstring(shstrtab, ".symtab");
+		elfstr[ElfStrStrtab] = addstring(shstrtab, ".strtab");
+		dwarfaddshstrings(shstrtab);
 	}
 	elfstr[ElfStrShstrtab] = addstring(shstrtab, ".shstrtab");
 
@@ -316,19 +628,21 @@ doelf(void)
 		elfstr[ElfStrDynsym] = addstring(shstrtab, ".dynsym");
 		elfstr[ElfStrDynstr] = addstring(shstrtab, ".dynstr");
 		elfstr[ElfStrRela] = addstring(shstrtab, ".rela");
+		elfstr[ElfStrRelaPlt] = addstring(shstrtab, ".rela.plt");
+		elfstr[ElfStrPlt] = addstring(shstrtab, ".plt");
 
 		/* dynamic symbol table - first entry all zeros */
 		s = lookup(".dynsym", 0);
 		s->type = SELFDATA;
 		s->reachable = 1;
-		s->value += ELF64SYMSIZE;
+		s->size += ELF64SYMSIZE;
 
 		/* dynamic string table */
 		s = lookup(".dynstr", 0);
 		s->type = SELFDATA;
 		s->reachable = 1;
-		s->value += ELF64SYMSIZE;
-		addstring(s, "");
+		if(s->size == 0)
+			addstring(s, "");
 		dynstr = s;
 
 		/* relocation table */
@@ -339,15 +653,24 @@ doelf(void)
 		/* global offset table */
 		s = lookup(".got", 0);
 		s->reachable = 1;
+		s->type = SDATA;	// writable, so not SELFDATA
+
+		/* hash */
+		s = lookup(".hash", 0);
+		s->reachable = 1;
 		s->type = SELFDATA;
 
-		/* got.plt - ??? */
 		s = lookup(".got.plt", 0);
+		s->reachable = 1;
+		s->type = SDATA;	// writable, not SELFDATA
+
+		s = lookup(".plt", 0);
 		s->reachable = 1;
 		s->type = SELFDATA;
 		
-		/* hash */
-		s = lookup(".hash", 0);
+		elfsetupplt();
+		
+		s = lookup(".rela.plt", 0);
 		s->reachable = 1;
 		s->type = SELFDATA;
 
@@ -355,78 +678,10 @@ doelf(void)
 		s = lookup(".dynamic", 0);
 		s->reachable = 1;
 		s->type = SELFDATA;
-		dynamic = s;
-
-		/*
-		 * relocation entries for dynimport symbols
-		 */
-		nsym = 1;	// sym 0 is reserved
-		for(h=0; h<NHASH; h++) {
-			for(s=hash[h]; s!=S; s=s->link) {
-				if(!s->reachable || (s->type != STEXT && s->type != SDATA && s->type != SBSS) || s->dynimpname == nil)
-					continue;
-
-				if(!s->dynexport) {
-					d = lookup(".rela", 0);
-					addaddr(d, s);
-					adduint64(d, ELF64_R_INFO(nsym, R_X86_64_64));
-					adduint64(d, 0);
-				}
-
-				nsym++;
-
-				d = lookup(".dynsym", 0);
-				adduint32(d, addstring(lookup(".dynstr", 0), s->dynimpname));
-				/* type */
-				t = STB_GLOBAL << 4;
-				if(s->dynexport && s->type == STEXT)
-					t |= STT_FUNC;
-				else
-					t |= STT_OBJECT;
-				adduint8(d, t);
-
-				/* reserved */
-				adduint8(d, 0);
-
-				/* section where symbol is defined */
-				if(!s->dynexport)
-					adduint16(d, SHN_UNDEF);
-				else {
-					switch(s->type) {
-					default:
-					case STEXT:
-						t = 9;
-						break;
-					case SDATA:
-						t = 10;
-						break;
-					case SBSS:
-						t = 11;
-						break;
-					}
-					adduint16(d, t);
-				}
-
-				/* value */
-				if(!s->dynexport)
-					adduint64(d, 0);
-				else
-					addaddr(d, s);
-
-				/* size of object */
-				adduint64(d, 0);
-
-				if(!s->dynexport && needlib(s->dynimplib))
-					elfwritedynent(dynamic, DT_NEEDED, addstring(dynstr, s->dynimplib));
-			}
-		}
-
-		elfdynhash(nsym);
 
 		/*
 		 * .dynamic table
 		 */
-		s = dynamic;
 		elfwritedynentsym(s, DT_HASH, lookup(".hash", 0));
 		elfwritedynentsym(s, DT_SYMTAB, lookup(".dynsym", 0));
 		elfwritedynent(s, DT_SYMENT, ELF64SYMSIZE);
@@ -437,6 +692,11 @@ doelf(void)
 		elfwritedynent(s, DT_RELAENT, ELF64RELASIZE);
 		if(rpath)
 			elfwritedynent(s, DT_RUNPATH, addstring(dynstr, rpath));
+		
+		elfwritedynentsym(s, DT_PLTGOT, lookup(".got.plt", 0));
+		elfwritedynent(s, DT_PLTREL, DT_RELA);
+		elfwritedynentsymsize(s, DT_PLTRELSZ, lookup(".rela.plt", 0));
+		elfwritedynentsym(s, DT_JMPREL, lookup(".rela.plt", 0));
 		elfwritedynent(s, DT_NULL, 0);
 	}
 }
@@ -463,15 +723,13 @@ phsh(ElfPhdr *ph, ElfShdr *sh)
 void
 asmb(void)
 {
-	Prog *p;
-	int32 v, magic;
+	int32 magic;
 	int a, dynsym;
-	uchar *op1;
 	vlong vl, va, startva, fo, w, symo, elfsymo, elfstro, elfsymsize, machlink;
-	vlong symdatva = SYMDATVA;
 	ElfEhdr *eh;
 	ElfPhdr *ph, *pph;
 	ElfShdr *sh;
+	Section *sect;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f asmb\n", cputime());
@@ -481,100 +739,50 @@ asmb(void)
 	elfsymsize = 0;
 	elfstro = 0;
 	elfsymo = 0;
-	seek(cout, HEADR, 0);
-	pc = INITTEXT;
-	curp = firstp;
-	for(p = firstp; p != P; p = p->link) {
-		if(p->as == ATEXT)
-			curtext = p;
-		if(p->pc != pc) {
-			if(!debug['a'])
-				print("%P\n", curp);
-			diag("phase error %llux sb %llux in %s", p->pc, pc, TNAME);
-			pc = p->pc;
-		}
-		curp = p;
-		asmins(p);
-		a = (andptr - and);
-		if(cbc < a)
-			cflush();
-		if(debug['a']) {
-			Bprint(&bso, pcstr, pc);
-			for(op1 = and; op1 < andptr; op1++)
-				Bprint(&bso, "%.2ux", *op1);
-			for(; op1 < and+Maxand; op1++)
-				Bprint(&bso, "  ");
-			Bprint(&bso, "%P\n", curp);
-		}
-		if(dlm) {
-			if(p->as == ATEXT)
-				reloca = nil;
-			else if(reloca != nil)
-				diag("reloc failure: %P", curp);
-		}
-		memmove(cbp, and, a);
-		cbp += a;
-		pc += a;
-		cbc -= a;
-	}
-	cflush();
+	
+	if(debug['v'])
+		Bprint(&bso, "%5.2f codeblk\n", cputime());
+	Bflush(&bso);
 
+	sect = segtext.sect;
+	seek(cout, sect->vaddr - segtext.vaddr + segtext.fileoff, 0);
+	codeblk(sect->vaddr, sect->len);
 
-	switch(HEADTYPE) {
-	default:
-		diag("unknown header type %ld", HEADTYPE);
-	case 2:
-	case 5:
-		seek(cout, HEADR+textsize, 0);
-		break;
-	case 6:
-		debug['8'] = 1;	/* 64-bit addresses */
-		v = HEADR+textsize;
-		seek(cout, v, 0);
-		v = rnd(v, 4096) - v;
-		while(v > 0) {
-			cput(0);
-			v--;
-		}
-		cflush();
-		break;
-
-	case 7:
-	case 9:
-		debug['8'] = 1;	/* 64-bit addresses */
-		v = rnd(HEADR+textsize, INITRND);
-		seek(cout, v, 0);
-		
-		/* index of elf text section; needed by asmelfsym, double-checked below */
-		/* debug['d'] causes 8 extra sections before the .text section */
-		elftextsh = 1;
-		if(!debug['d'])
-			elftextsh += 8;
-		break;
-	}
+	/* output read-only data in text segment */
+	sect = segtext.sect->next;
+	seek(cout, sect->vaddr - segtext.vaddr + segtext.fileoff, 0);
+	datblk(sect->vaddr, sect->len);
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f datblk\n", cputime());
 	Bflush(&bso);
 
-	if(dlm){
-		char buf[8];
-
-		write(cout, buf, INITDAT-textsize);
-		textsize = INITDAT;
-	}
-
-	datap = datsort(datap);
-	for(v = 0; v < datsize; v += sizeof(buf)-Dbufslop) {
-		if(datsize-v > sizeof(buf)-Dbufslop)
-			datblk(v, sizeof(buf)-Dbufslop);
-		else
-			datblk(v, datsize-v);
-	}
+	seek(cout, segdata.fileoff, 0);
+	datblk(segdata.vaddr, segdata.filelen);
 
 	machlink = 0;
 	if(HEADTYPE == 6)
 		machlink = domacholink();
+
+	switch(HEADTYPE) {
+	default:
+		diag("unknown header type %d", HEADTYPE);
+	case 2:
+	case 5:
+		break;
+	case 6:
+		debug['8'] = 1;	/* 64-bit addresses */
+		break;
+	case 7:
+	case 9:
+		debug['8'] = 1;	/* 64-bit addresses */
+		/* index of elf text section; needed by asmelfsym, double-checked below */
+		/* !debug['d'] causes extra sections before the .text section */
+		elftextsh = 1;
+		if(!debug['d'])
+			elftextsh += 10;
+		break;
+	}
 
 	symsize = 0;
 	spsize = 0;
@@ -589,14 +797,14 @@ asmb(void)
 		case 2:
 		case 5:
 			debug['s'] = 1;
-			symo = HEADR+textsize+datsize;
+			symo = HEADR+segtext.len+segdata.filelen;
 			break;
 		case 6:
-			symo = rnd(HEADR+textsize, INITRND)+rnd(datsize, INITRND)+machlink;
+			symo = rnd(HEADR+segtext.len, INITRND)+rnd(segdata.filelen, INITRND)+machlink;
 			break;
 		case 7:
 		case 9:
-			symo = rnd(HEADR+textsize, INITRND)+datsize;
+			symo = rnd(HEADR+segtext.len, INITRND)+segdata.filelen;
 			symo = rnd(symo, INITRND);
 			break;
 		}
@@ -608,8 +816,6 @@ asmb(void)
 		 *	line number table
 		 */
 		seek(cout, symo+8, 0);
-		if(!debug['s'])
-			asmsym();
 		if(debug['v'])
 			Bprint(&bso, "%5.2f sp\n", cputime());
 		Bflush(&bso);
@@ -617,30 +823,26 @@ asmb(void)
 			Bprint(&bso, "%5.2f pc\n", cputime());
 		Bflush(&bso);
 		if(!debug['s'])
-			asmlc();
-		if(dlm)
-			asmdyn();
-		if(!debug['s'])
 			strnput("", INITRND-(8+symsize+lcsize)%INITRND);
 		cflush();
 		seek(cout, symo, 0);
 		lputl(symsize);
 		lputl(lcsize);
 		cflush();
-		if(!debug['s'] && debug['e']) {
+		if(!debug['s']) {
 			elfsymo = symo+8+symsize+lcsize;
 			seek(cout, elfsymo, 0);
-			asmelfsym();
+			asmelfsym64();
 			cflush();
 			elfstro = seek(cout, 0, 1);
 			elfsymsize = elfstro - elfsymo;
-			write(cout, elfstrdat, elfstrsize);
-		}		
-	} else
-	if(dlm){
-		seek(cout, HEADR+textsize+datsize, 0);
-		asmdyn();
-		cflush();
+			ewrite(cout, elfstrdat, elfstrsize);
+
+			if(debug['v'])
+			       Bprint(&bso, "%5.2f dwarf\n", cputime());
+
+			dwarfemitdebugsections();
+		}
 	}
 
 	if(debug['v'])
@@ -652,12 +854,10 @@ asmb(void)
 	case 2:	/* plan9 */
 		magic = 4*26*26+7;
 		magic |= 0x00008000;		/* fat header */
-		if(dlm)
-			magic |= 0x80000000;	/* dlm */
 		lputb(magic);			/* magic */
-		lputb(textsize);			/* sizes */
-		lputb(datsize);
-		lputb(bsssize);
+		lputb(segtext.filelen);			/* sizes */
+		lputb(segdata.filelen);
+		lputb(segdata.len - segdata.filelen);
 		lputb(symsize);			/* nsyms */
 		vl = entryvalue();
 		lputb(PADDR(vl));		/* va of entry */
@@ -667,19 +867,17 @@ asmb(void)
 		break;
 	case 3:	/* plan9 */
 		magic = 4*26*26+7;
-		if(dlm)
-			magic |= 0x80000000;
 		lputb(magic);			/* magic */
-		lputb(textsize);		/* sizes */
-		lputb(datsize);
-		lputb(bsssize);
+		lputb(segtext.filelen);		/* sizes */
+		lputb(segdata.filelen);
+		lputb(segdata.len - segdata.filelen);
 		lputb(symsize);			/* nsyms */
 		lputb(entryvalue());		/* va of entry */
 		lputb(spsize);			/* sp offsets */
 		lputb(lcsize);			/* line offsets */
 		break;
 	case 6:
-		asmbmacho(symdatva, symo);
+		asmbmacho();
 		break;
 	case 7:
 	case 9:
@@ -689,7 +887,7 @@ asmb(void)
 		fo = HEADR;
 		startva = INITTEXT - HEADR;
 		va = startva + fo;
-		w = textsize;
+		w = segtext.filelen;
 
 		/* This null SHdr must appear before all others */
 		sh = newElfShdr(elfstr[ElfStrEmpty]);
@@ -724,41 +922,8 @@ asmb(void)
 			phsh(ph, sh);
 		}
 
-		ph = newElfPhdr();
-		ph->type = PT_LOAD;
-		ph->flags = PF_X+PF_R;
-		ph->vaddr = va - fo;
-		ph->paddr = va - fo;
-		ph->off = 0;
-		ph->filesz = w + fo;
-		ph->memsz = w + fo;
-		ph->align = INITRND;
-
-		fo = rnd(fo+w, INITRND);
-		va = rnd(va+w, INITRND);
-		w = datsize;
-
-		ph = newElfPhdr();
-		ph->type = PT_LOAD;
-		ph->flags = PF_W+PF_R;
-		ph->off = fo;
-		ph->vaddr = va;
-		ph->paddr = va;
-		ph->filesz = w;
-		ph->memsz = w+bsssize;
-		ph->align = INITRND;
-
-		if(!debug['s']) {
-			ph = newElfPhdr();
-			ph->type = PT_LOAD;
-			ph->flags = PF_R;
-			ph->off = symo;
-			ph->vaddr = symdatva;
-			ph->paddr = symdatva;
-			ph->filesz = rnd(8+symsize+lcsize, INITRND);
-			ph->memsz = rnd(8+symsize+lcsize, INITRND);
-			ph->align = INITRND;
-		}
+		elfphload(&segtext);
+		elfphload(&segdata);
 
 		/* Dynamic linking sections */
 		if (!debug['d']) {	/* -d suppresses dynamic loader format */
@@ -776,7 +941,7 @@ asmb(void)
 			sh->entsize = 8;
 			sh->addralign = 8;
 			shsym(sh, lookup(".got.plt", 0));
-
+			
 			dynsym = eh->shnum;
 			sh = newElfShdr(elfstr[ElfStrDynsym]);
 			sh->type = SHT_DYNSYM;
@@ -792,6 +957,22 @@ asmb(void)
 			sh->flags = SHF_ALLOC;
 			sh->addralign = 1;
 			shsym(sh, lookup(".dynstr", 0));
+
+			sh = newElfShdr(elfstr[ElfStrRelaPlt]);
+			sh->type = SHT_RELA;
+			sh->flags = SHF_ALLOC;
+			sh->entsize = ELF64RELASIZE;
+			sh->addralign = 8;
+			sh->link = dynsym;
+			sh->info = eh->shnum;	// .plt
+			shsym(sh, lookup(".rela.plt", 0));
+
+			sh = newElfShdr(elfstr[ElfStrPlt]);
+			sh->type = SHT_PROGBITS;
+			sh->flags = SHF_ALLOC+SHF_EXECINSTR;
+			sh->entsize = 16;
+			sh->addralign = 4;
+			shsym(sh, lookup(".plt", 0));
 
 			sh = newElfShdr(elfstr[ElfStrHash]);
 			sh->type = SHT_HASH;
@@ -821,6 +1002,17 @@ asmb(void)
 			ph->type = PT_DYNAMIC;
 			ph->flags = PF_R + PF_W;
 			phsh(ph, sh);
+			
+			/*
+			 * Thread-local storage segment (really just size).
+			 */
+			if(tlsoffset != 0) {
+				ph = newElfPhdr();
+				ph->type = PT_TLS;
+				ph->flags = PF_R;
+				ph->memsz = -tlsoffset;
+				ph->align = 8;
+			}
 		}
 
 		ph = newElfPhdr();
@@ -828,93 +1020,41 @@ asmb(void)
 		ph->flags = PF_W+PF_R;
 		ph->align = 8;
 
-		fo = ELFRESERVE;
-		va = startva + fo;
-		w = textsize;
-
 		if(elftextsh != eh->shnum)
 			diag("elftextsh = %d, want %d", elftextsh, eh->shnum);
-		sh = newElfShdr(elfstr[ElfStrText]);
-		sh->type = SHT_PROGBITS;
-		sh->flags = SHF_ALLOC+SHF_EXECINSTR;
-		sh->addr = va;
-		sh->off = fo;
-		sh->size = w;
-		sh->addralign = 8;
-
-		fo = rnd(fo+w, INITRND);
-		va = rnd(va+w, INITRND);
-		w = datsize;
-
-		sh = newElfShdr(elfstr[ElfStrData]);
-		sh->type = SHT_PROGBITS;
-		sh->flags = SHF_WRITE+SHF_ALLOC;
-		sh->addr = va + elfdatsize;
-		sh->off = fo + elfdatsize;
-		sh->size = w - elfdatsize;
-		sh->addralign = 8;
-
-		fo += w;
-		va += w;
-		w = bsssize;
-
-		sh = newElfShdr(elfstr[ElfStrBss]);
-		sh->type = SHT_NOBITS;
-		sh->flags = SHF_WRITE+SHF_ALLOC;
-		sh->addr = va;
-		sh->off = fo;
-		sh->size = w;
-		sh->addralign = 8;
+		for(sect=segtext.sect; sect!=nil; sect=sect->next)
+			elfshbits(sect);
+		for(sect=segdata.sect; sect!=nil; sect=sect->next)
+			elfshbits(sect);
 
 		if (!debug['s']) {
-			fo = symo;
-			w = 8;
-
-			sh = newElfShdr(elfstr[ElfStrGosymcounts]);
-			sh->type = SHT_PROGBITS;
-			sh->flags = SHF_ALLOC;
-			sh->off = fo;
-			sh->size = w;
-			sh->addralign = 1;
-			sh->addr = symdatva;
-
-			fo += w;
-			w = symsize;
-
 			sh = newElfShdr(elfstr[ElfStrGosymtab]);
 			sh->type = SHT_PROGBITS;
 			sh->flags = SHF_ALLOC;
-			sh->off = fo;
-			sh->size = w;
 			sh->addralign = 1;
-			sh->addr = symdatva + 8;
-
-			fo += w;
-			w = lcsize;
+			shsym(sh, lookup("symtab", 0));
 
 			sh = newElfShdr(elfstr[ElfStrGopclntab]);
 			sh->type = SHT_PROGBITS;
 			sh->flags = SHF_ALLOC;
-			sh->off = fo;
-			sh->size = w;
 			sh->addralign = 1;
-			sh->addr = symdatva + 8 + symsize;
-			
-			if(debug['e']) {
-				sh = newElfShdr(elfstr[ElfStrSymtab]);
-				sh->type = SHT_SYMTAB;
-				sh->off = elfsymo;
-				sh->size = elfsymsize;
-				sh->addralign = 8;
-				sh->entsize = 24;
-				sh->link = eh->shnum;	// link to strtab
-			
-				sh = newElfShdr(elfstr[ElfStrStrtab]);
-				sh->type = SHT_STRTAB;
-				sh->off = elfstro;
-				sh->size = elfstrsize;
-				sh->addralign = 1;
-			}
+			shsym(sh, lookup("pclntab", 0));
+
+			sh = newElfShdr(elfstr[ElfStrSymtab]);
+			sh->type = SHT_SYMTAB;
+			sh->off = elfsymo;
+			sh->size = elfsymsize;
+			sh->addralign = 8;
+			sh->entsize = 24;
+			sh->link = eh->shnum;	// link to strtab
+
+			sh = newElfShdr(elfstr[ElfStrStrtab]);
+			sh->type = SHT_STRTAB;
+			sh->off = elfstro;
+			sh->size = elfstrsize;
+			sh->addralign = 1;
+
+			dwarfaddelfheaders();
 		}
 
 		sh = newElfShstrtab(elfstr[ElfStrShstrtab]);
@@ -961,340 +1101,16 @@ cflush(void)
 
 	n = sizeof(buf.cbuf) - cbc;
 	if(n)
-		write(cout, buf.cbuf, n);
+		ewrite(cout, buf.cbuf, n);
 	cbp = buf.cbuf;
 	cbc = sizeof(buf.cbuf);
 }
 
-void
-outa(int n, uchar *cast, uchar *map, vlong l)
+/* Current position in file */
+vlong
+cpos(void)
 {
-	int i, j;
-
-	Bprint(&bso, pcstr, l);
-	for(i=0; i<n; i++) {
-		j = i;
-		if(map != nil)
-			j = map[j];
-		Bprint(&bso, "%.2ux", cast[j]);
-	}
-	for(; i<Maxand; i++)
-		Bprint(&bso, "  ");
-	Bprint(&bso, "%P\n", curp);
-}
-
-/*
- * divide-and-conquer list-link
- * sort of Prog* structures.
- * Used for the data block.
- */
-int
-datcmp(Prog *p1, Prog *p2)
-{
-	vlong v1, v2;
-
-	v1 = p1->from.offset;
-	v2 = p2->from.offset;
-	if(v1 > v2)
-		return +1;
-	if(v1 < v2)
-		return -1;
-	return 0;
-}
-
-Prog*
-dsort(Prog *l)
-{
-	Prog *l1, *l2, *le;
-
-	if(l == 0 || l->link == 0)
-		return l;
-
-	l1 = l;
-	l2 = l;
-	for(;;) {
-		l2 = l2->link;
-		if(l2 == 0)
-			break;
-		l2 = l2->link;
-		if(l2 == 0)
-			break;
-		l1 = l1->link;
-	}
-
-	l2 = l1->link;
-	l1->link = 0;
-	l1 = dsort(l);
-	l2 = dsort(l2);
-
-	/* set up lead element */
-	if(datcmp(l1, l2) < 0) {
-		l = l1;
-		l1 = l1->link;
-	} else {
-		l = l2;
-		l2 = l2->link;
-	}
-	le = l;
-
-	for(;;) {
-		if(l1 == 0) {
-			while(l2) {
-				le->link = l2;
-				le = l2;
-				l2 = l2->link;
-			}
-			le->link = 0;
-			break;
-		}
-		if(l2 == 0) {
-			while(l1) {
-				le->link = l1;
-				le = l1;
-				l1 = l1->link;
-			}
-			break;
-		}
-		if(datcmp(l1, l2) < 0) {
-			le->link = l1;
-			le = l1;
-			l1 = l1->link;
-		} else {
-			le->link = l2;
-			le = l2;
-			l2 = l2->link;
-		}
-	}
-	le->link = 0;
-	return l;
-}
-
-static Prog *datp;
-
-Prog*
-datsort(Prog *l)
-{
-	Prog *p;
-	Adr *a;
-
-	for(p = l; p != P; p = p->link) {
-		a = &p->from;
-		a->offset += a->sym->value;
-	}
-	datp = dsort(l);
-	return datp;
-}
-
-void
-datblk(int32 s, int32 n)
-{
-	Prog *p;
-	uchar *cast;
-	int32 l, fl, j;
-	vlong o;
-	int i, c;
-	Adr *a;
-
-	for(p = datp; p != P; p = p->link) {
-		a = &p->from;
-		l = a->offset - s;
-		if(l+a->scale < 0)
-			continue;
-		datp = p;
-		break;
-	}
-
-	memset(buf.dbuf, 0, n+Dbufslop);
-	for(p = datp; p != P; p = p->link) {
-		a = &p->from;
-
-		l = a->offset - s;
-		if(l >= n)
-			break;
-
-		c = a->scale;
-		i = 0;
-		if(l < 0) {
-			if(l+c <= 0)
-				continue;
-			i = -l;
-			l = 0;
-		}
-
-		curp = p;
-		if(!a->sym->reachable)
-			diag("unreachable symbol in datblk - %s", a->sym->name);
-		if(a->sym->type == SMACHO)
-			continue;
-
-		if(p->as != AINIT && p->as != ADYNT) {
-			for(j=l+(c-i)-1; j>=l; j--)
-				if(buf.dbuf[j]) {
-					print("%P\n", p);
-					diag("multiple initialization for %d %d", s, j);
-					break;
-				}
-		}
-
-		switch(p->to.type) {
-		case D_FCONST:
-			switch(c) {
-			default:
-			case 4:
-				fl = ieeedtof(&p->to.ieee);
-				cast = (uchar*)&fl;
-				for(; i<c; i++) {
-					buf.dbuf[l] = cast[fnuxi4[i]];
-					l++;
-				}
-				break;
-			case 8:
-				cast = (uchar*)&p->to.ieee;
-				for(; i<c; i++) {
-					buf.dbuf[l] = cast[fnuxi8[i]];
-					l++;
-				}
-				break;
-			}
-			break;
-
-		case D_SCONST:
-			for(; i<c; i++) {
-				buf.dbuf[l] = p->to.scon[i];
-				l++;
-			}
-			break;
-
-		default:
-			o = p->to.offset;
-			if(p->to.type == D_SIZE)
-				o += p->to.sym->size;
-			if(p->to.type == D_ADDR) {
-				if(p->to.index != D_STATIC && p->to.index != D_EXTERN)
-					diag("DADDR type%P", p);
-				if(p->to.sym) {
-					if(p->to.sym->type == SUNDEF)
-						ckoff(p->to.sym, o);
-					if(p->to.sym->type == Sxxx) {
-						curtext = p;	// show useful name in diag's output
-						diag("missing symbol %s", p->to.sym->name);
-					}
-					o += p->to.sym->value;
-					if(p->to.sym->type != STEXT && p->to.sym->type != SUNDEF)
-						o += INITDAT;
-					if(dlm)
-						dynreloc(p->to.sym, l+s+INITDAT, 1);
-				}
-			}
-			fl = o;
-			cast = (uchar*)&fl;
-			switch(c) {
-			default:
-				diag("bad nuxi %d %d\n%P", c, i, curp);
-				break;
-			case 1:
-				for(; i<c; i++) {
-					buf.dbuf[l] = cast[inuxi1[i]];
-					l++;
-				}
-				break;
-			case 2:
-				for(; i<c; i++) {
-					buf.dbuf[l] = cast[inuxi2[i]];
-					l++;
-				}
-				break;
-			case 4:
-				for(; i<c; i++) {
-					buf.dbuf[l] = cast[inuxi4[i]];
-					l++;
-				}
-				break;
-			case 8:
-				cast = (uchar*)&o;
-				for(; i<c; i++) {
-					buf.dbuf[l] = cast[inuxi8[i]];
-					l++;
-				}
-				break;
-			}
-			break;
-		}
-	}
-
-	write(cout, buf.dbuf, n);
-	if(!debug['a'])
-		return;
-
-	/*
-	 * a second pass just to print the asm
-	 */
-	for(p = datap; p != P; p = p->link) {
-		a = &p->from;
-
-		l = a->offset - s;
-		if(l >= n)
-			continue;
-
-		c = a->scale;
-		i = 0;
-		if(l < 0)
-			continue;
-
-		if(a->sym->type == SMACHO)
-			continue;
-
-		switch(p->to.type) {
-		case D_FCONST:
-			switch(c) {
-			default:
-			case 4:
-				fl = ieeedtof(&p->to.ieee);
-				cast = (uchar*)&fl;
-				outa(c, cast, fnuxi4, l+s+INITDAT);
-				break;
-			case 8:
-				cast = (uchar*)&p->to.ieee;
-				outa(c, cast, fnuxi8, l+s+INITDAT);
-				break;
-			}
-			break;
-
-		case D_SCONST:
-			outa(c, (uchar*)p->to.scon, nil, l+s+INITDAT);
-			break;
-
-		default:
-			o = p->to.offset;
-			if(p->to.type == D_SIZE)
-				o += p->to.sym->size;
-			if(p->to.type == D_ADDR) {
-				if(p->to.sym) {
-					o += p->to.sym->value;
-					if(p->to.sym->type != STEXT && p->to.sym->type != SUNDEF)
-						o += INITDAT;
-				}
-			}
-			fl = o;
-			cast = (uchar*)&fl;
-			switch(c) {
-			case 1:
-				outa(c, cast, inuxi1, l+s+INITDAT);
-				break;
-			case 2:
-				outa(c, cast, inuxi2, l+s+INITDAT);
-				break;
-			case 4:
-				outa(c, cast, inuxi4, l+s+INITDAT);
-				break;
-			case 8:
-				cast = (uchar*)&o;
-				outa(c, cast, inuxi8, l+s+INITDAT);
-				break;
-			}
-			break;
-		}
-	}
+	return seek(cout, 0, 1) + sizeof(buf.cbuf) - cbc;
 }
 
 vlong
@@ -1312,3 +1128,64 @@ rnd(vlong v, vlong r)
 	return v;
 }
 
+void
+genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
+{
+	Auto *a;
+	Sym *s;
+	int h;
+
+	for(h=0; h<NHASH; h++) {
+		for(s=hash[h]; s!=S; s=s->hash) {
+			switch(s->type&~SSUB) {
+			case SCONST:
+			case SRODATA:
+			case SDATA:
+			case SELFDATA:
+			case SMACHOGOT:
+				if(!s->reachable)
+					continue;
+				put(s, s->name, 'D', symaddr(s), s->size, s->version, s->gotype);
+				continue;
+
+			case SBSS:
+				if(!s->reachable)
+					continue;
+				put(s, s->name, 'B', symaddr(s), s->size, s->version, s->gotype);
+				continue;
+
+			case SFILE:
+				put(nil, s->name, 'f', s->value, 0, s->version, 0);
+				continue;
+			}
+		}
+	}
+
+	for(s = textp; s != nil; s = s->next) {
+		if(s->text == nil)
+			continue;
+
+		/* filenames first */
+		for(a=s->autom; a; a=a->link)
+			if(a->type == D_FILE)
+				put(nil, a->asym->name, 'z', a->aoffset, 0, 0, 0);
+			else
+			if(a->type == D_FILE1)
+				put(nil, a->asym->name, 'Z', a->aoffset, 0, 0, 0);
+
+		put(s, s->name, 'T', s->value, s->size, s->version, s->gotype);
+
+		/* frame, auto and param after */
+		put(nil, ".frame", 'm', s->text->to.offset+8, 0, 0, 0);
+
+		for(a=s->autom; a; a=a->link)
+			if(a->type == D_AUTO)
+				put(nil, a->asym->name, 'a', -a->aoffset, 0, 0, a->gotype);
+			else
+			if(a->type == D_PARAM)
+				put(nil, a->asym->name, 'p', a->aoffset, 0, 0, a->gotype);
+	}
+	if(debug['v'] || debug['n'])
+		Bprint(&bso, "symsize = %ud\n", symsize);
+	Bflush(&bso);
+}

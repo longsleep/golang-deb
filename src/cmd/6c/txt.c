@@ -38,8 +38,7 @@ ginit(void)
 
 	thechar = '6';
 	thestring = "amd64";
-	exregoffset = REGEXT;
-	exfregoffset = FREGEXT;
+	dodefine("_64BIT");
 	listinit();
 	nstring = 0;
 	mnstring = 0;
@@ -425,7 +424,7 @@ err:
 void
 regsalloc(Node *n, Node *nn)
 {
-	cursafe = align(cursafe, nn->type, Aaut3);
+	cursafe = align(cursafe, nn->type, Aaut3, nil);
 	maxargsafe = maxround(maxargsafe, cursafe+curarg);
 	*n = *nodsafe;
 	n->xoffset = -(stkoff + cursafe);
@@ -441,22 +440,22 @@ regaalloc1(Node *n, Node *nn)
 		diag(n, "regaalloc1 and REGARG<0");
 	nodreg(n, nn, REGARG);
 	reg[REGARG]++;
-	curarg = align(curarg, nn->type, Aarg1);
-	curarg = align(curarg, nn->type, Aarg2);
+	curarg = align(curarg, nn->type, Aarg1, nil);
+	curarg = align(curarg, nn->type, Aarg2, nil);
 	maxargsafe = maxround(maxargsafe, cursafe+curarg);
 }
 
 void
 regaalloc(Node *n, Node *nn)
 {
-	curarg = align(curarg, nn->type, Aarg1);
+	curarg = align(curarg, nn->type, Aarg1, nil);
 	*n = *nn;
 	n->op = OINDREG;
 	n->reg = REGSP;
 	n->xoffset = curarg;
 	n->complex = 0;
 	n->addable = 20;
-	curarg = align(curarg, nn->type, Aarg2);
+	curarg = align(curarg, nn->type, Aarg2, nil);
 	maxargsafe = maxround(maxargsafe, cursafe+curarg);
 }
 
@@ -491,6 +490,10 @@ naddr(Node *n, Adr *a)
 		a->sym = S;
 		break;
 
+	case OEXREG:
+		a->type = D_INDIR + D_GS;
+		a->offset = n->reg - 1;
+		break;
 
 	case OIND:
 		naddr(n->left, a);
@@ -1502,11 +1505,11 @@ exreg(Type *t)
 	int32 o;
 
 	if(typechlpv[t->etype]) {
-		if(exregoffset <= REGEXT-4)
+		if(exregoffset >= 64)
 			return 0;
 		o = exregoffset;
-		exregoffset--;
-		return o;
+		exregoffset += 8;
+		return o+1;	// +1 to avoid 0 == failure; naddr's case OEXREG will subtract 1.
 	}
 	return 0;
 }

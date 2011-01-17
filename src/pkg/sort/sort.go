@@ -63,7 +63,7 @@ func swapRange(data Interface, a, b, n int) {
 }
 
 func doPivot(data Interface, lo, hi int) (midlo, midhi int) {
-	m := (lo + hi) / 2
+	m := lo + (hi-lo)/2 // Written like this to avoid integer overflow.
 	if hi-lo > 40 {
 		// Tukey's ``Ninther,'' median of three medians of three.
 		s := (hi - lo) / 8
@@ -122,11 +122,19 @@ func doPivot(data Interface, lo, hi int) (midlo, midhi int) {
 }
 
 func quickSort(data Interface, a, b int) {
-	if b-a > 7 {
+	for b-a > 7 {
 		mlo, mhi := doPivot(data, a, b)
-		quickSort(data, a, mlo)
-		quickSort(data, mhi, b)
-	} else if b-a > 1 {
+		// Avoiding recursion on the larger subproblem guarantees
+		// a stack depth of at most lg(b-a).
+		if mlo-a < b-mhi {
+			quickSort(data, a, mlo)
+			a = mhi // i.e., quickSort(data, mhi, b)
+		} else {
+			quickSort(data, mhi, b)
+			b = mlo // i.e., quickSort(data, a, mlo)
+		}
+	}
+	if b-a > 1 {
 		insertionSort(data, a, b)
 	}
 }

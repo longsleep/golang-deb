@@ -28,8 +28,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Code and data passes.
+
 #include	"l.h"
 #include	"../ld/lib.h"
+
+static void xfol(Prog*, Prog**);
 
 // see ../../pkg/runtime/proc.c:/StackGuard
 enum
@@ -37,138 +41,6 @@ enum
 	StackSmall = 128,
 	StackBig = 4096,
 };
-
-void
-dodata(void)
-{
-	int i;
-	Sym *s;
-	Prog *p;
-	int32 t, u;
-
-	if(debug['v'])
-		Bprint(&bso, "%5.2f dodata\n", cputime());
-	Bflush(&bso);
-	for(p = datap; p != P; p = p->link) {
-		s = p->from.sym;
-		if(p->as == ADYNT || p->as == AINIT)
-			s->value = dtype;
-		if(s->type == SBSS)
-			s->type = SDATA;
-		if(s->type != SDATA && s->type != SELFDATA)
-			diag("initialize non-data (%d): %s\n%P",
-				s->type, s->name, p);
-		t = p->from.offset + p->width;
-		if(t > s->value)
-			diag("initialize bounds (%ld): %s\n%P",
-				s->value, s->name, p);
-	}
-
-	/* allocate elf guys - must be segregated from real data */
-	datsize = 0;
-	for(i=0; i<NHASH; i++)
-	for(s = hash[i]; s != S; s = s->link) {
-		if(!s->reachable)
-			continue;
-		if(s->type != SELFDATA)
-			continue;
-		t = rnd(s->value, 4);
-		s->size = t;
-		s->value = datsize;
-		datsize += t;
-	}
-	elfdatsize = datsize;
-
-	/* allocate small guys */
-	for(i=0; i<NHASH; i++)
-	for(s = hash[i]; s != S; s = s->link) {
-		if(!s->reachable)
-			continue;
-		if(s->type != SDATA)
-		if(s->type != SBSS)
-			continue;
-		t = s->value;
-		if(t == 0 && s->name[0] != '.') {
-			diag("%s: no size", s->name);
-			t = 1;
-		}
-		t = rnd(t, 4);
-		s->size = t;
-		s->value = t;
-		if(t > MINSIZ)
-			continue;
-		s->value = datsize;
-		datsize += t;
-		s->type = SDATA1;
-	}
-
-	/* allocate the rest of the data */
-	for(i=0; i<NHASH; i++)
-	for(s = hash[i]; s != S; s = s->link) {
-		if(s->type != SDATA) {
-			if(s->type == SDATA1)
-				s->type = SDATA;
-			continue;
-		}
-		t = s->value;
-		s->size = t;
-		s->value = datsize;
-		datsize += t;
-	}
-
-	if(debug['j']) {
-		/*
-		 * pad data with bss that fits up to next
-		 * 8k boundary, then push data to 8k
-		 */
-		u = rnd(datsize, 8192);
-		u -= datsize;
-		for(i=0; i<NHASH; i++)
-		for(s = hash[i]; s != S; s = s->link) {
-			if(!s->reachable)
-				continue;
-			if(s->type != SBSS)
-				continue;
-			t = s->value;
-			if(t > u)
-				continue;
-			u -= t;
-			s->size = t;
-			s->value = datsize;
-			s->type = SDATA;
-			datsize += t;
-		}
-		datsize += u;
-	}
-
-	if(dynptrsize > 0) {
-		/* dynamic pointer section between data and bss */
-		datsize = rnd(datsize, 4);
-	}
-
-	/* now the bss */
-	bsssize = 0;
-	for(i=0; i<NHASH; i++)
-	for(s = hash[i]; s != S; s = s->link) {
-		if(!s->reachable)
-			continue;
-		if(s->type != SBSS)
-			continue;
-		t = s->value;
-		s->size = t;
-		s->value = bsssize + dynptrsize + datsize;
-		bsssize += t;
-	}
-
-	xdefine("data", SBSS, 0);
-	xdefine("edata", SBSS, datsize);
-	xdefine("end", SBSS, dynptrsize + bsssize + datsize);
-
-	if(debug['s'] || HEADTYPE == 8)
-		xdefine("symdat", SFIXED, 0);
-	else
-		xdefine("symdat", SFIXED, SYMDATVA);
-}
 
 Prog*
 brchain(Prog *p)
@@ -186,19 +58,53 @@ brchain(Prog *p)
 void
 follow(void)
 {
+	Prog *firstp, *lastp;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f follow\n", cputime());
 	Bflush(&bso);
-	firstp = prg();
-	lastp = firstp;
-	xfol(textp);
-	lastp->link = P;
-	firstp = firstp->link;
+	
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		firstp = prg();
+		lastp = firstp;
+		xfol(cursym->text, &lastp);
+		lastp->link = nil;
+		cursym->text = firstp->link;
+	}
 }
 
-void
-xfol(Prog *p)
+static int
+nofollow(int a)
+{
+	switch(a) {
+	case AJMP:
+	case ARET:
+	case AIRETL:
+	case AIRETW:
+		return 1;
+	}
+	return 0;
+}
+
+static int
+pushpop(int a)
+{
+	switch(a) {
+	case APUSHL:
+	case APUSHFL:
+	case APUSHW:
+	case APUSHFW:
+	case APOPL:
+	case APOPFL:
+	case APOPW:
+	case APOPFW:
+		return 1;
+	}
+	return 0;
+}
+
+static void
+xfol(Prog *p, Prog **last)
 {
 	Prog *q;
 	int i;
@@ -207,46 +113,31 @@ xfol(Prog *p)
 loop:
 	if(p == P)
 		return;
-	if(p->as == ATEXT)
-		curtext = p;
-	if(!curtext->from.sym->reachable) {
-		p = p->pcond;
-		goto loop;
-	}
 	if(p->as == AJMP)
 	if((q = p->pcond) != P && q->as != ATEXT) {
+		/* mark instruction as done and continue layout at target of jump */
 		p->mark = 1;
 		p = q;
 		if(p->mark == 0)
 			goto loop;
 	}
 	if(p->mark) {
-		/* copy up to 4 instructions to avoid branch */
+		/* 
+		 * p goes here, but already used it elsewhere.
+		 * copy up to 4 instructions or else branch to other copy.
+		 */
 		for(i=0,q=p; i<4; i++,q=q->link) {
 			if(q == P)
 				break;
-			if(q == lastp)
+			if(q == *last)
 				break;
 			a = q->as;
 			if(a == ANOP) {
 				i--;
 				continue;
 			}
-			switch(a) {
-			case AJMP:
-			case ARET:
-			case AIRETL:
-
-			case APUSHL:
-			case APUSHFL:
-			case APUSHW:
-			case APUSHFW:
-			case APOPL:
-			case APOPFL:
-			case APOPW:
-			case APOPFW:
-				goto brk;
-			}
+			if(nofollow(a) || pushpop(a))	
+				break;	// NOTE(rsc): arm does goto copy
 			if(q->pcond == P || q->pcond->mark)
 				continue;
 			if(a == ACALL || a == ALOOP)
@@ -259,8 +150,8 @@ loop:
 				q = copyp(p);
 				p = p->link;
 				q->mark = 1;
-				lastp->link = q;
-				lastp = q;
+				(*last)->link = q;
+				*last = q;
 				if(q->as != a || q->pcond == P || q->pcond->mark)
 					continue;
 
@@ -268,14 +159,13 @@ loop:
 				p = q->pcond;
 				q->pcond = q->link;
 				q->link = p;
-				xfol(q->link);
+				xfol(q->link, last);
 				p = q->link;
 				if(p->mark)
 					return;
 				goto loop;
 			}
 		} /* */
-	brk:;
 		q = prg();
 		q->as = AJMP;
 		q->line = p->line;
@@ -284,14 +174,22 @@ loop:
 		q->pcond = p;
 		p = q;
 	}
+	
+	/* emit p */
 	p->mark = 1;
-	lastp->link = p;
-	lastp = p;
+	(*last)->link = p;
+	*last = p;
 	a = p->as;
-	if(a == AJMP || a == ARET || a == AIRETL)
+
+	/* continue loop with what comes after p */
+	if(nofollow(a))
 		return;
-	if(p->pcond != P)
-	if(a != ACALL) {
+	if(p->pcond != P && a != ACALL) {
+		/*
+		 * some kind of conditional branch.
+		 * recurse to follow one path.
+		 * continue loop on the other.
+		 */
 		q = brchain(p->link);
 		if(q != P && q->mark)
 		if(a != ALOOP) {
@@ -299,7 +197,7 @@ loop:
 			p->link = p->pcond;
 			p->pcond = q;
 		}
-		xfol(p->link);
+		xfol(p->link, last);
 		q = brchain(p->pcond);
 		if(q->mark) {
 			p->pcond = q;
@@ -339,28 +237,6 @@ relinv(int a)
 }
 
 void
-doinit(void)
-{
-	Sym *s;
-	Prog *p;
-	int x;
-
-	for(p = datap; p != P; p = p->link) {
-		x = p->to.type;
-		if(x != D_EXTERN && x != D_STATIC)
-			continue;
-		s = p->to.sym;
-		if(s->type == 0 || s->type == SXREF)
-			diag("undefined %s initializer of %s",
-				s->name, p->from.sym->name);
-		p->to.offset += s->value;
-		p->to.type = D_CONST;
-		if(s->type == SDATA || s->type == SBSS)
-			p->to.offset += INITDAT;
-	}
-}
-
-void
 patch(void)
 {
 	int32 c;
@@ -377,116 +253,106 @@ patch(void)
 	Bflush(&bso);
 	s = lookup("exit", 0);
 	vexit = s->value;
-	for(p = firstp; p != P; p = p->link) {
-		if(HEADTYPE == 10) {
-			// Convert
-			//   op   n(GS), reg
-			// to
-			//   MOVL 0x2C(FS), reg
-			//   op   n(reg), reg
-			// The purpose of this patch is to fix some accesses
-			// to extern register variables (TLS) on Windows, as
-			// a different method is used to access them.
-			if(p->from.type == D_INDIR+D_GS
-			&& p->to.type >= D_AX && p->to.type <= D_DI) {
-				q = appendp(p);
-				q->from = p->from;
-				q->from.type += p->to.type-D_GS;
-				q->to = p->to;
-				q->as = p->as;
-				p->as = AMOVL;
-				p->from.type = D_INDIR+D_FS;
-				p->from.offset = 0x2C;
-			}
-		}
-		if(p->as == ATEXT)
-			curtext = p;
-		if(p->as == ACALL || (p->as == AJMP && p->to.type != D_BRANCH)) {
-			s = p->to.sym;
-			if(s) {
-				if(debug['c'])
-					Bprint(&bso, "%s calls %s\n", TNAME, s->name);
-				switch(s->type) {
-				default:
-					/* diag prints TNAME first */
-					diag("undefined: %s", s->name);
-					s->type = STEXT;
-					s->value = vexit;
-					continue;	// avoid more error messages
-				case STEXT:
-					p->to.offset = s->value;
-					break;
-				case SUNDEF:
-					p->pcond = UP;
-					p->to.offset = 0;
-					break;
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		for(p = cursym->text; p != P; p = p->link) {
+			if(HEADTYPE == 10) {	// Windows
+				// Convert
+				//   op	  n(GS), reg
+				// to
+				//   MOVL 0x2C(FS), reg
+				//   op	  n(reg), reg
+				// The purpose of this patch is to fix some accesses
+				// to extern register variables (TLS) on Windows, as
+				// a different method is used to access them.
+				if(p->from.type == D_INDIR+D_GS
+				&& p->to.type >= D_AX && p->to.type <= D_DI) {
+					q = appendp(p);
+					q->from = p->from;
+					q->from.type = D_INDIR + p->to.type;
+					q->to = p->to;
+					q->as = p->as;
+					p->as = AMOVL;
+					p->from.type = D_INDIR+D_FS;
+					p->from.offset = 0x2C;
 				}
-				p->to.type = D_BRANCH;
 			}
-		}
-		if(p->to.type != D_BRANCH || p->pcond == UP)
-			continue;
-		c = p->to.offset;
-		for(q = firstp; q != P;) {
-			if(q->forwd != P)
-			if(c >= q->forwd->pc) {
-				q = q->forwd;
+			if(HEADTYPE == 7) {	// Linux
+				// Running binaries under Xen requires using
+				//	MOVL 0(GS), reg
+				// and then off(reg) instead of saying off(GS) directly
+				// when the offset is negative.
+				if(p->from.type == D_INDIR+D_GS && p->from.offset < 0
+				&& p->to.type >= D_AX && p->to.type <= D_DI) {
+					q = appendp(p);
+					q->from = p->from;
+					q->from.type = D_INDIR + p->to.type;
+					q->to = p->to;
+					q->as = p->as;
+					p->as = AMOVL;
+					p->from.type = D_INDIR+D_GS;
+					p->from.offset = 0;
+				}
+			}
+			if(HEADTYPE == 2) {	// Plan 9
+				if(p->from.type == D_INDIR+D_GS
+				&& p->to.type >= D_AX && p->to.type <= D_DI) {
+					p->as = AMOVL;
+					p->from.type = D_ADDR+D_STATIC;
+					p->from.offset += 0xdfffefc0;
+				}
+			}
+			if(p->as == ACALL || (p->as == AJMP && p->to.type != D_BRANCH)) {
+				s = p->to.sym;
+				if(s) {
+					if(debug['c'])
+						Bprint(&bso, "%s calls %s\n", TNAME, s->name);
+					if((s->type&~SSUB) != STEXT) {
+						/* diag prints TNAME first */
+						diag("undefined: %s", s->name);
+						s->type = STEXT;
+						s->value = vexit;
+						continue;	// avoid more error messages
+					}
+					if(s->text == nil)
+						continue;
+					p->to.type = D_BRANCH;
+					p->to.offset = s->text->pc;
+					p->pcond = s->text;
+					continue;
+				}
+			}
+			if(p->to.type != D_BRANCH)
 				continue;
+			c = p->to.offset;
+			for(q = cursym->text; q != P;) {
+				if(c == q->pc)
+					break;
+				if(q->forwd != P && c >= q->forwd->pc)
+					q = q->forwd;
+				else
+					q = q->link;
 			}
-			if(c == q->pc)
-				break;
-			q = q->link;
-		}
-		if(q == P) {
-			diag("branch out of range in %s\n%P", TNAME, p);
-			p->to.type = D_NONE;
-		}
-		p->pcond = q;
-	}
-
-	for(p = firstp; p != P; p = p->link) {
-		if(p->as == ATEXT)
-			curtext = p;
-		p->mark = 0;	/* initialization for follow */
-		if(p->pcond != P && p->pcond != UP) {
-			p->pcond = brloop(p->pcond);
-			if(p->pcond != P)
-			if(p->to.type == D_BRANCH)
-				p->to.offset = p->pcond->pc;
+			if(q == P) {
+				diag("branch out of range in %s (%#ux)\n%P [%s]",
+					TNAME, c, p, p->to.sym ? p->to.sym->name : "<nil>");
+				p->to.type = D_NONE;
+			}
+			p->pcond = q;
 		}
 	}
-}
 
-#define	LOG	5
-void
-mkfwd(void)
-{
-	Prog *p;
-	int i;
-	int32 dwn[LOG], cnt[LOG];
-	Prog *lst[LOG];
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		if(cursym->text == nil || cursym->p != nil)
+			continue;
 
-	for(i=0; i<LOG; i++) {
-		if(i == 0)
-			cnt[i] = 1; else
-			cnt[i] = LOG * cnt[i-1];
-		dwn[i] = 1;
-		lst[i] = P;
-	}
-	i = 0;
-	for(p = firstp; p != P; p = p->link) {
-		if(p->as == ATEXT)
-			curtext = p;
-		i--;
-		if(i < 0)
-			i = LOG-1;
-		p->forwd = P;
-		dwn[i]--;
-		if(dwn[i] <= 0) {
-			dwn[i] = cnt[i];
-			if(lst[i] != P)
-				lst[i]->forwd = p;
-			lst[i] = p;
+		for(p = cursym->text; p != P; p = p->link) {
+			p->mark = 0;	/* initialization for follow */
+			if(p->pcond != P) {
+				p->pcond = brloop(p->pcond);
+				if(p->pcond != P)
+				if(p->to.type == D_BRANCH)
+					p->to.offset = p->pcond->pc;
+			}
 		}
 	}
 }
@@ -513,286 +379,221 @@ dostkoff(void)
 {
 	Prog *p, *q, *q1;
 	int32 autoffset, deltasp;
-	int a, f, curframe, curbecome, maxbecome;
+	int a;
 	Prog *pmorestack;
 	Sym *symmorestack;
 
 	pmorestack = P;
 	symmorestack = lookup("runtime.morestack", 0);
 
-	if(symmorestack->type == STEXT)
-	for(p = firstp; p != P; p = p->link) {
-		if(p->as == ATEXT) {
-			if(p->from.sym == symmorestack) {
-				pmorestack = p;
-				p->from.scale |= NOSPLIT;
-				break;
-			}
-		}
-	}
-	if(pmorestack == P)
+	if(symmorestack->type != STEXT)
 		diag("runtime.morestack not defined");
+	else {
+		pmorestack = symmorestack->text;
+		symmorestack->text->from.scale |= NOSPLIT;
+	}
 
-	curframe = 0;
-	curbecome = 0;
-	maxbecome = 0;
-	curtext = 0;
-	for(p = firstp; p != P; p = p->link) {
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		if(cursym->text == nil || cursym->text->link == nil)
+			continue;
 
-		/* find out how much arg space is used in this TEXT */
-		if(p->to.type == (D_INDIR+D_SP))
-			if(p->to.offset > curframe)
-				curframe = p->to.offset;
+		p = cursym->text;
+		autoffset = p->to.offset;
+		if(autoffset < 0)
+			autoffset = 0;
 
-		switch(p->as) {
-		case ATEXT:
-			if(curtext && curtext->from.sym) {
-				curtext->from.sym->frame = curframe;
-				curtext->from.sym->become = curbecome;
-				if(curbecome > maxbecome)
-					maxbecome = curbecome;
+		q = P;
+		q1 = P;
+		if(pmorestack != P)
+		if(!(p->from.scale & NOSPLIT)) {
+			p = appendp(p);	// load g into CX
+			switch(HEADTYPE) {
+			case 10:	// Windows
+				p->as = AMOVL;
+				p->from.type = D_INDIR+D_FS;
+				p->from.offset = 0x2c;
+				p->to.type = D_CX;
+
+				p = appendp(p);
+				p->as = AMOVL;
+				p->from.type = D_INDIR+D_CX;
+				p->from.offset = 0;
+				p->to.type = D_CX;
+				break;
+			
+			case 7:	// Linux
+				p->as = AMOVL;
+				p->from.type = D_INDIR+D_GS;
+				p->from.offset = 0;
+				p->to.type = D_CX;
+
+				p = appendp(p);
+				p->as = AMOVL;
+				p->from.type = D_INDIR+D_CX;
+				p->from.offset = tlsoffset + 0;
+				p->to.type = D_CX;
+				break;
+			
+			case 2:	// Plan 9
+				p->as = AMOVL;
+				p->from.type = D_ADDR+D_STATIC;
+				p->from.offset = 0xdfffefc0;
+				p->to.type = D_CX;
+				break;
+			
+			default:
+				p->as = AMOVL;
+				p->from.type = D_INDIR+D_GS;
+				p->from.offset = tlsoffset + 0;
+				p->to.type = D_CX;
 			}
-			curframe = 0;
-			curbecome = 0;
 
-			curtext = p;
-			break;
+			if(debug['K']) {
+				// 8l -K means check not only for stack
+				// overflow but stack underflow.
+				// On underflow, INT 3 (breakpoint).
+				// Underflow itself is rare but this also
+				// catches out-of-sync stack guard info.
+				p = appendp(p);
+				p->as = ACMPL;
+				p->from.type = D_INDIR+D_CX;
+				p->from.offset = 4;
+				p->to.type = D_SP;
 
-		case ARET:
-			/* special form of RET is BECOME */
-			if(p->from.type == D_CONST)
-				if(p->from.offset > curbecome)
-					curbecome = p->from.offset;
-			break;
-		}
-	}
-	if(curtext && curtext->from.sym) {
-		curtext->from.sym->frame = curframe;
-		curtext->from.sym->become = curbecome;
-		if(curbecome > maxbecome)
-			maxbecome = curbecome;
-	}
+				p = appendp(p);
+				p->as = AJCC;
+				p->to.type = D_BRANCH;
+				p->to.offset = 4;
+				q1 = p;
 
-	if(debug['b'])
-		print("max become = %d\n", maxbecome);
-	xdefine("ALEFbecome", STEXT, maxbecome);
-
-	curtext = 0;
-	for(p = firstp; p != P; p = p->link) {
-		switch(p->as) {
-		case ATEXT:
-			curtext = p;
-			break;
-		case ACALL:
-			if(curtext != P && curtext->from.sym != S && curtext->to.offset >= 0) {
-				f = maxbecome - curtext->from.sym->frame;
-				if(f <= 0)
-					break;
-				/* calling a become or calling a variable */
-				if(p->to.sym == S || p->to.sym->become) {
-					curtext->to.offset += f;
-					if(debug['b']) {
-						curp = p;
-						print("%D calling %D increase %d\n",
-							&curtext->from, &p->to, f);
-					}
-				}
+				p = appendp(p);
+				p->as = AINT;
+				p->from.type = D_CONST;
+				p->from.offset = 3;
+				
+				p = appendp(p);
+				p->as = ANOP;
+				q1->pcond = p;
 			}
-			break;
-		}
-	}
 
-	autoffset = 0;
-	deltasp = 0;
-	for(p = firstp; p != P; p = p->link) {
-		if(p->as == ATEXT) {
-			curtext = p;
-			autoffset = p->to.offset;
-			if(autoffset < 0)
-				autoffset = 0;
-
-			q = P;
-			q1 = P;
-			if(pmorestack != P)
-			if(!(p->from.scale & NOSPLIT)) {
-				p = appendp(p);	// load g into CX
-				if(HEADTYPE == 10) {
-					p->as = AMOVL;
-					p->from.type = D_INDIR+D_FS;
-					p->from.offset = 0x2c;
-					p->to.type = D_CX;
-
-					p = appendp(p);
-					p->as = AMOVL;
-					p->from.type = D_INDIR+D_CX;
-					p->from.offset = 0;
-					p->to.type = D_CX;
-				} else {
-					p->as = AMOVL;
-					p->from.type = D_INDIR+D_GS;
-					p->from.offset = tlsoffset + 0;
-					p->to.type = D_CX;
-				}
-
-				if(debug['K']) {
-					// 8l -K means check not only for stack
-					// overflow but stack underflow.
-					// On underflow, INT 3 (breakpoint).
-					// Underflow itself is rare but this also
-					// catches out-of-sync stack guard info.
+			if(autoffset < StackBig) {  // do we need to call morestack
+				if(autoffset <= StackSmall) {
+					// small stack
 					p = appendp(p);
 					p->as = ACMPL;
-					p->from.type = D_INDIR+D_CX;
-					p->from.offset = 4;
-					p->to.type = D_SP;
+					p->from.type = D_SP;
+					p->to.type = D_INDIR+D_CX;
+				} else {
+					// large stack
+					p = appendp(p);
+					p->as = ALEAL;
+					p->from.type = D_INDIR+D_SP;
+					p->from.offset = -(autoffset-StackSmall);
+					p->to.type = D_AX;
 
 					p = appendp(p);
-					p->as = AJCC;
-					p->to.type = D_BRANCH;
-					p->to.offset = 4;
-					q1 = p;
-
-					p = appendp(p);
-					p->as = AINT;
-					p->from.type = D_CONST;
-					p->from.offset = 3;
+					p->as = ACMPL;
+					p->from.type = D_AX;
+					p->to.type = D_INDIR+D_CX;
 				}
 
-				if(autoffset < StackBig) {  // do we need to call morestack
-					if(autoffset <= StackSmall) {
-						// small stack
-						p = appendp(p);
-						p->as = ACMPL;
-						p->from.type = D_SP;
-						p->to.type = D_INDIR+D_CX;
-						if(q1) {
-							q1->pcond = p;
-							q1 = P;
-						}
-					} else {
-						// large stack
-						p = appendp(p);
-						p->as = ALEAL;
-						p->from.type = D_INDIR+D_SP;
-						p->from.offset = -(autoffset-StackSmall);
-						p->to.type = D_AX;
-						if(q1) {
-							q1->pcond = p;
-							q1 = P;
-						}
-
-						p = appendp(p);
-						p->as = ACMPL;
-						p->from.type = D_AX;
-						p->to.type = D_INDIR+D_CX;
-					}
-
-					// common
-					p = appendp(p);
-					p->as = AJHI;
-					p->to.type = D_BRANCH;
-					p->to.offset = 4;
-					q = p;
-				}
-
-				p = appendp(p);	// save frame size in DX
-				p->as = AMOVL;
-				p->to.type = D_DX;
-				/* 160 comes from 3 calls (3*8) 4 safes (4*8) and 104 guard */
-				p->from.type = D_CONST;
-				if(autoffset+160 > 4096)
-					p->from.offset = (autoffset+160) & ~7LL;
-
-				p = appendp(p);	// save arg size in AX
-				p->as = AMOVL;
-				p->to.type = D_AX;
-				p->from.type = D_CONST;
-				p->from.offset = curtext->to.offset2;
-
+				// common
 				p = appendp(p);
-				p->as = ACALL;
+				p->as = AJHI;
 				p->to.type = D_BRANCH;
-				p->pcond = pmorestack;
-				p->to.sym = symmorestack;
-
+				p->to.offset = 4;
+				q = p;
 			}
 
-			if(q != P)
-				q->pcond = p->link;
+			p = appendp(p);	// save frame size in DX
+			p->as = AMOVL;
+			p->to.type = D_DX;
+			/* 160 comes from 3 calls (3*8) 4 safes (4*8) and 104 guard */
+			p->from.type = D_CONST;
+			if(autoffset+160 > 4096)
+				p->from.offset = (autoffset+160) & ~7LL;
 
-			if(autoffset) {
-				p = appendp(p);
-				p->as = AADJSP;
-				p->from.type = D_CONST;
-				p->from.offset = autoffset;
-				if(q != P)
-					q->pcond = p;
-			}
-			deltasp = autoffset;
-		}
-		a = p->from.type;
-		if(a == D_AUTO)
-			p->from.offset += deltasp;
-		if(a == D_PARAM)
-			p->from.offset += deltasp + 4;
-		a = p->to.type;
-		if(a == D_AUTO)
-			p->to.offset += deltasp;
-		if(a == D_PARAM)
-			p->to.offset += deltasp + 4;
+			p = appendp(p);	// save arg size in AX
+			p->as = AMOVL;
+			p->to.type = D_AX;
+			p->from.type = D_CONST;
+			p->from.offset = cursym->text->to.offset2;
 
-		switch(p->as) {
-		default:
-			continue;
-		case APUSHL:
-		case APUSHFL:
-			deltasp += 4;
-			continue;
-		case APUSHW:
-		case APUSHFW:
-			deltasp += 2;
-			continue;
-		case APOPL:
-		case APOPFL:
-			deltasp -= 4;
-			continue;
-		case APOPW:
-		case APOPFW:
-			deltasp -= 2;
-			continue;
-		case ARET:
-			break;
+			p = appendp(p);
+			p->as = ACALL;
+			p->to.type = D_BRANCH;
+			p->pcond = pmorestack;
+			p->to.sym = symmorestack;
+
 		}
 
-		if(autoffset != deltasp)
-			diag("unbalanced PUSH/POP");
-		if(p->from.type == D_CONST)
-			goto become;
+		if(q != P)
+			q->pcond = p->link;
 
 		if(autoffset) {
-			q = p;
 			p = appendp(p);
-			p->as = ARET;
-
-			q->as = AADJSP;
-			q->from.type = D_CONST;
-			q->from.offset = -autoffset;
+			p->as = AADJSP;
+			p->from.type = D_CONST;
+			p->from.offset = autoffset;
+			p->spadj = autoffset;
+			if(q != P)
+				q->pcond = p;
 		}
-		continue;
-
-	become:
-		q = p;
-		p = appendp(p);
-		p->as = AJMP;
-		p->to = q->to;
-		p->pcond = q->pcond;
-
-		q->as = AADJSP;
-		q->from = zprg.from;
-		q->from.type = D_CONST;
-		q->from.offset = -autoffset;
-		q->to = zprg.to;
-		continue;
+		deltasp = autoffset;
+		
+		for(; p != P; p = p->link) {
+			a = p->from.type;
+			if(a == D_AUTO)
+				p->from.offset += deltasp;
+			if(a == D_PARAM)
+				p->from.offset += deltasp + 4;
+			a = p->to.type;
+			if(a == D_AUTO)
+				p->to.offset += deltasp;
+			if(a == D_PARAM)
+				p->to.offset += deltasp + 4;
+	
+			switch(p->as) {
+			default:
+				continue;
+			case APUSHL:
+			case APUSHFL:
+				deltasp += 4;
+				p->spadj = 4;
+				continue;
+			case APUSHW:
+			case APUSHFW:
+				deltasp += 2;
+				p->spadj = 2;
+				continue;
+			case APOPL:
+			case APOPFL:
+				deltasp -= 4;
+				p->spadj = -4;
+				continue;
+			case APOPW:
+			case APOPFW:
+				deltasp -= 2;
+				p->spadj = -2;
+				continue;
+			case ARET:
+				break;
+			}
+	
+			if(autoffset != deltasp)
+				diag("unbalanced PUSH/POP");
+	
+			if(autoffset) {
+				q = p;
+				p = appendp(p);
+				p->as = ARET;
+	
+				q->as = AADJSP;
+				q->from.type = D_CONST;
+				q->from.offset = -autoffset;
+				p->spadj = -autoffset;
+			}
+		}
 	}
 }
 
@@ -843,176 +644,7 @@ undef(void)
 	Sym *s;
 
 	for(i=0; i<NHASH; i++)
-	for(s = hash[i]; s != S; s = s->link)
+	for(s = hash[i]; s != S; s = s->hash)
 		if(s->type == SXREF)
-			diag("%s: not defined", s->name);
-}
-
-void
-import(void)
-{
-	int i;
-	Sym *s;
-
-	for(i = 0; i < NHASH; i++)
-		for(s = hash[i]; s != S; s = s->link)
-			if(s->sig != 0 && s->type == SXREF && (nimports == 0 || s->subtype == SIMPORT)){
-				if(s->value != 0)
-					diag("value != 0 on SXREF");
-				undefsym(s);
-				Bprint(&bso, "IMPORT: %s sig=%lux v=%ld\n", s->name, s->sig, s->value);
-				if(debug['S'])
-					s->sig = 0;
-			}
-}
-
-void
-ckoff(Sym *s, int32 v)
-{
-	if(v < 0 || v >= 1<<Roffset)
-		diag("relocation offset %ld for %s out of range", v, s->name);
-}
-
-Prog*
-newdata(Sym *s, int o, int w, int t)
-{
-	Prog *p;
-
-	p = prg();
-	if(edatap == P)
-		datap = p;
-	else
-		edatap->link = p;
-	edatap = p;
-	p->as = ADATA;
-	p->width = w;
-	p->from.scale = w;
-	p->from.type = t;
-	p->from.sym = s;
-	p->from.offset = o;
-	p->to.type = D_CONST;
-	p->dlink = s->data;
-	s->data = p;
-	return p;
-}
-
-Prog*
-newtext(Prog *p, Sym *s)
-{
-	if(p == P) {
-		p = prg();
-		p->as = ATEXT;
-		p->from.sym = s;
-	}
-	s->type = STEXT;
-	s->text = p;
-	s->value = pc;
-	lastp->link = p;
-	lastp = p;
-	p->pc = pc++;
-	if(textp == P)
-		textp = p;
-	else
-		etextp->pcond = p;
-	etextp = p;
-	return p;
-}
-
-void
-export(void)
-{
-	int i, j, n, off, nb, sv, ne;
-	Sym *s, *et, *str, **esyms;
-	Prog *p;
-	char buf[NSNAME], *t;
-
-	n = 0;
-	for(i = 0; i < NHASH; i++)
-		for(s = hash[i]; s != S; s = s->link)
-			if(s->sig != 0 && s->type != SXREF && s->type != SUNDEF && (nexports == 0 || s->subtype == SEXPORT))
-				n++;
-	esyms = mal(n*sizeof(Sym*));
-	ne = n;
-	n = 0;
-	for(i = 0; i < NHASH; i++)
-		for(s = hash[i]; s != S; s = s->link)
-			if(s->sig != 0 && s->type != SXREF && s->type != SUNDEF && (nexports == 0 || s->subtype == SEXPORT))
-				esyms[n++] = s;
-	for(i = 0; i < ne-1; i++)
-		for(j = i+1; j < ne; j++)
-			if(strcmp(esyms[i]->name, esyms[j]->name) > 0){
-				s = esyms[i];
-				esyms[i] = esyms[j];
-				esyms[j] = s;
-			}
-
-	nb = 0;
-	off = 0;
-	et = lookup(EXPTAB, 0);
-	if(et->type != 0 && et->type != SXREF)
-		diag("%s already defined", EXPTAB);
-	et->type = SDATA;
-	str = lookup(".string", 0);
-	if(str->type == 0)
-		str->type = SDATA;
-	sv = str->value;
-	for(i = 0; i < ne; i++){
-		s = esyms[i];
-		if(debug['S'])
-			s->sig = 0;
-		/* Bprint(&bso, "EXPORT: %s sig=%lux t=%d\n", s->name, s->sig, s->type); */
-
-		/* signature */
-		p = newdata(et, off, sizeof(int32), D_EXTERN);
-		off += sizeof(int32);
-		p->to.offset = s->sig;
-
-		/* address */
-		p = newdata(et, off, sizeof(int32), D_EXTERN);
-		off += sizeof(int32);
-		p->to.type = D_ADDR;
-		p->to.index = D_EXTERN;
-		p->to.sym = s;
-
-		/* string */
-		t = s->name;
-		n = strlen(t)+1;
-		for(;;){
-			buf[nb++] = *t;
-			sv++;
-			if(nb >= NSNAME){
-				p = newdata(str, sv-NSNAME, NSNAME, D_STATIC);
-				p->to.type = D_SCONST;
-				memmove(p->to.scon, buf, NSNAME);
-				nb = 0;
-			}
-			if(*t++ == 0)
-				break;
-		}
-
-		/* name */
-		p = newdata(et, off, sizeof(int32), D_EXTERN);
-		off += sizeof(int32);
-		p->to.type = D_ADDR;
-		p->to.index = D_STATIC;
-		p->to.sym = str;
-		p->to.offset = sv-n;
-	}
-
-	if(nb > 0){
-		p = newdata(str, sv-nb, nb, D_STATIC);
-		p->to.type = D_SCONST;
-		memmove(p->to.scon, buf, nb);
-	}
-
-	for(i = 0; i < 3; i++){
-		newdata(et, off, sizeof(int32), D_EXTERN);
-		off += sizeof(int32);
-	}
-	et->value = off;
-	if(sv == 0)
-		sv = 1;
-	str->value = sv;
-	exports = ne;
-	free(esyms);
+			diag("%s(%d): not defined", s->name, s->version);
 }

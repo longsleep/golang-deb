@@ -8,7 +8,6 @@ package net
 
 import (
 	"io"
-	"once"
 	"os"
 	"sync"
 	"syscall"
@@ -230,7 +229,7 @@ func (s *pollServer) Run() {
 		} else {
 			netfd := s.LookupFD(fd, mode)
 			if netfd == nil {
-				print("pollServer: unexpected wakeup for fd=", netfd, " mode=", string(mode), "\n")
+				print("pollServer: unexpected wakeup for fd=", fd, " mode=", string(mode), "\n")
 				continue
 			}
 			s.WakeFD(netfd, mode)
@@ -258,6 +257,7 @@ func (s *pollServer) WaitWrite(fd *netFD) {
 // All the network FDs use a single pollServer.
 
 var pollserver *pollServer
+var onceStartServer sync.Once
 
 func startServer() {
 	p, err := newPollServer()
@@ -268,7 +268,7 @@ func startServer() {
 }
 
 func newFD(fd, family, proto int, net string, laddr, raddr Addr) (f *netFD, err os.Error) {
-	once.Do(startServer)
+	onceStartServer.Do(startServer)
 	if e := syscall.SetNonblock(fd, true); e != 0 {
 		return nil, &OpError{"setnonblock", net, laddr, os.Errno(e)}
 	}
@@ -401,6 +401,42 @@ func (fd *netFD) ReadFrom(p []byte) (n int, sa syscall.Sockaddr, err os.Error) {
 	return
 }
 
+func (fd *netFD) ReadMsg(p []byte, oob []byte) (n, oobn, flags int, sa syscall.Sockaddr, err os.Error) {
+	if fd == nil || fd.sysfile == nil {
+		return 0, 0, 0, nil, os.EINVAL
+	}
+	fd.rio.Lock()
+	defer fd.rio.Unlock()
+	fd.incref()
+	defer fd.decref()
+	if fd.rdeadline_delta > 0 {
+		fd.rdeadline = pollserver.Now() + fd.rdeadline_delta
+	} else {
+		fd.rdeadline = 0
+	}
+	var oserr os.Error
+	for {
+		var errno int
+		n, oobn, flags, errno = syscall.Recvmsg(fd.sysfd, p, oob, sa, 0)
+		if errno == syscall.EAGAIN && fd.rdeadline >= 0 {
+			pollserver.WaitRead(fd)
+			continue
+		}
+		if errno != 0 {
+			oserr = os.Errno(errno)
+		}
+		if n == 0 {
+			oserr = os.EOF
+		}
+		break
+	}
+	if oserr != nil {
+		err = &OpError{"read", fd.net, fd.laddr, oserr}
+		return
+	}
+	return
+}
+
 func (fd *netFD) Write(p []byte) (n int, err os.Error) {
 	if fd == nil {
 		return 0, os.EINVAL
@@ -481,6 +517,41 @@ func (fd *netFD) WriteTo(p []byte, sa syscall.Sockaddr) (n int, err os.Error) {
 	return
 }
 
+func (fd *netFD) WriteMsg(p []byte, oob []byte, sa syscall.Sockaddr) (n int, oobn int, err os.Error) {
+	if fd == nil || fd.sysfile == nil {
+		return 0, 0, os.EINVAL
+	}
+	fd.wio.Lock()
+	defer fd.wio.Unlock()
+	fd.incref()
+	defer fd.decref()
+	if fd.wdeadline_delta > 0 {
+		fd.wdeadline = pollserver.Now() + fd.wdeadline_delta
+	} else {
+		fd.wdeadline = 0
+	}
+	var oserr os.Error
+	for {
+		var errno int
+		errno = syscall.Sendmsg(fd.sysfd, p, oob, sa, 0)
+		if errno == syscall.EAGAIN && fd.wdeadline >= 0 {
+			pollserver.WaitWrite(fd)
+			continue
+		}
+		if errno != 0 {
+			oserr = os.Errno(errno)
+		}
+		break
+	}
+	if oserr == nil {
+		n = len(p)
+		oobn = len(oob)
+	} else {
+		err = &OpError{"write", fd.net, fd.raddr, oserr}
+	}
+	return
+}
+
 func (fd *netFD) accept(toAddr func(syscall.Sockaddr) Addr) (nfd *netFD, err os.Error) {
 	if fd == nil || fd.sysfile == nil {
 		return nil, os.EINVAL
@@ -496,6 +567,10 @@ func (fd *netFD) accept(toAddr func(syscall.Sockaddr) Addr) (nfd *netFD, err os.
 	var s, e int
 	var sa syscall.Sockaddr
 	for {
+		if fd.closing {
+			syscall.ForkLock.RUnlock()
+			return nil, os.EINVAL
+		}
 		s, sa, e = syscall.Accept(fd.sysfd)
 		if e != syscall.EAGAIN {
 			break
@@ -516,4 +591,22 @@ func (fd *netFD) accept(toAddr func(syscall.Sockaddr) Addr) (nfd *netFD, err os.
 		return nil, err
 	}
 	return nfd, nil
+}
+
+func (fd *netFD) dup() (f *os.File, err os.Error) {
+	ns, e := syscall.Dup(fd.sysfd)
+	if e != 0 {
+		return nil, &OpError{"dup", fd.net, fd.laddr, os.Errno(e)}
+	}
+
+	// We want blocking mode for the new fd, hence the double negative.
+	if e = syscall.SetNonblock(ns, false); e != 0 {
+		return nil, &OpError{"setnonblock", fd.net, fd.laddr, os.Errno(e)}
+	}
+
+	return os.NewFile(ns, fd.sysfile.Name()), nil
+}
+
+func closesocket(s int) (errno int) {
+	return syscall.Close(s)
 }

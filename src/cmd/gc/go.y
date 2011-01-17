@@ -20,6 +20,8 @@
 %{
 #include <stdio.h>	/* if we don't, bison will, and go.h re-#defines getc */
 #include "go.h"
+
+static void fixlbrace(int);
 %}
 %union	{
 	Node*		node;
@@ -50,7 +52,7 @@
 %type	<node>	stmt ntype
 %type	<node>	arg_type
 %type	<node>	case caseblock
-%type	<node>	compound_stmt dotname embed expr
+%type	<node>	compound_stmt dotname embed expr complitexpr
 %type	<node>	expr_or_type
 %type	<node>	fndcl fnliteral
 %type	<node>	for_body for_header for_stmt if_header if_stmt non_dcl_stmt
@@ -58,7 +60,7 @@
 %type	<node>	name_or_type non_expr_type
 %type	<node>	new_name dcl_name oexpr typedclname
 %type	<node>	onew_name
-%type	<node>	osimple_stmt pexpr
+%type	<node>	osimple_stmt pexpr pexpr_no_paren
 %type	<node>	pseudocall range_stmt select_stmt
 %type	<node>	simple_stmt
 %type	<node>	switch_stmt uexpr
@@ -66,7 +68,7 @@
 
 %type	<list>	xdcl fnbody fnres switch_body loop_body dcl_name_list
 %type	<list>	new_name_list expr_list keyval_list braced_keyval_list expr_or_type_list xdcl_list
-%type	<list>	oexpr_list oexpr_or_type_list_ocomma caseblock_list stmt_list oarg_type_list_ocomma arg_type_list
+%type	<list>	oexpr_list caseblock_list stmt_list oarg_type_list_ocomma arg_type_list
 %type	<list>	interfacedcl_list vardcl vardcl_list structdcl structdcl_list
 %type	<list>	common_dcl constdcl constdcl1 constdcl_list typedcl_list
 
@@ -459,7 +461,7 @@ case:
 		}
 		break;
 	}
-|	LCASE name '=' expr ':'
+|	LCASE expr '=' expr ':'
 	{
 		// will be converted to OCASE
 		// right will point to next case
@@ -515,10 +517,33 @@ switch_body:
 	}
 
 caseblock:
-	case stmt_list
+	case
 	{
+		// If the last token read by the lexer was consumed
+		// as part of the case, clear it (parser has cleared yychar).
+		// If the last token read by the lexer was the lookahead
+		// leave it alone (parser has it cached in yychar).
+		// This is so that the stmt_list action doesn't look at
+		// the case tokens if the stmt_list is empty.
+		yylast = yychar;
+	}
+	stmt_list
+	{
+		int last;
+
+		// This is the only place in the language where a statement
+		// list is not allowed to drop the final semicolon, because
+		// it's the only place where a statement list is not followed 
+		// by a closing brace.  Handle the error for pedantry.
+
+		// Find the final token of the statement list.
+		// yylast is lookahead; yyprev is last of stmt_list
+		last = yyprev;
+
+		if(last > 0 && last != ';' && yychar != '}')
+			yyerror("missing statement after label");
 		$$ = $1;
-		$$->nbody = $2;
+		$$->nbody = $3;
 	}
 
 caseblock_list:
@@ -648,11 +673,13 @@ select_stmt:
 	LSELECT
 	{
 		markdcl();
+		typesw = nod(OXXX, typesw, N);
 	}
 	switch_body
 	{
 		$$ = nod(OSELECT, N, N);
 		$$->list = $3;
+		typesw = typesw->left;
 		popdcl();
 	}
 
@@ -783,13 +810,23 @@ uexpr:
  * can be preceded by 'defer' and 'go'
  */
 pseudocall:
-	pexpr '(' oexpr_or_type_list_ocomma ')'
+	pexpr '(' ')'
+	{
+		$$ = nod(OCALL, $1, N);
+	}
+|	pexpr '(' expr_or_type_list ocomma ')'
 	{
 		$$ = nod(OCALL, $1, N);
 		$$->list = $3;
 	}
+|	pexpr '(' expr_or_type_list LDDD ocomma ')'
+	{
+		$$ = nod(OCALL, $1, N);
+		$$->list = $3;
+		$$->isddd = 1;
+	}
 
-pexpr:
+pexpr_no_paren:
 	LLITERAL
 	{
 		$$ = nodlit($1);
@@ -806,10 +843,6 @@ pexpr:
 		}
 		$$ = nod(OXDOT, $1, newname($3));
 	}
-|	'(' expr_or_type ')'
-	{
-		$$ = $2;
-	}
 |	pexpr '.' '(' expr_or_type ')'
 	{
 		$$ = nod(ODOTTYPE, $1, $4);
@@ -824,10 +857,6 @@ pexpr:
 	}
 |	pexpr '[' oexpr ':' oexpr ']'
 	{
-		if($3 == N) {
-			yyerror("missing lower bound in slice expression");
-			$3 = nodintconst(0);
-		}
 		$$ = nod(OSLICE, $1, nod(OKEY, $3, $5));
 	}
 |	pseudocall
@@ -842,20 +871,44 @@ pexpr:
 		// composite expression
 		$$ = nod(OCOMPLIT, N, $1);
 		$$->list = $3;
-
-		// If the opening brace was an LBODY,
-		// set up for another one now that we're done.
-		// See comment in lex.c about loophack.
-		if($2 == LBODY)
-			loophack = 1;
+		
+		fixlbrace($2);
 	}
-|	pexpr '{' braced_keyval_list '}'
+|	pexpr_no_paren '{' braced_keyval_list '}'
 	{
 		// composite expression
 		$$ = nod(OCOMPLIT, N, $1);
 		$$->list = $3;
 	}
+|	'(' expr_or_type ')' '{' braced_keyval_list '}'
+	{
+		yyerror("cannot parenthesize type in composite literal");
+		// composite expression
+		$$ = nod(OCOMPLIT, N, $2);
+		$$->list = $5;
+	}
 |	fnliteral
+
+keyval:
+	expr ':' complitexpr
+	{
+		$$ = nod(OKEY, $1, $3);
+	}
+
+complitexpr:
+	expr
+|	'{' braced_keyval_list '}'
+	{
+		$$ = nod(OCOMPLIT, N, N);
+		$$->list = $2;
+	}
+
+pexpr:
+	pexpr_no_paren
+|	'(' expr_or_type ')'
+	{
+		$$ = $2;
+	}
 
 expr_or_type:
 	expr
@@ -939,7 +992,7 @@ ntype:
 |	dotname
 |	'(' ntype ')'
 	{
-		$$ = $2;
+		$$ = nod(OTPAREN, $2, N);
 	}
 
 non_expr_type:
@@ -958,7 +1011,7 @@ non_recvchantype:
 |	dotname
 |	'(' ntype ')'
 	{
-		$$ = $2;
+		$$ = nod(OTPAREN, $2, N);
 	}
 
 convtype:
@@ -1030,33 +1083,30 @@ recvchantype:
 	}
 
 structtype:
-	LSTRUCT '{' structdcl_list osemi '}'
+	LSTRUCT lbrace structdcl_list osemi '}'
 	{
 		$$ = nod(OTSTRUCT, N, N);
 		$$->list = $3;
+		fixlbrace($2);
 	}
-|	LSTRUCT '{' '}'
+|	LSTRUCT lbrace '}'
 	{
 		$$ = nod(OTSTRUCT, N, N);
+		fixlbrace($2);
 	}
 
 interfacetype:
-	LINTERFACE '{' interfacedcl_list osemi '}'
+	LINTERFACE lbrace interfacedcl_list osemi '}'
 	{
 		$$ = nod(OTINTER, N, N);
 		$$->list = $3;
+		fixlbrace($2);
 	}
-|	LINTERFACE '{' '}'
+|	LINTERFACE lbrace '}'
 	{
 		$$ = nod(OTINTER, N, N);
+		fixlbrace($2);
 	}
-
-keyval:
-	expr ':' expr
-	{
-		$$ = nod(OKEY, $1, $3);
-	}
-
 
 /*
  * function stuff
@@ -1069,6 +1119,7 @@ xfndcl:
 		if($$ == N)
 			break;
 		$$->nbody = $3;
+		$$->endlineno = lineno;
 		funcbody($$);
 	}
 
@@ -1118,6 +1169,8 @@ fndcl:
 			yyerror("bad receiver in method");
 			break;
 		}
+		if(rcvr->right->op == OTPAREN || (rcvr->right->op == OIND && rcvr->right->left->op == OTPAREN))
+			yyerror("cannot parenthesize receiver type");
 
 		$$ = nod(ODCLFUNC, N, N);
 		$$->nname = methodname1(name, rcvr->right);
@@ -1250,11 +1303,31 @@ structdcl:
 		$1->val = $2;
 		$$ = list1($1);
 	}
+|	'(' embed ')' oliteral
+	{
+		$2->val = $4;
+		$$ = list1($2);
+		yyerror("cannot parenthesize embedded type");
+	}
 |	'*' embed oliteral
 	{
 		$2->right = nod(OIND, $2->right, N);
 		$2->val = $3;
 		$$ = list1($2);
+	}
+|	'(' '*' embed ')' oliteral
+	{
+		$3->right = nod(OIND, $3->right, N);
+		$3->val = $5;
+		$$ = list1($3);
+		yyerror("cannot parenthesize embedded type");
+	}
+|	'*' '(' embed ')' oliteral
+	{
+		$3->right = nod(OIND, $3->right, N);
+		$3->val = $5;
+		$$ = list1($3);
+		yyerror("cannot parenthesize embedded type");
 	}
 
 packname:
@@ -1295,6 +1368,11 @@ interfacedcl:
 |	packname
 	{
 		$$ = nod(ODCLFIELD, N, oldname($1));
+	}
+|	'(' packname ')'
+	{
+		$$ = nod(ODCLFIELD, N, oldname($2));
+		yyerror("cannot parenthesize embedded type");
 	}
 
 indcl:
@@ -1481,7 +1559,7 @@ keyval_list:
 	{
 		$$ = list1($1);
 	}
-|	expr
+|	complitexpr
 	{
 		$$ = list1($1);
 	}
@@ -1489,7 +1567,7 @@ keyval_list:
 	{
 		$$ = list($1, $3);
 	}
-|	keyval_list ',' expr
+|	keyval_list ',' complitexpr
 	{
 		$$ = list($1, $3);
 	}
@@ -1523,12 +1601,6 @@ oexpr_list:
 		$$ = nil;
 	}
 |	expr_list
-
-oexpr_or_type_list_ocomma:
-	{
-		$$ = nil;
-	}
-|	expr_or_type_list ocomma
 
 osimple_stmt:
 	{
@@ -1654,7 +1726,6 @@ hidden_type_misc:
 |	LINTERFACE '{' ohidden_interfacedcl_list '}'
 	{
 		$$ = dostruct($3, TINTER);
-		$$ = sortinter($$);
 	}
 |	'*' hidden_type
 	{
@@ -1867,3 +1938,16 @@ hidden_interfacedcl_list:
 	{
 		$$ = list($1, $3);
 	}
+
+%%
+
+static void
+fixlbrace(int lbr)
+{
+	// If the opening brace was an LBODY,
+	// set up for another one now that we're done.
+	// See comment in lex.c about loophack.
+	if(lbr == LBODY)
+		loophack = 1;
+}
+

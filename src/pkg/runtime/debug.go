@@ -4,6 +4,8 @@
 
 package runtime
 
+import "unsafe"
+
 // Breakpoint() executes a breakpoint trap.
 func Breakpoint()
 
@@ -26,6 +28,9 @@ func GOMAXPROCS(n int) int
 // Cgocalls returns the number of cgo calls made by the current process.
 func Cgocalls() int64
 
+// Goroutines returns the number of goroutines that currently exist.
+func Goroutines() int32
+
 type MemStatsType struct {
 	// General statistics.
 	// Not locked during update; approximate.
@@ -36,10 +41,11 @@ type MemStatsType struct {
 	Mallocs    uint64 // number of mallocs
 
 	// Main allocation heap statistics.
-	HeapAlloc uint64 // bytes allocated and still in use
-	HeapSys   uint64 // bytes obtained from system
-	HeapIdle  uint64 // bytes in idle spans
-	HeapInuse uint64 // bytes in non-idle span
+	HeapAlloc   uint64 // bytes allocated and still in use
+	HeapSys     uint64 // bytes obtained from system
+	HeapIdle    uint64 // bytes in idle spans
+	HeapInuse   uint64 // bytes in non-idle span
+	HeapObjects uint64 // total number of allocated objects
 
 	// Low-level fixed-size structure allocator statistics.
 	//	Inuse is bytes used now.
@@ -66,6 +72,15 @@ type MemStatsType struct {
 		Size    uint32
 		Mallocs uint64
 		Frees   uint64
+	}
+}
+
+var sizeof_C_MStats int // filled in by malloc.goc
+
+func init() {
+	if sizeof_C_MStats != unsafe.Sizeof(MemStats) {
+		println(sizeof_C_MStats, unsafe.Sizeof(MemStats))
+		panic("MStats vs MemStatsType size mismatch")
 	}
 }
 

@@ -33,6 +33,7 @@
 #define NOPROF	(1<<0)
 #define DUPOK	(1<<1)
 #define NOSPLIT	(1<<2)
+#define RODATA	(1<<3)
 
 enum	as
 {
@@ -383,8 +384,8 @@ enum	as
 
 	AEND,
 
-	ADYNT,
-	AINIT,
+	ADYNT_,
+	AINIT_,
 
 	ASIGNAME,
 
@@ -498,6 +499,9 @@ enum
 
 	D_CONST2 = D_INDIR+D_INDIR,
 	D_SIZE,	/* 8l internal */
+	D_PCREL,
+	D_GOTOFF,
+	D_GOTREL,
 
 	T_TYPE		= 1<<0,
 	T_INDEX		= 1<<1,

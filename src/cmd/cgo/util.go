@@ -12,16 +12,6 @@ import (
 	"os"
 )
 
-// A ByteReaderAt implements io.ReadAt using a slice of bytes.
-type ByteReaderAt []byte
-
-func (r ByteReaderAt) ReadAt(p []byte, off int64) (n int, err os.Error) {
-	if off >= int64(len(r)) || off < 0 {
-		return 0, os.EOF
-	}
-	return copy(p, r[off:]), nil
-}
-
 // run runs the command argv, feeding in stdin on standard input.
 // It returns the output to standard output and standard error.
 // ok indicates whether the command exited successfully.
@@ -55,9 +45,8 @@ func run(stdin []byte, argv []string) (stdout, stderr []byte, ok bool) {
 		w0.Close()
 		c <- true
 	}()
-	var xstdout []byte // TODO(rsc): delete after 6g can take address of out parameter
 	go func() {
-		xstdout, _ = ioutil.ReadAll(r1)
+		stdout, _ = ioutil.ReadAll(r1)
 		r1.Close()
 		c <- true
 	}()
@@ -65,7 +54,6 @@ func run(stdin []byte, argv []string) (stdout, stderr []byte, ok bool) {
 	r2.Close()
 	<-c
 	<-c
-	stdout = xstdout
 
 	w, err := os.Wait(pid, 0)
 	if err != nil {
@@ -77,18 +65,45 @@ func run(stdin []byte, argv []string) (stdout, stderr []byte, ok bool) {
 
 // Die with an error message.
 func fatal(msg string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, msg+"\n", args)
+	fmt.Fprintf(os.Stderr, msg+"\n", args...)
 	os.Exit(2)
 }
 
 var nerrors int
-var noPos token.Position
 
-func error(pos token.Position, msg string, args ...interface{}) {
+func error(pos token.Pos, msg string, args ...interface{}) {
 	nerrors++
 	if pos.IsValid() {
-		fmt.Fprintf(os.Stderr, "%s: ", pos)
+		fmt.Fprintf(os.Stderr, "%s: ", fset.Position(pos).String())
 	}
-	fmt.Fprintf(os.Stderr, msg, args)
+	fmt.Fprintf(os.Stderr, msg, args...)
 	fmt.Fprintf(os.Stderr, "\n")
+}
+
+// isName returns true if s is a valid C identifier
+func isName(s string) bool {
+	for i, v := range s {
+		if v != '_' && (v < 'A' || v > 'Z') && (v < 'a' || v > 'z') && (v < '0' || v > '9') {
+			return false
+		}
+		if i == 0 && '0' <= v && v <= '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func creat(name string) *os.File {
+	f, err := os.Open(name, os.O_WRONLY|os.O_CREAT|os.O_TRUNC, 0666)
+	if err != nil {
+		fatal("%s", err)
+	}
+	return f
+}
+
+func slashToUnderscore(c int) int {
+	if c == '/' {
+		c = '_'
+	}
+	return c
 }

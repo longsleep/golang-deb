@@ -6,19 +6,22 @@ package syscall
 
 // Constants
 const (
-	sizeofPtr           = 0x8
-	sizeofShort         = 0x2
-	sizeofInt           = 0x4
-	sizeofLong          = 0x8
-	sizeofLongLong      = 0x8
-	PathMax             = 0x1000
-	SizeofSockaddrInet4 = 0x10
-	SizeofSockaddrInet6 = 0x1c
-	SizeofSockaddrAny   = 0x70
-	SizeofSockaddrUnix  = 0x6e
-	SizeofLinger        = 0x8
-	SizeofMsghdr        = 0x38
-	SizeofCmsghdr       = 0x10
+	sizeofPtr               = 0x8
+	sizeofShort             = 0x2
+	sizeofInt               = 0x4
+	sizeofLong              = 0x8
+	sizeofLongLong          = 0x8
+	PathMax                 = 0x1000
+	SizeofSockaddrInet4     = 0x10
+	SizeofSockaddrInet6     = 0x1c
+	SizeofSockaddrAny       = 0x70
+	SizeofSockaddrUnix      = 0x6e
+	SizeofSockaddrLinklayer = 0x14
+	SizeofLinger            = 0x8
+	SizeofMsghdr            = 0x38
+	SizeofCmsghdr           = 0x10
+	SizeofUcred             = 0xc
+	SizeofInotifyEvent      = 0x10
 )
 
 // Types
@@ -64,6 +67,7 @@ type Timex struct {
 	Calcnt    int64
 	Errcnt    int64
 	Stbcnt    int64
+	Tai       int32
 	Pad3      int32
 	Pad4      int32
 	Pad5      int32
@@ -75,7 +79,6 @@ type Timex struct {
 	Pad11     int32
 	Pad12     int32
 	Pad13     int32
-	Pad14     int32
 }
 
 type Time_t int64
@@ -119,21 +122,21 @@ type Rlimit struct {
 type _Gid_t uint32
 
 type Stat_t struct {
-	Dev      uint64
-	Ino      uint64
-	Nlink    uint64
-	Mode     uint32
-	Uid      uint32
-	Gid      uint32
-	Pad0     int32
-	Rdev     uint64
-	Size     int64
-	Blksize  int64
-	Blocks   int64
-	Atim     Timespec
-	Mtim     Timespec
-	Ctim     Timespec
-	__unused [3]int64
+	Dev       uint64
+	Ino       uint64
+	Nlink     uint64
+	Mode      uint32
+	Uid       uint32
+	Gid       uint32
+	X__pad0   int32
+	Rdev      uint64
+	Size      int64
+	Blksize   int64
+	Blocks    int64
+	Atim      Timespec
+	Mtim      Timespec
+	Ctim      Timespec
+	X__unused [3]int64
 }
 
 type Statfs_t struct {
@@ -179,6 +182,16 @@ type RawSockaddrUnix struct {
 	Path   [108]int8
 }
 
+type RawSockaddrLinklayer struct {
+	Family   uint16
+	Protocol uint16
+	Ifindex  int32
+	Hatype   uint16
+	Pkttype  uint8
+	Halen    uint8
+	Addr     [8]uint8
+}
+
 type RawSockaddr struct {
 	Family uint16
 	Data   [14]int8
@@ -217,6 +230,19 @@ type Cmsghdr struct {
 	Len   uint64
 	Level int32
 	Type  int32
+}
+
+type Ucred struct {
+	Pid int32
+	Uid uint32
+	Gid uint32
+}
+
+type InotifyEvent struct {
+	Wd     int32
+	Mask   uint32
+	Cookie uint32
+	Len    uint32
 }
 
 type PtraceRegs struct {
@@ -268,7 +294,7 @@ type Sysinfo_t struct {
 	Totalhigh uint64
 	Freehigh  uint64
 	Unit      uint32
-	_f        [2]int8
+	X_f       [2]int8
 	Pad1      [4]byte
 }
 

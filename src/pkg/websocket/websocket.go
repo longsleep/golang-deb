@@ -11,6 +11,8 @@ package websocket
 
 import (
 	"bufio"
+	"crypto/md5"
+	"encoding/binary"
 	"io"
 	"net"
 	"os"
@@ -25,6 +27,13 @@ func (addr WebSocketAddr) Network() string { return "websocket" }
 // String returns the network address for a Web Socket.
 func (addr WebSocketAddr) String() string { return string(addr) }
 
+const (
+	stateFrameByte = iota
+	stateFrameLength
+	stateFrameData
+	stateFrameTextData
+)
+
 // Conn is a channel to communicate to a Web Socket.
 // It implements the net.Conn interface.
 type Conn struct {
@@ -37,6 +46,10 @@ type Conn struct {
 
 	buf *bufio.ReadWriter
 	rwc io.ReadWriteCloser
+
+	// It holds text data in previous Read() that failed with small buffer.
+	data    []byte
+	reading bool
 }
 
 // newConn creates a new Web Socket.
@@ -46,60 +59,66 @@ func newConn(origin, location, protocol string, buf *bufio.ReadWriter, rwc io.Re
 		bw := bufio.NewWriter(rwc)
 		buf = bufio.NewReadWriter(br, bw)
 	}
-	ws := &Conn{origin, location, protocol, buf, rwc}
+	ws := &Conn{Origin: origin, Location: location, Protocol: protocol, buf: buf, rwc: rwc}
 	return ws
 }
 
 // Read implements the io.Reader interface for a Conn.
 func (ws *Conn) Read(msg []byte) (n int, err os.Error) {
-	for {
-		frameByte, err := ws.buf.ReadByte()
+Frame:
+	for !ws.reading && len(ws.data) == 0 {
+		// Beginning of frame, possibly.
+		b, err := ws.buf.ReadByte()
 		if err != nil {
-			return n, err
+			return 0, err
 		}
-		if (frameByte & 0x80) == 0x80 {
+		if b&0x80 == 0x80 {
+			// Skip length frame.
 			length := 0
 			for {
 				c, err := ws.buf.ReadByte()
 				if err != nil {
-					return n, err
+					return 0, err
 				}
 				length = length*128 + int(c&0x7f)
-				if (c & 0x80) == 0 {
+				if c&0x80 == 0 {
 					break
 				}
 			}
 			for length > 0 {
 				_, err := ws.buf.ReadByte()
 				if err != nil {
-					return n, err
+					return 0, err
 				}
-				length--
 			}
-		} else {
+			continue Frame
+		}
+		// In text mode
+		if b != 0 {
+			// Skip this frame
 			for {
 				c, err := ws.buf.ReadByte()
 				if err != nil {
-					return n, err
+					return 0, err
 				}
 				if c == '\xff' {
-					return n, err
-				}
-				if frameByte == 0 {
-					if n+1 <= cap(msg) {
-						msg = msg[0 : n+1]
-					}
-					msg[n] = c
-					n++
-				}
-				if n >= cap(msg) {
-					return n, os.E2BIG
+					break
 				}
 			}
+			continue Frame
+		}
+		ws.reading = true
+	}
+	if len(ws.data) == 0 {
+		ws.data, err = ws.buf.ReadSlice('\xff')
+		if err == nil {
+			ws.reading = false
+			ws.data = ws.data[:len(ws.data)-1] // trim \xff
 		}
 	}
-
-	panic("unreachable")
+	n = copy(msg, ws.data)
+	ws.data = ws.data[n:]
+	return n, err
 }
 
 // Write implements the io.Writer interface for a Conn.
@@ -136,12 +155,35 @@ func (ws *Conn) SetReadTimeout(nsec int64) os.Error {
 	return os.EINVAL
 }
 
-// SeWritetTimeout sets the connection's network write timeout in nanoseconds.
+// SetWritetTimeout sets the connection's network write timeout in nanoseconds.
 func (ws *Conn) SetWriteTimeout(nsec int64) os.Error {
 	if conn, ok := ws.rwc.(net.Conn); ok {
 		return conn.SetWriteTimeout(nsec)
 	}
 	return os.EINVAL
+}
+
+// getChallengeResponse computes the expected response from the
+// challenge as described in section 5.1 Opening Handshake steps 42 to
+// 43 of http://www.whatwg.org/specs/web-socket-protocol/
+func getChallengeResponse(number1, number2 uint32, key3 []byte) (expected []byte, err os.Error) {
+	// 41. Let /challenge/ be the concatenation of /number_1/, expressed
+	// a big-endian 32 bit integer, /number_2/, expressed in a big-
+	// endian 32 bit integer, and the eight bytes of /key_3/ in the
+	// order they were sent to the wire.
+	challenge := make([]byte, 16)
+	binary.BigEndian.PutUint32(challenge[0:], number1)
+	binary.BigEndian.PutUint32(challenge[4:], number2)
+	copy(challenge[8:], key3)
+
+	// 42. Let /expected/ be the MD5 fingerprint of /challenge/ as a big-
+	// endian 128 bit string.
+	h := md5.New()
+	if _, err = h.Write(challenge); err != nil {
+		return
+	}
+	expected = h.Sum()
+	return
 }
 
 var _ net.Conn = (*Conn)(nil) // compile-time check that *Conn implements net.Conn.

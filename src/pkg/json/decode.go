@@ -82,6 +82,18 @@ func (e *UnmarshalTypeError) String() string {
 	return "json: cannot unmarshal " + e.Value + " into Go value of type " + e.Type.String()
 }
 
+// An UnmarshalFieldError describes a JSON object key that
+// led to an unexported (and therefore unwritable) struct field.
+type UnmarshalFieldError struct {
+	Key   string
+	Type  *reflect.StructType
+	Field reflect.StructField
+}
+
+func (e *UnmarshalFieldError) String() string {
+	return "json: cannot unmarshal object key " + strconv.Quote(e.Key) + " into unexported field " + e.Field.Name + " of type " + e.Type.String()
+}
+
 // An InvalidUnmarshalError describes an invalid argument passed to Unmarshal.
 // (The argument to Unmarshal must be a non-nil pointer.)
 type InvalidUnmarshalError struct {
@@ -116,7 +128,9 @@ func (d *decodeState) unmarshal(v interface{}) (err os.Error) {
 	}
 
 	d.scan.reset()
-	d.value(pv.Elem())
+	// We decode rv not pv.Elem because the Unmarshaler interface
+	// test must be applied at the top level of the value.
+	d.value(rv)
 	return d.savedError
 }
 
@@ -330,7 +344,7 @@ func (d *decodeState) array(v reflect.Value) {
 				newcap = 4
 			}
 			newv := reflect.MakeSlice(sv.Type().(*reflect.SliceType), sv.Len(), newcap)
-			reflect.ArrayCopy(newv, sv)
+			reflect.Copy(newv, sv)
 			sv.Set(newv)
 		}
 		if i >= av.Len() && sv != nil {
@@ -450,20 +464,32 @@ func (d *decodeState) object(v reflect.Value) {
 		if mv != nil {
 			subv = reflect.MakeZero(mv.Type().(*reflect.MapType).Elem())
 		} else {
+			var f reflect.StructField
+			var ok bool
 			// First try for field with that tag.
+			st := sv.Type().(*reflect.StructType)
 			for i := 0; i < sv.NumField(); i++ {
-				f := sv.Type().(*reflect.StructType).Field(i)
+				f = st.Field(i)
 				if f.Tag == key {
-					subv = sv.Field(i)
+					ok = true
 					break
 				}
 			}
-			if subv == nil {
+			if !ok {
 				// Second, exact match.
-				subv = sv.FieldByName(key)
-				if subv == nil {
-					// Third, case-insensitive match.
-					subv = sv.FieldByNameFunc(func(s string) bool { return matchName(key, s) })
+				f, ok = st.FieldByName(key)
+			}
+			if !ok {
+				// Third, case-insensitive match.
+				f, ok = st.FieldByNameFunc(func(s string) bool { return matchName(key, s) })
+			}
+
+			// Extract value; name must be exported.
+			if ok {
+				if f.PkgPath != "" {
+					d.saveError(&UnmarshalFieldError{key, st, f})
+				} else {
+					subv = sv.FieldByIndex(f.Index)
 				}
 			}
 		}
@@ -805,13 +831,13 @@ func unquote(s []byte) (t string, ok bool) {
 					if dec := utf16.DecodeRune(rune, rune1); dec != unicode.ReplacementChar {
 						// A valid pair; consume.
 						r += 6
-						w += utf8.EncodeRune(dec, b[w:])
+						w += utf8.EncodeRune(b[w:], dec)
 						break
 					}
 					// Invalid surrogate; fall back to replacement rune.
 					rune = unicode.ReplacementChar
 				}
-				w += utf8.EncodeRune(rune, b[w:])
+				w += utf8.EncodeRune(b[w:], rune)
 			}
 
 		// Quote, control characters are invalid.
@@ -828,7 +854,7 @@ func unquote(s []byte) (t string, ok bool) {
 		default:
 			rune, size := utf8.DecodeRune(s[r:])
 			r += size
-			w += utf8.EncodeRune(rune, b[w:])
+			w += utf8.EncodeRune(b[w:], rune)
 		}
 	}
 	return string(b[0:w]), true

@@ -2,16 +2,11 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../../src/Make.$(GOARCH)
+include ../../../src/Make.inc
 
 all: index.html
 
-# ugly hack to deal with whitespaces in $GOROOT
-nullstring :=
-space := $(nullstring) # a space at the end
-QUOTED_GOROOT:=$(subst $(space),\ ,$(GOROOT))
-
-include $(QUOTED_GOROOT)/src/Make.common
+include ../../../src/Make.common
 
 CLEANFILES+=index.html srcextract.bin htmlify.bin
 
@@ -23,7 +18,7 @@ test: final.bin
 	rm -f final.6 final.bin
 
 %.bin: %.$O
-	$(QUOTED_GOBIN)/$(LD) -o $@ $<
-%.$O: 
-	$(QUOTED_GOBIN)/$(GC) $*.go
+	$(LD) -o $@ $<
+%.$O:
+	$(GC) $*.go
 

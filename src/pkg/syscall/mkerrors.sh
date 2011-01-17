@@ -11,14 +11,7 @@ unset LANG
 export LC_ALL=C
 export LC_CTYPE=C
 
-case "$GOARCH" in
-arm)
-	GCC=arm-gcc
-	;;
-*)
-	GCC=gcc
-	;;
-esac
+GCC=gcc
 
 uname=$(uname)
 
@@ -30,8 +23,15 @@ includes_Linux='
 
 #include <sys/types.h>
 #include <sys/epoll.h>
+#include <sys/inotify.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <linux/ptrace.h>
 #include <linux/wait.h>
+#include <linux/if_tun.h>
+#include <net/if.h>
+#include <netpacket/packet.h>
 '
 
 includes_Darwin='
@@ -85,20 +85,27 @@ done
 	echo "${!indirect} $includes" | $GCC -x c - -E -dM $ccflags |
 	awk '
 		$1 != "#define" || $2 ~ /\(/ {next}
-		
+
 		$2 ~ /^E([ABCD]X|[BIS]P|[SD]I|S|FL)$/ {next}  # 386 registers
 		$2 ~ /^(SIGEV_|SIGSTKSZ|SIGRT(MIN|MAX))/ {next}
+		$2 ~ /^(SCM_SRCRT)$/ {next}
+		$2 ~ /^(MAP_FAILED)$/ {next}
 
+		$2 !~ /^ETH_/ &&
 		$2 ~ /^E[A-Z0-9_]+$/ ||
 		$2 ~ /^SIG[^_]/ ||
-		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|EV|SHUT|PROT|MAP)_/ ||
+		$2 ~ /^IN_/ ||
+		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|IFF)_/ ||
 		$2 == "SOMAXCONN" ||
 		$2 == "NAME_MAX" ||
+		$2 == "IFNAMSIZ" ||
+		$2 ~ /^TUN(SET|GET|ATTACH|DETACH)/ ||
 		$2 ~ /^(O|F|FD|NAME|S|PTRACE)_/ ||
+		$2 ~ /^SIO/ ||
 		$2 ~ /^W[A-Z0-9]+$/ {printf("\t$%s = %s,\n", $2, $2)}
 		$2 ~ /^__WCOREFLAG$/ {next}
 		$2 ~ /^__W[A-Z0-9]+$/ {printf("\t$%s = %s,\n", substr($2,3), $2)}
-		
+
 		{next}
 	' | sort
 
@@ -141,6 +148,12 @@ int errors[] = {
 	/bin/echo '
 };
 
+static int
+intcmp(const void *a, const void *b)
+{
+	return *(int*)a - *(int*)b;
+}
+
 int
 main(void)
 {
@@ -149,17 +162,16 @@ main(void)
 
 	printf("\n\n// Error table\n");
 	printf("var errors = [...]string {\n");
+	qsort(errors, nelem(errors), sizeof errors[0], intcmp);
 	for(i=0; i<nelem(errors); i++) {
 		e = errors[i];
-		for(j=0; j<i; j++)
-			if(errors[j] == e)	// duplicate value
-				goto next;
+		if(i > 0 && errors[i-1] == e)
+			continue;
 		strcpy(buf, strerror(e));
 		// lowercase first letter: Bad -> bad, but STREAM -> STREAM.
 		if(A <= buf[0] && buf[0] <= Z && a <= buf[1] && buf[1] <= z)
 			buf[0] += a - A;
 		printf("\t%d: \"%s\",\n", e, buf);
-	next:;
 	}
 	printf("}\n\n");
 	return 0;
@@ -168,4 +180,4 @@ main(void)
 '
 ) >_errors.c
 
-$GCC $ccflags -static -o _errors _errors.c && $GORUN ./_errors && rm -f _errors.c _errors _const.c
+$GCC $ccflags -o _errors _errors.c && $GORUN ./_errors && rm -f _errors.c _errors _const.c

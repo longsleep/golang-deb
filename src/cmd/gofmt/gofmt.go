@@ -12,6 +12,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/scanner"
+	"go/token"
 	"io/ioutil"
 	"os"
 	pathutil "path"
@@ -24,11 +25,12 @@ var (
 	list        = flag.Bool("l", false, "list files whose formatting differs from gofmt's")
 	write       = flag.Bool("w", false, "write result to (source) file instead of stdout")
 	rewriteRule = flag.String("r", "", "rewrite rule (e.g., 'α[β:len(α)] -> α[β:]')")
+	simplifyAST = flag.Bool("s", false, "simplify code")
 
 	// debugging support
 	comments = flag.Bool("comments", true, "print comments")
-	debug    = flag.Bool("debug", false, "print debugging information")
 	trace    = flag.Bool("trace", false, "print parse trace")
+	printAST = flag.Bool("ast", false, "print AST (before rewrites)")
 
 	// layout control
 	tabWidth  = flag.Int("tabwidth", 8, "tab width")
@@ -38,6 +40,7 @@ var (
 
 
 var (
+	fset        = token.NewFileSet()
 	exitCode    = 0
 	rewrite     func(*ast.File) *ast.File
 	parserMode  uint
@@ -92,22 +95,26 @@ func processFile(f *os.File) os.Error {
 		return err
 	}
 
-	var scope *ast.Scope
-	if *debug {
-		scope = ast.NewScope(nil)
-	}
-	file, err := parser.ParseFile(f.Name(), src, scope, parserMode)
+	file, err := parser.ParseFile(fset, f.Name(), src, parserMode)
 
 	if err != nil {
 		return err
+	}
+
+	if *printAST {
+		ast.Print(file)
 	}
 
 	if rewrite != nil {
 		file = rewrite(file)
 	}
 
+	if *simplifyAST {
+		simplify(file)
+	}
+
 	var res bytes.Buffer
-	_, err = (&printer.Config{printerMode, *tabWidth, nil}).Fprint(&res, file)
+	_, err = (&printer.Config{printerMode, *tabWidth, nil}).Fprint(&res, fset, file)
 	if err != nil {
 		return err
 	}
@@ -133,10 +140,10 @@ func processFile(f *os.File) os.Error {
 }
 
 
-func processFileByName(filename string) (err os.Error) {
+func processFileByName(filename string) os.Error {
 	file, err := os.Open(filename, os.O_RDONLY, 0)
 	if err != nil {
-		return
+		return err
 	}
 	defer file.Close()
 	return processFile(file)

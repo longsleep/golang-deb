@@ -16,6 +16,9 @@ var tests = []interface{}{
 	&serverHelloMsg{},
 
 	&certificateMsg{},
+	&certificateRequestMsg{},
+	&certificateVerifyMsg{},
+	&certificateStatusMsg{},
 	&clientKeyExchangeMsg{},
 	&finishedMsg{},
 	&nextProtoMsg{},
@@ -111,6 +114,12 @@ func (*clientHelloMsg) Generate(rand *rand.Rand, size int) reflect.Value {
 	if rand.Intn(10) > 5 {
 		m.serverName = randomString(rand.Intn(255), rand)
 	}
+	m.ocspStapling = rand.Intn(10) > 5
+	m.supportedPoints = randomBytes(rand.Intn(5)+1, rand)
+	m.supportedCurves = make([]uint16, rand.Intn(5)+1)
+	for i, _ := range m.supportedCurves {
+		m.supportedCurves[i] = uint16(rand.Intn(30000))
+	}
 
 	return reflect.NewValue(m)
 }
@@ -142,6 +151,34 @@ func (*certificateMsg) Generate(rand *rand.Rand, size int) reflect.Value {
 	m.certificates = make([][]byte, numCerts)
 	for i := 0; i < numCerts; i++ {
 		m.certificates[i] = randomBytes(rand.Intn(10)+1, rand)
+	}
+	return reflect.NewValue(m)
+}
+
+func (*certificateRequestMsg) Generate(rand *rand.Rand, size int) reflect.Value {
+	m := &certificateRequestMsg{}
+	m.certificateTypes = randomBytes(rand.Intn(5)+1, rand)
+	numCAs := rand.Intn(100)
+	m.certificateAuthorities = make([][]byte, numCAs)
+	for i := 0; i < numCAs; i++ {
+		m.certificateAuthorities[i] = randomBytes(rand.Intn(15)+1, rand)
+	}
+	return reflect.NewValue(m)
+}
+
+func (*certificateVerifyMsg) Generate(rand *rand.Rand, size int) reflect.Value {
+	m := &certificateVerifyMsg{}
+	m.signature = randomBytes(rand.Intn(15)+1, rand)
+	return reflect.NewValue(m)
+}
+
+func (*certificateStatusMsg) Generate(rand *rand.Rand, size int) reflect.Value {
+	m := &certificateStatusMsg{}
+	if rand.Intn(10) > 5 {
+		m.statusType = statusTypeOCSP
+		m.response = randomBytes(rand.Intn(10)+1, rand)
+	} else {
+		m.statusType = 42
 	}
 	return reflect.NewValue(m)
 }

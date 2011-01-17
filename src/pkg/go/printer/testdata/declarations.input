@@ -25,6 +25,15 @@ import (
 	b "io"
 )
 
+import (
+       "unrenamed"
+       renamed "renameMe"
+       . "io"
+       _ "io"
+       "io"
+       . "os"
+)
+
 // no newlines between consecutive single imports, but
 // respect extra line breaks in the source (at most one empty line)
 import _ "io"
@@ -49,6 +58,17 @@ import (
 	"bar"
 	"foo"  // a comment
 	"bar"  // a comment
+)
+
+// comments + renames
+import (
+       "unrenamed" // a comment
+       renamed "renameMe"
+       . "io" /* a comment */
+       _ "io/ioutil" // a comment
+       "io" // testing alignment
+       . "os"
+       // a comment
 )
 
 // a case that caused problems in the past (comment placement)
@@ -605,24 +625,79 @@ func _() {
 
 
 // ellipsis parameters
-func _(...)
 func _(...int)
 func _(...*int)
 func _(...[]int)
 func _(...struct{})
 func _(bool, ...interface{})
 func _(bool, ...func())
-func _(bool, ...func(...))
+func _(bool, ...func(...int))
 func _(bool, ...map[string]int)
 func _(bool, ...chan int)
 
-func _(b bool, x ...)
 func _(b bool, x ...int)
 func _(b bool, x ...*int)
 func _(b bool, x ...[]int)
 func _(b bool, x ...struct{})
 func _(x ...interface{})
 func _(x ...func())
-func _(x ...func(...))
+func _(x ...func(...int))
 func _(x ...map[string]int)
 func _(x ...chan int)
+
+
+// these parameter lists must remain multi-line since they are multi-line in the source
+func _(bool,
+int) {
+}
+func _(x bool,
+y int) {
+}
+func _(x,
+y bool) {
+}
+func _(bool, // comment
+int) {
+}
+func _(x bool, // comment
+y int) {
+}
+func _(x, // comment
+y bool) {
+}
+func _(bool, // comment
+// comment
+int) {
+}
+func _(x bool, // comment
+// comment
+y int) {
+}
+func _(x, // comment
+// comment
+y bool) {
+}
+func _(bool,
+// comment
+int) {
+}
+func _(x bool,
+// comment
+y int) {
+}
+func _(x,
+// comment
+y bool) {
+}
+func _(x, // comment
+y,// comment
+z bool) {
+}
+func _(x, // comment
+	y,// comment
+	z bool) {
+}
+func _(x int,	// comment
+	y float,	// comment
+	z bool) {
+}

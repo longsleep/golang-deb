@@ -147,6 +147,8 @@ ggloblnod(Node *nam, int32 width)
 	p->to.sym = S;
 	p->to.type = D_CONST;
 	p->to.offset = width;
+	if(nam->readonly)
+		p->from.scale = RODATA;
 }
 
 void
@@ -163,6 +165,7 @@ ggloblsym(Sym *s, int32 width, int dupok)
 	p->to.offset = width;
 	if(dupok)
 		p->from.scale = DUPOK;
+	p->from.scale |= RODATA;
 }
 
 int
@@ -427,11 +430,33 @@ fatal("shouldnt be used");
 void
 gconreg(int as, vlong c, int reg)
 {
-	Node n1, n2;
+	Node nr;
+
+	nodreg(&nr, types[TINT64], reg);
+	ginscon(as, c, &nr);
+}
+
+/*
+ * generate
+ *	as $c, n
+ */
+void
+ginscon(int as, vlong c, Node *n2)
+{
+	Node n1, ntmp;
 
 	nodconst(&n1, types[TINT64], c);
-	nodreg(&n2, types[TINT64], reg);
-	gins(as, &n1, &n2);
+
+	if(as != AMOVQ && (c < -1LL<<31 || c >= 1LL<<31)) {
+		// cannot have 64-bit immediokate in ADD, etc.
+		// instead, MOV into register first.
+		regalloc(&ntmp, types[TINT64], N);
+		gins(AMOVQ, &n1, &ntmp);
+		gins(as, &ntmp, n2);
+		regfree(&ntmp);
+		return;
+	}
+	gins(as, &n1, n2);
 }
 
 #define	CASE(a,b)	(((a)<<16)|((b)<<0))
@@ -1683,11 +1708,27 @@ optoas(int op, Type *t)
 
 enum
 {
-	ODynam	= 1<<0,
+	ODynam		= 1<<0,
+	OAddable	= 1<<1,
 };
 
 static	Node	clean[20];
 static	int	cleani = 0;
+
+int
+xgen(Node *n, Node *a, int o)
+{
+	regalloc(a, types[tptr], N);
+
+	if(o & ODynam)
+	if(n->addable)
+	if(n->op != OINDREG)
+	if(n->op != OREGISTER)
+		return 1;
+
+	agen(n, a);
+	return 0;
+}
 
 void
 sudoclean(void)
@@ -1716,7 +1757,7 @@ sudoaddable(int as, Node *n, Addr *a)
 	int o, i, w;
 	int oary[10];
 	int64 v;
-	Node n1, n2, n3, *nn, *l, *r;
+	Node n1, n2, n3, n4, *nn, *l, *r;
 	Node *reg, *reg1;
 	Prog *p1;
 	Type *t;
@@ -1743,6 +1784,8 @@ sudoaddable(int as, Node *n, Addr *a)
 		goto odot;
 
 	case OINDEX:
+		if(n->left->type->etype == TSTRING)
+			return 0;
 		goto oindex;
 	}
 	return 0;
@@ -1820,7 +1863,7 @@ oindex:
 	if(l->type->etype != TARRAY)
 		fatal("not ary");
 	if(l->type->bound < 0)
-		o += ODynam;
+		o |= ODynam;
 
 	w = n->type->width;
 	if(isconst(r, CTINT))
@@ -1836,9 +1879,6 @@ oindex:
 		break;
 	}
 
-//	if(sudoaddable(as, l, a))
-//		goto oindex_sudo;
-
 	cleani += 2;
 	reg = &clean[cleani-1];
 	reg1 = &clean[cleani-2];
@@ -1847,8 +1887,8 @@ oindex:
 
 	// load the array (reg)
 	if(l->ullman > r->ullman) {
-		regalloc(reg, types[tptr], N);
-		agen(l, reg);
+		if(xgen(l, reg, o))
+			o |= OAddable;
 	}
 
 	// load the index (reg1)
@@ -1863,49 +1903,89 @@ oindex:
 
 	// load the array (reg)
 	if(l->ullman <= r->ullman) {
-		regalloc(reg, types[tptr], N);
-		agen(l, reg);
+		if(xgen(l, reg, o))
+			o |= OAddable;
 	}
 
 	if(!(o & ODynam) && l->type->width >= unmappedzero && l->op == OIND) {
 		// cannot rely on page protections to
 		// catch array ptr == 0, so dereference.
 		n2 = *reg;
+		n2.xoffset = 0;
 		n2.op = OINDREG;
 		n2.type = types[TUINT8];
-		n2.xoffset = 0;
 		gins(ATESTB, nodintconst(0), &n2);
 	}
 
 	// check bounds
 	if(!debug['B'] && !n->etype) {
+		// check bounds
+		n4.op = OXXX;
+		t = types[TUINT32];
 		if(o & ODynam) {
-			n2 = *reg;
-			n2.op = OINDREG;
-			n2.type = types[tptr];
-			n2.xoffset = Array_nel;
+			if(o & OAddable) {
+				n2 = *l;
+				n2.xoffset += Array_nel;
+				n2.type = types[TUINT32];
+				if(is64(r->type)) {
+					t = types[TUINT64];
+					regalloc(&n4, t, N);
+					gmove(&n2, &n4);
+					n2 = n4;
+				}
+			} else {
+				n2 = *reg;
+				n2.xoffset = Array_nel;
+				n2.op = OINDREG;
+				n2.type = types[TUINT32];
+				if(is64(r->type)) {
+					t = types[TUINT64];
+					regalloc(&n4, t, N);
+					gmove(&n2, &n4);
+					n2 = n4;
+				}
+			}
 		} else {
+			if(is64(r->type))
+				t = types[TUINT64];
 			nodconst(&n2, types[TUINT64], l->type->bound);
 		}
-		gins(optoas(OCMP, types[TUINT32]), reg1, &n2);
-		p1 = gbranch(optoas(OLT, types[TUINT32]), T);
+		gins(optoas(OCMP, t), reg1, &n2);
+		p1 = gbranch(optoas(OLT, t), T);
+		if(n4.op != OXXX)
+			regfree(&n4);
 		ginscall(panicindex, 0);
 		patch(p1, pc);
 	}
 
 	if(o & ODynam) {
-		n2 = *reg;
-		n2.op = OINDREG;
-		n2.type = types[tptr];
-		n2.xoffset = Array_array;
-		gmove(&n2, reg);
+		if(o & OAddable) {
+			n2 = *l;
+			n2.xoffset += Array_array;
+			n2.type = types[TUINT64];
+			gmove(&n2, reg);
+		} else {
+			n2 = *reg;
+			n2.xoffset = Array_array;
+			n2.op = OINDREG;
+			n2.type = types[tptr];
+			gmove(&n2, reg);
+		}
 	}
 
-	naddr(reg1, a, 1);
-	a->offset = 0;
-	a->scale = w;
-	a->index = a->type;
-	a->type = reg->val.u.reg + D_INDIR;
+	if(o & OAddable) {
+		naddr(reg1, a, 1);
+		a->offset = 0;
+		a->scale = w;
+		a->index = a->type;
+		a->type = reg->val.u.reg + D_INDIR;
+	} else {
+		naddr(reg1, a, 1);
+		a->offset = 0;
+		a->scale = w;
+		a->index = a->type;
+		a->type = reg->val.u.reg + D_INDIR;
+	}
 
 	goto yes;
 
@@ -1915,15 +1995,6 @@ oindex_const:
 	// can multiply by width statically
 
 	v = mpgetfix(r->val.u.xval);
-	if(!debug['B'] && (o & ODynam) == 0) {
-		// array indexed by a constant bounds check
-		if(v < 0) {
-			yyerror("out of bounds on array");
-		} else
-		if(v >= l->type->bound) {
-			yyerror("out of bounds on array");
-		}
-	}
 
 	if(sudoaddable(as, l, a))
 		goto oindex_const_sudo;

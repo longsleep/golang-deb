@@ -62,6 +62,8 @@ compile(Node *fn)
 	pl = newplist();
 	pl->name = curfn->nname;
 
+	setlineno(curfn);
+
 	nodconst(&nod1, types[TINT32], 0);
 	ptxt = gins(ATEXT, curfn->nname, &nod1);
 	afunclit(&ptxt->from);
@@ -83,6 +85,8 @@ compile(Node *fn)
 	checklabels();
 	if(nerrors != 0)
 		goto ret;
+	if(curfn->endlineno)
+		lineno = curfn->endlineno;
 
 	if(curfn->type->outtuple != 0)
 		ginscall(throwreturn, 0);
@@ -90,13 +94,13 @@ compile(Node *fn)
 	if(pret)
 		patch(pret, pc);
 	ginit();
+	if(hasdefer)
+		ginscall(deferreturn, 0);
 	if(curfn->exit)
 		genlist(curfn->exit);
 	gclean();
 	if(nerrors != 0)
 		goto ret;
-	if(hasdefer)
-		ginscall(deferreturn, 0);
 	pc->as = ARET;	// overwrite AEND
 	pc->lineno = lineno;
 
@@ -105,11 +109,11 @@ compile(Node *fn)
 	}
 
 	// fill in argument size
-	ptxt->to.offset = rnd(curfn->type->argwid, maxround);
+	ptxt->to.offset = rnd(curfn->type->argwid, widthptr);
 
 	// fill in final stack size
 	ptxt->to.offset <<= 32;
-	ptxt->to.offset |= rnd(stksize+maxarg, maxround);
+	ptxt->to.offset |= rnd(stksize+maxarg, widthptr);
 
 	if(debug['f'])
 		frame(0);
@@ -1041,7 +1045,12 @@ clearfat(Node *nl)
 	if(debug['g'])
 		dump("\nclearfat", nl);
 
+
 	w = nl->type->width;
+	if(w == 16)
+		if(componentgen(N, nl))
+			return;
+
 	c = w % 8;	// bytes
 	q = w / 8;	// quads
 
@@ -1115,44 +1124,64 @@ getargs(NodeList *nn, Node *reg, int n)
 void
 cmpandthrow(Node *nl, Node *nr)
 {
-	vlong cl, cr;
+	vlong cl;
 	Prog *p1;
 	int op;
 	Node *c;
+	Type *t;
+	Node n1;
+	
+	if(nl->op == OCONV && is64(nl->type))
+		nl = nl->left;
+	if(nr->op == OCONV && is64(nr->type))
+		nr = nr->left;
 
 	op = OLE;
 	if(smallintconst(nl)) {
 		cl = mpgetfix(nl->val.u.xval);
 		if(cl == 0)
 			return;
-		if(smallintconst(nr)) {
-			cr = mpgetfix(nr->val.u.xval);
-			if(cl > cr) {
-				if(throwpc == nil) {
-					throwpc = pc;
-					ginscall(panicslice, 0);
-				} else
-					patch(gbranch(AJMP, T), throwpc);
-			}
+		if(smallintconst(nr))
 			return;
-		}
-
 		// put the constant on the right
 		op = brrev(op);
 		c = nl;
 		nl = nr;
 		nr = c;
 	}
+	if(is64(nr->type) && smallintconst(nr))
+		nr->type = types[TUINT32];
 
-	gins(optoas(OCMP, types[TUINT32]), nl, nr);
+	n1.op = OXXX;
+	t = types[TUINT32];
+	if(nl->type->width != t->width || nr->type->width != t->width) {
+		if((is64(nl->type) && nl->op != OLITERAL) || (is64(nr->type) && nr->op != OLITERAL))
+			t = types[TUINT64];
+
+		// Check if we need to use a temporary.
+		// At least one of the arguments is 32 bits
+		// (the len or cap) so one temporary suffices.
+		if(nl->type->width != t->width && nl->op != OLITERAL) {
+			regalloc(&n1, t, nl);
+			gmove(nl, &n1);
+			nl = &n1;
+		} else if(nr->type->width != t->width && nr->op != OLITERAL) {
+			regalloc(&n1, t, nr);
+			gmove(nr, &n1);
+			nr = &n1;
+		}
+	}
+	gins(optoas(OCMP, t), nl, nr);
+	if(n1.op != OXXX)
+		regfree(&n1);
 	if(throwpc == nil) {
-		p1 = gbranch(optoas(op, types[TUINT32]), T);
+		p1 = gbranch(optoas(op, t), T);
 		throwpc = pc;
 		ginscall(panicslice, 0);
 		patch(p1, pc);
 	} else {
 		op = brcom(op);
-		p1 = gbranch(optoas(op, types[TUINT32]), T);
+		p1 = gbranch(optoas(op, t), T);
 		patch(p1, throwpc);
 	}
 }
@@ -1182,6 +1211,8 @@ cgen_inline(Node *n, Node *res)
 	if(n->op != OCALLFUNC)
 		goto no;
 	if(!n->left->addable)
+		goto no;
+	if(n->left->sym == S)
 		goto no;
 	if(n->left->sym->pkg != runtimepkg)
 		goto no;
@@ -1261,10 +1292,8 @@ slicearray:
 	if(smallintconst(&nodes[2]) && smallintconst(&nodes[4])) {
 		v = mpgetfix(nodes[2].val.u.xval) *
 			mpgetfix(nodes[4].val.u.xval);
-		if(v != 0) {
-			nodconst(&n1, types[tptr], v);
-			gins(optoas(OADD, types[tptr]), &n1, &nodes[0]);
-		}
+		if(v != 0)
+			ginscon(optoas(OADD, types[tptr]), v, &nodes[0]);
 	} else {
 		regalloc(&n1, types[tptr], &nodes[2]);
 		gmove(&nodes[2], &n1);
@@ -1310,6 +1339,7 @@ sliceslice:
 		// if(lb[1] > old.nel[0]) goto throw;
 		n2 = nodes[0];
 		n2.xoffset += Array_nel;
+		n2.type = types[TUINT32];
 		cmpandthrow(&nodes[1], &n2);
 
 		// ret.nel = old.nel[0]-lb[1];
@@ -1329,6 +1359,7 @@ sliceslice:
 		// if(hb[2] > old.cap[0]) goto throw;
 		n2 = nodes[0];
 		n2.xoffset += Array_cap;
+		n2.type = types[TUINT32];
 		cmpandthrow(&nodes[2], &n2);
 
 		// if(lb[1] > hb[2]) goto throw;
@@ -1376,10 +1407,8 @@ sliceslice:
 		gins(optoas(OAS, types[tptr]), &n2, &n1);
 		v = mpgetfix(nodes[1].val.u.xval) *
 			mpgetfix(nodes[3].val.u.xval);
-		if(v != 0) {
-			nodconst(&n2, types[tptr], v);
-			gins(optoas(OADD, types[tptr]), &n2, &n1);
-		}
+		if(v != 0)
+			ginscon(optoas(OADD, types[tptr]), v, &n1);
 	} else {
 		gmove(&nodes[1], &n1);
 		if(!smallintconst(&nodes[3]) || mpgetfix(nodes[3].val.u.xval) != 1)

@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=time
 GOFILES=\
@@ -18,9 +18,6 @@ GOFILES_darwin=\
 	zoneinfo_unix.go\
 
 GOFILES_linux=\
-	zoneinfo_unix.go\
-
-GOFILES_nacl=\
 	zoneinfo_unix.go\
 
 GOFILES_windows=\

@@ -173,17 +173,3 @@ panic: interface conversion: interface is main.T, not main.T
 panic PC=xxx
 
 == bugs/
-
-=========== bugs/bug260.go
-FAIL
-BUG: bug260 failed
-
-=========== bugs/bug274.go
-BUG: errchk: command succeeded unexpectedly
-
-=========== bugs/bug286.go
-test2 called g
-panic: wrong method called
-
-panic PC=xxx
-BUG: bug286 failed

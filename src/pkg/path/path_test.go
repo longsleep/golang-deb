@@ -6,6 +6,7 @@ package path
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -15,52 +16,52 @@ type CleanTest struct {
 
 var cleantests = []CleanTest{
 	// Already clean
-	CleanTest{"", "."},
-	CleanTest{"abc", "abc"},
-	CleanTest{"abc/def", "abc/def"},
-	CleanTest{"a/b/c", "a/b/c"},
-	CleanTest{".", "."},
-	CleanTest{"..", ".."},
-	CleanTest{"../..", "../.."},
-	CleanTest{"../../abc", "../../abc"},
-	CleanTest{"/abc", "/abc"},
-	CleanTest{"/", "/"},
+	{"", "."},
+	{"abc", "abc"},
+	{"abc/def", "abc/def"},
+	{"a/b/c", "a/b/c"},
+	{".", "."},
+	{"..", ".."},
+	{"../..", "../.."},
+	{"../../abc", "../../abc"},
+	{"/abc", "/abc"},
+	{"/", "/"},
 
 	// Remove trailing slash
-	CleanTest{"abc/", "abc"},
-	CleanTest{"abc/def/", "abc/def"},
-	CleanTest{"a/b/c/", "a/b/c"},
-	CleanTest{"./", "."},
-	CleanTest{"../", ".."},
-	CleanTest{"../../", "../.."},
-	CleanTest{"/abc/", "/abc"},
+	{"abc/", "abc"},
+	{"abc/def/", "abc/def"},
+	{"a/b/c/", "a/b/c"},
+	{"./", "."},
+	{"../", ".."},
+	{"../../", "../.."},
+	{"/abc/", "/abc"},
 
 	// Remove doubled slash
-	CleanTest{"abc//def//ghi", "abc/def/ghi"},
-	CleanTest{"//abc", "/abc"},
-	CleanTest{"///abc", "/abc"},
-	CleanTest{"//abc//", "/abc"},
-	CleanTest{"abc//", "abc"},
+	{"abc//def//ghi", "abc/def/ghi"},
+	{"//abc", "/abc"},
+	{"///abc", "/abc"},
+	{"//abc//", "/abc"},
+	{"abc//", "abc"},
 
 	// Remove . elements
-	CleanTest{"abc/./def", "abc/def"},
-	CleanTest{"/./abc/def", "/abc/def"},
-	CleanTest{"abc/.", "abc"},
+	{"abc/./def", "abc/def"},
+	{"/./abc/def", "/abc/def"},
+	{"abc/.", "abc"},
 
 	// Remove .. elements
-	CleanTest{"abc/def/ghi/../jkl", "abc/def/jkl"},
-	CleanTest{"abc/def/../ghi/../jkl", "abc/jkl"},
-	CleanTest{"abc/def/..", "abc"},
-	CleanTest{"abc/def/../..", "."},
-	CleanTest{"/abc/def/../..", "/"},
-	CleanTest{"abc/def/../../..", ".."},
-	CleanTest{"/abc/def/../../..", "/"},
-	CleanTest{"abc/def/../../../ghi/jkl/../../../mno", "../../mno"},
+	{"abc/def/ghi/../jkl", "abc/def/jkl"},
+	{"abc/def/../ghi/../jkl", "abc/jkl"},
+	{"abc/def/..", "abc"},
+	{"abc/def/../..", "."},
+	{"/abc/def/../..", "/"},
+	{"abc/def/../../..", ".."},
+	{"/abc/def/../../..", "/"},
+	{"abc/def/../../../ghi/jkl/../../../mno", "../../mno"},
 
 	// Combinations
-	CleanTest{"abc/./../def", "def"},
-	CleanTest{"abc//./../def", "def"},
-	CleanTest{"abc/../../././../def", "../../def"},
+	{"abc/./../def", "def"},
+	{"abc//./../def", "def"},
+	{"abc/../../././../def", "../../def"},
 }
 
 func TestClean(t *testing.T) {
@@ -76,14 +77,25 @@ type SplitTest struct {
 }
 
 var splittests = []SplitTest{
-	SplitTest{"a/b", "a/", "b"},
-	SplitTest{"a/b/", "a/b/", ""},
-	SplitTest{"a/", "a/", ""},
-	SplitTest{"a", "", "a"},
-	SplitTest{"/", "/", ""},
+	{"a/b", "a/", "b"},
+	{"a/b/", "a/b/", ""},
+	{"a/", "a/", ""},
+	{"a", "", "a"},
+	{"/", "/", ""},
+}
+
+var winsplittests = []SplitTest{
+	{`C:\Windows\System32`, `C:\Windows\`, `System32`},
+	{`C:\Windows\`, `C:\Windows\`, ``},
+	{`C:\Windows`, `C:\`, `Windows`},
+	{`C:Windows`, `C:`, `Windows`},
+	{`\\?\c:\`, `\\?\c:\`, ``},
 }
 
 func TestSplit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		splittests = append(splittests, winsplittests...)
+	}
 	for _, test := range splittests {
 		if d, f := Split(test.path); d != test.dir || f != test.file {
 			t.Errorf("Split(%q) = %q, %q, want %q, %q", test.path, d, f, test.dir, test.file)
@@ -98,27 +110,27 @@ type JoinTest struct {
 
 var jointests = []JoinTest{
 	// zero parameters
-	JoinTest{[]string{}, ""},
+	{[]string{}, ""},
 
 	// one parameter
-	JoinTest{[]string{""}, ""},
-	JoinTest{[]string{"a"}, "a"},
+	{[]string{""}, ""},
+	{[]string{"a"}, "a"},
 
 	// two parameters
-	JoinTest{[]string{"a", "b"}, "a/b"},
-	JoinTest{[]string{"a", ""}, "a"},
-	JoinTest{[]string{"", "b"}, "b"},
-	JoinTest{[]string{"/", "a"}, "/a"},
-	JoinTest{[]string{"/", ""}, "/"},
-	JoinTest{[]string{"a/", "b"}, "a/b"},
-	JoinTest{[]string{"a/", ""}, "a"},
-	JoinTest{[]string{"", ""}, ""},
+	{[]string{"a", "b"}, "a/b"},
+	{[]string{"a", ""}, "a"},
+	{[]string{"", "b"}, "b"},
+	{[]string{"/", "a"}, "/a"},
+	{[]string{"/", ""}, "/"},
+	{[]string{"a/", "b"}, "a/b"},
+	{[]string{"a/", ""}, "a"},
+	{[]string{"", ""}, ""},
 }
 
 // join takes a []string and passes it to Join.
 func join(elem []string, args ...string) string {
 	args = elem
-	return Join(args)
+	return Join(args...)
 }
 
 func TestJoin(t *testing.T) {
@@ -134,11 +146,11 @@ type ExtTest struct {
 }
 
 var exttests = []ExtTest{
-	ExtTest{"path.go", ".go"},
-	ExtTest{"path.pb.go", ".go"},
-	ExtTest{"a.dir/b", ""},
-	ExtTest{"a.dir/b.go", ".go"},
-	ExtTest{"a.dir/", ""},
+	{"path.go", ".go"},
+	{"path.pb.go", ".go"},
+	{"a.dir/b", ""},
+	{"a.dir/b.go", ".go"},
+	{"a.dir/", ""},
 }
 
 func TestExt(t *testing.T) {
@@ -245,7 +257,7 @@ func TestWalk(t *testing.T) {
 	errors := make(chan os.Error, 64)
 	Walk(tree.name, v, errors)
 	if err, ok := <-errors; ok {
-		t.Errorf("no error expected, found: s", err)
+		t.Errorf("no error expected, found: %s", err)
 	}
 	checkMarks(t)
 
@@ -287,23 +299,47 @@ func TestWalk(t *testing.T) {
 
 var basetests = []CleanTest{
 	// Already clean
-	CleanTest{"", "."},
-	CleanTest{".", "."},
-	CleanTest{"/.", "."},
-	CleanTest{"/", "/"},
-	CleanTest{"////", "/"},
-	CleanTest{"x/", "x"},
-	CleanTest{"abc", "abc"},
-	CleanTest{"abc/def", "def"},
-	CleanTest{"a/b/.x", ".x"},
-	CleanTest{"a/b/c.", "c."},
-	CleanTest{"a/b/c.x", "c.x"},
+	{"", "."},
+	{".", "."},
+	{"/.", "."},
+	{"/", "/"},
+	{"////", "/"},
+	{"x/", "x"},
+	{"abc", "abc"},
+	{"abc/def", "def"},
+	{"a/b/.x", ".x"},
+	{"a/b/c.", "c."},
+	{"a/b/c.x", "c.x"},
 }
 
 func TestBase(t *testing.T) {
 	for _, test := range basetests {
 		if s := Base(test.path); s != test.clean {
 			t.Errorf("Base(%q) = %q, want %q", test.path, s, test.clean)
+		}
+	}
+}
+
+type IsAbsTest struct {
+	path  string
+	isAbs bool
+}
+
+var isAbsTests = []IsAbsTest{
+	{"", false},
+	{"/", true},
+	{"/usr/bin/gcc", true},
+	{"..", false},
+	{"/a/../bb", true},
+	{".", false},
+	{"./", false},
+	{"lala", false},
+}
+
+func TestIsAbs(t *testing.T) {
+	for _, test := range isAbsTests {
+		if r := IsAbs(test.path); r != test.isAbs {
+			t.Errorf("IsAbs(%q) = %v, want %v", test.path, r, test.isAbs)
 		}
 	}
 }

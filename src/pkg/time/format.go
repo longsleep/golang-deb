@@ -19,10 +19,12 @@ const (
 //	Mon Jan 2 15:04:05 MST 2006  (MST is GMT-0700)
 // which is Unix time 1136243045.
 // (Think of it as 01/02 03:04:05PM '06 -0700.)
-// An underscore _ represents a space that
-// may be replaced by a digit if the following number
-// (a day) has two digits; for compatibility with
-// fixed-width Unix time formats.
+// To define your own format, write down what the standard
+// time would look like formatted your way.
+//
+// Within the format string, an underscore _ represents a space that may be
+// replaced by a digit if the following number (a day) has two digits; for
+// compatibility with fixed-width Unix time formats.
 //
 // Numeric time zone offsets format as follows:
 //	-0700  ±hhmm
@@ -41,8 +43,8 @@ const (
 	RFC822Z = "02 Jan 06 1504 -0700"
 	RFC850  = "Monday, 02-Jan-06 15:04:05 MST"
 	RFC1123 = "Mon, 02 Jan 2006 15:04:05 MST"
-	Kitchen = "3:04PM"
 	RFC3339 = "2006-01-02T15:04:05Z07:00"
+	Kitchen = "3:04PM"
 )
 
 const (
@@ -70,6 +72,7 @@ const (
 	stdISO8601TZ      = "Z0700"  // prints Z for UTC
 	stdISO8601ColonTZ = "Z07:00" // prints Z for UTC
 	stdNumTZ          = "-0700"  // always numeric
+	stdNumShortTZ     = "-07"    // always numeric
 	stdNumColonTZ     = "-07:00" // always numeric
 )
 
@@ -134,12 +137,15 @@ func nextStdChunk(layout string) (prefix, std, suffix string) {
 				return layout[0:i], layout[i : i+2], layout[i+2:]
 			}
 
-		case '-': // -0700, -07:00
+		case '-': // -0700, -07:00, -07
 			if len(layout) >= i+5 && layout[i:i+5] == stdNumTZ {
 				return layout[0:i], layout[i : i+5], layout[i+5:]
 			}
 			if len(layout) >= i+6 && layout[i:i+6] == stdNumColonTZ {
 				return layout[0:i], layout[i : i+6], layout[i+6:]
+			}
+			if len(layout) >= i+3 && layout[i:i+3] == stdNumShortTZ {
+				return layout[0:i], layout[i : i+3], layout[i+3:]
 			}
 		case 'Z': // Z0700, Z07:00
 			if len(layout) >= i+5 && layout[i:i+5] == stdISO8601TZ {
@@ -228,7 +234,8 @@ func zeroPad(i int) string { return pad(i, "0") }
 // according to layout.  The layout defines the format by showing the
 // representation of a standard time, which is then used to describe
 // the time to be formatted.  Predefined layouts ANSIC, UnixDate,
-// RFC3339 and others describe standard representations.
+// RFC3339 and others describe standard representations. For more
+// information about the formats, see the documentation for ANSIC.
 func (t *Time) Format(layout string) string {
 	b := new(bytes.Buffer)
 	// Each iteration generates one std value.
@@ -331,7 +338,12 @@ func (t *Time) Format(layout string) string {
 }
 
 // String returns a Unix-style representation of the time value.
-func (t *Time) String() string { return t.Format(UnixDate) }
+func (t *Time) String() string {
+	if t == nil {
+		return "<nil>"
+	}
+	return t.Format(UnixDate)
+}
 
 var errBad = os.ErrorString("bad") // just a marker; not returned to user
 
@@ -405,7 +417,8 @@ func skip(value, prefix string) (string, os.Error) {
 // The layout defines the format by showing the representation of a standard
 // time, which is then used to describe the string to be parsed.  Predefined
 // layouts ANSIC, UnixDate, RFC3339 and others describe standard
-// representations.
+// representations.For more information about the formats, see the
+// documentation for ANSIC.
 //
 // Only those elements present in the value will be set in the returned time
 // structure.  Also, if the input string represents an inconsistent time
@@ -496,7 +509,7 @@ func Parse(alayout, avalue string) (*Time, os.Error) {
 			if t.Second < 0 || 60 <= t.Second {
 				rangeErrString = "second"
 			}
-		case stdISO8601TZ, stdISO8601ColonTZ, stdNumTZ, stdNumColonTZ:
+		case stdISO8601TZ, stdISO8601ColonTZ, stdNumTZ, stdNumShortTZ, stdNumColonTZ:
 			if std[0] == 'Z' && len(value) >= 1 && value[0] == 'Z' {
 				value = value[1:]
 				t.Zone = "UTC"
@@ -513,6 +526,12 @@ func Parse(alayout, avalue string) (*Time, os.Error) {
 					break
 				}
 				sign, hh, mm, value = value[0:1], value[1:3], value[4:6], value[6:]
+			} else if std == stdNumShortTZ {
+				if len(value) < 3 {
+					err = errBad
+					break
+				}
+				sign, hh, mm, value = value[0:1], value[1:3], "00", value[3:]
 			} else {
 				if len(value) < 5 {
 					err = errBad
@@ -522,7 +541,7 @@ func Parse(alayout, avalue string) (*Time, os.Error) {
 			}
 			var hr, min int
 			hr, err = strconv.Atoi(hh)
-			if err != nil {
+			if err == nil {
 				min, err = strconv.Atoi(mm)
 			}
 			t.ZoneOffset = (hr*60 + min) * 60 // offset is in seconds

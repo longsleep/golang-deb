@@ -24,7 +24,7 @@ godoc first tries localhost:6060 and then http://golang.org.
 
 	godoc -q Reader Writer
 	godoc -q math.Sin
-	godoc -server=:6666 -q sin
+	godoc -server=:6060 -q sin
 
 With the -http flag, it runs as a web server and presents the documentation as a
 web page.
@@ -45,6 +45,10 @@ The flags are:
 		print (exported) source in command-line mode
 	-tabwidth=4
 		width of tabs in units of spaces
+	-timestamps=true
+		show timestamps with directory listings
+	-fulltext=false
+		build full text index for regular expression queries
 	-path=""
 		additional package directories (colon-separated)
 	-html
@@ -61,6 +65,10 @@ The flags are:
 		repository holding the source files.
 	-sync_minutes=0
 		sync interval in minutes; sync is disabled if <= 0
+	-filter=""
+		filter file containing permitted package directory paths
+	-filter_minutes=0
+		filter file update interval in minutes; update is disabled if <= 0
 
 The -path flag accepts a list of colon-separated paths; unrooted paths are relative
 to the current working directory. Each path is considered as an additional root for
@@ -75,6 +83,13 @@ as follows:
 	/home/user/godoc/x -> godoc/x
 	/home/bar/x        -> bar/x
 	/public/x          -> public/x
+
+Paths provided via -path may point to very large file systems that contain
+non-Go files. Creating the subtree of directories with Go packages may take
+a long amount of time. A file containing newline-separated directory paths
+may be provided with the -filter flag; if it exists, only directories
+on those paths are considered. If -filter_minutes is set, the filter_file is
+updated regularly by walking the entire directory tree.
 
 When godoc runs as a web server, it creates a search index from all .go files
 under -goroot (excluding files starting with .). The index is created at startup

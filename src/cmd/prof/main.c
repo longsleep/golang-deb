@@ -53,9 +53,10 @@ Map *map[32];	// thread maps
 void
 Usage(void)
 {
-	fprint(2, "Usage: prof -p pid [-t total_secs] [-d delta_msec] [6.out args ...]\n");
+	fprint(2, "Usage: prof -p pid [-t total_secs] [-d delta_msec]\n");
+	fprint(2, "       prof [-t total_secs] [-d delta_msec] 6.out args ...\n");
 	fprint(2, "\tformats (default -h):\n");
-	fprint(2, "\t\t-c file.prof: write [c]pprof output to file.prof\n");
+	fprint(2, "\t\t-P file.prof: write [c]pprof output to file.prof\n");
 	fprint(2, "\t\t-h: histograms\n");
 	fprint(2, "\t\t-f: dynamic functions\n");
 	fprint(2, "\t\t-l: dynamic file and line numbers\n");
@@ -192,22 +193,22 @@ amd64_ppword(uvlong w)
 void
 x86_regprint(void)
 {
-	fprint(2, "ax\t0x%llux\n", ureg_x86.ax);
-	fprint(2, "bx\t0x%llux\n", ureg_x86.bx);
-	fprint(2, "cx\t0x%llux\n", ureg_x86.cx);
-	fprint(2, "dx\t0x%llux\n", ureg_x86.dx);
-	fprint(2, "si\t0x%llux\n", ureg_x86.si);
-	fprint(2, "di\t0x%llux\n", ureg_x86.di);
-	fprint(2, "bp\t0x%llux\n", ureg_x86.bp);
-	fprint(2, "ds\t0x%llux\n", ureg_x86.ds);
-	fprint(2, "es\t0x%llux\n", ureg_x86.es);
-	fprint(2, "fs\t0x%llux\n", ureg_x86.fs);
-	fprint(2, "gs\t0x%llux\n", ureg_x86.gs);
-	fprint(2, "cs\t0x%llux\n", ureg_x86.cs);
-	fprint(2, "flags\t0x%llux\n", ureg_x86.flags);
-	fprint(2, "pc\t0x%llux\n", ureg_x86.pc);
-	fprint(2, "sp\t0x%llux\n", ureg_x86.sp);
-	fprint(2, "ss\t0x%llux\n", ureg_x86.ss);
+	fprint(2, "ax\t0x%ux\n", ureg_x86.ax);
+	fprint(2, "bx\t0x%ux\n", ureg_x86.bx);
+	fprint(2, "cx\t0x%ux\n", ureg_x86.cx);
+	fprint(2, "dx\t0x%ux\n", ureg_x86.dx);
+	fprint(2, "si\t0x%ux\n", ureg_x86.si);
+	fprint(2, "di\t0x%ux\n", ureg_x86.di);
+	fprint(2, "bp\t0x%ux\n", ureg_x86.bp);
+	fprint(2, "ds\t0x%ux\n", ureg_x86.ds);
+	fprint(2, "es\t0x%ux\n", ureg_x86.es);
+	fprint(2, "fs\t0x%ux\n", ureg_x86.fs);
+	fprint(2, "gs\t0x%ux\n", ureg_x86.gs);
+	fprint(2, "cs\t0x%ux\n", ureg_x86.cs);
+	fprint(2, "flags\t0x%ux\n", ureg_x86.flags);
+	fprint(2, "pc\t0x%ux\n", ureg_x86.pc);
+	fprint(2, "sp\t0x%ux\n", ureg_x86.sp);
+	fprint(2, "ss\t0x%ux\n", ureg_x86.ss);
 }
 
 int

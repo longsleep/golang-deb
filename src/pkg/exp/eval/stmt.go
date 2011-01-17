@@ -5,7 +5,7 @@
 package eval
 
 import (
-	"exp/bignum"
+	"big"
 	"log"
 	"go/ast"
 	"go/token"
@@ -22,13 +22,13 @@ const (
 
 type stmtCompiler struct {
 	*blockCompiler
-	pos token.Position
+	pos token.Pos
 	// This statement's label, or nil if it is not labeled.
 	stmtLabel *label
 }
 
 func (a *stmtCompiler) diag(format string, args ...interface{}) {
-	a.diagAt(&a.pos, format, args)
+	a.diagAt(a.pos, format, args...)
 }
 
 /*
@@ -65,7 +65,7 @@ type flowBuf struct {
 	ents map[uint]*flowEnt
 	// gotos is a map from goto positions to information on the
 	// block at the point of the goto.
-	gotos map[*token.Position]*flowBlock
+	gotos map[token.Pos]*flowBlock
 	// labels is a map from label name to information on the block
 	// at the point of the label.  labels are tracked by name,
 	// since mutliple labels at the same PC can have different
@@ -74,7 +74,7 @@ type flowBuf struct {
 }
 
 func newFlowBuf(cb *codeBuf) *flowBuf {
-	return &flowBuf{cb, make(map[uint]*flowEnt), make(map[*token.Position]*flowBlock), make(map[string]*flowBlock)}
+	return &flowBuf{cb, make(map[uint]*flowEnt), make(map[token.Pos]*flowBlock), make(map[string]*flowBlock)}
 }
 
 // put creates a flow control point for the next PC in the code buffer.
@@ -82,7 +82,7 @@ func newFlowBuf(cb *codeBuf) *flowBuf {
 func (f *flowBuf) put(cond bool, term bool, jumps []*uint) {
 	pc := f.cb.nextPC()
 	if ent, ok := f.ents[pc]; ok {
-		log.Crashf("Flow entry already exists at PC %d: %+v", pc, ent)
+		log.Panicf("Flow entry already exists at PC %d: %+v", pc, ent)
 	}
 	f.ents[pc] = &flowEnt{cond, term, jumps, false}
 }
@@ -123,8 +123,8 @@ func newFlowBlock(target string, b *block) *flowBlock {
 
 // putGoto captures the block at a goto statement.  This should be
 // called in addition to putting a flow control point.
-func (f *flowBuf) putGoto(pos token.Position, target string, b *block) {
-	f.gotos[&pos] = newFlowBlock(target, b)
+func (f *flowBuf) putGoto(pos token.Pos, target string, b *block) {
+	f.gotos[pos] = newFlowBlock(target, b)
 }
 
 // putLabel captures the block at a label.
@@ -138,7 +138,7 @@ func (f *flowBuf) putLabel(name string, b *block) {
 func (f *flowBuf) reachesEnd(pc uint) bool {
 	endPC := f.cb.nextPC()
 	if pc > endPC {
-		log.Crashf("Reached bad PC %d past end PC %d", pc, endPC)
+		log.Panicf("Reached bad PC %d past end PC %d", pc, endPC)
 	}
 
 	for ; pc < endPC; pc++ {
@@ -210,15 +210,12 @@ func (f *flowBuf) gotosObeyScopes(a *compiler) {
  */
 
 func (a *stmtCompiler) defineVar(ident *ast.Ident, t Type) *Variable {
-	v, prev := a.block.DefineVar(ident.Name(), ident.Pos(), t)
+	v, prev := a.block.DefineVar(ident.Name, ident.Pos(), t)
 	if prev != nil {
-		// TODO(austin) It's silly that we have to capture
-		// Pos() in a variable.
-		pos := prev.Pos()
-		if pos.IsValid() {
-			a.diagAt(ident, "variable %s redeclared in this block\n\tprevious declaration at %s", ident.Name(), &pos)
+		if prev.Pos().IsValid() {
+			a.diagAt(ident.Pos(), "variable %s redeclared in this block\n\tprevious declaration at %s", ident.Name, a.fset.Position(prev.Pos()))
 		} else {
-			a.diagAt(ident, "variable %s redeclared in this block", ident.Name())
+			a.diagAt(ident.Pos(), "variable %s redeclared in this block", ident.Name)
 		}
 		return nil
 	}
@@ -239,7 +236,7 @@ func (a *stmtCompiler) defineVar(ident *ast.Ident, t Type) *Variable {
 
 func (a *stmtCompiler) compile(s ast.Stmt) {
 	if a.block.inner != nil {
-		log.Crash("Child scope still entered")
+		log.Panic("Child scope still entered")
 	}
 
 	notimpl := false
@@ -309,7 +306,7 @@ func (a *stmtCompiler) compile(s ast.Stmt) {
 		notimpl = true
 
 	default:
-		log.Crashf("unexpected ast node type %T", s)
+		log.Panicf("unexpected ast node type %T", s)
 	}
 
 	if notimpl {
@@ -317,7 +314,7 @@ func (a *stmtCompiler) compile(s ast.Stmt) {
 	}
 
 	if a.block.inner != nil {
-		log.Crash("Forgot to exit child scope")
+		log.Panic("Forgot to exit child scope")
 	}
 }
 
@@ -329,16 +326,16 @@ func (a *stmtCompiler) compileDeclStmt(s *ast.DeclStmt) {
 
 	case *ast.FuncDecl:
 		if !a.block.global {
-			log.Crash("FuncDecl at statement level")
+			log.Panic("FuncDecl at statement level")
 		}
 
 	case *ast.GenDecl:
 		if decl.Tok == token.IMPORT && !a.block.global {
-			log.Crash("import at statement level")
+			log.Panic("import at statement level")
 		}
 
 	default:
-		log.Crashf("Unexpected Decl type %T", s.Decl)
+		log.Panicf("Unexpected Decl type %T", s.Decl)
 	}
 	a.compileDecl(s.Decl)
 }
@@ -350,7 +347,7 @@ func (a *stmtCompiler) compileVarDecl(decl *ast.GenDecl) {
 			// Declaration without assignment
 			if spec.Type == nil {
 				// Parser should have caught
-				log.Crash("Type and Values nil")
+				log.Panic("Type and Values nil")
 			}
 			t := a.compileType(a.block, spec.Type)
 			// Define placeholders even if type compile failed
@@ -381,13 +378,13 @@ func (a *stmtCompiler) compileDecl(decl ast.Decl) {
 		}
 		// Declare and initialize v before compiling func
 		// so that body can refer to itself.
-		c, prev := a.block.DefineConst(d.Name.Name(), a.pos, decl.Type, decl.Type.Zero())
+		c, prev := a.block.DefineConst(d.Name.Name, a.pos, decl.Type, decl.Type.Zero())
 		if prev != nil {
 			pos := prev.Pos()
 			if pos.IsValid() {
-				a.diagAt(d.Name, "identifier %s redeclared in this block\n\tprevious declaration at %s", d.Name.Name(), &pos)
+				a.diagAt(d.Name.Pos(), "identifier %s redeclared in this block\n\tprevious declaration at %s", d.Name.Name, a.fset.Position(pos))
 			} else {
-				a.diagAt(d.Name, "identifier %s redeclared in this block", d.Name.Name())
+				a.diagAt(d.Name.Pos(), "identifier %s redeclared in this block", d.Name.Name)
 			}
 		}
 		fn := a.compileFunc(a.block, decl, d.Body)
@@ -400,9 +397,9 @@ func (a *stmtCompiler) compileDecl(decl ast.Decl) {
 	case *ast.GenDecl:
 		switch d.Tok {
 		case token.IMPORT:
-			log.Crashf("%v not implemented", d.Tok)
+			log.Panicf("%v not implemented", d.Tok)
 		case token.CONST:
-			log.Crashf("%v not implemented", d.Tok)
+			log.Panicf("%v not implemented", d.Tok)
 		case token.TYPE:
 			a.compileTypeDecl(a.block, d)
 		case token.VAR:
@@ -410,20 +407,20 @@ func (a *stmtCompiler) compileDecl(decl ast.Decl) {
 		}
 
 	default:
-		log.Crashf("Unexpected Decl type %T", decl)
+		log.Panicf("Unexpected Decl type %T", decl)
 	}
 }
 
 func (a *stmtCompiler) compileLabeledStmt(s *ast.LabeledStmt) {
 	// Define label
-	l, ok := a.labels[s.Label.Name()]
+	l, ok := a.labels[s.Label.Name]
 	if ok {
 		if l.resolved.IsValid() {
-			a.diag("label %s redeclared in this block\n\tprevious declaration at %s", s.Label.Name(), &l.resolved)
+			a.diag("label %s redeclared in this block\n\tprevious declaration at %s", s.Label.Name, a.fset.Position(l.resolved))
 		}
 	} else {
 		pc := badPC
-		l = &label{name: s.Label.Name(), gotoPC: &pc}
+		l = &label{name: s.Label.Name, gotoPC: &pc}
 		a.labels[l.name] = l
 	}
 	l.desc = "regular label"
@@ -486,14 +483,14 @@ func (a *stmtCompiler) compileIncDecStmt(s *ast.IncDecStmt) {
 		op = token.SUB
 		desc = "decrement statement"
 	default:
-		log.Crashf("Unexpected IncDec token %v", s.Tok)
+		log.Panicf("Unexpected IncDec token %v", s.Tok)
 	}
 
 	effect, l := l.extractEffect(bc.block, desc)
 
 	one := l.newExpr(IdealIntType, "constant")
 	one.pos = s.Pos()
-	one.eval = func() *bignum.Integer { return bignum.Int(1) }
+	one.eval = func() *big.Int { return big.NewInt(1) }
 
 	binop := l.compileBinaryExpr(op, l, one)
 	if binop == nil {
@@ -502,7 +499,7 @@ func (a *stmtCompiler) compileIncDecStmt(s *ast.IncDecStmt) {
 
 	assign := a.compileAssign(s.Pos(), bc.block, l.t, []*expr{binop}, "", "")
 	if assign == nil {
-		log.Crashf("compileAssign type check failed")
+		log.Panicf("compileAssign type check failed")
 	}
 
 	lf := l.evalAddr
@@ -555,14 +552,14 @@ func (a *stmtCompiler) doAssign(lhs []ast.Expr, rhs []ast.Expr, tok token.Token,
 			// Check that it's an identifier
 			ident, ok = le.(*ast.Ident)
 			if !ok {
-				a.diagAt(le, "left side of := must be a name")
+				a.diagAt(le.Pos(), "left side of := must be a name")
 				// Suppress new defitions errors
 				nDefs++
 				continue
 			}
 
 			// Is this simply an assignment?
-			if _, ok := a.block.defs[ident.Name()]; ok {
+			if _, ok := a.block.defs[ident.Name]; ok {
 				ident = nil
 				break
 			}
@@ -607,7 +604,7 @@ func (a *stmtCompiler) doAssign(lhs []ast.Expr, rhs []ast.Expr, tok token.Token,
 				case ac.rmt.Elems[i].isFloat():
 					lt = FloatType
 				default:
-					log.Crashf("unexpected ideal type %v", rs[i].t)
+					log.Panicf("unexpected ideal type %v", rs[i].t)
 				}
 
 			default:
@@ -780,7 +777,7 @@ func (a *stmtCompiler) doAssignOp(s *ast.AssignStmt) {
 
 	assign := a.compileAssign(s.Pos(), bc.block, l.t, []*expr{binop}, "assignment", "value")
 	if assign == nil {
-		log.Crashf("compileAssign type check failed")
+		log.Panicf("compileAssign type check failed")
 	}
 
 	lf := l.evalAddr
@@ -861,7 +858,7 @@ func (a *stmtCompiler) findLexicalLabel(name *ast.Ident, pred func(*label) bool,
 		if name == nil && pred(l) {
 			return l
 		}
-		if name != nil && l.name == name.Name() {
+		if name != nil && l.name == name.Name {
 			if !pred(l) {
 				a.diag("cannot %s to %s %s", errOp, l.desc, l.name)
 				return nil
@@ -872,7 +869,7 @@ func (a *stmtCompiler) findLexicalLabel(name *ast.Ident, pred func(*label) bool,
 	if name == nil {
 		a.diag("%s outside %s", errOp, errCtx)
 	} else {
-		a.diag("%s label %s not defined", errOp, name.Name())
+		a.diag("%s label %s not defined", errOp, name.Name)
 	}
 	return nil
 }
@@ -896,10 +893,10 @@ func (a *stmtCompiler) compileBranchStmt(s *ast.BranchStmt) {
 		pc = l.continuePC
 
 	case token.GOTO:
-		l, ok := a.labels[s.Label.Name()]
+		l, ok := a.labels[s.Label.Name]
 		if !ok {
 			pc := badPC
-			l = &label{name: s.Label.Name(), desc: "unresolved label", gotoPC: &pc, used: s.Pos()}
+			l = &label{name: s.Label.Name, desc: "unresolved label", gotoPC: &pc, used: s.Pos()}
 			a.labels[l.name] = l
 		}
 
@@ -911,7 +908,7 @@ func (a *stmtCompiler) compileBranchStmt(s *ast.BranchStmt) {
 		return
 
 	default:
-		log.Crash("Unexpected branch token %v", s.Tok)
+		log.Panic("Unexpected branch token %v", s.Tok)
 	}
 
 	a.flow.put1(false, pc)
@@ -1012,12 +1009,12 @@ func (a *stmtCompiler) compileSwitchStmt(s *ast.SwitchStmt) {
 	for _, c := range s.Body.List {
 		clause, ok := c.(*ast.CaseClause)
 		if !ok {
-			a.diagAt(clause, "switch statement must contain case clauses")
+			a.diagAt(clause.Pos(), "switch statement must contain case clauses")
 			continue
 		}
 		if clause.Values == nil {
 			if hasDefault {
-				a.diagAt(clause, "switch statement contains more than one default case")
+				a.diagAt(clause.Pos(), "switch statement contains more than one default case")
 			}
 			hasDefault = true
 		} else {
@@ -1039,7 +1036,7 @@ func (a *stmtCompiler) compileSwitchStmt(s *ast.SwitchStmt) {
 			case e == nil:
 				// Error reported by compileExpr
 			case cond == nil && !e.t.isBoolean():
-				a.diagAt(v, "'case' condition must be boolean")
+				a.diagAt(v.Pos(), "'case' condition must be boolean")
 			case cond == nil:
 				cases[i] = e.asBool()
 			case cond != nil:
@@ -1104,7 +1101,7 @@ func (a *stmtCompiler) compileSwitchStmt(s *ast.SwitchStmt) {
 					// empty blocks to be empty
 					// statements.
 					if _, ok := s2.(*ast.EmptyStmt); !ok {
-						a.diagAt(s, "fallthrough statement must be final statement in case")
+						a.diagAt(s.Pos(), "fallthrough statement must be final statement in case")
 						break
 					}
 				}
@@ -1235,14 +1232,14 @@ func (a *compiler) compileFunc(b *block, decl *FuncDecl, body *ast.BlockStmt) fu
 	defer bodyScope.exit()
 	for i, t := range decl.Type.In {
 		if decl.InNames[i] != nil {
-			bodyScope.DefineVar(decl.InNames[i].Name(), decl.InNames[i].Pos(), t)
+			bodyScope.DefineVar(decl.InNames[i].Name, decl.InNames[i].Pos(), t)
 		} else {
 			bodyScope.DefineTemp(t)
 		}
 	}
 	for i, t := range decl.Type.Out {
 		if decl.OutNames[i] != nil {
-			bodyScope.DefineVar(decl.OutNames[i].Name(), decl.OutNames[i].Pos(), t)
+			bodyScope.DefineVar(decl.OutNames[i].Name, decl.OutNames[i].Pos(), t)
 		} else {
 			bodyScope.DefineTemp(t)
 		}
@@ -1275,7 +1272,7 @@ func (a *compiler) compileFunc(b *block, decl *FuncDecl, body *ast.BlockStmt) fu
 	// this if there were no errors compiling the body.
 	if len(decl.Type.Out) > 0 && fc.flow.reachesEnd(0) {
 		// XXX(Spec) Not specified.
-		a.diagAt(&body.Rbrace, "function ends without a return statement")
+		a.diagAt(body.Rbrace, "function ends without a return statement")
 		return nil
 	}
 
@@ -1290,7 +1287,7 @@ func (a *funcCompiler) checkLabels() {
 	nerr := a.numError()
 	for _, l := range a.labels {
 		if !l.resolved.IsValid() {
-			a.diagAt(&l.used, "label %s not defined", l.name)
+			a.diagAt(l.used, "label %s not defined", l.name)
 		}
 	}
 	if nerr != a.numError() {

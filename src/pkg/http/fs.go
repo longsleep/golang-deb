@@ -12,7 +12,9 @@ import (
 	"mime"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"time"
 	"utf8"
 )
 
@@ -25,7 +27,7 @@ func isText(b []byte) bool {
 			// decoding error
 			return false
 		}
-		if 0x80 <= rune && rune <= 0x9F {
+		if 0x7F <= rune && rune <= 0x9F {
 			return false
 		}
 		if rune < ' ' {
@@ -42,8 +44,8 @@ func isText(b []byte) bool {
 	return true
 }
 
-func dirList(c *Conn, f *os.File) {
-	fmt.Fprintf(c, "<pre>\n")
+func dirList(w ResponseWriter, f *os.File) {
+	fmt.Fprintf(w, "<pre>\n")
 	for {
 		dirs, err := f.Readdir(100)
 		if err != nil || len(dirs) == 0 {
@@ -55,26 +57,25 @@ func dirList(c *Conn, f *os.File) {
 				name += "/"
 			}
 			// TODO htmlescape
-			fmt.Fprintf(c, "<a href=\"%s\">%s</a>\n", name, name)
+			fmt.Fprintf(w, "<a href=\"%s\">%s</a>\n", name, name)
 		}
 	}
-	fmt.Fprintf(c, "</pre>\n")
+	fmt.Fprintf(w, "</pre>\n")
 }
 
-
-func serveFileInternal(c *Conn, r *Request, name string, redirect bool) {
+func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 	const indexPage = "/index.html"
 
 	// redirect .../index.html to .../
 	if strings.HasSuffix(r.URL.Path, indexPage) {
-		Redirect(c, r.URL.Path[0:len(r.URL.Path)-len(indexPage)+1], StatusMovedPermanently)
+		Redirect(w, r, r.URL.Path[0:len(r.URL.Path)-len(indexPage)+1], StatusMovedPermanently)
 		return
 	}
 
 	f, err := os.Open(name, os.O_RDONLY, 0)
 	if err != nil {
 		// TODO expose actual error?
-		NotFound(c, r)
+		NotFound(w, r)
 		return
 	}
 	defer f.Close()
@@ -82,7 +83,7 @@ func serveFileInternal(c *Conn, r *Request, name string, redirect bool) {
 	d, err1 := f.Stat()
 	if err1 != nil {
 		// TODO expose actual error?
-		NotFound(c, r)
+		NotFound(w, r)
 		return
 	}
 
@@ -92,16 +93,22 @@ func serveFileInternal(c *Conn, r *Request, name string, redirect bool) {
 		url := r.URL.Path
 		if d.IsDirectory() {
 			if url[len(url)-1] != '/' {
-				Redirect(c, url+"/", StatusMovedPermanently)
+				Redirect(w, r, url+"/", StatusMovedPermanently)
 				return
 			}
 		} else {
 			if url[len(url)-1] == '/' {
-				Redirect(c, url[0:len(url)-1], StatusMovedPermanently)
+				Redirect(w, r, url[0:len(url)-1], StatusMovedPermanently)
 				return
 			}
 		}
 	}
+
+	if t, _ := time.Parse(TimeFormat, r.Header["If-Modified-Since"]); t != nil && d.Mtime_ns/1e9 <= t.Seconds() {
+		w.WriteHeader(StatusNotModified)
+		return
+	}
+	w.SetHeader("Last-Modified", time.SecondsToUTC(d.Mtime_ns/1e9).Format(TimeFormat))
 
 	// use contents of index.html for directory, if present
 	if d.IsDirectory() {
@@ -119,33 +126,60 @@ func serveFileInternal(c *Conn, r *Request, name string, redirect bool) {
 	}
 
 	if d.IsDirectory() {
-		dirList(c, f)
+		dirList(w, f)
 		return
 	}
 
 	// serve file
+	size := d.Size
+	code := StatusOK
+
 	// use extension to find content type.
 	ext := path.Ext(name)
 	if ctype := mime.TypeByExtension(ext); ctype != "" {
-		c.SetHeader("Content-Type", ctype)
+		w.SetHeader("Content-Type", ctype)
 	} else {
 		// read first chunk to decide between utf-8 text and binary
 		var buf [1024]byte
-		n, _ := io.ReadFull(f, buf[0:])
-		b := buf[0:n]
+		n, _ := io.ReadFull(f, buf[:])
+		b := buf[:n]
 		if isText(b) {
-			c.SetHeader("Content-Type", "text-plain; charset=utf-8")
+			w.SetHeader("Content-Type", "text-plain; charset=utf-8")
 		} else {
-			c.SetHeader("Content-Type", "application/octet-stream") // generic binary
+			w.SetHeader("Content-Type", "application/octet-stream") // generic binary
 		}
-		c.Write(b)
+		f.Seek(0, 0) // rewind to output whole file
 	}
-	io.Copy(c, f)
+
+	// handle Content-Range header.
+	// TODO(adg): handle multiple ranges
+	ranges, err := parseRange(r.Header["Range"], size)
+	if err != nil || len(ranges) > 1 {
+		Error(w, err.String(), StatusRequestedRangeNotSatisfiable)
+		return
+	}
+	if len(ranges) == 1 {
+		ra := ranges[0]
+		if _, err := f.Seek(ra.start, 0); err != nil {
+			Error(w, err.String(), StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		size = ra.length
+		code = StatusPartialContent
+		w.SetHeader("Content-Range", fmt.Sprintf("%d-%d/%d", ra.start, ra.start+ra.length, d.Size))
+	}
+
+	w.SetHeader("Accept-Ranges", "bytes")
+	w.SetHeader("Content-Length", strconv.Itoa64(size))
+
+	w.WriteHeader(code)
+
+	io.Copyn(w, f, size)
 }
 
 // ServeFile replies to the request with the contents of the named file or directory.
-func ServeFile(c *Conn, r *Request, name string) {
-	serveFileInternal(c, r, name, false)
+func ServeFile(w ResponseWriter, r *Request, name string) {
+	serveFile(w, r, name, false)
 }
 
 type fileHandler struct {
@@ -159,12 +193,71 @@ type fileHandler struct {
 // looking up the file name in the file system.
 func FileServer(root, prefix string) Handler { return &fileHandler{root, prefix} }
 
-func (f *fileHandler) ServeHTTP(c *Conn, r *Request) {
+func (f *fileHandler) ServeHTTP(w ResponseWriter, r *Request) {
 	path := r.URL.Path
 	if !strings.HasPrefix(path, f.prefix) {
-		NotFound(c, r)
+		NotFound(w, r)
 		return
 	}
 	path = path[len(f.prefix):]
-	serveFileInternal(c, r, f.root+"/"+path, true)
+	serveFile(w, r, f.root+"/"+path, true)
+}
+
+// httpRange specifies the byte range to be sent to the client.
+type httpRange struct {
+	start, length int64
+}
+
+// parseRange parses a Range header string as per RFC 2616.
+func parseRange(s string, size int64) ([]httpRange, os.Error) {
+	if s == "" {
+		return nil, nil // header not present
+	}
+	const b = "bytes="
+	if !strings.HasPrefix(s, b) {
+		return nil, os.NewError("invalid range")
+	}
+	var ranges []httpRange
+	for _, ra := range strings.Split(s[len(b):], ",", -1) {
+		i := strings.Index(ra, "-")
+		if i < 0 {
+			return nil, os.NewError("invalid range")
+		}
+		start, end := ra[:i], ra[i+1:]
+		var r httpRange
+		if start == "" {
+			// If no start is specified, end specifies the
+			// range start relative to the end of the file.
+			i, err := strconv.Atoi64(end)
+			if err != nil {
+				return nil, os.NewError("invalid range")
+			}
+			if i > size {
+				i = size
+			}
+			r.start = size - i
+			r.length = size - r.start
+		} else {
+			i, err := strconv.Atoi64(start)
+			if err != nil || i > size || i < 0 {
+				return nil, os.NewError("invalid range")
+			}
+			r.start = i
+			if end == "" {
+				// If no end is specified, range extends to end of the file.
+				r.length = size - r.start
+			} else {
+				i, err := strconv.Atoi64(end)
+				if err != nil || r.start > i {
+					return nil, os.NewError("invalid range")
+				}
+				if i >= size {
+					i = size - 1
+				}
+				r.length = i - r.start + 1
+			}
+		}
+		ranges = append(ranges, r)
+	}
+	return ranges, nil
 }

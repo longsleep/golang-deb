@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=ebnflint
 GOFILES=\
@@ -11,5 +11,5 @@ GOFILES=\
 include ../../Make.cmd
 
 test: $(TARG)
-	$(QUOTED_GOBIN)/$(TARG) -start="SourceFile" "$(GOROOT)"/doc/go_spec.html
+	$(TARG) -start="SourceFile" "$(GOROOT)"/doc/go_spec.html
 

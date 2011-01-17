@@ -5,7 +5,7 @@
 package eval
 
 import (
-	"exp/bignum"
+	"big"
 	"go/ast"
 	"go/token"
 	"log"
@@ -54,18 +54,18 @@ type Type interface {
 	// String returns the string representation of this type.
 	String() string
 	// The position where this type was defined, if any.
-	Pos() token.Position
+	Pos() token.Pos
 }
 
 type BoundedType interface {
 	Type
 	// minVal returns the smallest value of this type.
-	minVal() *bignum.Rational
+	minVal() *big.Rat
 	// maxVal returns the largest value of this type.
-	maxVal() *bignum.Rational
+	maxVal() *big.Rat
 }
 
-var universePos = token.Position{"<universe>", 0, 0, 0}
+var universePos = token.NoPos
 
 /*
  * Type array maps.  These are used to memoize composite types.
@@ -140,7 +140,7 @@ func (commonType) isFloat() bool { return false }
 
 func (commonType) isIdeal() bool { return false }
 
-func (commonType) Pos() token.Position { return token.Position{} }
+func (commonType) Pos() token.Pos { return token.NoPos }
 
 /*
  * Bool
@@ -234,9 +234,9 @@ func (t *uintType) Zero() Value {
 	panic("unexpected uint bit count")
 }
 
-func (t *uintType) minVal() *bignum.Rational { return bignum.Rat(0, 1) }
+func (t *uintType) minVal() *big.Rat { return big.NewRat(0, 1) }
 
-func (t *uintType) maxVal() *bignum.Rational {
+func (t *uintType) maxVal() *big.Rat {
 	bits := t.Bits
 	if bits == 0 {
 		if t.Ptr {
@@ -245,7 +245,10 @@ func (t *uintType) maxVal() *bignum.Rational {
 			bits = uint(8 * unsafe.Sizeof(uint(0)))
 		}
 	}
-	return bignum.MakeRat(bignum.Int(1).Shl(bits).Add(bignum.Int(-1)), bignum.Nat(1))
+	numer := big.NewInt(1)
+	numer.Lsh(numer, bits)
+	numer.Sub(numer, idealOne)
+	return new(big.Rat).SetInt(numer)
 }
 
 /*
@@ -307,20 +310,25 @@ func (t *intType) Zero() Value {
 	panic("unexpected int bit count")
 }
 
-func (t *intType) minVal() *bignum.Rational {
+func (t *intType) minVal() *big.Rat {
 	bits := t.Bits
 	if bits == 0 {
 		bits = uint(8 * unsafe.Sizeof(int(0)))
 	}
-	return bignum.MakeRat(bignum.Int(-1).Shl(bits-1), bignum.Nat(1))
+	numer := big.NewInt(-1)
+	numer.Lsh(numer, bits-1)
+	return new(big.Rat).SetInt(numer)
 }
 
-func (t *intType) maxVal() *bignum.Rational {
+func (t *intType) maxVal() *big.Rat {
 	bits := t.Bits
 	if bits == 0 {
 		bits = uint(8 * unsafe.Sizeof(int(0)))
 	}
-	return bignum.MakeRat(bignum.Int(1).Shl(bits-1).Add(bignum.Int(-1)), bignum.Nat(1))
+	numer := big.NewInt(1)
+	numer.Lsh(numer, bits-1)
+	numer.Sub(numer, idealOne)
+	return new(big.Rat).SetInt(numer)
 }
 
 /*
@@ -346,7 +354,7 @@ func (t *idealIntType) isIdeal() bool { return true }
 
 func (t *idealIntType) String() string { return "ideal integer" }
 
-func (t *idealIntType) Zero() Value { return &idealIntV{bignum.Int(0)} }
+func (t *idealIntType) Zero() Value { return &idealIntV{idealZero} }
 
 /*
  * Float
@@ -393,12 +401,12 @@ func (t *floatType) Zero() Value {
 	panic("unexpected float bit count")
 }
 
-var maxFloat32Val = bignum.MakeRat(bignum.Int(0xffffff).Shl(127-23), bignum.Nat(1))
-var maxFloat64Val = bignum.MakeRat(bignum.Int(0x1fffffffffffff).Shl(1023-52), bignum.Nat(1))
-var minFloat32Val = maxFloat32Val.Neg()
-var minFloat64Val = maxFloat64Val.Neg()
+var maxFloat32Val *big.Rat
+var maxFloat64Val *big.Rat
+var minFloat32Val *big.Rat
+var minFloat64Val *big.Rat
 
-func (t *floatType) minVal() *bignum.Rational {
+func (t *floatType) minVal() *big.Rat {
 	bits := t.Bits
 	if bits == 0 {
 		bits = uint(8 * unsafe.Sizeof(float(0)))
@@ -409,11 +417,11 @@ func (t *floatType) minVal() *bignum.Rational {
 	case 64:
 		return minFloat64Val
 	}
-	log.Crashf("unexpected floating point bit count: %d", bits)
+	log.Panicf("unexpected floating point bit count: %d", bits)
 	panic("unreachable")
 }
 
-func (t *floatType) maxVal() *bignum.Rational {
+func (t *floatType) maxVal() *big.Rat {
 	bits := t.Bits
 	if bits == 0 {
 		bits = uint(8 * unsafe.Sizeof(float(0)))
@@ -424,7 +432,7 @@ func (t *floatType) maxVal() *bignum.Rational {
 	case 64:
 		return maxFloat64Val
 	}
-	log.Crashf("unexpected floating point bit count: %d", bits)
+	log.Panicf("unexpected floating point bit count: %d", bits)
 	panic("unreachable")
 }
 
@@ -451,7 +459,7 @@ func (t *idealFloatType) isIdeal() bool { return true }
 
 func (t *idealFloatType) String() string { return "ideal float" }
 
-func (t *idealFloatType) Zero() Value { return &idealFloatV{bignum.Rat(1, 0)} }
+func (t *idealFloatType) Zero() Value { return &idealFloatV{big.NewRat(0, 1)} }
 
 /*
  * String
@@ -704,6 +712,7 @@ var (
 	panicType   = &FuncType{builtin: "panic"}
 	printType   = &FuncType{builtin: "print"}
 	printlnType = &FuncType{builtin: "println"}
+	copyType    = &FuncType{builtin: "copy"}
 )
 
 // Two function types are identical if they have the same number of
@@ -763,7 +772,7 @@ func typeListString(ts []Type, ns []*ast.Ident) string {
 			s += ", "
 		}
 		if ns != nil && ns[i] != nil {
-			s += ns[i].Name() + " "
+			s += ns[i].Name + " "
 		}
 		if t == nil {
 			// Some places use nil types to represent errors
@@ -807,7 +816,7 @@ type FuncDecl struct {
 func (t *FuncDecl) String() string {
 	s := "func"
 	if t.Name != nil {
-		s += " " + t.Name.Name()
+		s += " " + t.Name.Name
 	}
 	s += funcTypeString(t.Type, t.InNames, t.OutNames)
 	return s
@@ -861,9 +870,7 @@ func NewInterfaceType(methods []IMethod, embeds []*InterfaceType) *InterfaceType
 
 	// Combine methods
 	allMethods := make([]IMethod, nMethods)
-	for i, m := range methods {
-		allMethods[i] = m
-	}
+	copy(allMethods, methods)
 	n := len(methods)
 	for _, e := range embeds {
 		for _, m := range e.methods {
@@ -1093,8 +1100,8 @@ type Method struct {
 }
 
 type NamedType struct {
-	token.Position
-	Name string
+	NamePos token.Pos
+	Name    string
 	// Underlying type.  If incomplete is true, this will be nil.
 	// If incomplete is false and this is still nil, then this is
 	// a placeholder type representing an error.
@@ -1107,12 +1114,16 @@ type NamedType struct {
 // TODO(austin) This is temporarily needed by the debugger's remote
 // type parser.  This should only be possible with block.DefineType.
 func NewNamedType(name string) *NamedType {
-	return &NamedType{token.Position{}, name, nil, true, make(map[string]Method)}
+	return &NamedType{token.NoPos, name, nil, true, make(map[string]Method)}
+}
+
+func (t *NamedType) Pos() token.Pos {
+	return t.NamePos
 }
 
 func (t *NamedType) Complete(def Type) {
 	if !t.incomplete {
-		log.Crashf("cannot complete already completed NamedType %+v", *t)
+		log.Panicf("cannot complete already completed NamedType %+v", *t)
 	}
 	// We strip the name from def because multiple levels of
 	// naming are useless.
@@ -1221,6 +1232,15 @@ func (t *MultiType) Zero() Value {
  */
 
 func init() {
+	numer := big.NewInt(0xffffff)
+	numer.Lsh(numer, 127-23)
+	maxFloat32Val = new(big.Rat).SetInt(numer)
+	numer.SetInt64(0x1fffffffffffff)
+	numer.Lsh(numer, 1023-52)
+	maxFloat64Val = new(big.Rat).SetInt(numer)
+	minFloat32Val = new(big.Rat).Neg(maxFloat32Val)
+	minFloat64Val = new(big.Rat).Neg(maxFloat64Val)
+
 	// To avoid portability issues all numeric types are distinct
 	// except byte, which is an alias for uint8.
 
@@ -1232,6 +1252,7 @@ func init() {
 	universe.DefineConst("cap", universePos, capType, nil)
 	universe.DefineConst("close", universePos, closeType, nil)
 	universe.DefineConst("closed", universePos, closedType, nil)
+	universe.DefineConst("copy", universePos, copyType, nil)
 	universe.DefineConst("len", universePos, lenType, nil)
 	universe.DefineConst("make", universePos, makeType, nil)
 	universe.DefineConst("new", universePos, newType, nil)

@@ -2,25 +2,12 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# GNU Make syntax:
-ifndef GOBIN
-GOBIN=$(HOME)/bin
-endif
-
-# ugly hack to deal with whitespaces in $GOBIN
-nullstring :=
-space := $(nullstring) # a space at the end
-ifndef GOBIN
-QUOTED_HOME=$(subst $(space),\ ,$(HOME))
-GOBIN=$(QUOTED_HOME)/bin
-endif
-QUOTED_GOBIN=$(subst $(space),\ ,$(GOBIN))
-
-# ugly hack to deal with whitespaces in $GOROOT
-QUOTED_GOROOT:=$(subst $(space),\ ,$(GOROOT))
-
 clean:
 	rm -rf *.o *.a *.[$(OS)] [$(OS)].out $(CLEANFILES)
 
 %.make:
-	(cd $* && $(QUOTED_GOBIN)/gomake install)
+	(cd $* && gomake install)
+
+.PHONY: all clean nuke install coverage test bench testpackage-clean\ 
+	importpath dir
+

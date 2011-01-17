@@ -7,11 +7,15 @@ package datafmt
 import (
 	"fmt"
 	"testing"
+	"go/token"
 )
 
 
+var fset = token.NewFileSet()
+
+
 func parse(t *testing.T, form string, fmap FormatterMap) Format {
-	f, err := Parse("", []byte(form), fmap)
+	f, err := Parse(fset, "", []byte(form), fmap)
 	if err != nil {
 		t.Errorf("Parse(%s): %v", form, err)
 		return nil
@@ -24,7 +28,7 @@ func verify(t *testing.T, f Format, expected string, args ...interface{}) {
 	if f == nil {
 		return // allow other tests to run
 	}
-	result := f.Sprint(args)
+	result := f.Sprint(args...)
 	if result != expected {
 		t.Errorf(
 			"result  : `%s`\nexpected: `%s`\n\n",
@@ -97,7 +101,7 @@ func check(t *testing.T, form, expected string, args ...interface{}) {
 	if f == nil {
 		return // allow other tests to run
 	}
-	result := f.Sprint(args)
+	result := f.Sprint(args...)
 	if result != expected {
 		t.Errorf(
 			"format  : %s\nresult  : `%s`\nexpected: `%s`\n\n",

@@ -729,8 +729,11 @@ stotype(NodeList *l, int et, Type **t)
 				n->right = N;
 				if(n->embedded && n->type != T) {
 					t1 = n->type;
-					if(t1->sym == S && isptr[t1->etype])
+					if(t1->sym == S && isptr[t1->etype]) {
 						t1 = t1->type;
+						if(t1->etype == TINTER)
+							yyerror("embedded type cannot be a pointer to interface");
+					}
 					if(isptr[t1->etype])
 						yyerror("embedded type cannot be a pointer");
 					else if(t1->etype == TFORW && t1->embedlineno == 0)
@@ -841,6 +844,8 @@ dostruct(NodeList *l, int et)
 		t->broke = 1;
 		return t;
 	}
+	if(et == TINTER)
+		t = sortinter(t);
 	if(!funarg)
 		checkwidth(t);
 	return t;
@@ -1017,11 +1022,12 @@ functype(Node *this, NodeList *in, NodeList *out)
 }
 
 Sym*
-methodsym(Sym *nsym, Type *t0)
+methodsym(Sym *nsym, Type *t0, int iface)
 {
 	Sym *s;
 	char *p;
 	Type *t;
+	char *suffix;
 
 	t = t0;
 	if(t == T)
@@ -1043,7 +1049,13 @@ methodsym(Sym *nsym, Type *t0)
 	if(t != t0 && t0->sym)
 		t0 = ptrto(t);
 
-	p = smprint("%#hT·%s", t0, nsym->name);
+	suffix = "";
+	if(iface) {
+		dowidth(t0);
+		if(t0->width < types[tptr]->width)
+			suffix = "·i";
+	}
+	p = smprint("%#hT·%s%s", t0, nsym->name, suffix);
 	s = pkglookup(p, s->pkg);
 	free(p);
 	return s;
@@ -1058,7 +1070,7 @@ methodname(Node *n, Type *t)
 {
 	Sym *s;
 
-	s = methodsym(n->sym, t);
+	s = methodsym(n->sym, t, 0);
 	if(s == S)
 		return n;
 	return newname(s);

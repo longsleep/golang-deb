@@ -14,6 +14,8 @@
 
 extern int yychar;
 int windows;
+int yyprev;
+int yylast;
 
 static void	lexinit(void);
 static void	lexfini(void);
@@ -23,8 +25,44 @@ static void	ungetc(int);
 static int32	getr(void);
 static int	escchar(int, int*, vlong*);
 static void	addidir(char*);
-
+static int	getlinepragma(void);
 static char *goos, *goarch, *goroot;
+
+// Our own isdigit, isspace, isalpha, isalnum that take care 
+// of EOF and other out of range arguments.
+static int
+yy_isdigit(int c)
+{
+	return c >= 0 && c <= 0xFF && isdigit(c);
+}
+
+static int
+yy_isspace(int c)
+{
+	return c >= 0 && c <= 0xFF && isspace(c);
+}
+
+static int
+yy_isalpha(int c)
+{
+	return c >= 0 && c <= 0xFF && isalpha(c);
+}
+
+static int
+yy_isalnum(int c)
+{
+	return c >= 0 && c <= 0xFF && isalnum(c);
+}
+
+// Disallow use of isdigit etc.
+#undef isdigit
+#undef isspace
+#undef isalpha
+#undef isalnum
+#define isdigit use_yy_isdigit_instead_of_isdigit
+#define isspace use_yy_isspace_instead_of_isspace
+#define isalpha use_yy_isalpha_instead_of_isalpha
+#define isalnum use_yy_isalnum_instead_of_isalnum
 
 #define	DBG	if(!debug['x']);else print
 enum
@@ -35,7 +73,7 @@ enum
 void
 usage(void)
 {
-	print("usage: %cg [flags] file.go...\n");
+	print("gc: usage: %cg [flags] file.go...\n", thechar);
 	print("flags:\n");
 	// -A is allow use of "any" type, for bootstrapping
 	print("  -I DIR search for packages in DIR\n");
@@ -52,12 +90,27 @@ usage(void)
 	exit(0);
 }
 
+void
+fault(int s)
+{
+	// If we've already complained about things
+	// in the program, don't bother complaining
+	// about the seg fault too; let the user clean up
+	// the code and try again.
+	if(nerrors > 0)
+		errorexit();
+	fatal("fault");
+}
+
 int
 main(int argc, char *argv[])
 {
 	int i, c;
 	NodeList *l;
 	char *p;
+	
+	signal(SIGBUS, fault);
+	signal(SIGSEGV, fault);
 
 	localpkg = mkpkg(strlit(""));
 	localpkg->prefix = "\"\"";
@@ -119,7 +172,7 @@ main(int argc, char *argv[])
 	if(getwd(pathname, 999) == 0)
 		strcpy(pathname, "/???");
 
-	if(isalpha(pathname[0]) && pathname[1] == ':') {
+	if(yy_isalpha(pathname[0]) && pathname[1] == ':') {
 		// On Windows.
 		windows = 1;
 
@@ -141,7 +194,7 @@ main(int argc, char *argv[])
 	fmtinstall('F', Fconv);		// big float numbers
 
 	betypeinit();
-	if(maxround == 0 || widthptr == 0)
+	if(widthptr == 0)
 		fatal("betypeinit failed");
 
 	lexinit();
@@ -287,7 +340,7 @@ islocalname(Strlit *name)
 	if(!windows && name->len >= 1 && name->s[0] == '/')
 		return 1;
 	if(windows && name->len >= 3 &&
-	   isalpha(name->s[0]) && name->s[1] == ':' && name->s[2] == '/')
+	   yy_isalpha(name->s[0]) && name->s[1] == ':' && name->s[2] == '/')
 	   	return 1;
 	if(name->len >= 2 && strncmp(name->s, "./", 2) == 0)
 		return 1;
@@ -300,8 +353,11 @@ static int
 findpkg(Strlit *name)
 {
 	Idir *p;
+	char *q;
 
 	if(islocalname(name)) {
+		if(safemode)
+			return 0;
 		// try .a before .6.  important for building libraries:
 		// if there is an array.6 in the array.a library,
 		// want to find all of array.a, not just array.6.
@@ -311,6 +367,18 @@ findpkg(Strlit *name)
 		snprint(namebuf, sizeof(namebuf), "%Z.%c", name, thechar);
 		if(access(namebuf, 0) >= 0)
 			return 1;
+		return 0;
+	}
+
+	// local imports should be canonicalized already.
+	// don't want to see "container/../container/vector"
+	// as different from "container/vector".
+	q = mal(name->len+1);
+	memmove(q, name->s, name->len);
+	q[name->len] = '\0';
+	cleanname(q);
+	if(strlen(q) != name->len || memcmp(q, name->s, name->len) != 0) {
+		yyerror("non-canonical import path %Z (should be %s)", name, q);
 		return 0;
 	}
 
@@ -368,7 +436,9 @@ importfile(Val *f, int line)
 	path = f->u.sval;
 	if(islocalname(path)) {
 		cleanbuf = mal(strlen(pathname) + strlen(path->s) + 2);
-		sprint(cleanbuf, "%s/%s", pathname, path->s);
+		strcpy(cleanbuf, pathname);
+		strcat(cleanbuf, "/");
+		strcat(cleanbuf, path->s);
 		cleanname(cleanbuf);
 		path = strlit(cleanbuf);
 	}
@@ -381,7 +451,7 @@ importfile(Val *f, int line)
 
 	imp = Bopen(namebuf, OREAD);
 	if(imp == nil) {
-		yyerror("can't open import: %Z", f->u.sval);
+		yyerror("can't open import: %Z: %r", f->u.sval);
 		errorexit();
 	}
 	file = strdup(namebuf);
@@ -470,7 +540,7 @@ isfrog(int c)
 			return 0;
 		return 1;
 	}
-	if(0x80 <= c && c <= 0xa0)	// unicode block including unbreakable space.
+	if(0x7f <= c && c <= 0xa0)	// DEL, unicode block including unbreakable space.
 		return 1;
 	return 0;
 }
@@ -496,7 +566,7 @@ _yylex(void)
 
 l0:
 	c = getc();
-	if(isspace(c)) {
+	if(yy_isspace(c)) {
 		if(c == '\n' && curio.nlsemi) {
 			ungetc(c);
 			DBG("lex: implicit semi\n");
@@ -514,13 +584,13 @@ l0:
 		goto talph;
 	}
 
-	if(isalpha(c)) {
+	if(yy_isalpha(c)) {
 		cp = lexbuf;
 		ep = lexbuf+sizeof lexbuf;
 		goto talph;
 	}
 
-	if(isdigit(c))
+	if(yy_isdigit(c))
 		goto tnum;
 
 	switch(c) {
@@ -536,7 +606,7 @@ l0:
 
 	case '.':
 		c1 = getc();
-		if(isdigit(c1)) {
+		if(yy_isdigit(c1)) {
 			cp = lexbuf;
 			ep = lexbuf+sizeof lexbuf;
 			*cp++ = c;
@@ -656,16 +726,13 @@ l0:
 			}
 		}
 		if(c1 == '/') {
+			c = getlinepragma();
 			for(;;) {
-				c = getr();
-				if(c == '\n') {
+				if(c == '\n' || c == EOF) {
 					ungetc(c);
 					goto l0;
 				}
-				if(c == EOF) {
-					yyerror("eof in comment");
-					errorexit();
-				}
+				c = getr();
 			}
 		}
 		if(c1 == '=') {
@@ -878,6 +945,10 @@ lx:
 		yyerror("illegal character 0x%ux", c);
 		goto l0;
 	}
+	if(importpkg == nil && (c == '#' || c == '$' || c == '?' || c == '@' || c == '\\')) {
+		yyerror("%s: unexpected %c", "syntax error", c);
+		goto l0;
+	}
 	return c;
 
 asop:
@@ -902,7 +973,7 @@ talph:
 			if(!isalpharune(rune) && !isdigitrune(rune) && (importpkg == nil || rune != 0xb7))
 				yyerror("invalid identifier character 0x%ux", rune);
 			cp += runetochar(cp, &rune);
-		} else if(!isalnum(c) && c != '_')
+		} else if(!yy_isalnum(c) && c != '_')
 			break;
 		else
 			*cp++ = c;
@@ -940,7 +1011,7 @@ tnum:
 			}
 			*cp++ = c;
 			c = getc();
-			if(isdigit(c))
+			if(yy_isdigit(c))
 				continue;
 			goto dc;
 		}
@@ -955,7 +1026,7 @@ tnum:
 			}
 			*cp++ = c;
 			c = getc();
-			if(isdigit(c))
+			if(yy_isdigit(c))
 				continue;
 			if(c >= 'a' && c <= 'f')
 				continue;
@@ -976,7 +1047,7 @@ tnum:
 			yyerror("identifier too long");
 			errorexit();
 		}
-		if(!isdigit(c))
+		if(!yy_isdigit(c))
 			break;
 		if(c < '0' || c > '7')
 			c1 = 1;		// not octal
@@ -1025,7 +1096,7 @@ casedot:
 		}
 		*cp++ = c;
 		c = getc();
-		if(!isdigit(c))
+		if(!yy_isdigit(c))
 			break;
 	}
 	if(c == 'i')
@@ -1040,9 +1111,9 @@ casee:
 		*cp++ = c;
 		c = getc();
 	}
-	if(!isdigit(c))
+	if(!yy_isdigit(c))
 		yyerror("malformed fp constant exponent");
-	while(isdigit(c)) {
+	while(yy_isdigit(c)) {
 		if(cp+10 >= ep) {
 			yyerror("identifier too long");
 			errorexit();
@@ -1061,9 +1132,9 @@ casep:
 		*cp++ = c;
 		c = getc();
 	}
-	if(!isdigit(c))
+	if(!yy_isdigit(c))
 		yyerror("malformed fp constant exponent");
-	while(isdigit(c)) {
+	while(yy_isdigit(c)) {
 		if(cp+10 >= ep) {
 			yyerror("identifier too long");
 			errorexit();
@@ -1104,6 +1175,68 @@ caseout:
 	return LLITERAL;
 }
 
+/*
+ * read and interpret syntax that looks like
+ * //line parse.y:15
+ * as a discontinuity in sequential line numbers.
+ * the next line of input comes from parse.y:15
+ */
+static int
+getlinepragma(void)
+{
+	int i, c, n;
+	char *cp, *ep;
+	Hist *h;
+
+	for(i=0; i<5; i++) {
+		c = getr();
+		if(c != "line "[i])
+			goto out;
+	}
+
+	cp = lexbuf;
+	ep = lexbuf+sizeof(lexbuf)-5;
+	for(;;) {
+		c = getr();
+		if(c == '\n' || c == EOF)
+			goto out;
+		if(c == ' ')
+			continue;
+		if(c == ':')
+			break;
+		if(cp < ep)
+			*cp++ = c;
+	}
+	*cp = 0;
+
+	n = 0;
+	for(;;) {
+		c = getr();
+		if(!yy_isdigit(c))
+			break;
+		n = n*10 + (c-'0');
+		if(n > 1e8) {
+			yyerror("line number out of range");
+			errorexit();
+		}
+	}
+
+	if(c != '\n' || n <= 0)
+		goto out;
+
+	// try to avoid allocating file name over and over
+	for(h=hist; h!=H; h=h->link) {
+		if(h->name != nil && strcmp(h->name, lexbuf) == 0) {
+			linehist(h->name, n, 0);
+			goto out;
+		}
+	}
+	linehist(strdup(lexbuf), n, 0);
+
+out:
+	return c;
+}
+
 int32
 yylex(void)
 {
@@ -1112,13 +1245,8 @@ yylex(void)
 	lx = _yylex();
 	
 	if(curio.nlsemi && lx == EOF) {
-		// if the nlsemi bit is set, we'd be willing to
-		// insert a ; if we saw a \n, but we didn't.
-		// that means the final \n is missing.
-		// complain here, because we can give a
-		// good message.  the syntax error we'd get
-		// otherwise is inscrutable.
-		yyerror("missing newline at end of file");
+		// Treat EOF as "end of line" for the purposes
+		// of inserting a semicolon.
 		lx = ';';
 	}
 
@@ -1140,7 +1268,11 @@ yylex(void)
 		curio.nlsemi = 0;
 		break;
 	}
-	return lx;
+
+	// Track last two tokens returned by yylex.
+	yyprev = yylast;
+	yylast = lx;
+ 	return lx;
 }
 
 static int
@@ -1395,6 +1527,7 @@ static	struct
 	"type",		LTYPE,		Txxx,		OXXX,
 	"var",		LVAR,		Txxx,		OXXX,
 
+	"append",		LNAME,		Txxx,		OAPPEND,
 	"cap",		LNAME,		Txxx,		OCAP,
 	"close",	LNAME,		Txxx,		OCLOSE,
 	"closed",	LNAME,		Txxx,		OCLOSED,

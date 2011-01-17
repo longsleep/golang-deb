@@ -199,9 +199,11 @@ attachthread(int pid, int tid, int *new, int newstate)
 	t = malloc(sizeof *t);
 	if(t == nil)
 		return nil;
-        memset(t, 0, sizeof *t);
+	memset(t, 0, sizeof *t);
 
 	thr[nthr++] = t;
+	if(pid == 0 && nthr > 0)
+		pid = thr[0]->pid;
 	t->pid = pid;
 	t->tid = tid;
 	t->state = newstate;
@@ -296,7 +298,9 @@ wait1(int nohang)
 	if(nohang != 0)
 		nohang = WNOHANG;
 
+	status = 0;
 	tid = waitpid(-1, &status, __WALL|WUNTRACED|WSTOPPED|WCONTINUED|nohang);
+
 	if(tid < 0)
 		return -1;
 	if(tid == 0)
@@ -305,11 +309,15 @@ wait1(int nohang)
 	if(trace > 0 && status != NormalStop)
 		fprint(2, "TID %d: %#x\n", tid, status);
 
-	// If we've not heard of this tid, something is wrong.
 	t = findthread(tid);
 	if(t == nil) {
-		fprint(2, "ptrace waitpid: unexpected new tid %d status %#x\n", tid, status);
-		return -1;
+		// Sometimes the kernel tells us about new threads
+		// before we see the parent clone.
+		t = attachthread(0, tid, &new, Stopped);
+		if(t == nil) {
+			fprint(2, "failed to attach to new thread %d\n", tid);
+			return -1;
+		}
 	}
 
 	if(WIFSTOPPED(status)) {
@@ -339,8 +347,6 @@ wait1(int nohang)
 				}
 				t->child = data;
 				attachthread(t->pid, t->child, &new, Running);
-				if(!new)
-					fprint(2, "ptrace child: not new\n");
 				break;
 
 			case PTRACE_EVENT_EXEC:
@@ -759,9 +765,9 @@ ptracerw(int type, int xtype, int isr, int pid, uvlong addr, void *v, uint n)
 			if(errno)
 				goto ptraceerr;
 			if(n-i >= sizeof(uintptr))
-				*(uintptr*)((char*)v+i) = u;
+				memmove((char*)v+i, &u, sizeof(uintptr));
 			else{
-				*(uintptr*)buf = u;
+				memmove(buf, &u, sizeof u);
 				memmove((char*)v+i, buf, n-i);
 			}
 		}else{
@@ -772,9 +778,9 @@ ptracerw(int type, int xtype, int isr, int pid, uvlong addr, void *v, uint n)
 				u = ptrace(xtype, pid, addr+i, 0);
 				if(errno)
 					return -1;
-				*(uintptr*)buf = u;
+				memmove(buf, &u, sizeof u);
 				memmove(buf, (char*)v+i, n-i);
-				u = *(uintptr*)buf;
+				memmove(&u, buf, sizeof u);
 			}
 			if(ptrace(type, pid, addr+i, u) < 0)
 				goto ptraceerr;
@@ -810,9 +816,22 @@ ptracesegrw(Map *map, Seg *seg, uvlong addr, void *v, uint n, int isr)
 // Go 32-bit is
 //	DI SI BP NSP BX DX CX AX GS FS ES DS TRAP ECODE PC CS EFLAGS SP SS
 
-// uint go32tolinux32tab[] = {
-//	4, 3, 5, 15, 0, 2, 1, 6, 10, 9, 8, 7, -1, -1, 12, 13, 14, 15, 16
-// };
+uint go32tolinux32tab[] = {
+	4, 3, 5, 15, 0, 2, 1, 6, 10, 9, 8, 7, -1, -1, 12, 13, 14, 15, 16
+};
+static int
+go32tolinux32(uvlong addr)
+{
+	int r;
+
+	if(addr%4 || addr/4 >= nelem(go32tolinux32tab))
+		return -1;
+	r = go32tolinux32tab[addr/4];
+	if(r < 0)
+		return -1;
+	return r*4;
+}
+
 uint go32tolinux64tab[] = {
 	14, 13, 4, 19, 5, 12, 11, 10, 26, 25, 24, 23, -1, -1, 16, 17, 18, 19, 20
 };
@@ -830,15 +849,24 @@ go32tolinux64(uvlong addr)
 }
 
 extern Mach mi386;
+extern Mach mamd64;
 
 static int
 go2linux(uvlong addr)
 {
-	// TODO(rsc): If this file is being compiled in 32-bit mode,
-	// need to use the go32tolinux32 table instead.
+	if(sizeof(void*) == 4) {
+		if(mach == &mi386)
+			return go32tolinux32(addr);
+		werrstr("unsupported architecture");
+		return -1;
+	}
 
 	if(mach == &mi386)
 		return go32tolinux64(addr);
+	if(mach != &mamd64) {
+		werrstr("unsupported architecture");
+		return -1;
+	}
 
 	switch(addr){
 	case offsetof(Ureg64, ax):

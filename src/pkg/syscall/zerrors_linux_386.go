@@ -16,27 +16,34 @@ const (
 	AF_AX25                          = 0x3
 	AF_BLUETOOTH                     = 0x1f
 	AF_BRIDGE                        = 0x7
+	AF_CAN                           = 0x1d
 	AF_DECnet                        = 0xc
 	AF_ECONET                        = 0x13
 	AF_FILE                          = 0x1
+	AF_IEEE802154                    = 0x24
 	AF_INET                          = 0x2
 	AF_INET6                         = 0xa
 	AF_IPX                           = 0x4
 	AF_IRDA                          = 0x17
+	AF_ISDN                          = 0x22
 	AF_IUCV                          = 0x20
 	AF_KEY                           = 0xf
+	AF_LLC                           = 0x1a
 	AF_LOCAL                         = 0x1
-	AF_MAX                           = 0x22
+	AF_MAX                           = 0x25
 	AF_NETBEUI                       = 0xd
 	AF_NETLINK                       = 0x10
 	AF_NETROM                        = 0x6
 	AF_PACKET                        = 0x11
+	AF_PHONET                        = 0x23
 	AF_PPPOX                         = 0x18
+	AF_RDS                           = 0x15
 	AF_ROSE                          = 0xb
 	AF_ROUTE                         = 0x10
 	AF_RXRPC                         = 0x21
 	AF_SECURITY                      = 0xe
 	AF_SNA                           = 0x16
+	AF_TIPC                          = 0x1e
 	AF_UNIX                          = 0x1
 	AF_UNSPEC                        = 0
 	AF_WANPIPE                       = 0x19
@@ -160,9 +167,11 @@ const (
 	EPOLLRDNORM                      = 0x40
 	EPOLLWRBAND                      = 0x200
 	EPOLLWRNORM                      = 0x100
+	EPOLL_CLOEXEC                    = 0x80000
 	EPOLL_CTL_ADD                    = 0x1
 	EPOLL_CTL_DEL                    = 0x2
 	EPOLL_CTL_MOD                    = 0x3
+	EPOLL_NONBLOCK                   = 0x800
 	EPROTO                           = 0x47
 	EPROTONOSUPPORT                  = 0x5d
 	EPROTOTYPE                       = 0x5b
@@ -171,6 +180,7 @@ const (
 	EREMOTE                          = 0x42
 	EREMOTEIO                        = 0x79
 	ERESTART                         = 0x55
+	ERFKILL                          = 0x84
 	EROFS                            = 0x1e
 	ESHUTDOWN                        = 0x6c
 	ESOCKTNOSUPPORT                  = 0x5e
@@ -189,7 +199,6 @@ const (
 	EWOULDBLOCK                      = 0xb
 	EXDEV                            = 0x12
 	EXFULL                           = 0x36
-	EXPR_NEST_MAX                    = 0x20
 	FD_CLOEXEC                       = 0x1
 	FD_SETSIZE                       = 0x400
 	F_DUPFD                          = 0
@@ -201,6 +210,7 @@ const (
 	F_GETLK                          = 0xc
 	F_GETLK64                        = 0xc
 	F_GETOWN                         = 0x9
+	F_GETOWN_EX                      = 0x10
 	F_GETSIG                         = 0xb
 	F_LOCK                           = 0x1
 	F_NOTIFY                         = 0x402
@@ -214,6 +224,7 @@ const (
 	F_SETLKW                         = 0xe
 	F_SETLKW64                       = 0xe
 	F_SETOWN                         = 0x8
+	F_SETOWN_EX                      = 0xf
 	F_SETSIG                         = 0xa
 	F_SHLCK                          = 0x8
 	F_TEST                           = 0x3
@@ -221,8 +232,69 @@ const (
 	F_ULOCK                          = 0
 	F_UNLCK                          = 0x2
 	F_WRLCK                          = 0x1
+	IFF_ALLMULTI                     = 0x200
+	IFF_AUTOMEDIA                    = 0x4000
+	IFF_BROADCAST                    = 0x2
+	IFF_DEBUG                        = 0x4
+	IFF_DYNAMIC                      = 0x8000
+	IFF_LOOPBACK                     = 0x8
+	IFF_MASTER                       = 0x400
+	IFF_MULTICAST                    = 0x1000
+	IFF_NOARP                        = 0x80
+	IFF_NOTRAILERS                   = 0x20
+	IFF_NO_PI                        = 0x1000
+	IFF_ONE_QUEUE                    = 0x2000
+	IFF_POINTOPOINT                  = 0x10
+	IFF_PORTSEL                      = 0x2000
+	IFF_PROMISC                      = 0x100
+	IFF_RUNNING                      = 0x40
+	IFF_SLAVE                        = 0x800
+	IFF_TAP                          = 0x2
+	IFF_TUN                          = 0x1
+	IFF_TUN_EXCL                     = 0x8000
+	IFF_UP                           = 0x1
+	IFF_VNET_HDR                     = 0x4000
+	IFNAMSIZ                         = 0x10
+	IN_ACCESS                        = 0x1
+	IN_ALL_EVENTS                    = 0xfff
+	IN_ATTRIB                        = 0x4
+	IN_CLASSA_HOST                   = 0xffffff
+	IN_CLASSA_MAX                    = 0x80
+	IN_CLASSA_NET                    = 0xff000000
+	IN_CLASSA_NSHIFT                 = 0x18
+	IN_CLASSB_HOST                   = 0xffff
+	IN_CLASSB_MAX                    = 0x10000
+	IN_CLASSB_NET                    = 0xffff0000
+	IN_CLASSB_NSHIFT                 = 0x10
+	IN_CLASSC_HOST                   = 0xff
+	IN_CLASSC_NET                    = 0xffffff00
+	IN_CLASSC_NSHIFT                 = 0x8
+	IN_CLOEXEC                       = 0x80000
+	IN_CLOSE                         = 0x18
+	IN_CLOSE_NOWRITE                 = 0x10
+	IN_CLOSE_WRITE                   = 0x8
+	IN_CREATE                        = 0x100
+	IN_DELETE                        = 0x200
+	IN_DELETE_SELF                   = 0x400
+	IN_DONT_FOLLOW                   = 0x2000000
+	IN_IGNORED                       = 0x8000
+	IN_ISDIR                         = 0x40000000
+	IN_LOOPBACKNET                   = 0x7f
+	IN_MASK_ADD                      = 0x20000000
+	IN_MODIFY                        = 0x2
+	IN_MOVE                          = 0xc0
+	IN_MOVED_FROM                    = 0x40
+	IN_MOVED_TO                      = 0x80
+	IN_MOVE_SELF                     = 0x800
+	IN_NONBLOCK                      = 0x800
+	IN_ONESHOT                       = 0x80000000
+	IN_ONLYDIR                       = 0x1000000
+	IN_OPEN                          = 0x20
+	IN_Q_OVERFLOW                    = 0x4000
+	IN_UNMOUNT                       = 0x2000
 	IPPROTO_AH                       = 0x33
 	IPPROTO_COMP                     = 0x6c
+	IPPROTO_DCCP                     = 0x21
 	IPPROTO_DSTOPTS                  = 0x3c
 	IPPROTO_EGP                      = 0x8
 	IPPROTO_ENCAP                    = 0x62
@@ -248,6 +320,7 @@ const (
 	IPPROTO_TCP                      = 0x6
 	IPPROTO_TP                       = 0x1d
 	IPPROTO_UDP                      = 0x11
+	IPPROTO_UDPLITE                  = 0x88
 	IPV6_2292DSTOPTS                 = 0x4
 	IPV6_2292HOPLIMIT                = 0x8
 	IPV6_2292HOPOPTS                 = 0x3
@@ -276,6 +349,7 @@ const (
 	IPV6_PKTINFO                     = 0x32
 	IPV6_PMTUDISC_DO                 = 0x2
 	IPV6_PMTUDISC_DONT               = 0
+	IPV6_PMTUDISC_PROBE              = 0x3
 	IPV6_PMTUDISC_WANT               = 0x1
 	IPV6_RECVDSTOPTS                 = 0x3a
 	IPV6_RECVERR                     = 0x19
@@ -321,6 +395,7 @@ const (
 	IP_PMTUDISC                      = 0xa
 	IP_PMTUDISC_DO                   = 0x2
 	IP_PMTUDISC_DONT                 = 0
+	IP_PMTUDISC_PROBE                = 0x3
 	IP_PMTUDISC_WANT                 = 0x1
 	IP_RECVERR                       = 0xb
 	IP_RECVOPTS                      = 0x6
@@ -333,6 +408,40 @@ const (
 	IP_TOS                           = 0x1
 	IP_TTL                           = 0x2
 	IP_UNBLOCK_SOURCE                = 0x25
+	MAP_32BIT                        = 0x40
+	MAP_ANON                         = 0x20
+	MAP_ANONYMOUS                    = 0x20
+	MAP_DENYWRITE                    = 0x800
+	MAP_EXECUTABLE                   = 0x1000
+	MAP_FILE                         = 0
+	MAP_FIXED                        = 0x10
+	MAP_GROWSDOWN                    = 0x100
+	MAP_LOCKED                       = 0x2000
+	MAP_NONBLOCK                     = 0x10000
+	MAP_NORESERVE                    = 0x4000
+	MAP_POPULATE                     = 0x8000
+	MAP_PRIVATE                      = 0x2
+	MAP_SHARED                       = 0x1
+	MAP_STACK                        = 0x20000
+	MAP_TYPE                         = 0xf
+	MSG_CMSG_CLOEXEC                 = 0x40000000
+	MSG_CONFIRM                      = 0x800
+	MSG_CTRUNC                       = 0x8
+	MSG_DONTROUTE                    = 0x4
+	MSG_DONTWAIT                     = 0x40
+	MSG_EOR                          = 0x80
+	MSG_ERRQUEUE                     = 0x2000
+	MSG_FIN                          = 0x200
+	MSG_MORE                         = 0x8000
+	MSG_NOSIGNAL                     = 0x4000
+	MSG_OOB                          = 0x1
+	MSG_PEEK                         = 0x2
+	MSG_PROXY                        = 0x10
+	MSG_RST                          = 0x1000
+	MSG_SYN                          = 0x400
+	MSG_TRUNC                        = 0x20
+	MSG_TRYHARD                      = 0x4
+	MSG_WAITALL                      = 0x100
 	NAME_MAX                         = 0xff
 	O_ACCMODE                        = 0x3
 	O_APPEND                         = 0x400
@@ -356,7 +465,38 @@ const (
 	O_SYNC                           = 0x1000
 	O_TRUNC                          = 0x200
 	O_WRONLY                         = 0x1
+	PACKET_ADD_MEMBERSHIP            = 0x1
+	PACKET_BROADCAST                 = 0x1
+	PACKET_DROP_MEMBERSHIP           = 0x2
+	PACKET_FASTROUTE                 = 0x6
+	PACKET_HOST                      = 0
+	PACKET_LOOPBACK                  = 0x5
+	PACKET_MR_ALLMULTI               = 0x2
+	PACKET_MR_MULTICAST              = 0
+	PACKET_MR_PROMISC                = 0x1
+	PACKET_MULTICAST                 = 0x2
+	PACKET_OTHERHOST                 = 0x3
+	PACKET_OUTGOING                  = 0x4
+	PACKET_RECV_OUTPUT               = 0x3
+	PACKET_RX_RING                   = 0x5
+	PACKET_STATISTICS                = 0x6
+	PROT_EXEC                        = 0x4
+	PROT_GROWSDOWN                   = 0x1000000
+	PROT_GROWSUP                     = 0x2000000
+	PROT_NONE                        = 0
+	PROT_READ                        = 0x1
+	PROT_WRITE                       = 0x2
 	PTRACE_ATTACH                    = 0x10
+	PTRACE_BTS_CLEAR                 = 0x2c
+	PTRACE_BTS_CONFIG                = 0x28
+	PTRACE_BTS_DRAIN                 = 0x2d
+	PTRACE_BTS_GET                   = 0x2b
+	PTRACE_BTS_O_ALLOC               = 0x8
+	PTRACE_BTS_O_SCHED               = 0x2
+	PTRACE_BTS_O_SIGNAL              = 0x4
+	PTRACE_BTS_O_TRACE               = 0x1
+	PTRACE_BTS_SIZE                  = 0x2a
+	PTRACE_BTS_STATUS                = 0x29
 	PTRACE_CONT                      = 0x7
 	PTRACE_DETACH                    = 0x11
 	PTRACE_EVENT_CLONE               = 0x3
@@ -393,11 +533,17 @@ const (
 	PTRACE_SETREGS                   = 0xd
 	PTRACE_SETSIGINFO                = 0x4203
 	PTRACE_SET_THREAD_AREA           = 0x1a
+	PTRACE_SINGLEBLOCK               = 0x21
 	PTRACE_SINGLESTEP                = 0x9
 	PTRACE_SYSCALL                   = 0x18
 	PTRACE_SYSEMU                    = 0x1f
 	PTRACE_SYSEMU_SINGLESTEP         = 0x20
 	PTRACE_TRACEME                   = 0
+	SCM_CREDENTIALS                  = 0x2
+	SCM_RIGHTS                       = 0x1
+	SCM_TIMESTAMP                    = 0x1d
+	SCM_TIMESTAMPING                 = 0x25
+	SCM_TIMESTAMPNS                  = 0x23
 	SHUT_RD                          = 0
 	SHUT_RDWR                        = 0x2
 	SHUT_WR                          = 0x1
@@ -436,7 +582,69 @@ const (
 	SIGWINCH                         = 0x1c
 	SIGXCPU                          = 0x18
 	SIGXFSZ                          = 0x19
+	SIOCADDDLCI                      = 0x8980
+	SIOCADDMULTI                     = 0x8931
+	SIOCADDRT                        = 0x890b
+	SIOCATMARK                       = 0x8905
+	SIOCDARP                         = 0x8953
+	SIOCDELDLCI                      = 0x8981
+	SIOCDELMULTI                     = 0x8932
+	SIOCDELRT                        = 0x890c
+	SIOCDEVPRIVATE                   = 0x89f0
+	SIOCDIFADDR                      = 0x8936
+	SIOCDRARP                        = 0x8960
+	SIOCGARP                         = 0x8954
+	SIOCGIFADDR                      = 0x8915
+	SIOCGIFBR                        = 0x8940
+	SIOCGIFBRDADDR                   = 0x8919
+	SIOCGIFCONF                      = 0x8912
+	SIOCGIFCOUNT                     = 0x8938
+	SIOCGIFDSTADDR                   = 0x8917
+	SIOCGIFENCAP                     = 0x8925
+	SIOCGIFFLAGS                     = 0x8913
+	SIOCGIFHWADDR                    = 0x8927
+	SIOCGIFINDEX                     = 0x8933
+	SIOCGIFMAP                       = 0x8970
+	SIOCGIFMEM                       = 0x891f
+	SIOCGIFMETRIC                    = 0x891d
+	SIOCGIFMTU                       = 0x8921
+	SIOCGIFNAME                      = 0x8910
+	SIOCGIFNETMASK                   = 0x891b
+	SIOCGIFPFLAGS                    = 0x8935
+	SIOCGIFSLAVE                     = 0x8929
+	SIOCGIFTXQLEN                    = 0x8942
+	SIOCGPGRP                        = 0x8904
+	SIOCGRARP                        = 0x8961
+	SIOCGSTAMP                       = 0x8906
+	SIOCGSTAMPNS                     = 0x8907
+	SIOCPROTOPRIVATE                 = 0x89e0
+	SIOCRTMSG                        = 0x890d
+	SIOCSARP                         = 0x8955
+	SIOCSIFADDR                      = 0x8916
+	SIOCSIFBR                        = 0x8941
+	SIOCSIFBRDADDR                   = 0x891a
+	SIOCSIFDSTADDR                   = 0x8918
+	SIOCSIFENCAP                     = 0x8926
+	SIOCSIFFLAGS                     = 0x8914
+	SIOCSIFHWADDR                    = 0x8924
+	SIOCSIFHWBROADCAST               = 0x8937
+	SIOCSIFLINK                      = 0x8911
+	SIOCSIFMAP                       = 0x8971
+	SIOCSIFMEM                       = 0x8920
+	SIOCSIFMETRIC                    = 0x891e
+	SIOCSIFMTU                       = 0x8922
+	SIOCSIFNAME                      = 0x8923
+	SIOCSIFNETMASK                   = 0x891c
+	SIOCSIFPFLAGS                    = 0x8934
+	SIOCSIFSLAVE                     = 0x8930
+	SIOCSIFTXQLEN                    = 0x8943
+	SIOCSPGRP                        = 0x8902
+	SIOCSRARP                        = 0x8962
+	SIOGIFINDEX                      = 0x8933
+	SOCK_CLOEXEC                     = 0x80000
+	SOCK_DCCP                        = 0x6
 	SOCK_DGRAM                       = 0x2
+	SOCK_NONBLOCK                    = 0x800
 	SOCK_PACKET                      = 0xa
 	SOCK_RAW                         = 0x3
 	SOCK_RDM                         = 0x4
@@ -462,10 +670,12 @@ const (
 	SO_BSDCOMPAT                     = 0xe
 	SO_DEBUG                         = 0x1
 	SO_DETACH_FILTER                 = 0x1b
+	SO_DOMAIN                        = 0x27
 	SO_DONTROUTE                     = 0x5
 	SO_ERROR                         = 0x4
 	SO_KEEPALIVE                     = 0x9
 	SO_LINGER                        = 0xd
+	SO_MARK                          = 0x24
 	SO_NO_CHECK                      = 0xb
 	SO_OOBINLINE                     = 0xa
 	SO_PASSCRED                      = 0x10
@@ -474,6 +684,7 @@ const (
 	SO_PEERNAME                      = 0x1c
 	SO_PEERSEC                       = 0x1f
 	SO_PRIORITY                      = 0xc
+	SO_PROTOCOL                      = 0x26
 	SO_RCVBUF                        = 0x8
 	SO_RCVBUFFORCE                   = 0x21
 	SO_RCVLOWAT                      = 0x12
@@ -487,6 +698,7 @@ const (
 	SO_SNDLOWAT                      = 0x13
 	SO_SNDTIMEO                      = 0x15
 	SO_TIMESTAMP                     = 0x1d
+	SO_TIMESTAMPING                  = 0x25
 	SO_TIMESTAMPNS                   = 0x23
 	SO_TYPE                          = 0x3
 	S_BLKSIZE                        = 0x200
@@ -534,6 +746,19 @@ const (
 	TCP_QUICKACK                     = 0xc
 	TCP_SYNCNT                       = 0x7
 	TCP_WINDOW_CLAMP                 = 0xa
+	TUNGETFEATURES                   = 0x800454cf
+	TUNGETIFF                        = 0x800454d2
+	TUNGETSNDBUF                     = 0x800454d3
+	TUNSETDEBUG                      = 0x400454c9
+	TUNSETGROUP                      = 0x400454ce
+	TUNSETIFF                        = 0x400454ca
+	TUNSETLINK                       = 0x400454cd
+	TUNSETNOCSUM                     = 0x400454c8
+	TUNSETOFFLOAD                    = 0x400454d0
+	TUNSETOWNER                      = 0x400454cc
+	TUNSETPERSIST                    = 0x400454cb
+	TUNSETSNDBUF                     = 0x400454d4
+	TUNSETTXFILTER                   = 0x400454d1
 	WALL                             = 0x40000000
 	WCLONE                           = 0x80000000
 	WCONTINUED                       = 0x8
@@ -551,133 +776,134 @@ const (
 
 // Error table
 var errors = [...]string{
-	7:   "argument list too long",
-	13:  "permission denied",
-	98:  "address already in use",
-	99:  "cannot assign requested address",
-	68:  "advertise error",
-	97:  "address family not supported by protocol",
-	11:  "resource temporarily unavailable",
-	114: "operation already in progress",
-	52:  "invalid exchange",
-	9:   "bad file descriptor",
-	77:  "file descriptor in bad state",
-	74:  "bad message",
-	53:  "invalid request descriptor",
-	56:  "invalid request code",
-	57:  "invalid slot",
-	59:  "bad font file format",
-	16:  "device or resource busy",
-	125: "operation canceled",
-	10:  "no child processes",
-	44:  "channel number out of range",
-	70:  "communication error on send",
-	103: "software caused connection abort",
-	111: "connection refused",
-	104: "connection reset by peer",
-	35:  "resource deadlock avoided",
-	89:  "destination address required",
-	33:  "numerical argument out of domain",
-	73:  "RFS specific error",
-	122: "disk quota exceeded",
-	17:  "file exists",
-	14:  "bad address",
-	27:  "file too large",
-	112: "host is down",
-	113: "no route to host",
-	43:  "identifier removed",
-	84:  "invalid or incomplete multibyte or wide character",
-	115: "operation now in progress",
+	1:   "operation not permitted",
+	2:   "no such file or directory",
+	3:   "no such process",
 	4:   "interrupted system call",
-	22:  "invalid argument",
 	5:   "input/output error",
-	106: "transport endpoint is already connected",
+	6:   "no such device or address",
+	7:   "argument list too long",
+	8:   "exec format error",
+	9:   "bad file descriptor",
+	10:  "no child processes",
+	11:  "resource temporarily unavailable",
+	12:  "cannot allocate memory",
+	13:  "permission denied",
+	14:  "bad address",
+	15:  "block device required",
+	16:  "device or resource busy",
+	17:  "file exists",
+	18:  "invalid cross-device link",
+	19:  "no such device",
+	20:  "not a directory",
 	21:  "is a directory",
-	120: "is a named type file",
-	127: "key has expired",
-	129: "key was rejected by service",
-	128: "key has been revoked",
-	51:  "level 2 halted",
+	22:  "invalid argument",
+	23:  "too many open files in system",
+	24:  "too many open files",
+	25:  "inappropriate ioctl for device",
+	26:  "text file busy",
+	27:  "file too large",
+	28:  "no space left on device",
+	29:  "illegal seek",
+	30:  "read-only file system",
+	31:  "too many links",
+	32:  "broken pipe",
+	33:  "numerical argument out of domain",
+	34:  "numerical result out of range",
+	35:  "resource deadlock avoided",
+	36:  "file name too long",
+	37:  "no locks available",
+	38:  "function not implemented",
+	39:  "directory not empty",
+	40:  "too many levels of symbolic links",
+	42:  "no message of desired type",
+	43:  "identifier removed",
+	44:  "channel number out of range",
 	45:  "level 2 not synchronized",
 	46:  "level 3 halted",
 	47:  "level 3 reset",
-	79:  "can not access a needed shared library",
-	80:  "accessing a corrupted shared library",
-	83:  "cannot exec a shared library directly",
-	82:  "attempting to link in too many shared libraries",
-	81:  ".lib section in a.out corrupted",
 	48:  "link number out of range",
-	40:  "too many levels of symbolic links",
-	124: "wrong medium type",
-	24:  "too many open files",
-	31:  "too many links",
-	90:  "message too long",
-	72:  "multihop attempted",
-	36:  "file name too long",
-	119: "no XENIX semaphores available",
-	100: "network is down",
-	102: "network dropped connection on reset",
-	101: "network is unreachable",
-	23:  "too many open files in system",
-	55:  "no anode",
-	105: "no buffer space available",
+	49:  "protocol driver not attached",
 	50:  "no CSI structure available",
+	51:  "level 2 halted",
+	52:  "invalid exchange",
+	53:  "invalid request descriptor",
+	54:  "exchange full",
+	55:  "no anode",
+	56:  "invalid request code",
+	57:  "invalid slot",
+	59:  "bad font file format",
+	60:  "device not a stream",
 	61:  "no data available",
-	19:  "no such device",
-	2:   "no such file or directory",
-	8:   "exec format error",
-	126: "required key not available",
-	37:  "no locks available",
-	67:  "link has been severed",
-	123: "no medium found",
-	12:  "cannot allocate memory",
-	42:  "no message of desired type",
+	62:  "timer expired",
+	63:  "out of streams resources",
 	64:  "machine is not on the network",
 	65:  "package not installed",
-	92:  "protocol not available",
-	28:  "no space left on device",
-	63:  "out of streams resources",
-	60:  "device not a stream",
-	38:  "function not implemented",
-	15:  "block device required",
-	107: "transport endpoint is not connected",
-	20:  "not a directory",
-	39:  "directory not empty",
-	118: "not a XENIX named type file",
-	131: "state not recoverable",
-	88:  "socket operation on non-socket",
-	95:  "operation not supported",
-	25:  "inappropriate ioctl for device",
-	76:  "name not unique on network",
-	6:   "no such device or address",
-	75:  "value too large for defined data type",
-	130: "owner died",
-	1:   "operation not permitted",
-	96:  "protocol family not supported",
-	32:  "broken pipe",
-	71:  "protocol error",
-	93:  "protocol not supported",
-	91:  "protocol wrong type for socket",
-	34:  "numerical result out of range",
-	78:  "remote address changed",
 	66:  "object is remote",
-	121: "remote I/O error",
-	85:  "interrupted system call should be restarted",
-	30:  "read-only file system",
-	108: "cannot send after transport endpoint shutdown",
-	94:  "socket type not supported",
-	29:  "illegal seek",
-	3:   "no such process",
+	67:  "link has been severed",
+	68:  "advertise error",
 	69:  "srmount error",
-	116: "stale NFS file handle",
+	70:  "communication error on send",
+	71:  "protocol error",
+	72:  "multihop attempted",
+	73:  "RFS specific error",
+	74:  "bad message",
+	75:  "value too large for defined data type",
+	76:  "name not unique on network",
+	77:  "file descriptor in bad state",
+	78:  "remote address changed",
+	79:  "can not access a needed shared library",
+	80:  "accessing a corrupted shared library",
+	81:  ".lib section in a.out corrupted",
+	82:  "attempting to link in too many shared libraries",
+	83:  "cannot exec a shared library directly",
+	84:  "invalid or incomplete multibyte or wide character",
+	85:  "interrupted system call should be restarted",
 	86:  "streams pipe error",
-	62:  "timer expired",
-	110: "connection timed out",
-	109: "too many references: cannot splice",
-	26:  "text file busy",
-	117: "structure needs cleaning",
-	49:  "protocol driver not attached",
 	87:  "too many users",
-	18:  "invalid cross-device link",
-	54:  "exchange full",
+	88:  "socket operation on non-socket",
+	89:  "destination address required",
+	90:  "message too long",
+	91:  "protocol wrong type for socket",
+	92:  "protocol not available",
+	93:  "protocol not supported",
+	94:  "socket type not supported",
+	95:  "operation not supported",
+	96:  "protocol family not supported",
+	97:  "address family not supported by protocol",
+	98:  "address already in use",
+	99:  "cannot assign requested address",
+	100: "network is down",
+	101: "network is unreachable",
+	102: "network dropped connection on reset",
+	103: "software caused connection abort",
+	104: "connection reset by peer",
+	105: "no buffer space available",
+	106: "transport endpoint is already connected",
+	107: "transport endpoint is not connected",
+	108: "cannot send after transport endpoint shutdown",
+	109: "too many references: cannot splice",
+	110: "connection timed out",
+	111: "connection refused",
+	112: "host is down",
+	113: "no route to host",
+	114: "operation already in progress",
+	115: "operation now in progress",
+	116: "stale NFS file handle",
+	117: "structure needs cleaning",
+	118: "not a XENIX named type file",
+	119: "no XENIX semaphores available",
+	120: "is a named type file",
+	121: "remote I/O error",
+	122: "disk quota exceeded",
+	123: "no medium found",
+	124: "wrong medium type",
+	125: "operation canceled",
+	126: "required key not available",
+	127: "key has expired",
+	128: "key has been revoked",
+	129: "key was rejected by service",
+	130: "owner died",
+	131: "state not recoverable",
+	132: "unknown error 132",
 }

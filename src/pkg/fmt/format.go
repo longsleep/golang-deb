@@ -49,6 +49,7 @@ type fmt struct {
 	plus        bool
 	sharp       bool
 	space       bool
+	unicode     bool
 	zero        bool
 }
 
@@ -61,6 +62,7 @@ func (f *fmt) clearflags() {
 	f.plus = false
 	f.sharp = false
 	f.space = false
+	f.unicode = false
 	f.zero = false
 }
 
@@ -213,6 +215,12 @@ func (f *fmt) integer(a int64, base uint64, signedness bool, digits string) {
 			buf[i] = '0'
 		}
 	}
+	if f.unicode {
+		i--
+		buf[i] = '+'
+		i--
+		buf[i] = 'U'
+	}
 
 	if negative {
 		i--
@@ -255,6 +263,9 @@ func (f *fmt) fmt_sx(s string) {
 func (f *fmt) fmt_sX(s string) {
 	t := ""
 	for i := 0; i < len(s); i++ {
+		if i > 0 && f.space {
+			t += " "
+		}
 		v := s[i]
 		t += string(udigits[v>>4])
 		t += string(udigits[v&0xF])

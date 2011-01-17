@@ -45,20 +45,21 @@ enum
 /* do not undefine this - code will be removed eventually */
 #define	CALLEEBX
 
+#define	dynptrsize	0
+
 typedef	struct	Adr	Adr;
 typedef	struct	Sym	Sym;
 typedef	struct	Autom	Auto;
 typedef	struct	Prog	Prog;
+typedef	struct	Reloc	Reloc;
 typedef	struct	Optab	Optab;
 typedef	struct	Oprang	Oprang;
 typedef	uchar	Opcross[32][2][32];
 typedef	struct	Count	Count;
-typedef	struct	Use	Use;
 
 #define	P		((Prog*)0)
 #define	S		((Sym*)0)
-#define	U		((Use*)0)
-#define	TNAME		(curtext&&curtext->from.sym?curtext->from.sym->name:noname)
+#define	TNAME		(cursym?cursym->name:noname)
 
 struct	Adr
 {
@@ -66,14 +67,10 @@ struct	Adr
 	{
 		int32	u0offset;
 		char*	u0sval;
-		Ieee*	u0ieee;
+		Ieee	u0ieee;
 		char*	u0sbig;
 	} u0;
-	union
-	{
-		Auto*	u1autom;
-		Sym*	u1sym;
-	} u1;
+	Sym*	sym;
 	char	type;
 	uchar	index; // not used on arm, required by ld/go.c
 	char	reg;
@@ -85,11 +82,18 @@ struct	Adr
 
 #define	offset	u0.u0offset
 #define	sval	u0.u0sval
+#define	scon	sval
 #define	ieee	u0.u0ieee
 #define	sbig	u0.u0sbig
 
-#define	autom	u1.u1autom
-#define	sym	u1.u1sym
+struct	Reloc
+{
+	int32	off;
+	uchar	siz;
+	int16	type;
+	int32	add;
+	Sym*	sym;
+};
 
 struct	Prog
 {
@@ -112,35 +116,51 @@ struct	Prog
 	uchar	reg;
 	uchar	align;
 };
+
 #define	regused	u0.u0regused
 #define	forwd	u0.u0forwd
+#define	datasize	reg
+#define	textflag	reg
 
 struct	Sym
 {
-	char	*name;
+	char*	name;
 	short	type;
 	short	version;
-	short	become;
-	short	frame;
-	uchar	subtype;
 	uchar	dupok;
 	uchar	reachable;
 	uchar	dynexport;
+	uchar	leaf;
+	int32	dynid;
+	int32	plt;
+	int32	got;
 	int32	value;
 	int32	sig;
 	int32	size;
-	uchar	used;
+	uchar	special;
 	uchar	thumb;	// thumb code
 	uchar	foreign;	// called by arm if thumb, by thumb if arm
 	uchar	fnptr;	// used as fn ptr
-	Use*		use;
-	Sym*	link;
-	Prog*	text;
-	Prog*	data;
+	Sym*	hash;	// in hash table
+	Sym*	next;	// in text or data list
+	Sym*	sub;	// in SSUB list
+	Sym*	outer;	// container of sub
 	Sym*	gotype;
 	char*	file;
 	char*	dynimpname;
 	char*	dynimplib;
+	
+	// STEXT
+	Auto*	autom;
+	Prog*	text;
+	
+	// SDATA, SBSS
+	uchar*	p;
+	int32	np;
+	int32	maxp;
+	Reloc*	r;
+	int32	nr;
+	int32	maxr;
 };
 
 #define SIGNINTERN	(1729*325*1729)
@@ -174,34 +194,24 @@ struct	Count
 	int32	count;
 	int32	outof;
 };
-struct	Use
-{
-	Prog*	p;	/* use */
-	Prog*	ct;	/* curtext */
-	Use*		link;
-};
 
 enum
 {
 	Sxxx,
-
+	
+	/* order here is order in output file */
 	STEXT		= 1,
+	SRODATA,
+	SELFDATA,
 	SDATA,
 	SBSS,
-	SDATA1,
+
 	SXREF,
-	SLEAF,
 	SFILE,
 	SCONST,
-	SSTRING,
-	SUNDEF,
-	SREMOVED,
+	SDYNIMPORT,
 
-	SIMPORT,
-	SEXPORT,
-	
-	SFIXED,
-	SELFDATA,
+	SSUB	= 1<<8,
 
 	LFROM		= 1<<0,
 	LTO		= 1<<1,
@@ -221,16 +231,15 @@ enum
 	C_SCON,		/* 0xffff */
 	C_BCON,		/* thumb */
 	C_LCON,
-	C_FCON,
+	C_ZFCON,
+	C_SFCON,
+	C_LFCON,
 	C_GCON,		/* thumb */
 
 	C_RACON,
 	C_SACON,	/* thumb */
 	C_LACON,
 	C_GACON,	/* thumb */
-
-	C_RECON,
-	C_LECON,
 
 	C_SBRA,
 	C_LBRA,
@@ -241,12 +250,6 @@ enum
 	C_HFAUTO,	/* both H and F */
 	C_SAUTO,	/* -0xfff to 0xfff */
 	C_LAUTO,
-
-	C_HEXT,
-	C_FEXT,
-	C_HFEXT,
-	C_SEXT,
-	C_LEXT,
 
 	C_HOREG,
 	C_FOREG,
@@ -262,7 +265,7 @@ enum
 	C_HREG,
 	C_OFFPC,		/* thumb */
 
-	C_ADDR,		/* relocatable address */
+	C_ADDR,		/* reference to relocatable address */
 
 	C_GOK,
 
@@ -271,7 +274,6 @@ enum
 	LABEL		= 1<<1,
 	LEAF		= 1<<2,
 
-	BIG		= (1<<12)-4,
 	STRINGSZ	= 200,
 	NHASH		= 10007,
 	NHUNK		= 100000,
@@ -279,9 +281,7 @@ enum
 	NENT		= 100,
 	MAXIO		= 8192,
 	MAXHIST		= 20,	/* limit of path elements for history symbols */
-
-	Roffset	= 22,		/* no. bits for offset in relocation address */
-	Rindex	= 10,		/* no. bits for index in relocation address */
+	MINLC	= 4,
 };
 
 EXTERN union
@@ -310,23 +310,18 @@ EXTERN	int32	INITTEXT;		/* text location */
 EXTERN	char*	INITENTRY;		/* entry point */
 EXTERN	int32	autosize;
 EXTERN	Biobuf	bso;
-EXTERN	int32	bsssize;
 EXTERN	int	cbc;
 EXTERN	uchar*	cbp;
 EXTERN	int	cout;
 EXTERN	Auto*	curauto;
 EXTERN	Auto*	curhist;
 EXTERN	Prog*	curp;
-EXTERN	Prog*	curtext;
-EXTERN	Prog*	datap;
-EXTERN	int32	datsize;
+EXTERN	Sym*	cursym;
+EXTERN	Sym*	datap;
 EXTERN	int32 	elfdatsize;
 EXTERN	char	debug[128];
-EXTERN	Prog*	edatap;
-EXTERN	Prog*	etextp;
-EXTERN	Prog*	firstp;
+EXTERN	Sym*	etextp;
 EXTERN	char*	noname;
-EXTERN	int	xrefresolv;
 EXTERN	Prog*	lastp;
 EXTERN	int32	lcsize;
 EXTERN	char	literal[32];
@@ -341,7 +336,7 @@ EXTERN	uchar	repop[ALAST];
 EXTERN	char*	rpath;
 EXTERN	uint32	stroffset;
 EXTERN	int32	symsize;
-EXTERN	Prog*	textp;
+EXTERN	Sym*	textp;
 EXTERN	int32	textsize;
 EXTERN	int	version;
 EXTERN	char	xcmp[C_GOK+1][C_GOK+1];
@@ -351,14 +346,6 @@ EXTERN	int	armv4;
 EXTERN	int	thumb;
 EXTERN	int	seenthumb;
 EXTERN	int	armsize;
-
-EXTERN	int	doexp, dlm;
-EXTERN	int	imports, nimports;
-EXTERN	int	exports, nexports;
-EXTERN	char*	EXPTAB;
-EXTERN	Prog	undefp;
-
-#define	UP	(&undefp)
 
 extern	char*	anames[];
 extern	Optab	optab[];
@@ -384,6 +371,7 @@ EXTERN	Prog*	prog_modu;
 int	Aconv(Fmt*);
 int	Cconv(Fmt*);
 int	Dconv(Fmt*);
+int	Iconv(Fmt*);
 int	Nconv(Fmt*);
 int	Oconv(Fmt*);
 int	Pconv(Fmt*);
@@ -393,36 +381,29 @@ int	thumbaclass(Adr*, Prog*);
 void	addhist(int32, int);
 Prog*	appendp(Prog*);
 void	asmb(void);
-void	asmdyn(void);
-void	asmlc(void);
 void	asmthumbmap(void);
-void	asmout(Prog*, Optab*);
+void	asmout(Prog*, Optab*, int32*);
 void	thumbasmout(Prog*, Optab*);
-void	asmsym(void);
 int32	atolwhex(char*);
 Prog*	brloop(Prog*);
 void	buildop(void);
 void	thumbbuildop(void);
 void	buildrep(int, int);
 void	cflush(void);
-void	ckoff(Sym*, int32);
+int	chipzero(Ieee*);
 int	chipfloat(Ieee*);
 int	cmp(int, int);
 int	compound(Prog*);
 double	cputime(void);
-void	datblk(int32, int32, int);
 void	diag(char*, ...);
 void	divsig(void);
 void	dodata(void);
 void	doprof1(void);
 void	doprof2(void);
-void	dynreloc(Sym*, int32, int);
 int32	entryvalue(void);
 void	exchange(Prog*);
-void	export(void);
 void	follow(void);
 void	hputl(int);
-void	import(void);
 int	isnop(Prog*);
 void	listinit(void);
 Sym*	lookup(char*, int);
@@ -430,10 +411,8 @@ void	cput(int);
 void	hput(int32);
 void	lput(int32);
 void	lputl(int32);
-void	mkfwd(void);
 void*	mysbrk(uint32);
 void	names(void);
-Prog*	newdata(Sym *s, int o, int w, int t);
 void	nocache(Prog*);
 int	ocmp(const void*, const void*);
 int32	opirr(int);
@@ -454,18 +433,17 @@ void	prasm(Prog*);
 void	prepend(Prog*, Prog*);
 Prog*	prg(void);
 int	pseudo(Prog*);
-void	putsymb(char*, int, int32, int);
 int32	regoff(Adr*);
 int	relinv(int);
 int32	rnd(int32, int32);
 void	softfloat(void);
 void	span(void);
 void	strnput(char*, int);
+int32	symaddr(Sym*);
 void	undef(void);
 void	wput(int32);
 void    wputl(ushort w);
 void	xdefine(char*, int, int32);
-void	xfol(Prog*);
 void	noops(void);
 int32	immrot(uint32);
 int32	immaddr(int32);
@@ -475,7 +453,6 @@ int	isbranch(Prog*);
 int	fnpinc(Sym *);
 int	fninc(Sym *);
 void	thumbcount(void);
-void reachable(void);
 void fnptrs(void);
 void	doelf(void);
 

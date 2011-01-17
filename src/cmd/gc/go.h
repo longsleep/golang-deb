@@ -6,6 +6,8 @@
 #include	<libc.h>
 #include	<bio.h>
 
+#undef OAPPEND
+
 // avoid <ctype.h>
 #undef isblank
 #define isblank goisblank
@@ -38,9 +40,10 @@ enum
 	ASTRING,
 	AINTER,
 	ANILINTER,
+	AMEMWORD,
 
 	BADWIDTH	= -1000000000,
-	MAXWIDTH        = 1<<30
+	MAXWIDTH	= 1<<30
 };
 
 /*
@@ -151,6 +154,7 @@ struct	Type
 	uchar	deferwidth;
 	uchar	broke;
 	uchar	isddd;	// TFIELD is ... argument
+	uchar	align;
 
 	Node*	nod;		// canonical OTYPE node
 	Type*	orig;		// original type (type literal or predefined type)
@@ -209,12 +213,15 @@ struct	Node
 	uchar	dodata;		// compile literal assignment as data statement
 	uchar	used;
 	uchar	isddd;
-	uchar	pun;		// dont registerize variable ONAME
+	uchar	pun;		// don't registerize variable ONAME
+	uchar	readonly;
+	uchar	implicit;	// don't show in printout
 
 	// most nodes
 	Node*	left;
 	Node*	right;
 	Type*	type;
+	Type*	realtype;	// as determined by typecheck
 	NodeList*	list;
 	NodeList*	rlist;
 
@@ -261,6 +268,7 @@ struct	Node
 	Sym*	sym;		// various
 	int32	vargen;		// unique name for OTYPE/ONAME
 	int32	lineno;
+	int32	endlineno;
 	vlong	xoffset;
 	int32	ostk;
 	int32	iota;
@@ -344,6 +352,7 @@ enum
 	OADD, OSUB, OOR, OXOR, OADDSTR,
 	OADDR,
 	OANDAND,
+	OAPPEND,
 	OARRAY,
 	OARRAYBYTESTR, OARRAYRUNESTR,
 	OSTRARRAYBYTE, OSTRARRAYRUNE,
@@ -356,7 +365,7 @@ enum
 	OCLOSURE,
 	OCMPIFACE, OCMPSTR,
 	OCOMPLIT, OMAPLIT, OSTRUCTLIT, OARRAYLIT,
-	OCONV, OCONVIFACE, OCONVNOP, OCONVSLICE,
+	OCONV, OCONVIFACE, OCONVNOP,
 	OCOPY,
 	ODCL, ODCLFUNC, ODCLFIELD, ODCLCONST, ODCLTYPE,
 	ODOT, ODOTPTR, ODOTMETH, ODOTINTER, OXDOT,
@@ -364,7 +373,7 @@ enum
 	ODOTTYPE2,
 	OEQ, ONE, OLT, OLE, OGE, OGT,
 	OIND,
-	OINDEX, OINDEXSTR, OINDEXMAP,
+	OINDEX, OINDEXMAP,
 	OKEY, OPARAM,
 	OLEN,
 	OMAKE, OMAKECHAN, OMAKEMAP, OMAKESLICE,
@@ -400,7 +409,6 @@ enum
 	ORETURN,
 	OSELECT,
 	OSWITCH,
-	OTYPECASE,
 	OTYPESW,	// l = r.(type)
 
 	// types
@@ -410,6 +418,7 @@ enum
 	OTINTER,
 	OTFUNC,
 	OTARRAY,
+	OTPAREN,
 
 	// misc
 	ODDD,
@@ -632,9 +641,9 @@ EXTERN	Label*	labellist;
  *
  * typedef	struct
  * {				// must not move anything
- * 	uchar	array[8];	// pointer to data
- * 	uchar	nel[4];		// number of elements
- * 	uchar	cap[4];		// allocated number of elements
+ *	uchar	array[8];	// pointer to data
+ *	uchar	nel[4];		// number of elements
+ *	uchar	cap[4];		// allocated number of elements
  * } Array;
  */
 EXTERN	int	Array_array;	// runtime offsetof(Array,array) - same for String
@@ -649,8 +658,8 @@ EXTERN	int	sizeof_Array;	// runtime sizeof(Array)
  *
  * typedef	struct
  * {				// must not move anything
- * 	uchar	array[8];	// pointer to data
- * 	uchar	nel[4];		// number of elements
+ *	uchar	array[8];	// pointer to data
+ *	uchar	nel[4];		// number of elements
  * } String;
  */
 EXTERN	int	sizeof_String;	// runtime sizeof(String)
@@ -743,7 +752,6 @@ EXTERN	int	hasdefer;		// flag that curfn has defer statetment
 
 EXTERN	Node*	curfn;
 
-EXTERN	int	maxround;
 EXTERN	int	widthptr;
 
 EXTERN	Node*	typesw;
@@ -858,7 +866,7 @@ int	isifacemethod(Type *f);
 void	markdcl(void);
 Node*	methodname(Node *n, Type *t);
 Node*	methodname1(Node *n, Node *t);
-Sym*	methodsym(Sym *nsym, Type *t0);
+Sym*	methodsym(Sym *nsym, Type *t0, int iface);
 Node*	newname(Sym *s);
 Type*	newtype(Sym *s);
 Node*	oldname(Sym *s);
@@ -914,6 +922,9 @@ char*	lexname(int lex);
 void	mkpackage(char* pkgname);
 void	unimportfile(void);
 int32	yylex(void);
+extern	int	windows;
+extern	int	yylast;
+extern	int	yyprev;
 
 /*
  *	mparith1.c
@@ -1003,7 +1014,7 @@ void	walkrange(Node *n);
  *	reflect.c
  */
 void	dumptypestructs(void);
-Type*	methodfunc(Type *f, int use_receiver);
+Type*	methodfunc(Type *f, Type*);
 Node*	typename(Type *t);
 Sym*	typesym(Type *t);
 
@@ -1016,7 +1027,7 @@ void	walkselect(Node *sel);
 /*
  *	sinit.c
  */
-void	anylit(int ctxt, Node *n, Node *var, NodeList **init);
+void	anylit(int, Node *n, Node *var, NodeList **init);
 int	gen_as_init(Node *n);
 NodeList*	initfix(NodeList *l);
 int	oaslit(Node *n, NodeList **init);
@@ -1059,7 +1070,7 @@ void	flusherrors(void);
 void	frame(int context);
 Type*	funcfirst(Iter *s, Type *t);
 Type*	funcnext(Iter *s);
-void	genwrapper(Type *rcvr, Type *method, Sym *newnam);
+void	genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface);
 Type**	getinarg(Type *t);
 Type*	getinargx(Type *t);
 Type**	getoutarg(Type *t);
@@ -1095,6 +1106,7 @@ Node*	nod(int op, Node *nleft, Node *nright);
 Node*	nodbool(int b);
 void	nodconst(Node *n, Type *t, int64 v);
 Node*	nodintconst(int64 v);
+Node*	nodfltconst(Mpflt *v);
 Node*	nodnil(void);
 int	parserline(void);
 Sym*	pkglookup(char *name, Pkg *pkg);
@@ -1103,13 +1115,13 @@ Type*	ptrto(Type *t);
 void*	remal(void *p, int32 on, int32 n);
 Sym*	restrictlookup(char *name, Pkg *pkg);
 Node*	safeexpr(Node *n, NodeList **init);
+Node*	cheapexpr(Node *n, NodeList **init);
 int32	setlineno(Node *n);
 void	setmaxarg(Type *t);
 Type*	shallow(Type *t);
 int	simsimtype(Type *t);
 void	smagic(Magic *m);
 Type*	sortinter(Type *t);
-Node*	staticname(Type *t);
 uint32	stringhash(char *p);
 Strlit*	strlit(char *s);
 int	structcount(Type *t);
@@ -1143,7 +1155,7 @@ void	typechecklist(NodeList *l, int top);
 /*
  *	unsafe.c
  */
-Node*	unsafenmagic(Node *fn, NodeList *args);
+Node*	unsafenmagic(Node *n);
 
 /*
  *	walk.c
@@ -1206,7 +1218,7 @@ void	dumpfuncs(void);
 void	gdata(Node*, Node*, int);
 void	gdatacomplex(Node*, Mpcplx*);
 void	gdatastring(Node*, Strlit*);
-void	genembedtramp(Type*, Type*, Sym*);
+void	genembedtramp(Type*, Type*, Sym*, int iface);
 void	ggloblnod(Node *nam, int32 width);
 void	ggloblsym(Sym *s, int32 width, int dupok);
 Prog*	gjmp(Prog*);

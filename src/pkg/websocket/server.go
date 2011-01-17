@@ -5,17 +5,15 @@
 package websocket
 
 import (
-	"bytes"
-	"crypto/md5"
-	"encoding/binary"
 	"http"
 	"io"
 	"strings"
 )
 
 /*
-	Handler is an interface to a WebSocket.
-	A trivial example server is:
+Handler is an interface to a WebSocket.
+
+A trivial example server:
 
 	package main
 
@@ -41,8 +39,8 @@ import (
 type Handler func(*Conn)
 
 /*
-	Gets key number from Sec-WebSocket-Key<n>: field as described
- 	in 5.2 Sending the server's opening handshake, 4.
+Gets key number from Sec-WebSocket-Key<n>: field as described
+in 5.2 Sending the server's opening handshake, 4.
 */
 func getKeyNumber(s string) (r uint32) {
 	// 4. Let /key-number_n/ be the digits (characters in the range
@@ -59,8 +57,8 @@ func getKeyNumber(s string) (r uint32) {
 }
 
 // ServeHTTP implements the http.Handler interface for a Web Socket
-func (f Handler) ServeHTTP(c *http.Conn, req *http.Request) {
-	rwc, buf, err := c.Hijack()
+func (f Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	rwc, buf, err := w.Hijack()
 	if err != nil {
 		panic("Hijack failed: " + err.String())
 		return
@@ -99,7 +97,12 @@ func (f Handler) ServeHTTP(c *http.Conn, req *http.Request) {
 		return
 	}
 
-	location := "ws://" + req.Host + req.URL.RawPath
+	var location string
+	if w.UsingTLS() {
+		location = "wss://" + req.Host + req.URL.RawPath
+	} else {
+		location = "ws://" + req.Host + req.URL.RawPath
+	}
 
 	// Step 4. get key number in Sec-WebSocket-Key<n> fields.
 	keyNumber1 := getKeyNumber(key1)
@@ -122,25 +125,11 @@ func (f Handler) ServeHTTP(c *http.Conn, req *http.Request) {
 	part2 := keyNumber2 / space2
 
 	// Step 8. let challenge to be concatination of part1, part2 and key3.
-	challenge := make([]byte, 16)
-	challengeBuf := bytes.NewBuffer(challenge)
-	err = binary.Write(challengeBuf, binary.BigEndian, part1)
-	if err != nil {
-		return
-	}
-	err = binary.Write(challengeBuf, binary.BigEndian, part2)
-	if err != nil {
-		return
-	}
-	if n := copy(challenge[8:], key3); n != 8 {
-		return
-	}
 	// Step 9. get MD5 fingerprint of challenge.
-	h := md5.New()
-	if _, err = h.Write(challenge); err != nil {
+	response, err := getChallengeResponse(part1, part2, key3)
+	if err != nil {
 		return
 	}
-	response := h.Sum()
 
 	// Step 10. send response status line.
 	buf.WriteString("HTTP/1.1 101 WebSocket Protocol Handshake\r\n")
@@ -149,7 +138,7 @@ func (f Handler) ServeHTTP(c *http.Conn, req *http.Request) {
 	buf.WriteString("Connection: Upgrade\r\n")
 	buf.WriteString("Sec-WebSocket-Location: " + location + "\r\n")
 	buf.WriteString("Sec-WebSocket-Origin: " + origin + "\r\n")
-	protocol, found := req.Header["Sec-WebSocket-Protocol"]
+	protocol, found := req.Header["Sec-Websocket-Protocol"]
 	if found {
 		buf.WriteString("Sec-WebSocket-Protocol: " + protocol + "\r\n")
 	}
@@ -166,42 +155,48 @@ func (f Handler) ServeHTTP(c *http.Conn, req *http.Request) {
 
 
 /*
- 	Draft75Handler is an interface to a WebSocket based on
-        (soon obsolete) draft-hixie-thewebsocketprotocol-75.
+Draft75Handler is an interface to a WebSocket based on the
+(soon obsolete) draft-hixie-thewebsocketprotocol-75.
 */
 type Draft75Handler func(*Conn)
 
 // ServeHTTP implements the http.Handler interface for a Web Socket.
-func (f Draft75Handler) ServeHTTP(c *http.Conn, req *http.Request) {
+func (f Draft75Handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method != "GET" || req.Proto != "HTTP/1.1" {
-		c.WriteHeader(http.StatusBadRequest)
-		io.WriteString(c, "Unexpected request")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "Unexpected request")
 		return
 	}
 	if req.Header["Upgrade"] != "WebSocket" {
-		c.WriteHeader(http.StatusBadRequest)
-		io.WriteString(c, "missing Upgrade: WebSocket header")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "missing Upgrade: WebSocket header")
 		return
 	}
 	if req.Header["Connection"] != "Upgrade" {
-		c.WriteHeader(http.StatusBadRequest)
-		io.WriteString(c, "missing Connection: Upgrade header")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "missing Connection: Upgrade header")
 		return
 	}
 	origin, found := req.Header["Origin"]
 	if !found {
-		c.WriteHeader(http.StatusBadRequest)
-		io.WriteString(c, "missing Origin header")
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "missing Origin header")
 		return
 	}
 
-	rwc, buf, err := c.Hijack()
+	rwc, buf, err := w.Hijack()
 	if err != nil {
 		panic("Hijack failed: " + err.String())
 		return
 	}
 	defer rwc.Close()
-	location := "ws://" + req.Host + req.URL.RawPath
+
+	var location string
+	if w.UsingTLS() {
+		location = "wss://" + req.Host + req.URL.RawPath
+	} else {
+		location = "ws://" + req.Host + req.URL.RawPath
+	}
 
 	// TODO(ukai): verify origin,location,protocol.
 

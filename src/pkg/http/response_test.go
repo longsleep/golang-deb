@@ -21,7 +21,7 @@ type respTest struct {
 
 var respTests = []respTest{
 	// Unchunked response without Content-Length.
-	respTest{
+	{
 		"HTTP/1.0 200 OK\r\n" +
 			"Connection: close\r\n" +
 			"\r\n" +
@@ -45,7 +45,7 @@ var respTests = []respTest{
 	},
 
 	// Unchunked response with Content-Length.
-	respTest{
+	{
 		"HTTP/1.0 200 OK\r\n" +
 			"Content-Length: 10\r\n" +
 			"Connection: close\r\n" +
@@ -71,7 +71,7 @@ var respTests = []respTest{
 	},
 
 	// Chunked response without Content-Length.
-	respTest{
+	{
 		"HTTP/1.0 200 OK\r\n" +
 			"Transfer-Encoding: chunked\r\n" +
 			"\r\n" +
@@ -97,7 +97,7 @@ var respTests = []respTest{
 	},
 
 	// Chunked response with Content-Length.
-	respTest{
+	{
 		"HTTP/1.0 200 OK\r\n" +
 			"Transfer-Encoding: chunked\r\n" +
 			"Content-Length: 10\r\n" +
@@ -121,6 +121,44 @@ var respTests = []respTest{
 		},
 
 		"Body here\n",
+	},
+
+	// Status line without a Reason-Phrase, but trailing space.
+	// (permitted by RFC 2616)
+	{
+		"HTTP/1.0 303 \r\n\r\n",
+		Response{
+			Status:        "303 ",
+			StatusCode:    303,
+			Proto:         "HTTP/1.0",
+			ProtoMajor:    1,
+			ProtoMinor:    0,
+			RequestMethod: "GET",
+			Header:        map[string]string{},
+			Close:         true,
+			ContentLength: -1,
+		},
+
+		"",
+	},
+
+	// Status line without a Reason-Phrase, and no trailing space.
+	// (not permitted by RFC 2616, but we'll accept it anyway)
+	{
+		"HTTP/1.0 303\r\n\r\n",
+		Response{
+			Status:        "303 ",
+			StatusCode:    303,
+			Proto:         "HTTP/1.0",
+			ProtoMajor:    1,
+			ProtoMinor:    0,
+			RequestMethod: "GET",
+			Header:        map[string]string{},
+			Close:         true,
+			ContentLength: -1,
+		},
+
+		"",
 	},
 }
 

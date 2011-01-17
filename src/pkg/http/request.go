@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime"
+	"mime/multipart"
 	"os"
 	"strconv"
 	"strings"
@@ -40,6 +42,8 @@ var (
 	ErrNotSupported         = &ProtocolError{"feature not supported"}
 	ErrUnexpectedTrailer    = &ProtocolError{"trailer header without chunked transfer encoding"}
 	ErrMissingContentLength = &ProtocolError{"missing ContentLength in HEAD response"}
+	ErrNotMultipart         = &ProtocolError{"request Content-Type isn't multipart/form-data"}
+	ErrMissingBoundary      = &ProtocolError{"no multipart boundary param Content-Type"}
 )
 
 type badStringError struct {
@@ -67,7 +71,7 @@ type Request struct {
 	ProtoMajor int    // 1
 	ProtoMinor int    // 0
 
-	// A header mapping request lines to their values.
+	// A header maps request lines to their values.
 	// If the header says
 	//
 	//	accept-encoding: gzip, deflate
@@ -139,6 +143,24 @@ func (r *Request) ProtoAtLeast(major, minor int) bool {
 		r.ProtoMajor == major && r.ProtoMinor >= minor
 }
 
+// MultipartReader returns a MIME multipart reader if this is a
+// multipart/form-data POST request, else returns nil and an error.
+func (r *Request) MultipartReader() (multipart.Reader, os.Error) {
+	v, ok := r.Header["Content-Type"]
+	if !ok {
+		return nil, ErrNotMultipart
+	}
+	d, params := mime.ParseMediaType(v)
+	if d != "multipart/form-data" {
+		return nil, ErrNotMultipart
+	}
+	boundary, ok := params["boundary"]
+	if !ok {
+		return nil, ErrMissingBoundary
+	}
+	return multipart.NewReader(r.Body, boundary), nil
+}
+
 // Return value if nonempty, def otherwise.
 func valueOrDefault(value, def string) string {
 	if value != "" {
@@ -169,7 +191,7 @@ func (req *Request) Write(w io.Writer) os.Error {
 
 	uri := req.RawURL
 	if uri == "" {
-		uri = valueOrDefault(urlEscape(req.URL.Path, false), "/")
+		uri = valueOrDefault(urlEscape(req.URL.Path, encodePath), "/")
 		if req.URL.RawQuery != "" {
 			uri += "?" + req.URL.RawQuery
 		}
@@ -227,6 +249,8 @@ func readLineBytes(b *bufio.Reader) (p []byte, err os.Error) {
 		// If the caller asked for a line, there should be a line.
 		if err == os.EOF {
 			err = io.ErrUnexpectedEOF
+		} else if err == bufio.ErrBufferFull {
+			err = ErrLineTooLong
 		}
 		return nil, err
 	}
@@ -275,7 +299,7 @@ func readKeyValue(b *bufio.Reader) (key, value string, err os.Error) {
 	}
 
 	key = string(line[0:i])
-	if strings.Index(key, " ") >= 0 {
+	if strings.Contains(key, " ") {
 		// Key field has space - no good.
 		goto Malformed
 	}
@@ -360,29 +384,30 @@ func parseHTTPVersion(vers string) (int, int, bool) {
 	return major, minor, true
 }
 
-var cmap = make(map[string]string)
-
 // CanonicalHeaderKey returns the canonical format of the
 // HTTP header key s.  The canonicalization converts the first
 // letter and any letter following a hyphen to upper case;
 // the rest are converted to lowercase.  For example, the
 // canonical key for "accept-encoding" is "Accept-Encoding".
 func CanonicalHeaderKey(s string) string {
-	if t, ok := cmap[s]; ok {
-		return t
-	}
-
 	// canonicalize: first letter upper case
 	// and upper case after each dash.
 	// (Host, User-Agent, If-Modified-Since).
 	// HTTP headers are ASCII only, so no Unicode issues.
-	a := []byte(s)
+	var a []byte
 	upper := true
-	for i, v := range a {
+	for i := 0; i < len(s); i++ {
+		v := s[i]
 		if upper && 'a' <= v && v <= 'z' {
+			if a == nil {
+				a = []byte(s)
+			}
 			a[i] = v + 'A' - 'a'
 		}
 		if !upper && 'A' <= v && v <= 'Z' {
+			if a == nil {
+				a = []byte(s)
+			}
 			a[i] = v + 'a' - 'A'
 		}
 		upper = false
@@ -390,9 +415,10 @@ func CanonicalHeaderKey(s string) string {
 			upper = true
 		}
 	}
-	t := string(a)
-	cmap[s] = t
-	return t
+	if a != nil {
+		return string(a)
+	}
+	return s
 }
 
 type chunkedReader struct {
@@ -566,9 +592,22 @@ func ReadRequest(b *bufio.Reader) (req *Request, err os.Error) {
 	return req, nil
 }
 
+// ParseQuery parses the URL-encoded query string and returns
+// a map listing the values specified for each key.
+// ParseQuery always returns a non-nil map containing all the
+// valid query parameters found; err describes the first decoding error
+// encountered, if any.
 func ParseQuery(query string) (m map[string][]string, err os.Error) {
 	m = make(map[string][]string)
+	err = parseQuery(m, query)
+	return
+}
+
+func parseQuery(m map[string][]string, query string) (err os.Error) {
 	for _, kv := range strings.Split(query, "&", -1) {
+		if len(kv) == 0 {
+			continue
+		}
 		kvPair := strings.Split(kv, "=", 2)
 
 		var key, value string
@@ -579,14 +618,13 @@ func ParseQuery(query string) (m map[string][]string, err os.Error) {
 		}
 		if e != nil {
 			err = e
+			continue
 		}
-
 		vec := vector.StringVector(m[key])
 		vec.Push(value)
 		m[key] = vec
 	}
-
-	return
+	return err
 }
 
 // ParseForm parses the request body as a form for POST requests, or the raw query for GET requests.
@@ -596,32 +634,34 @@ func (r *Request) ParseForm() (err os.Error) {
 		return
 	}
 
-	var query string
-	switch r.Method {
-	case "GET":
-		query = r.URL.RawQuery
-	case "POST":
+	r.Form = make(map[string][]string)
+	if r.URL != nil {
+		err = parseQuery(r.Form, r.URL.RawQuery)
+	}
+	if r.Method == "POST" {
 		if r.Body == nil {
-			r.Form = make(map[string][]string)
 			return os.ErrorString("missing form body")
 		}
 		ct := r.Header["Content-Type"]
 		switch strings.Split(ct, ";", 2)[0] {
 		case "text/plain", "application/x-www-form-urlencoded", "":
-			var b []byte
-			if b, err = ioutil.ReadAll(r.Body); err != nil {
-				r.Form = make(map[string][]string)
-				return err
+			b, e := ioutil.ReadAll(r.Body)
+			if e != nil {
+				if err == nil {
+					err = e
+				}
+				break
 			}
-			query = string(b)
+			e = parseQuery(r.Form, string(b))
+			if err == nil {
+				err = e
+			}
 		// TODO(dsymonds): Handle multipart/form-data
 		default:
-			r.Form = make(map[string][]string)
 			return &badStringError{"unknown Content-Type", ct}
 		}
 	}
-	r.Form, err = ParseQuery(query)
-	return
+	return err
 }
 
 // FormValue returns the first value for the named component of the query.
@@ -639,4 +679,15 @@ func (r *Request) FormValue(key string) string {
 func (r *Request) expectsContinue() bool {
 	expectation, ok := r.Header["Expect"]
 	return ok && strings.ToLower(expectation) == "100-continue"
+}
+
+func (r *Request) wantsHttp10KeepAlive() bool {
+	if r.ProtoMajor != 1 || r.ProtoMinor != 0 {
+		return false
+	}
+	value, exists := r.Header["Connection"]
+	if !exists {
+		return false
+	}
+	return strings.Contains(strings.ToLower(value), "keep-alive")
 }

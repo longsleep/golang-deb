@@ -33,18 +33,39 @@ static char dosstub[] =
 	0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+int32 PESECTHEADR;
+int32 PEFILEHEADR;
+
 static int pe64;
 static int nsect;
-static int sect_virt_begin;
-static int sect_raw_begin = PERESERVE;
+static int nextsectoff;
+static int nextfileoff;
 
 static IMAGE_FILE_HEADER fh;
 static IMAGE_OPTIONAL_HEADER oh;
 static IMAGE_SECTION_HEADER sh[16];
-static IMAGE_SECTION_HEADER *textsect, *datsect, *bsssect;
+
+typedef struct Imp Imp;
+struct Imp {
+	Sym* s;
+	long va;
+	long vb;
+	Imp* next;
+};
+
+typedef struct Dll Dll;
+struct Dll {
+	char* name;
+	int count;
+	Imp* ms;
+	Dll* next;
+};
+
+static Dll* dr;
+static int ndll, nimp, nsize;
 
 static IMAGE_SECTION_HEADER*
-new_section(char *name, int size, int noraw)
+addpesection(char *name, int sectsize, int filesize, Segment *s)
 {
 	IMAGE_SECTION_HEADER *h;
 
@@ -54,15 +75,23 @@ new_section(char *name, int size, int noraw)
 	}
 	h = &sh[nsect++];
 	strncpy((char*)h->Name, name, sizeof(h->Name));
-	h->VirtualSize = size;
-	if(!sect_virt_begin)
-		sect_virt_begin = 0x1000;
-	h->VirtualAddress = sect_virt_begin;
-	sect_virt_begin = rnd(sect_virt_begin+size, 0x1000);
-	if(!noraw) {
-		h->SizeOfRawData = rnd(size, PEALIGN);
-		h->PointerToRawData = sect_raw_begin;
-		sect_raw_begin += h->SizeOfRawData;
+	h->VirtualSize = sectsize;
+	h->VirtualAddress = nextsectoff;
+	nextsectoff = rnd(nextsectoff+sectsize, PESECTALIGN);
+	h->PointerToRawData = nextfileoff;
+	if(filesize > 0) {
+		h->SizeOfRawData = rnd(filesize, PEFILEALIGN);
+		nextfileoff += h->SizeOfRawData;
+	}
+	if(s) {
+		if(s->vaddr-PEBASE != h->VirtualAddress) {
+			diag("%s.VirtualAddress = %#llux, want %#llux", name, (vlong)h->VirtualAddress, (vlong)(s->vaddr-PEBASE));
+			errorexit();
+		}
+		if(s->fileoff != h->PointerToRawData) {
+			diag("%s.PointerToRawData = %#llux, want %#llux", name, (vlong)h->PointerToRawData, (vlong)(s->fileoff));
+			errorexit();
+		}
 	}
 	return h;
 }
@@ -79,6 +108,11 @@ peinit(void)
 	default:
 		break;
 	}
+
+	PEFILEHEADR = rnd(sizeof(dosstub)+sizeof(fh)+sizeof(oh)+sizeof(sh), PEFILEALIGN);
+	PESECTHEADR = rnd(PEFILEHEADR, PESECTALIGN);
+	nextsectoff = PESECTHEADR;
+	nextfileoff = PEFILEHEADR;
 }
 
 static void
@@ -86,7 +120,8 @@ pewrite(void)
 {
 	int i, j;
 
-	write(cout, dosstub, sizeof dosstub);
+	seek(cout, 0, 0);
+	ewrite(cout, dosstub, sizeof dosstub);
 	strnput("PE", 4);
 
 	for (i=0; i<sizeof(fh); i++)
@@ -98,24 +133,6 @@ pewrite(void)
 			cput(((char*)&sh[i])[j]);
 }
 
-void
-dope(void)
-{
-	textsect = new_section(".text", textsize, 0);
-	textsect->Characteristics = IMAGE_SCN_CNT_CODE|
-		IMAGE_SCN_CNT_INITIALIZED_DATA|
-		IMAGE_SCN_MEM_EXECUTE|IMAGE_SCN_MEM_READ;
-
-	datsect = new_section(".data", datsize, 0);
-	datsect->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|
-		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
-	INITDAT = PEBASE+datsect->VirtualAddress;
-
-	bsssect = new_section(".bss", bsssize, 1);
-	bsssect->Characteristics = IMAGE_SCN_CNT_UNINITIALIZED_DATA|
-		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
-}
-
 static void
 strput(char *s)
 {
@@ -124,73 +141,167 @@ strput(char *s)
 	cput('\0');
 }
 
-static void
-add_import_table(void)
+static Dll* 
+initdynimport(void)
 {
-	IMAGE_IMPORT_DESCRIPTOR ds[2], *d;
-	char *dllname = "kernel32.dll";
-	struct {
-		char *name;
-		uint32 thunk;
-	} *f, fs[] = {
-		{ "GetProcAddress", 0 },
-		{ "LoadLibraryExA", 0 },
-		{ 0, 0 }
-	};
+	Imp *m;
+	Dll *d;
+	Sym *s;
+	int i;
+	Sym *dynamic;
 
-	uint32 size = 0;
-	memset(ds, 0, sizeof(ds));
-	size += sizeof(ds);
-	ds[0].Name = size;
-	size += strlen(dllname) + 1;
-	for(f=fs; f->name; f++) {
-		f->thunk = size;
-		size += sizeof(uint16) + strlen(f->name) + 1;
+	dr = nil;
+	ndll = 0;
+	nimp = 0;
+	nsize = 0;
+	
+	for(i=0; i<NHASH; i++)
+	for(s = hash[i]; s != S; s = s->hash) {
+		if(!s->reachable || !s->dynimpname)
+			continue;
+		nimp++;
+		for(d = dr; d != nil; d = d->next) {
+			if(strcmp(d->name,s->dynimplib) == 0) {
+				m = mal(sizeof *m);
+				m->s = s;
+				m->next = d->ms;
+				d->ms = m;
+				d->count++;
+				nsize += strlen(s->dynimpname)+2+1;
+				break;
+			}
+		}
+		if(d == nil) {
+			d = mal(sizeof *d);
+			d->name = s->dynimplib;
+			d->count = 1;
+			d->next = dr;
+			dr = d;
+			m = mal(sizeof *m);
+			m->s = s;
+			m->next = 0;
+			d->ms = m;
+			ndll++;
+			nsize += strlen(s->dynimpname)+2+1;
+			nsize += strlen(s->dynimplib)+1;
+		}
 	}
-	ds[0].FirstThunk = size;
-	for(f=fs; f->name; f++)
-		size += sizeof(fs[0].thunk);
+	
+	nsize += 20*ndll + 20;
+	nsize += 4*nimp + 4*ndll;
+	
+	dynamic = lookup(".windynamic", 0);
+	dynamic->reachable = 1;
+	dynamic->type = SWINDOWS;
+	for(d = dr; d != nil; d = d->next) {
+		for(m = d->ms; m != nil; m = m->next) {
+			m->s->type = SWINDOWS | SSUB;
+			m->s->sub = dynamic->sub;
+			dynamic->sub = m->s;
+			m->s->value = dynamic->size;
+			dynamic->size += 4;
+		}
+		dynamic->size += 4;
+	}
+		
+	return dr;
+}
 
+static void
+addimports(vlong fileoff, IMAGE_SECTION_HEADER *datsect)
+{
 	IMAGE_SECTION_HEADER *isect;
-	isect = new_section(".idata", size, 0);
+	uint32 va;
+	int noff, aoff, o, last_fn, last_name_off, iat_off;
+	Imp *m;
+	Dll *d;
+	Sym* dynamic;
+	
+	isect = addpesection(".idata", nsize, nsize, 0);
 	isect->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|
 		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
-	
-	uint32 va = isect->VirtualAddress;
+	va = isect->VirtualAddress;
 	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = va;
 	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = isect->VirtualSize;
 
-	ds[0].Name += va;
-	ds[0].FirstThunk += va;
-	for(f=fs; f->name; f++)
-		f->thunk += va;
+	seek(cout, fileoff, 0);
 
-	vlong off = seek(cout, 0, 1);
-	seek(cout, 0, 2);
-	for(d=ds; ; d++) {
-		lputl(d->OriginalFirstThunk);
-		lputl(d->TimeDateStamp);
-		lputl(d->ForwarderChain);
-		lputl(d->Name);
-		lputl(d->FirstThunk);
-		if(!d->Name) 
-			break;
+	dynamic = lookup(".windynamic", 0);
+	iat_off = dynamic->value - PEBASE; // FirstThunk allocated in .data
+	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress = iat_off;
+	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size = dynamic->size;
+
+	noff = va + 20*ndll + 20;
+	aoff = noff + 4*nimp + 4*ndll;
+	last_fn = 0;
+	last_name_off = aoff;
+	for(d = dr; d != nil; d = d->next) {
+		lputl(noff);
+		lputl(0);
+		lputl(0);
+		lputl(last_name_off);
+		lputl(iat_off);
+		last_fn = d->count;
+		noff += 4*last_fn + 4;
+		aoff += 4*last_fn + 4;
+		iat_off += 4*last_fn + 4;
+		last_name_off += strlen(d->name)+1;
 	}
-	strput(dllname);
-	for(f=fs; f->name; f++) {
-		wputl(0);
-		strput(f->name);
+	lputl(0); //end
+	lputl(0);
+	lputl(0);
+	lputl(0);
+	lputl(0);
+	
+	// put OriginalFirstThunk
+	o = last_name_off;
+	for(d = dr; d != nil; d = d->next) {
+		for(m = d->ms; m != nil; m = m->next) {
+			lputl(o);
+			o += 2 + strlen(m->s->dynimpname) + 1;
+		}
+		lputl(0);
 	}
-	for(f=fs; f->name; f++)
-		lputl(f->thunk);
-	strnput("", isect->SizeOfRawData - size);
+	// put names
+	for(d = dr; d != nil; d = d->next) {
+		strput(d->name);
+	}
+	// put hint+name
+	for(d = dr; d != nil; d = d->next) {
+		for(m = d->ms; m != nil; m = m->next) {
+			wputl(0);
+			strput(m->s->dynimpname);
+		}
+	}
+	
+	strnput("", isect->SizeOfRawData - nsize);
 	cflush();
-	seek(cout, off, 0);
+
+	// put FirstThunk
+	o = last_name_off;
+	seek(cout, datsect->PointerToRawData + dynamic->value - PEBASE - datsect->VirtualAddress, 0);
+	for(d = dr; d != nil; d = d->next) {
+		for(m = d->ms; m != nil; m = m->next) {
+			lputl(o);
+			o += 2 + strlen(m->s->dynimpname) + 1;
+		}
+		lputl(0);
+	}
+	cflush();
+	seek(cout, 0, 2);
+}
+
+void
+dope(void)
+{
+	initdynimport();
 }
 
 void
 asmbpe(void)
 {
+	IMAGE_SECTION_HEADER *t, *d;
+
 	switch(thechar) {
 	default:
 		diag("unknown PE architecture");
@@ -203,14 +314,16 @@ asmbpe(void)
 		break;
 	}
 
-	if(!debug['s']) {
-		IMAGE_SECTION_HEADER *symsect;
-		symsect = new_section(".symdat", 8+symsize+lcsize, 0);
-		symsect->Characteristics = IMAGE_SCN_MEM_READ|
-			IMAGE_SCN_CNT_INITIALIZED_DATA;
-	}
+	t = addpesection(".text", segtext.len, segtext.len, &segtext);
+	t->Characteristics = IMAGE_SCN_CNT_CODE|
+		IMAGE_SCN_CNT_INITIALIZED_DATA|
+		IMAGE_SCN_MEM_EXECUTE|IMAGE_SCN_MEM_READ;
 
-	add_import_table();
+	d = addpesection(".data", segdata.len, segdata.filelen, &segdata);
+	d->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|
+		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
+
+	addimports(nextfileoff, d);
 
 	fh.NumberOfSections = nsect;
 	fh.TimeDateStamp = time(0);
@@ -223,24 +336,24 @@ asmbpe(void)
 	oh.Magic = 0x10b;	// PE32
 	oh.MajorLinkerVersion = 1;
 	oh.MinorLinkerVersion = 0;
-	oh.SizeOfCode = textsect->SizeOfRawData;
-	oh.SizeOfInitializedData = datsect->SizeOfRawData;
-	oh.SizeOfUninitializedData = bsssect->SizeOfRawData;
+	oh.SizeOfCode = t->SizeOfRawData;
+	oh.SizeOfInitializedData = d->SizeOfRawData;
+	oh.SizeOfUninitializedData = 0;
 	oh.AddressOfEntryPoint = entryvalue()-PEBASE;
-	oh.BaseOfCode = textsect->VirtualAddress;
-	oh.BaseOfData = datsect->VirtualAddress;
+	oh.BaseOfCode = t->VirtualAddress;
+	oh.BaseOfData = d->VirtualAddress;
 
 	oh.ImageBase = PEBASE;
-	oh.SectionAlignment = 0x00001000;
-	oh.FileAlignment = PEALIGN;
+	oh.SectionAlignment = PESECTALIGN;
+	oh.FileAlignment = PEFILEALIGN;
 	oh.MajorOperatingSystemVersion = 4;
 	oh.MinorOperatingSystemVersion = 0;
 	oh.MajorImageVersion = 1;
 	oh.MinorImageVersion = 0;
 	oh.MajorSubsystemVersion = 4;
 	oh.MinorSubsystemVersion = 0;
-	oh.SizeOfImage = sect_virt_begin;
-	oh.SizeOfHeaders = PERESERVE;
+	oh.SizeOfImage = nextsectoff;
+	oh.SizeOfHeaders = PEFILEHEADR;
 	oh.Subsystem = 3;	// WINDOWS_CUI
 	oh.SizeOfStackReserve = 0x00200000;
 	oh.SizeOfStackCommit = 0x00001000;

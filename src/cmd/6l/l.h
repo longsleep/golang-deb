@@ -44,7 +44,7 @@ enum
 
 #define	P		((Prog*)0)
 #define	S		((Sym*)0)
-#define	TNAME		(curtext?curtext->from.sym->name:noname)
+#define	TNAME		(cursym?cursym->name:noname)
 #define	cput(c)\
 	{ *cbp++ = c;\
 	if(--cbc <= 0)\
@@ -56,6 +56,7 @@ typedef	struct	Sym	Sym;
 typedef	struct	Auto	Auto;
 typedef	struct	Optab	Optab;
 typedef	struct	Movtab	Movtab;
+typedef	struct	Reloc	Reloc;
 
 struct	Adr
 {
@@ -67,11 +68,7 @@ struct	Adr
 		Ieee	u0ieee;
 		char	*u0sbig;
 	} u0;
-	union
-	{
-		Auto*	u1autom;
-		Sym*	u1sym;
-	} u1;
+	Sym*	sym;
 	short	type;
 	char	index;
 	char	scale;
@@ -83,18 +80,25 @@ struct	Adr
 #define	ieee	u0.u0ieee
 #define	sbig	u0.u0sbig
 
-#define	autom	u1.u1autom
-#define	sym	u1.u1sym
+struct	Reloc
+{
+	int32	off;
+	uchar	siz;
+	int32	type;
+	int64	add;
+	Sym*	sym;
+};
 
 struct	Prog
 {
 	Adr	from;
 	Adr	to;
-	Prog	*forwd;
+	Prog*	forwd;
+	Prog*	comefrom;
 	Prog*	link;
-	Prog*	dlink;
 	Prog*	pcond;	/* work on this */
 	vlong	pc;
+	int32	spadj;
 	int32	line;
 	short	as;
 	char	ft;	/* oclass cache */
@@ -102,9 +106,12 @@ struct	Prog
 	uchar	mark;	/* work on these */
 	uchar	back;
 
-	char	width;		/* fake for DATA */
+	char	width;	/* fake for DATA */
 	char	mode;	/* 16, 32, or 64 */
 };
+#define	datasize	from.scale
+#define	textflag	from.scale
+
 struct	Auto
 {
 	Sym*	asym;
@@ -115,25 +122,39 @@ struct	Auto
 };
 struct	Sym
 {
-	char	*name;
+	char*	name;
 	short	type;
 	short	version;
-	short	become;
-	short	frame;
-	uchar	subtype;
 	uchar	dupok;
 	uchar	reachable;
 	uchar	dynexport;
+	uchar	special;
+	int32	dynid;
+	int32	sig;
+	int32	plt;
+	int32	got;
+	Sym*	hash;	// in hash table
+	Sym*	next;	// in text or data list
+	Sym*	sub;	// in SSUB list
+	Sym*	outer;	// container of sub
 	vlong	value;
 	vlong	size;
-	int32	sig;
-	Sym*	link;
-	Prog*	text;
-	Prog*	data;
 	Sym*	gotype;
 	char*	file;
 	char*	dynimpname;
 	char*	dynimplib;
+	
+	// STEXT
+	Auto*	autom;
+	Prog*	text;
+	
+	// SDATA, SBSS
+	uchar*	p;
+	int32	np;
+	int32	maxp;
+	Reloc*	r;
+	int32	nr;
+	int32	maxr;
 };
 struct	Optab
 {
@@ -154,21 +175,25 @@ struct	Movtab
 enum
 {
 	Sxxx,
+	
+	/* order here is order in output file */
 	STEXT		= 1,
+	SELFDATA,
+	SMACHOPLT,
+	SRODATA,
 	SDATA,
+	SMACHOGOT,
 	SBSS,
-	SDATA1,
+
 	SXREF,
+	SMACHODYNSTR,
+	SMACHODYNSYM,
+	SMACHOINDIRECTPLT,
+	SMACHOINDIRECTGOT,
 	SFILE,
 	SCONST,
-	SUNDEF,
-
-	SIMPORT,
-	SEXPORT,
-
-	SMACHO,
-	SFIXED,
-	SELFDATA,
+	SDYNIMPORT,
+	SSUB	= 1<<8,
 
 	NHASH		= 10007,
 	NHUNK		= 100000,
@@ -274,8 +299,6 @@ enum
 	Rxx		= 1<<1,	/* extend sib index */
 	Rxb		= 1<<0,	/* extend modrm r/m, sib base, or opcode reg */
 
-	Roffset	= 22,		/* no. bits for offset in relocation address */
-	Rindex	= 10,		/* no. bits for index in relocation address */
 	Maxand	= 10,		/* in -a output width of the byte codes */
 };
 
@@ -300,35 +323,30 @@ EXTERN union
 
 EXTERN	int32	HEADR;
 EXTERN	int32	HEADTYPE;
-EXTERN	vlong	INITDAT;
 EXTERN	int32	INITRND;
 EXTERN	vlong	INITTEXT;
+EXTERN	vlong	INITDAT;
 EXTERN	char*	INITENTRY;		/* entry point */
 EXTERN	Biobuf	bso;
-EXTERN	int32	bsssize;
 EXTERN	int	cbc;
 EXTERN	char*	cbp;
 EXTERN	char*	pcstr;
 EXTERN	Auto*	curauto;
 EXTERN	Auto*	curhist;
 EXTERN	Prog*	curp;
-EXTERN	Prog*	curtext;
-EXTERN	Prog*	datap;
-EXTERN	Prog*	edatap;
-EXTERN	vlong	datsize;
+EXTERN	Sym*	cursym;
+EXTERN	Sym*	datap;
 EXTERN	vlong	elfdatsize;
 EXTERN	char	debug[128];
 EXTERN	char	literal[32];
-EXTERN	Prog*	etextp;
-EXTERN	Prog*	firstp;
-EXTERN	int	xrefresolv;
+EXTERN	Sym*	textp;
+EXTERN	Sym*	etextp;
 EXTERN	char	ycover[Ymax*Ymax];
 EXTERN	uchar*	andptr;
 EXTERN	uchar*	rexptr;
 EXTERN	uchar	and[30];
 EXTERN	int	reg[D_NONE];
 EXTERN	int	regrex[D_NONE+1];
-EXTERN	Prog*	lastp;
 EXTERN	int32	lcsize;
 EXTERN	int	nerrors;
 EXTERN	char*	noname;
@@ -338,8 +356,7 @@ EXTERN	char*	rpath;
 EXTERN	int32	spsize;
 EXTERN	Sym*	symlist;
 EXTERN	int32	symsize;
-EXTERN	Prog*	textp;
-EXTERN	vlong	textsize;
+EXTERN	int	tlsoffset;
 EXTERN	int	version;
 EXTERN	Prog	zprg;
 EXTERN	int	dtype;
@@ -347,22 +364,12 @@ EXTERN	char*	paramspace;
 EXTERN	Sym*	adrgotype;	// type symbol on last Adr read
 EXTERN	Sym*	fromgotype;	// type symbol on last p->from read
 
-EXTERN	Adr*	reloca;
-EXTERN	int	doexp;		// export table
-EXTERN	int	dlm;		// dynamically loadable module
-EXTERN	int	imports, nimports;
-EXTERN	int	exports, nexports;
-EXTERN	char*	EXPTAB;
-EXTERN	Prog	undefp;
 EXTERN	vlong	textstksiz;
 EXTERN	vlong	textarg;
 extern	char	thechar;
-EXTERN	int	dynptrsize;
 EXTERN	int	elfstrsize;
 EXTERN	char*	elfstrdat;
 EXTERN	int	elftextsh;
-
-#define	UP	(&undefp)
 
 extern	Optab	optab[];
 extern	Optab*	opindex[];
@@ -370,22 +377,16 @@ extern	char*	anames[];
 
 int	Aconv(Fmt*);
 int	Dconv(Fmt*);
+int	Iconv(Fmt*);
 int	Pconv(Fmt*);
 int	Rconv(Fmt*);
 int	Sconv(Fmt*);
 void	addhist(int32, int);
 void	addstackmark(void);
 Prog*	appendp(Prog*);
-vlong	addstring(Sym*, char*);
-vlong	adduint32(Sym*, uint32);
-vlong	adduint64(Sym*, uint64);
-vlong	addaddr(Sym*, Sym*);
-vlong	addsize(Sym*, Sym*);
 void	asmb(void);
 void	asmdyn(void);
 void	asmins(Prog*);
-void	asmlc(void);
-void	asmsp(void);
 void	asmsym(void);
 void	asmelfsym(void);
 vlong	atolwhex(char*);
@@ -393,35 +394,29 @@ Prog*	brchain(Prog*);
 Prog*	brloop(Prog*);
 void	buildop(void);
 void	cflush(void);
-void	ckoff(Sym*, int32);
 Prog*	copyp(Prog*);
+vlong	cpos(void);
 double	cputime(void);
 void	datblk(int32, int32);
 void	deadcode(void);
 void	diag(char*, ...);
-void	dobss(void);
 void	dodata(void);
 void	doelf(void);
-void	doinit(void);
 void	domacho(void);
 void	doprof1(void);
 void	doprof2(void);
 void	dostkoff(void);
-void	dynreloc(Sym*, uint32, int);
 vlong	entryvalue(void);
-void	export(void);
 void	follow(void);
 void	gethunk(void);
 void	gotypestrings(void);
-void	import(void);
 void	listinit(void);
 Sym*	lookup(char*, int);
 void	lputb(int32);
 void	lputl(int32);
+void	instinit(void);
 void	main(int, char*[]);
-void	mkfwd(void);
 void*	mysbrk(uint32);
-Prog*	newdata(Sym*, int, int, int);
 Prog*	newtext(Prog*, Sym*);
 void	nopout(Prog*);
 int	opsize(Prog*);
@@ -429,19 +424,14 @@ void	patch(void);
 Prog*	prg(void);
 void	parsetextconst(vlong);
 int	relinv(int);
-int32	reuse(Prog*, Sym*);
 vlong	rnd(vlong, vlong);
 void	span(void);
-void	strnput(char*, int);
 void	undef(void);
-vlong	vaddr(Adr*);
 vlong	symaddr(Sym*);
 void	vputl(uint64);
 void	wputb(uint16);
 void	wputl(uint16);
 void	xdefine(char*, int, vlong);
-void	xfol(Prog*);
-void	zaddr(Biobuf*, Adr*, Sym*[]);
 
 void	machseg(char*, vlong, vlong, vlong, vlong, uint32, uint32, uint32, uint32);
 void	machsymseg(uint32, uint32);
@@ -460,3 +450,9 @@ uint32	machheadr(void);
 #pragma	varargck	type	"R"	int
 #pragma	varargck	type	"A"	int
 #pragma	varargck	argpos	diag 1
+
+/* Used by ../ld/dwarf.c */
+enum
+{
+	DWARFREGSP = 7
+};

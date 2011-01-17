@@ -14,48 +14,48 @@ import (
 )
 
 type ET2 struct {
-	x string
+	X string
 }
 
 type ET1 struct {
-	a    int
-	et2  *ET2
-	next *ET1
+	A    int
+	Et2  *ET2
+	Next *ET1
 }
 
 // Like ET1 but with a different name for a field
 type ET3 struct {
-	a             int
-	et2           *ET2
-	differentNext *ET1
+	A             int
+	Et2           *ET2
+	DifferentNext *ET1
 }
 
 // Like ET1 but with a different type for a field
 type ET4 struct {
-	a    int
-	et2  float
-	next int
+	A    int
+	Et2  float
+	Next int
 }
 
 func TestEncoderDecoder(t *testing.T) {
 	b := new(bytes.Buffer)
 	enc := NewEncoder(b)
 	et1 := new(ET1)
-	et1.a = 7
-	et1.et2 = new(ET2)
-	enc.Encode(et1)
-	if enc.state.err != nil {
-		t.Error("encoder fail:", enc.state.err)
+	et1.A = 7
+	et1.Et2 = new(ET2)
+	err := enc.Encode(et1)
+	if err != nil {
+		t.Error("encoder fail:", err)
 	}
 	dec := NewDecoder(b)
 	newEt1 := new(ET1)
-	dec.Decode(newEt1)
-	if dec.state.err != nil {
-		t.Fatal("error decoding ET1:", dec.state.err)
+	err = dec.Decode(newEt1)
+	if err != nil {
+		t.Fatal("error decoding ET1:", err)
 	}
 
 	if !reflect.DeepEqual(et1, newEt1) {
-		t.Fatalf("invalid data for et1: expected %+v; got %+v\n", *et1, *newEt1)
+		t.Fatalf("invalid data for et1: expected %+v; got %+v", *et1, *newEt1)
 	}
 	if b.Len() != 0 {
 		t.Error("not at eof;", b.Len(), "bytes left")
@@ -63,25 +63,25 @@ func TestEncoderDecoder(t *testing.T) {
 
 	enc.Encode(et1)
 	newEt1 = new(ET1)
-	dec.Decode(newEt1)
-	if dec.state.err != nil {
-		t.Fatal("round 2: error decoding ET1:", dec.state.err)
+	err = dec.Decode(newEt1)
+	if err != nil {
+		t.Fatal("round 2: error decoding ET1:", err)
 	}
 	if !reflect.DeepEqual(et1, newEt1) {
-		t.Fatalf("round 2: invalid data for et1: expected %+v; got %+v\n", *et1, *newEt1)
+		t.Fatalf("round 2: invalid data for et1: expected %+v; got %+v", *et1, *newEt1)
 	}
 	if b.Len() != 0 {
 		t.Error("round 2: not at eof;", b.Len(), "bytes left")
 	}
 
 	// Now test with a running encoder/decoder pair that we recognize a type mismatch.
-	enc.Encode(et1)
-	if enc.state.err != nil {
-		t.Error("round 3: encoder fail:", enc.state.err)
+	err = enc.Encode(et1)
+	if err != nil {
+		t.Error("round 3: encoder fail:", err)
 	}
 	newEt2 := new(ET2)
-	dec.Decode(newEt2)
-	if dec.state.err == nil {
+	err = dec.Decode(newEt2)
+	if err == nil {
 		t.Fatal("round 3: expected `bad type' error decoding ET2")
 	}
 }
@@ -92,19 +92,19 @@ func badTypeCheck(e interface{}, shouldFail bool, msg string, t *testing.T) {
 	b := new(bytes.Buffer)
 	enc := NewEncoder(b)
 	et1 := new(ET1)
-	et1.a = 7
-	et1.et2 = new(ET2)
-	enc.Encode(et1)
-	if enc.state.err != nil {
-		t.Error("encoder fail:", enc.state.err)
+	et1.A = 7
+	et1.Et2 = new(ET2)
+	err := enc.Encode(et1)
+	if err != nil {
+		t.Error("encoder fail:", err)
 	}
 	dec := NewDecoder(b)
-	dec.Decode(e)
-	if shouldFail && (dec.state.err == nil) {
+	err = dec.Decode(e)
+	if shouldFail && err == nil {
 		t.Error("expected error for", msg)
 	}
-	if !shouldFail && (dec.state.err != nil) {
-		t.Error("unexpected error for", msg, dec.state.err)
+	if !shouldFail && err != nil {
+		t.Error("unexpected error for", msg, err)
 	}
 }
 
@@ -118,9 +118,9 @@ func TestWrongTypeDecoder(t *testing.T) {
 func corruptDataCheck(s string, err os.Error, t *testing.T) {
 	b := bytes.NewBufferString(s)
 	dec := NewDecoder(b)
-	dec.Decode(new(ET2))
-	if dec.state.err != err {
-		t.Error("expected error", err, "got", dec.state.err)
+	err1 := dec.Decode(new(ET2))
+	if err1 != err {
+		t.Error("expected error", err, "got", err1)
 	}
 }
 
@@ -135,7 +135,6 @@ func TestBadData(t *testing.T) {
 var unsupportedValues = []interface{}{
 	make(chan int),
 	func(a int) bool { return true },
-	new(interface{}),
 }
 
 func TestUnsupported(t *testing.T) {
@@ -152,14 +151,14 @@ func TestUnsupported(t *testing.T) {
 func encAndDec(in, out interface{}) os.Error {
 	b := new(bytes.Buffer)
 	enc := NewEncoder(b)
-	enc.Encode(in)
-	if enc.state.err != nil {
-		return enc.state.err
+	err := enc.Encode(in)
+	if err != nil {
+		return err
 	}
 	dec := NewDecoder(b)
-	dec.Decode(out)
-	if dec.state.err != nil {
-		return dec.state.err
+	err = dec.Decode(out)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -167,7 +166,7 @@ func encAndDec(in, out interface{}) os.Error {
 func TestTypeToPtrType(t *testing.T) {
 	// Encode a T, decode a *T
 	type Type0 struct {
-		a int
+		A int
 	}
 	t0 := Type0{7}
 	t0p := (*Type0)(nil)
@@ -179,7 +178,7 @@ func TestTypeToPtrType(t *testing.T) {
 func TestPtrTypeToType(t *testing.T) {
 	// Encode a *T, decode a T
 	type Type1 struct {
-		a uint
+		A uint
 	}
 	t1p := &Type1{17}
 	var t1 Type1
@@ -190,26 +189,26 @@ func TestPtrTypeToType(t *testing.T) {
 
 func TestTypeToPtrPtrPtrPtrType(t *testing.T) {
 	type Type2 struct {
-		a ****float
+		A ****float
 	}
 	t2 := Type2{}
-	t2.a = new(***float)
-	*t2.a = new(**float)
-	**t2.a = new(*float)
-	***t2.a = new(float)
-	****t2.a = 27.4
+	t2.A = new(***float)
+	*t2.A = new(**float)
+	**t2.A = new(*float)
+	***t2.A = new(float)
+	****t2.A = 27.4
 	t2pppp := new(***Type2)
 	if err := encAndDec(t2, t2pppp); err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
-	if ****(****t2pppp).a != ****t2.a {
-		t.Errorf("wrong value after decode: %g not %g", ****(****t2pppp).a, ****t2.a)
+	if ****(****t2pppp).A != ****t2.A {
+		t.Errorf("wrong value after decode: %g not %g", ****(****t2pppp).A, ****t2.A)
 	}
 }
 
 func TestSlice(t *testing.T) {
 	type Type3 struct {
-		a []string
+		A []string
 	}
 	t3p := &Type3{[]string{"hello", "world"}}
 	var t3 Type3
@@ -232,11 +231,11 @@ func TestValueError(t *testing.T) {
 
 func TestArray(t *testing.T) {
 	type Type5 struct {
-		a [3]string
-		b [3]byte
+		A [3]string
+		B [3]byte
 	}
 	type Type6 struct {
-		a [2]string // can't hold t5.a
+		A [2]string // can't hold t5.a
 	}
 	t5 := Type5{[3]string{"hello", ",", "world"}, [3]byte{1, 2, 3}}
 	var t5p Type5
@@ -252,10 +251,10 @@ func TestArray(t *testing.T) {
 // Regression test for bug: must send zero values inside arrays
 func TestDefaultsInArray(t *testing.T) {
 	type Type7 struct {
-		b []bool
-		i []int
-		s []string
-		f []float
+		B []bool
+		I []int
+		S []string
+		F []float
 	}
 	t7 := Type7{
 		[]bool{false, false, true},
@@ -274,6 +273,7 @@ var testFloat32 float32
 var testString string
 var testSlice []string
 var testMap map[string]int
+var testArray [7]int
 
 type SingleTest struct {
 	in  interface{}
@@ -282,14 +282,16 @@ type SingleTest struct {
 }
 
 var singleTests = []SingleTest{
-	SingleTest{17, &testInt, ""},
-	SingleTest{float32(17.5), &testFloat32, ""},
-	SingleTest{"bike shed", &testString, ""},
-	SingleTest{[]string{"bike", "shed", "paint", "color"}, &testSlice, ""},
-	SingleTest{map[string]int{"seven": 7, "twelve": 12}, &testMap, ""},
+	{17, &testInt, ""},
+	{float32(17.5), &testFloat32, ""},
+	{"bike shed", &testString, ""},
+	{[]string{"bike", "shed", "paint", "color"}, &testSlice, ""},
+	{map[string]int{"seven": 7, "twelve": 12}, &testMap, ""},
+	{[7]int{4, 55, 0, 0, 0, 0, 0}, &testArray, ""}, // case that once triggered a bug
+	{[7]int{4, 55, 1, 44, 22, 66, 1234}, &testArray, ""},
 
 	// Decode errors
-	SingleTest{172, &testFloat32, "wrong type"},
+	{172, &testFloat32, "wrong type"},
 }
 
 func TestSingletons(t *testing.T) {
@@ -320,7 +322,64 @@ func TestSingletons(t *testing.T) {
 		// Get rid of the pointer in the rhs
 		val := reflect.NewValue(test.out).(*reflect.PtrValue).Elem().Interface()
 		if !reflect.DeepEqual(test.in, val) {
-			t.Errorf("decoding int: expected %v got %v", test.in, val)
+			t.Errorf("decoding singleton: expected %v got %v", test.in, val)
 		}
+	}
+}
+
+func TestStructNonStruct(t *testing.T) {
+	type Struct struct {
+		A string
+	}
+	type NonStruct string
+	s := Struct{"hello"}
+	var sp Struct
+	if err := encAndDec(s, &sp); err != nil {
+		t.Error(err)
+	}
+	var ns NonStruct
+	if err := encAndDec(s, &ns); err == nil {
+		t.Error("should get error for struct/non-struct")
+	} else if strings.Index(err.String(), "type") < 0 {
+		t.Error("for struct/non-struct expected type error; got", err)
+	}
+	// Now try the other way
+	var nsp NonStruct
+	if err := encAndDec(ns, &nsp); err != nil {
+		t.Error(err)
+	}
+	if err := encAndDec(ns, &s); err == nil {
+		t.Error("should get error for non-struct/struct")
+	} else if strings.Index(err.String(), "type") < 0 {
+		t.Error("for non-struct/struct expected type error; got", err)
+	}
+}
+
+type interfaceIndirectTestI interface {
+	F() bool
+}
+
+type interfaceIndirectTestT struct{}
+
+func (this *interfaceIndirectTestT) F() bool {
+	return true
+}
+
+// A version of a bug reported on golang-nuts.  Also tests top-level
+// slice of interfaces.  The issue was registering *T caused T to be
+// stored as the concrete type.
+func TestInterfaceIndirect(t *testing.T) {
+	Register(&interfaceIndirectTestT{})
+	b := new(bytes.Buffer)
+	w := []interfaceIndirectTestI{&interfaceIndirectTestT{}}
+	err := NewEncoder(b).Encode(w)
+	if err != nil {
+		t.Fatal("encode error:", err)
+	}
+
+	var r []interfaceIndirectTestI
+	err = NewDecoder(b).Decode(&r)
+	if err != nil {
+		t.Fatal("decode error:", err)
 	}
 }

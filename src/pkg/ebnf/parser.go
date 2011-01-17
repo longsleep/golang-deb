@@ -5,7 +5,6 @@
 package ebnf
 
 import (
-	"container/vector"
 	"go/scanner"
 	"go/token"
 	"os"
@@ -14,11 +13,12 @@ import (
 
 
 type parser struct {
+	fset *token.FileSet
 	scanner.ErrorVector
 	scanner scanner.Scanner
-	pos     token.Position // token position
-	tok     token.Token    // one token look-ahead
-	lit     []byte         // token literal
+	pos     token.Pos   // token position
+	tok     token.Token // one token look-ahead
+	lit     []byte      // token literal
 }
 
 
@@ -32,9 +32,14 @@ func (p *parser) next() {
 }
 
 
-func (p *parser) errorExpected(pos token.Position, msg string) {
+func (p *parser) error(pos token.Pos, msg string) {
+	p.Error(p.fset.Position(pos), msg)
+}
+
+
+func (p *parser) errorExpected(pos token.Pos, msg string) {
 	msg = "expected " + msg
-	if pos.Offset == p.pos.Offset {
+	if pos == p.pos {
 		// the error happened at the current position;
 		// make the error message more specific
 		msg += ", found '" + p.tok.String() + "'"
@@ -42,11 +47,11 @@ func (p *parser) errorExpected(pos token.Position, msg string) {
 			msg += " " + string(p.lit)
 		}
 	}
-	p.Error(pos, msg)
+	p.error(pos, msg)
 }
 
 
-func (p *parser) expect(tok token.Token) token.Position {
+func (p *parser) expect(tok token.Token) token.Pos {
 	pos := p.pos
 	if p.tok != tok {
 		p.errorExpected(pos, "'"+tok.String()+"'")
@@ -116,36 +121,30 @@ func (p *parser) parseTerm() (x Expression) {
 
 
 func (p *parser) parseSequence() Expression {
-	var list vector.Vector
+	var list Sequence
 
 	for x := p.parseTerm(); x != nil; x = p.parseTerm() {
-		list.Push(x)
+		list = append(list, x)
 	}
 
 	// no need for a sequence if list.Len() < 2
-	switch list.Len() {
+	switch len(list) {
 	case 0:
 		return nil
 	case 1:
-		return list.At(0).(Expression)
+		return list[0]
 	}
 
-	// convert list into a sequence
-	seq := make(Sequence, list.Len())
-	for i := 0; i < list.Len(); i++ {
-		seq[i] = list.At(i).(Expression)
-	}
-	return seq
+	return list
 }
 
 
 func (p *parser) parseExpression() Expression {
-	var list vector.Vector
+	var list Alternative
 
 	for {
-		x := p.parseSequence()
-		if x != nil {
-			list.Push(x)
+		if x := p.parseSequence(); x != nil {
+			list = append(list, x)
 		}
 		if p.tok != token.OR {
 			break
@@ -154,19 +153,14 @@ func (p *parser) parseExpression() Expression {
 	}
 
 	// no need for an Alternative node if list.Len() < 2
-	switch list.Len() {
+	switch len(list) {
 	case 0:
 		return nil
 	case 1:
-		return list.At(0).(Expression)
+		return list[0]
 	}
 
-	// convert list into an Alternative node
-	alt := make(Alternative, list.Len())
-	for i := 0; i < list.Len(); i++ {
-		alt[i] = list.At(i).(Expression)
-	}
-	return alt
+	return list
 }
 
 
@@ -179,10 +173,11 @@ func (p *parser) parseProduction() *Production {
 }
 
 
-func (p *parser) parse(filename string, src []byte) Grammar {
+func (p *parser) parse(fset *token.FileSet, filename string, src []byte) Grammar {
 	// initialize parser
+	p.fset = fset
 	p.ErrorVector.Reset()
-	p.scanner.Init(filename, src, p, 0)
+	p.scanner.Init(fset, filename, src, p, 0)
 	p.next() // initializes pos, tok, lit
 
 	grammar := make(Grammar)
@@ -192,7 +187,7 @@ func (p *parser) parse(filename string, src []byte) Grammar {
 		if _, found := grammar[name]; !found {
 			grammar[name] = prod
 		} else {
-			p.Error(prod.Pos(), name+" declared already")
+			p.error(prod.Pos(), name+" declared already")
 		}
 	}
 
@@ -203,10 +198,11 @@ func (p *parser) parse(filename string, src []byte) Grammar {
 // Parse parses a set of EBNF productions from source src.
 // It returns a set of productions. Errors are reported
 // for incorrect syntax and if a production is declared
-// more than once.
+// more than once. Position information is recorded relative
+// to the file set fset.
 //
-func Parse(filename string, src []byte) (Grammar, os.Error) {
+func Parse(fset *token.FileSet, filename string, src []byte) (Grammar, os.Error) {
 	var p parser
-	grammar := p.parse(filename, src)
+	grammar := p.parse(fset, filename, src)
 	return grammar, p.GetError(scanner.Sorted)
 }

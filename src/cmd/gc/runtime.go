@@ -10,7 +10,7 @@ package PACKAGE
 
 // emitted by compiler, not referred to by go programs
 
-func mal(int32) *any
+func new(int32) *any
 func panicindex()
 func panicslice()
 func throwreturn()
@@ -31,13 +31,18 @@ func printeface(any)
 func printslice(any)
 func printnl()
 func printsp()
-func printf()
+func goprintf()
 
-func catstring(string, string) string
+// filled in by compiler: int n, string, string, ...
+func concatstring()
+
+// filled in by compiler: Type*, int n, Slice, ...
+func append()
+func appendslice(typ *byte, x any, y []any) any
+
 func cmpstring(string, string) int
 func slicestring(string, int, int) string
 func slicestring1(string, int) string
-func indexstring(string, int) byte
 func intstring(int64) string
 func slicebytetostring([]byte) string
 func sliceinttostring([]int) string
@@ -46,6 +51,7 @@ func stringtosliceint(string) []int
 func stringiter(string, int) int
 func stringiter2(string, int) (retk int, retv int)
 func slicecopy(to any, fr any, wid uint32) int
+func slicestringcopy(to any, fr any) int
 
 // interface conversions
 func convI2E(elem any) (ret any)
@@ -99,9 +105,9 @@ func selectdefault(sel *byte) (selected bool)
 func selectgo(sel *byte)
 
 func makeslice(typ *byte, nel int64, cap int64) (ary []any)
-func sliceslice1(old []any, lb int, width int) (ary []any)
-func sliceslice(old []any, lb int, hb int, width int) (ary []any)
-func slicearray(old *any, nel int, lb int, hb int, width int) (ary []any)
+func sliceslice1(old []any, lb uint64, width uint64) (ary []any)
+func sliceslice(old []any, lb uint64, hb uint64, width uint64) (ary []any)
+func slicearray(old *any, nel uint64, lb uint64, hb uint64, width uint64) (ary []any)
 
 func closure() // has args, but compiler fills in
 
@@ -111,6 +117,8 @@ func uint64div(uint64, uint64) uint64
 func int64mod(int64, int64) int64
 func uint64mod(uint64, uint64) uint64
 func float64toint64(float64) int64
+func float64touint64(float64) uint64
 func int64tofloat64(int64) float64
+func uint64tofloat64(uint64) float64
 
 func complex128div(num complex128, den complex128) (quo complex128)

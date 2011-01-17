@@ -3,11 +3,11 @@
 // license that can be found in the LICENSE file.
 
 // This file contains the infrastructure to create an
-// (identifier) index for a set of Go files.
+// identifier and full-text index for a set of Go files.
 //
-// Basic indexing algorithm:
+// Algorithm for identifier index:
 // - traverse all .go files of the file tree specified by root
-// - for each word (identifier) encountered, collect all occurences (spots)
+// - for each word (identifier) encountered, collect all occurrences (spots)
 //   into a list; this produces a list of spots for each word
 // - reduce the lists: from a list of spots to a list of FileRuns,
 //   and from a list of FileRuns into a list of PakRuns
@@ -21,17 +21,34 @@
 //   (the line number for spots with snippets is stored in the snippet)
 // - at the end, create lists of alternative spellings for a given
 //   word
+//
+// Algorithm for full text index:
+// - concatenate all source code in a byte buffer (in memory)
+// - add the files to a file set in lockstep as they are added to the byte
+//   buffer such that a byte buffer offset corresponds to the Pos value for
+//   that file location
+// - create a suffix array from the concatenated sources
+//
+// String lookup in full text index:
+// - use the suffix array to lookup a string's offsets - the offsets
+//   correspond to the Pos values relative to the file set
+// - translate the Pos values back into file and line information and
+//   sort the result
 
 package main
 
 import (
+	"bytes"
 	"container/vector"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/scanner"
+	"index/suffixarray"
+	"io/ioutil"
 	"os"
 	pathutil "path"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -231,7 +248,7 @@ type File struct {
 }
 
 
-// A Spot describes a single occurence of a word.
+// A Spot describes a single occurrence of a word.
 type Spot struct {
 	File *File
 	Info SpotInfo
@@ -419,7 +436,17 @@ const excludeTestFiles = false
 
 type IndexResult struct {
 	Decls  RunList // package-level declarations (with snippets)
-	Others RunList // all other occurences
+	Others RunList // all other occurrences
+}
+
+
+// Statistics provides statistics information for an index.
+type Statistics struct {
+	Bytes int // total size of indexed source files
+	Files int // number of indexed source files
+	Lines int // number of lines (all files)
+	Words int // number of different identifiers
+	Spots int // number of identifier occurrences
 }
 
 
@@ -428,11 +455,14 @@ type IndexResult struct {
 // interface for walking file trees, and the ast.Visitor interface for
 // walking Go ASTs.
 type Indexer struct {
+	fset     *token.FileSet          // file set for all indexed files
+	sources  bytes.Buffer            // concatenated sources
 	words    map[string]*IndexResult // RunLists of Spots
 	snippets vector.Vector           // vector of *Snippets, indexed by snippet indices
-	file     *File                   // current file
-	decl     ast.Decl                // current decl
-	nspots   int                     // number of spots encountered
+	current  *token.File             // last file added to file set
+	file     *File                   // AST for current file
+	decl     ast.Decl                // AST for current decl
+	stats    Statistics
 }
 
 
@@ -452,24 +482,24 @@ func (x *Indexer) visitComment(c *ast.CommentGroup) {
 
 func (x *Indexer) visitIdent(kind SpotKind, id *ast.Ident) {
 	if id != nil {
-		lists, found := x.words[id.Name()]
+		lists, found := x.words[id.Name]
 		if !found {
 			lists = new(IndexResult)
-			x.words[id.Name()] = lists
+			x.words[id.Name] = lists
 		}
 
 		if kind == Use || x.decl == nil {
 			// not a declaration or no snippet required
-			info := makeSpotInfo(kind, id.Pos().Line, false)
+			info := makeSpotInfo(kind, x.current.Line(id.Pos()), false)
 			lists.Others.Push(Spot{x.file, info})
 		} else {
 			// a declaration with snippet
-			index := x.addSnippet(NewSnippet(x.decl, id))
+			index := x.addSnippet(NewSnippet(x.fset, x.decl, id))
 			info := makeSpotInfo(kind, index, true)
 			lists.Decls.Push(Spot{x.file, info})
 		}
 
-		x.nspots++
+		x.stats.Spots++
 	}
 }
 
@@ -506,7 +536,7 @@ func (x *Indexer) visitSpec(spec ast.Spec, isVarDecl bool) {
 }
 
 
-func (x *Indexer) Visit(node interface{}) ast.Visitor {
+func (x *Indexer) Visit(node ast.Node) ast.Visitor {
 	// TODO(gri): methods in interface types are categorized as VarDecl
 	switch n := node.(type) {
 	case nil:
@@ -578,16 +608,69 @@ func (x *Indexer) Visit(node interface{}) ast.Visitor {
 }
 
 
-func (x *Indexer) VisitDir(path string, f *os.FileInfo) bool {
-	return true
+func pkgName(filename string) string {
+	// use a new file set each time in order to not pollute the indexer's
+	// file set (which must stay in sync with the concatenated source code)
+	file, err := parser.ParseFile(token.NewFileSet(), filename, nil, parser.PackageClauseOnly)
+	if err != nil || file == nil {
+		return ""
+	}
+	return file.Name.Name
 }
 
 
-func (x *Indexer) VisitFile(path string, f *os.FileInfo) {
+func (x *Indexer) addFile(filename string) *ast.File {
+	// open file
+	f, err := os.Open(filename, os.O_RDONLY, 0)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	// The file set's base offset and x.sources size must be in lock-step;
+	// this permits the direct mapping of suffix array lookup results to
+	// to corresponding Pos values.
+	//
+	// When a file is added to the file set, it's offset base increases by
+	// the size of the file + 1; and the initial base offset is 1. Add an
+	// extra byte to the sources here.
+	x.sources.WriteByte(0)
+
+	// If the sources length doesn't match the file set base at this point
+	// the file set implementation changed or we have another error.
+	base := x.fset.Base()
+	if x.sources.Len() != base {
+		panic("internal error - file base incorrect")
+	}
+
+	// append file contents to x.sources
+	if _, err := x.sources.ReadFrom(f); err != nil {
+		x.sources.Truncate(base) // discard possibly added data
+		return nil               // ignore files with I/O errors
+	}
+
+	// parse the file and in the process add it to the file set
+	src := x.sources.Bytes()[base:] // no need to reread the file
+	file, err := parser.ParseFile(x.fset, filename, src, parser.ParseComments)
+	if err != nil {
+		// do not discard the added source code in this case
+		// because the file has been added to the file set and
+		// the source size must match the file set base
+		// TODO(gri): given a FileSet.RemoveFile() one might be
+		//            able to discard the data here (worthwhile?)
+		return nil // ignore files with (parse) errors
+	}
+
+	return file
+}
+
+
+func (x *Indexer) visitFile(dirname string, f *os.FileInfo) {
 	if !isGoFile(f) {
 		return
 	}
 
+	path := pathutil.Join(dirname, f.Name)
 	if excludeTestFiles && (!isPkgFile(f) || strings.HasPrefix(path, "test/")) {
 		return
 	}
@@ -596,15 +679,23 @@ func (x *Indexer) VisitFile(path string, f *os.FileInfo) {
 		return
 	}
 
-	file, err := parser.ParseFile(path, nil, nil, parser.ParseComments)
-	if err != nil {
-		return // ignore files with (parse) errors
+	file := x.addFile(path)
+	if file == nil {
+		return
 	}
 
+	// we've got a file to index
+	x.current = x.fset.File(file.Pos()) // file.Pos is in the current file
 	dir, _ := pathutil.Split(path)
-	pak := Pak{dir, file.Name.Name()}
+	pak := Pak{dir, file.Name.Name}
 	x.file = &File{path, pak}
 	ast.Walk(x, file)
+
+	// update statistics
+	// (count real file size as opposed to using the padded x.sources.Len())
+	x.stats.Bytes += x.current.Size()
+	x.stats.Files++
+	x.stats.Lines += x.current.LineCount()
 }
 
 
@@ -613,30 +704,54 @@ func (x *Indexer) VisitFile(path string, f *os.FileInfo) {
 
 type LookupResult struct {
 	Decls  HitList // package-level declarations (with snippets)
-	Others HitList // all other occurences
+	Others HitList // all other occurrences
 }
 
 
 type Index struct {
+	fset     *token.FileSet           // file set used during indexing; nil if no textindex
+	suffixes *suffixarray.Index       // suffixes for concatenated sources; nil if no textindex
 	words    map[string]*LookupResult // maps words to hit lists
 	alts     map[string]*AltWords     // maps canonical(words) to lists of alternative spellings
 	snippets []*Snippet               // all snippets, indexed by snippet index
-	nspots   int                      // number of spots indexed (a measure of the index size)
+	stats    Statistics
 }
 
 
 func canonical(w string) string { return strings.ToLower(w) }
 
 
-// NewIndex creates a new index for the file tree rooted at root.
-func NewIndex(root string) *Index {
+// NewIndex creates a new index for the .go files
+// in the directories given by dirnames.
+//
+func NewIndex(dirnames <-chan string, fulltextIndex bool) *Index {
 	var x Indexer
 
 	// initialize Indexer
+	x.fset = token.NewFileSet()
 	x.words = make(map[string]*IndexResult)
 
-	// collect all Spots
-	pathutil.Walk(root, &x, nil)
+	// index all files in the directories given by dirnames
+	for dirname := range dirnames {
+		list, err := ioutil.ReadDir(dirname)
+		if err != nil {
+			continue // ignore this directory
+		}
+		for _, f := range list {
+			if !f.IsDirectory() {
+				x.visitFile(dirname, f)
+			}
+		}
+	}
+
+	if !fulltextIndex {
+		// the file set, the current file, and the sources are
+		// not needed after indexing if no text index is built -
+		// help GC and clear them
+		x.fset = nil
+		x.sources.Reset()
+		x.current = nil // contains reference to fset!
+	}
 
 	// for each word, reduce the RunLists into a LookupResult;
 	// also collect the word with its canonical spelling in a
@@ -652,6 +767,7 @@ func NewIndex(root string) *Index {
 		}
 		wlist.Push(&wordPair{canonical(w), w})
 	}
+	x.stats.Words = len(words)
 
 	// reduce the word list {canonical(w), w} into
 	// a list of AltWords runs {canonical(w), {w}}
@@ -670,14 +786,19 @@ func NewIndex(root string) *Index {
 		snippets[i] = x.snippets.At(i).(*Snippet)
 	}
 
-	return &Index{words, alts, snippets, x.nspots}
+	// create text index
+	var suffixes *suffixarray.Index
+	if fulltextIndex {
+		suffixes = suffixarray.New(x.sources.Bytes())
+	}
+
+	return &Index{x.fset, suffixes, words, alts, snippets, x.stats}
 }
 
 
-// Size returns the number of different words and
-// spots indexed as a measure for the index size.
-func (x *Index) Size() (nwords int, nspots int) {
-	return len(x.words), x.nspots
+// Stats() returns index statistics.
+func (x *Index) Stats() Statistics {
+	return x.stats
 }
 
 
@@ -696,7 +817,7 @@ func (x *Index) LookupWord(w string) (match *LookupResult, alt *AltWords) {
 
 func isIdentifier(s string) bool {
 	var S scanner.Scanner
-	S.Init("", []byte(s), nil, 0)
+	S.Init(token.NewFileSet(), "", []byte(s), nil, 0)
 	if _, tok, _ := S.Scan(); tok == token.IDENT {
 		_, tok, _ := S.Scan()
 		return tok == token.EOF
@@ -707,14 +828,14 @@ func isIdentifier(s string) bool {
 
 // For a given query, which is either a single identifier or a qualified
 // identifier, Lookup returns a LookupResult, and a list of alternative
-// spellings, if any. If the query syntax is wrong, illegal is set.
-func (x *Index) Lookup(query string) (match *LookupResult, alt *AltWords, illegal bool) {
+// spellings, if any. If the query syntax is wrong, an error is reported.
+func (x *Index) Lookup(query string) (match *LookupResult, alt *AltWords, err os.Error) {
 	ss := strings.Split(query, ".", -1)
 
 	// check query syntax
 	for _, s := range ss {
 		if !isIdentifier(s) {
-			illegal = true
+			err = os.NewError("all query parts must be identifiers")
 			return
 		}
 	}
@@ -734,7 +855,7 @@ func (x *Index) Lookup(query string) (match *LookupResult, alt *AltWords, illega
 		}
 
 	default:
-		illegal = true
+		err = os.NewError("query is not a (qualified) identifier")
 	}
 
 	return
@@ -747,4 +868,104 @@ func (x *Index) Snippet(i int) *Snippet {
 		return x.snippets[i]
 	}
 	return nil
+}
+
+
+type positionList []struct {
+	filename string
+	line     int
+}
+
+func (list positionList) Len() int           { return len(list) }
+func (list positionList) Less(i, j int) bool { return list[i].filename < list[j].filename }
+func (list positionList) Swap(i, j int)      { list[i], list[j] = list[j], list[i] }
+
+
+// unique returns the list sorted and with duplicate entries removed
+func unique(list []int) []int {
+	sort.SortInts(list)
+	var last int
+	i := 0
+	for _, x := range list {
+		if i == 0 || x != last {
+			last = x
+			list[i] = x
+			i++
+		}
+	}
+	return list[0:i]
+}
+
+
+// A FileLines value specifies a file and line numbers within that file.
+type FileLines struct {
+	Filename string
+	Lines    []int
+}
+
+
+// LookupRegexp returns the number of matches and the matches where a regular
+// expression r is found in the full text index. At most n matches are
+// returned (thus found <= n).
+//
+func (x *Index) LookupRegexp(r *regexp.Regexp, n int) (found int, result []FileLines) {
+	if x.suffixes == nil || n <= 0 {
+		return
+	}
+	// n > 0
+
+	var list positionList
+	// FindAllIndex may returns matches that span across file boundaries.
+	// Such matches are unlikely, buf after eliminating them we may end up
+	// with fewer than n matches. If we don't have enough at the end, redo
+	// the search with an increased value n1, but only if FindAllIndex
+	// returned all the requested matches in the first place (if it
+	// returned fewer than that there cannot be more).
+	for n1 := n; found < n; n1 += n - found {
+		found = 0
+		matches := x.suffixes.FindAllIndex(r, n1)
+		// compute files, exclude matches that span file boundaries,
+		// and map offsets to file-local offsets
+		list = make(positionList, len(matches))
+		for _, m := range matches {
+			// by construction, an offset corresponds to the Pos value
+			// for the file set - use it to get the file and line
+			p := token.Pos(m[0])
+			if file := x.fset.File(p); file != nil {
+				if base := file.Base(); base <= m[1] && m[1] <= base+file.Size() {
+					// match [m[0], m[1]) is within the file boundaries
+					list[found].filename = file.Name()
+					list[found].line = file.Line(p)
+					found++
+				}
+			}
+		}
+		if found == n || len(matches) < n1 {
+			// found all matches or there's no chance to find more
+			break
+		}
+	}
+	list = list[0:found]
+	sort.Sort(list) // sort by filename
+
+	// collect matches belonging to the same file
+	var last string
+	var lines []int
+	addLines := func() {
+		if len(lines) > 0 {
+			// remove duplicate lines
+			result = append(result, FileLines{last, unique(lines)})
+			lines = nil
+		}
+	}
+	for _, m := range list {
+		if m.filename != last {
+			addLines()
+			last = m.filename
+		}
+		lines = append(lines, m.line)
+	}
+	addLines()
+
+	return
 }

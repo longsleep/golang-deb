@@ -47,24 +47,28 @@ Pconv(Fmt *fp)
 {
 	char str[STRINGSZ];
 	Prog *p;
+	char scale[40];
 
 	p = va_arg(fp->args, Prog*);
 	sconsize = 8;
+	scale[0] = '\0';
+	if(p->from.scale != 0 && (p->as == AGLOBL || p->as == ATEXT))
+		snprint(scale, sizeof scale, "%d,", p->from.scale);
 	switch(p->as) {
 	default:
-		snprint(str, sizeof(str), "%.4ld (%L) %-7A %D,%D",
-			p->loc, p->lineno, p->as, &p->from, &p->to);
+		snprint(str, sizeof(str), "%.4d (%L) %-7A %D,%s%D",
+			p->loc, p->lineno, p->as, &p->from, scale, &p->to);
 		break;
 
 	case ADATA:
 		sconsize = p->from.scale;
-		snprint(str, sizeof(str), "%.4ld (%L) %-7A %D/%d,%D",
+		snprint(str, sizeof(str), "%.4d (%L) %-7A %D/%d,%D",
 			p->loc, p->lineno, p->as, &p->from, sconsize, &p->to);
 		break;
 
 	case ATEXT:
-		snprint(str, sizeof(str), "%.4ld (%L) %-7A %D,%lD",
-			p->loc, p->lineno, p->as, &p->from, &p->to);
+		snprint(str, sizeof(str), "%.4d (%L) %-7A %D,%s%lD",
+			p->loc, p->lineno, p->as, &p->from, scale, &p->to);
 		break;
 	}
 	return fmtstrcpy(fp, str);

@@ -5,67 +5,82 @@
 #define	EXTERN
 #include	"l.h"
 
+// Software floating point.
+
 void
-softfloat()
+softfloat(void)
 {
 	Prog *p, *next, *psfloat;
 	Sym *symsfloat;
 	int wasfloat;
-	
+
+	if(!debug['F'])
+		return;
+
 	symsfloat = lookup("_sfloat", 0);
 	psfloat = P;
 	if(symsfloat->type == STEXT)
-	for(p = firstp; p != P; p = p->link) {
-		if(p->as == ATEXT) {
-			if(p->from.sym == symsfloat) {
-				psfloat = p;
+		psfloat = symsfloat->text;
+
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		wasfloat = 0;
+		for(p = cursym->text; p != P; p = p->link)
+			if(p->cond != P)
+				p->cond->mark |= LABEL;
+		for(p = cursym->text; p != P; p = p->link) {
+			switch(p->as) {
+			case AMOVW:
+				if(p->to.type == D_FREG || p->from.type == D_FREG)
+					goto soft;
+				goto notsoft;
+
+			case AMOVWD:
+			case AMOVWF:
+			case AMOVDW:
+			case AMOVFW:
+			case AMOVFD:
+			case AMOVDF:
+			case AMOVF:
+			case AMOVD:
+
+			case ACMPF:
+			case ACMPD:
+			case AADDF:
+			case AADDD:
+			case ASUBF:
+			case ASUBD:
+			case AMULF:
+			case AMULD:
+			case ADIVF:
+			case ADIVD:
+				goto soft;
+
+			default:
+				goto notsoft;
+
+			soft:
+				if (psfloat == P)
+					diag("floats used with _sfloat not defined");
+				if (!wasfloat || (p->mark&LABEL)) {
+					next = prg();
+					*next = *p;
+	
+					// BL _sfloat(SB)
+					*p = zprg;
+					p->link = next;
+					p->as = ABL;
+	 				p->to.type = D_BRANCH;
+					p->to.sym = symsfloat;
+					p->cond = psfloat;
+	
+					p = next;
+					wasfloat = 1;
+				}
 				break;
+
+			notsoft:
+				wasfloat = 0;
 			}
-		}
-	}
-
-	wasfloat = 0;
-	p = firstp;
-	for(p = firstp; p != P; p = p->link) {
-		switch(p->as) {
-		case AMOVWD:
-		case AMOVWF:
-		case AMOVDW:
-		case AMOVFW:
-		case AMOVFD:
-		case AMOVDF:
-		case AMOVF:
-		case AMOVD:
-		case ACMPF:
-		case ACMPD:
-		case AADDF:
-		case AADDD:
-		case ASUBF:
-		case ASUBD:
-		case AMULF:
-		case AMULD:
-		case ADIVF:
-		case ADIVD:
-			if (psfloat == P)
-				diag("floats used with _sfloat not defined");
-			if (!wasfloat) {
-				next = prg();
-				*next = *p;
-
-				// BL		_sfloat(SB)
-				*p = zprg;
-				p->link = next;
-				p->as = ABL;
- 				p->to.type = D_BRANCH;
-				p->to.sym = symsfloat;
-				p->cond = psfloat;
-
-				p = next;
-				wasfloat = 1;
-			}
-			break;
-		default:
-			wasfloat = 0;
 		}
 	}
 }

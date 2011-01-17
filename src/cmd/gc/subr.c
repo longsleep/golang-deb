@@ -228,11 +228,15 @@ linehist(char *file, int32 off, int relative)
 	if(debug['i']) {
 		if(file != nil) {
 			if(off < 0)
-				print("pragma %s at line %L\n", file, lineno);
+				print("pragma %s", file);
 			else
-				print("import %s at line %L\n", file, lineno);
+			if(off > 0)
+				print("line %s", file);
+			else
+				print("import %s", file);
 		} else
-			print("end of import at line %L\n", lineno);
+			print("end of import");
+		print(" at line %L\n", lexlineno);
 	}
 
 	if(off < 0 && file[0] != '/' && !relative) {
@@ -267,7 +271,6 @@ setlineno(Node *n)
 	case OTYPE:
 	case OPACK:
 	case OLITERAL:
-	case ONONAME:
 		break;
 	default:
 		lineno = n->lineno;
@@ -359,6 +362,8 @@ importdot(Pkg *opkg, Node *pack)
 	for(h=0; h<NHASH; h++) {
 		for(s = hash[h]; s != S; s = s->link) {
 			if(s->pkg != opkg)
+				continue;
+			if(s->def == N)
 				continue;
 			if(!exportname(s->name) || utfrune(s->name, 0xb7))	// 0xb7 = center dot
 				continue;
@@ -473,9 +478,12 @@ algtype(Type *t)
 	int a;
 
 	if(issimple[t->etype] || isptr[t->etype] || iscomplex[t->etype] ||
-	   t->etype == TCHAN || t->etype == TFUNC || t->etype == TMAP)
-		a = AMEM;	// just bytes (int, ptr, etc)
-	else if(t->etype == TSTRING)
+		t->etype == TCHAN || t->etype == TFUNC || t->etype == TMAP) {
+		if(t->width == widthptr)
+			a = AMEMWORD;
+		else
+			a = AMEM;	// just bytes (int, ptr, etc)
+	} else if(t->etype == TSTRING)
 		a = ASTRING;	// string
 	else if(isnilinter(t))
 		a = ANILINTER;	// nil interface
@@ -579,6 +587,21 @@ nodintconst(int64 v)
 	c->val.u.xval = mal(sizeof(*c->val.u.xval));
 	mpmovecfix(c->val.u.xval, v);
 	c->val.ctype = CTINT;
+	c->type = types[TIDEAL];
+	ullmancalc(c);
+	return c;
+}
+
+Node*
+nodfltconst(Mpflt* v)
+{
+	Node *c;
+
+	c = nod(OLITERAL, N, N);
+	c->addable = 1;
+	c->val.u.fval = mal(sizeof(*c->val.u.fval));
+	mpmovefltflt(c->val.u.fval, v);
+	c->val.ctype = CTFLT;
 	c->type = types[TIDEAL];
 	ullmancalc(c);
 	return c;
@@ -804,6 +827,7 @@ goopnames[] =
 	[OANDAND]	= "&&",
 	[OANDNOT]	= "&^",
 	[OAND]		= "&",
+	[OAPPEND]	= "append",
 	[OAS]		= "=",
 	[OAS2]		= "=",
 	[OBREAK]	= "break",
@@ -894,12 +918,21 @@ Lconv(Fmt *fp)
 		if(lno < h->line)
 			break;
 		if(h->name) {
-			if(n < HISTSZ) {	/* beginning of file */
-				a[n].incl = h;
-				a[n].idel = h->line;
-				a[n].line = 0;
+			if(h->offset > 0) {
+				// #line directive
+				if(n > 0 && n < HISTSZ) {
+					a[n-1].line = h;
+					a[n-1].ldel = h->line - h->offset + 1;
+				}
+			} else {
+				// beginning of file
+				if(n < HISTSZ) {
+					a[n].incl = h;
+					a[n].idel = h->line;
+					a[n].line = 0;
+				}
+				n++;
 			}
-			n++;
 			continue;
 		}
 		n--;
@@ -919,14 +952,16 @@ Lconv(Fmt *fp)
 				break;
 			fmtprint(fp, " ");
 		}
+		if(debug['L'])
+			fmtprint(fp, "%s/", pathname);
 		if(a[i].line)
-			fmtprint(fp, "%s:%ld[%s:%ld]",
+			fmtprint(fp, "%s:%d[%s:%d]",
 				a[i].line->name, lno-a[i].ldel+1,
 				a[i].incl->name, lno-a[i].idel+1);
 		else
-			fmtprint(fp, "%s:%ld",
+			fmtprint(fp, "%s:%d",
 				a[i].incl->name, lno-a[i].idel+1);
-		lno = a[i].incl->line - 1;	/* now print out start of this file */
+		lno = a[i].incl->line - 1;	// now print out start of this file
 	}
 	if(n == 0)
 		fmtprint(fp, "<epoch>");
@@ -1003,10 +1038,10 @@ Jconv(Fmt *fp)
 		fmtprint(fp, " a(%d)", n->addable);
 
 	if(n->vargen != 0)
-		fmtprint(fp, " g(%ld)", n->vargen);
+		fmtprint(fp, " g(%d)", n->vargen);
 
 	if(n->lineno != 0)
-		fmtprint(fp, " l(%ld)", n->lineno);
+		fmtprint(fp, " l(%d)", n->lineno);
 
 	if(n->xoffset != 0)
 		fmtprint(fp, " x(%lld)", n->xoffset);
@@ -1028,6 +1063,9 @@ Jconv(Fmt *fp)
 
 	if(n->isddd != 0)
 		fmtprint(fp, " isddd(%d)", n->isddd);
+
+	if(n->implicit != 0)
+		fmtprint(fp, " implicit(%d)", n->implicit);
 
 	return 0;
 }
@@ -1146,7 +1184,7 @@ Tpretty(Fmt *fp, Type *t)
 		case Csend:
 			return fmtprint(fp, "chan<- %T", t->type);
 		}
-		if(t->type != T && t->type->etype == TCHAN && t->type->chan == Crecv)
+		if(t->type != T && t->type->etype == TCHAN && t->type->sym == S && t->type->chan == Crecv)
 			return fmtprint(fp, "chan (%T)", t->type);
 		return fmtprint(fp, "chan %T", t->type);
 
@@ -1256,7 +1294,7 @@ Tpretty(Fmt *fp, Type *t)
 			fmtprint(fp, "...%T", t->type->type);
 		else
 			fmtprint(fp, "%T", t->type);
-		if(t->note) {	
+		if(t->note) {
 			fmtprint(fp, " ");
 			if(exporting)
 				fmtprint(fp, ":");
@@ -1360,7 +1398,7 @@ Tconv(Fmt *fp)
 
 	case TARRAY:
 		if(t->bound >= 0)
-			fmtprint(fp, "[%ld]%T", t->bound, t->type);
+			fmtprint(fp, "[%d]%T", t->bound, t->type);
 		else
 			fmtprint(fp, "[]%T", t->type);
 		break;
@@ -1414,7 +1452,7 @@ Nconv(Fmt *fp)
 			fmtprint(fp, "%O%J", n->op, n);
 			break;
 		}
-		fmtprint(fp, "%O-%S G%ld%J", n->op,
+		fmtprint(fp, "%O-%S G%d%J", n->op,
 			n->sym, n->vargen, n);
 		goto ptyp;
 
@@ -1460,7 +1498,7 @@ Nconv(Fmt *fp)
 		break;
 	}
 	if(n->sym != S)
-		fmtprint(fp, " %S G%ld", n->sym, n->vargen);
+		fmtprint(fp, " %S G%d", n->sym, n->vargen);
 
 ptyp:
 	if(n->type != T)
@@ -1909,13 +1947,6 @@ assignop(Type *src, Type *dst, char **why)
 	// 7. Any typed value can be assigned to the blank identifier.
 	if(dst->etype == TBLANK)
 		return OCONVNOP;
-	
-	// 8. Array to slice.
-	// TODO(rsc): Not for long.
-	if(!src->sym || !dst->sym)
-	if(isptr[src->etype] && isfixedarray(src->type) && isslice(dst))
-	if(eqtype(src->type->type, dst->type))
-		return OCONVSLICE;
 
 	return 0;
 }
@@ -2037,6 +2068,7 @@ assignconv(Node *n, Type *t, char *context)
 	r = nod(op, n, N);
 	r->type = t;
 	r->typecheck = 1;
+	r->implicit = 1;
 	return r;
 }
 
@@ -2292,7 +2324,8 @@ ptrto(Type *t)
 		fatal("ptrto: nil");
 	t1 = typ(tptr);
 	t1->type = t;
-	t1->width = types[tptr]->width;
+	t1->width = widthptr;
+	t1->align = widthptr;
 	return t1;
 }
 
@@ -2320,7 +2353,7 @@ frame(int context)
 		case ONAME:
 			if(flag)
 				print("--- %s frame ---\n", p);
-			print("%O %S G%ld %T\n", n->op, n->sym, n->vargen, n->type);
+			print("%O %S G%d %T\n", n->op, n->sym, n->vargen, n->type);
 			flag = 0;
 			break;
 
@@ -2584,20 +2617,8 @@ brrev(int a)
 	return a;
 }
 
-Node*
-staticname(Type *t)
-{
-	Node *n;
-
-	snprint(namebuf, sizeof(namebuf), "statictmp_%.4d", statuniqgen);
-	statuniqgen++;
-	n = newname(lookup(namebuf));
-	addvar(n, t, PEXTERN);
-	return n;
-}
-
 /*
- * return side effect-free appending side effects to init.
+ * return side effect-free n, appending side effects to init.
  * result is assignable if n is.
  */
 Node*
@@ -2654,6 +2675,24 @@ safeexpr(Node *n, NodeList **init)
 	// make a copy; must not be used as an lvalue
 	if(islvalue(n))
 		fatal("missing lvalue case in safeexpr: %N", n);
+	return cheapexpr(n, init);
+}
+
+/*
+ * return side-effect free and cheap n, appending side effects to init.
+ * result may not be assignable.
+ */
+Node*
+cheapexpr(Node *n, NodeList **init)
+{
+	Node *a, *l;
+
+	switch(n->op) {
+	case ONAME:
+	case OLITERAL:
+		return n;
+	}
+
 	l = nod(OXXX, N, N);
 	tempname(l, n->type);
 	a = nod(OAS, l, n);
@@ -2939,6 +2978,11 @@ expandmeth(Sym *s, Type *t)
 	if(t == T || t->xmethod != nil)
 		return;
 
+	// mark top-level method symbols
+	// so that expand1 doesn't consider them.
+	for(f=t->method; f != nil; f=f->down)
+		f->sym->flags |= SymUniq;
+
 	// generate all reachable methods
 	slist = nil;
 	expand1(t, nelem(dotlist)-1, 0);
@@ -2958,6 +3002,9 @@ expandmeth(Sym *s, Type *t)
 		}
 	}
 
+	for(f=t->method; f != nil; f=f->down)
+		f->sym->flags &= ~SymUniq;
+
 	t->xmethod = t->method;
 	for(sl=slist; sl!=nil; sl=sl->link) {
 		if(sl->good) {
@@ -2969,7 +3016,6 @@ expandmeth(Sym *s, Type *t)
 				f->embedded = 2;
 			f->down = t->xmethod;
 			t->xmethod = f;
-
 		}
 	}
 }
@@ -3031,14 +3077,18 @@ structargs(Type **tl, int mustname)
  *	newnam - the eventual mangled name of this function
  */
 void
-genwrapper(Type *rcvr, Type *method, Sym *newnam)
+genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 {
-	Node *this, *fn, *call, *n, *t;
+	Node *this, *fn, *call, *n, *t, *pad;
 	NodeList *l, *args, *in, *out;
+	Type *tpad;
+	int isddd;
 
 	if(debug['r'])
 		print("genwrapper rcvrtype=%T method=%T newnam=%S\n",
 			rcvr, method, newnam);
+
+	lineno = 1;	// less confusing than end of input
 
 	dclcontext = PEXTERN;
 	markdcl();
@@ -3050,20 +3100,37 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam)
 
 	fn = nod(ODCLFUNC, N, N);
 	fn->nname = newname(newnam);
-	t = nod(OTFUNC, this, N);
-	t->list = in;
+	t = nod(OTFUNC, N, N);
+	l = list1(this);
+	if(iface && rcvr->width < types[tptr]->width) {
+		// Building method for interface table and receiver
+		// is smaller than the single pointer-sized word
+		// that the interface call will pass in.
+		// Add a dummy padding argument after the
+		// receiver to make up the difference.
+		tpad = typ(TARRAY);
+		tpad->type = types[TUINT8];
+		tpad->bound = types[tptr]->width - rcvr->width;
+		pad = nod(ODCLFIELD, newname(lookup(".pad")), typenod(tpad));
+		l = list(l, pad);
+	}
+	t->list = concat(l, in);
 	t->rlist = out;
 	fn->nname->ntype = t;
 	funchdr(fn);
 
 	// arg list
 	args = nil;
-	for(l=in; l; l=l->next)
+	isddd = 0;
+	for(l=in; l; l=l->next) {
 		args = list(args, l->n->left);
+		isddd = l->n->left->isddd;
+	}
 
 	// generate call
 	call = nod(OCALL, adddot(nod(OXDOT, this->left, newname(method->sym))), N);
 	call->list = args;
+	call->isddd = isddd;
 	fn->nbody = list1(call);
 	if(method->type->outtuple > 0) {
 		n = nod(ORETURN, N, N);
@@ -3563,10 +3630,11 @@ umagic(Magic *m)
 Sym*
 ngotype(Node *n)
 {
-	if(n->sym != S && strncmp(n->sym->name, "autotmp_", 8) != 0)
-	if(n->type->etype != TFUNC || n->type->thistuple == 0)
-	if(n->type->etype != TSTRUCT || n->type->funarg == 0)
-		return typename(n->type)->left->sym;
+	if(n->sym != S && n->realtype != T)
+	if(strncmp(n->sym->name, "autotmp_", 8) != 0)
+	if(strncmp(n->sym->name, "statictmp_", 8) != 0)
+		return typename(n->realtype)->left->sym;
+
 	return S;
 }
 
@@ -3640,4 +3708,3 @@ strlit(char *s)
 	t->len = strlen(s);
 	return t;
 }
-

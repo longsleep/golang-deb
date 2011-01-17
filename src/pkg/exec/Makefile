@@ -2,10 +2,24 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=exec
 GOFILES=\
 	exec.go\
+
+GOFILES_freebsd=\
+	lp_unix.go\
+
+GOFILES_darwin=\
+	lp_unix.go\
+
+GOFILES_linux=\
+	lp_unix.go\
+
+GOFILES_windows=\
+	lp_windows.go\
+
+GOFILES+=$(GOFILES_$(GOOS))
 
 include ../../Make.pkg

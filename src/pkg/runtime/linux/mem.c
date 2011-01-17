@@ -4,26 +4,26 @@
 #include "malloc.h"
 
 void*
-SysAlloc(uintptr n)
+runtime·SysAlloc(uintptr n)
 {
 	void *p;
 
 	mstats.sys += n;
-	p = runtime_mmap(nil, n, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE, -1, 0);
+	p = runtime·mmap(nil, n, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_ANON|MAP_PRIVATE, -1, 0);
 	if(p < (void*)4096) {
 		if(p == (void*)EACCES) {
-			printf("mmap: access denied\n");
-			printf("If you're running SELinux, enable execmem for this process.\n");
-		} else {
-			printf("mmap: errno=%p\n", p);
+			runtime·printf("mmap: access denied\n");
+			runtime·printf("If you're running SELinux, enable execmem for this process.\n");
+			runtime·exit(2);
 		}
-		exit(2);
+		runtime·printf("mmap: errno=%p\n", p);
+		runtime·throw("mmap");
 	}
 	return p;
 }
 
 void
-SysUnused(void *v, uintptr n)
+runtime·SysUnused(void *v, uintptr n)
 {
 	USED(v);
 	USED(n);
@@ -31,10 +31,13 @@ SysUnused(void *v, uintptr n)
 }
 
 void
-SysFree(void *v, uintptr n)
+runtime·SysFree(void *v, uintptr n)
 {
-	USED(v);
-	USED(n);
-	// TODO(rsc): call munmap
+	mstats.sys -= n;
+	runtime·munmap(v, n);
 }
 
+void
+runtime·SysMemInit(void)
+{
+}

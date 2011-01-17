@@ -15,11 +15,11 @@ import (
 
 // A definition can be a *Variable, *Constant, or Type.
 type Def interface {
-	Pos() token.Position
+	Pos() token.Pos
 }
 
 type Variable struct {
-	token.Position
+	VarPos token.Pos
 	// Index of this variable in the Frame structure
 	Index int
 	// Static type of this variable
@@ -30,10 +30,18 @@ type Variable struct {
 	Init Value
 }
 
+func (v *Variable) Pos() token.Pos {
+	return v.VarPos
+}
+
 type Constant struct {
-	token.Position
-	Type  Type
-	Value Value
+	ConstPos token.Pos
+	Type     Type
+	Value    Value
+}
+
+func (c *Constant) Pos() token.Pos {
+	return c.ConstPos
 }
 
 // A block represents a definition block in which a name may not be
@@ -74,7 +82,7 @@ type Scope struct {
 
 func (b *block) enterChild() *block {
 	if b.inner != nil && b.inner.scope == b.scope {
-		log.Crash("Failed to exit child block before entering another child")
+		log.Panic("Failed to exit child block before entering another child")
 	}
 	sub := &block{
 		outer:  b,
@@ -88,14 +96,14 @@ func (b *block) enterChild() *block {
 
 func (b *block) exit() {
 	if b.outer == nil {
-		log.Crash("Cannot exit top-level block")
+		log.Panic("Cannot exit top-level block")
 	}
 	if b.outer.scope == b.scope {
 		if b.outer.inner != b {
-			log.Crash("Already exited block")
+			log.Panic("Already exited block")
 		}
 		if b.inner != nil && b.inner.scope == b.scope {
-			log.Crash("Exit of parent block without exit of child block")
+			log.Panic("Exit of parent block without exit of child block")
 		}
 	}
 	b.outer.inner = nil
@@ -103,7 +111,7 @@ func (b *block) exit() {
 
 func (b *block) ChildScope() *Scope {
 	if b.inner != nil && b.inner.scope == b.scope {
-		log.Crash("Failed to exit child block before entering a child scope")
+		log.Panic("Failed to exit child block before entering a child scope")
 	}
 	sub := b.enterChild()
 	sub.offset = 0
@@ -111,12 +119,12 @@ func (b *block) ChildScope() *Scope {
 	return sub.scope
 }
 
-func (b *block) DefineVar(name string, pos token.Position, t Type) (*Variable, Def) {
+func (b *block) DefineVar(name string, pos token.Pos, t Type) (*Variable, Def) {
 	if prev, ok := b.defs[name]; ok {
 		return nil, prev
 	}
 	v := b.defineSlot(t, false)
-	v.Position = pos
+	v.VarPos = pos
 	b.defs[name] = v
 	return v, nil
 }
@@ -125,7 +133,7 @@ func (b *block) DefineTemp(t Type) *Variable { return b.defineSlot(t, true) }
 
 func (b *block) defineSlot(t Type, temp bool) *Variable {
 	if b.inner != nil && b.inner.scope == b.scope {
-		log.Crash("Failed to exit child block before defining variable")
+		log.Panic("Failed to exit child block before defining variable")
 	}
 	index := -1
 	if !b.global || temp {
@@ -135,11 +143,11 @@ func (b *block) defineSlot(t Type, temp bool) *Variable {
 			b.scope.maxVars = index + 1
 		}
 	}
-	v := &Variable{token.Position{}, index, t, nil}
+	v := &Variable{token.NoPos, index, t, nil}
 	return v
 }
 
-func (b *block) DefineConst(name string, pos token.Position, t Type, v Value) (*Constant, Def) {
+func (b *block) DefineConst(name string, pos token.Pos, t Type, v Value) (*Constant, Def) {
 	if prev, ok := b.defs[name]; ok {
 		return nil, prev
 	}
@@ -148,7 +156,7 @@ func (b *block) DefineConst(name string, pos token.Position, t Type, v Value) (*
 	return c, nil
 }
 
-func (b *block) DefineType(name string, pos token.Position, t Type) Type {
+func (b *block) DefineType(name string, pos token.Pos, t Type) Type {
 	if _, ok := b.defs[name]; ok {
 		return nil
 	}

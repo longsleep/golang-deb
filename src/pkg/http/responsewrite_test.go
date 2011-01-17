@@ -16,7 +16,7 @@ type respWriteTest struct {
 
 var respWriteTests = []respWriteTest{
 	// HTTP/1.0, identity coding; no trailer
-	respWriteTest{
+	{
 		Response{
 			StatusCode:    503,
 			ProtoMajor:    1,
@@ -31,8 +31,23 @@ var respWriteTests = []respWriteTest{
 			"Content-Length: 6\r\n\r\n" +
 			"abcdef",
 	},
+	// Unchunked response without Content-Length.
+	{
+		Response{
+			StatusCode:    200,
+			ProtoMajor:    1,
+			ProtoMinor:    0,
+			RequestMethod: "GET",
+			Header:        map[string]string{},
+			Body:          nopCloser{bytes.NewBufferString("abcdef")},
+			ContentLength: -1,
+		},
+		"HTTP/1.0 200 OK\r\n" +
+			"\r\n" +
+			"abcdef",
+	},
 	// HTTP/1.1, chunked coding; empty trailer; close
-	respWriteTest{
+	{
 		Response{
 			StatusCode:       200,
 			ProtoMajor:       1,

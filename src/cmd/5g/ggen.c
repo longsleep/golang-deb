@@ -61,11 +61,14 @@ compile(Node *fn)
 
 	pl = newplist();
 	pl->name = curfn->nname;
+	
+	setlineno(curfn);
 
 	nodconst(&nod1, types[TINT32], 0);
 	ptxt = gins(ATEXT, curfn->nname, &nod1);
 	afunclit(&ptxt->from);
 
+	ginit();
 	genlist(curfn->enter);
 	
 	pret = nil;
@@ -78,6 +81,7 @@ compile(Node *fn)
 	}
 
 	genlist(curfn->nbody);
+	gclean();
 	checklabels();
 	if(nerrors != 0)
 		goto ret;
@@ -87,29 +91,32 @@ compile(Node *fn)
 
 	if(pret)
 		patch(pret, pc);
-	if(curfn->exit)
-		genlist(curfn->exit);
-	if(nerrors != 0)
-		goto ret;
+	ginit();
 	if(hasdefer)
 		ginscall(deferreturn, 0);
+	if(curfn->exit)
+		genlist(curfn->exit);
+	gclean();
+	if(nerrors != 0)
+		goto ret;
+	if(curfn->endlineno)
+		lineno = curfn->endlineno;
 	pc->as = ARET;	// overwrite AEND
 	pc->lineno = lineno;
 
-	/* TODO(kaib): Add back register optimizations
-	if(!debug['N'] || debug['R'] || debug['P'])
+	if(!debug['N'] || debug['R'] || debug['P']) {
 		regopt(ptxt);
-	*/
+	}
 
 	// fill in argument size
 	ptxt->to.type = D_CONST2;
 	ptxt->reg = 0; // flags
-	ptxt->to.offset2 = rnd(curfn->type->argwid, maxround);
+	ptxt->to.offset2 = rnd(curfn->type->argwid, widthptr);
 
 	// fill in final stack size
 	if(stksize > maxstksize)
 		maxstksize = stksize;
-	ptxt->to.offset = rnd(maxstksize+maxarg, maxround);
+	ptxt->to.offset = rnd(maxstksize+maxarg, widthptr);
 	maxstksize = 0;
 
 	if(debug['f'])
@@ -203,6 +210,7 @@ ginscall(Node *f, int proc)
 void
 cgen_callinter(Node *n, Node *res, int proc)
 {
+	int r;
 	Node *i, *f;
 	Node tmpi, nodo, nodr, nodsp;
 
@@ -216,6 +224,14 @@ cgen_callinter(Node *n, Node *res, int proc)
 
 	i = i->left;		// interface
 
+	// Release res register during genlist and cgen,
+	// which might have their own function calls.
+	r = -1;
+	if(res != N && (res->op == OREGISTER || res->op == OINDREG)) {
+		r = res->val.u.reg;
+		reg[r]--;
+	}
+
 	if(!i->addable) {
 		tempname(&tmpi, i->type);
 		cgen(i, &tmpi);
@@ -223,6 +239,8 @@ cgen_callinter(Node *n, Node *res, int proc)
 	}
 
 	genlist(n->list);			// args
+	if(r >= 0)
+		reg[r]++;
 
 	regalloc(&nodr, types[tptr], res);
 	regalloc(&nodo, types[tptr], &nodr);
@@ -427,10 +445,10 @@ cgen_asop(Node *n)
 	case OOR:
 		a = optoas(n->etype, nl->type);
 		if(nl->addable) {
-			regalloc(&n2, nl->type, N);
 			regalloc(&n3, nr->type, N);
-			cgen(nl, &n2);
 			cgen(nr, &n3);
+			regalloc(&n2, nl->type, N);
+			cgen(nl, &n2);
 			gins(a, &n3, &n2);
 			cgen(&n2, nl);
 			regfree(&n2);
@@ -439,13 +457,14 @@ cgen_asop(Node *n)
 		}
 		if(nr->ullman < UINF)
 		if(sudoaddable(a, nl, &addr, &w)) {
+			w = optoas(OAS, nl->type);
 			regalloc(&n2, nl->type, N);
-			regalloc(&n3, nr->type, N);
-			p1 = gins(AMOVW, N, &n2);
+			p1 = gins(w, N, &n2);
 			p1->from = addr;
+			regalloc(&n3, nr->type, N);
 			cgen(nr, &n3);
 			gins(a, &n3, &n2);
-			p1 = gins(AMOVW, &n2, N);
+			p1 = gins(w, &n2, N);
 			p1->to = addr;
 			regfree(&n2);
 			regfree(&n3);
@@ -544,7 +563,7 @@ cgen_shift(int op, Node *nl, Node *nr, Node *res)
 		cgen(nl, &n1);
 		sc = mpgetfix(nr->val.u.xval);
 		if(sc == 0) {
-			return;
+			// nothing to do
 		} else if(sc >= nl->type->width*8) {
 			if(op == ORSH && issigned[nl->type->etype])
 				gshift(AMOVW, &n1, SHIFT_AR, w, &n1);
@@ -682,6 +701,29 @@ regcmp(const void *va, const void *vb)
 
 static	Prog*	throwpc;
 
+// We're only going to bother inlining if we can
+// convert all the arguments to 32 bits safely.  Can we?
+static int
+fix64(NodeList *nn, int n)
+{
+	NodeList *l;
+	Node *r;
+	int i;
+	
+	l = nn;
+	for(i=0; i<n; i++) {
+		r = l->n->right;
+		if(is64(r->type) && !smallintconst(r)) {
+			if(r->op == OCONV)
+				r = r->left;
+			if(is64(r->type))
+				return 0;
+		}
+		l = l->next;
+	}
+	return 1;
+}
+
 void
 getargs(NodeList *nn, Node *reg, int n)
 {
@@ -710,7 +752,7 @@ getargs(NodeList *nn, Node *reg, int n)
 void
 cmpandthrow(Node *nl, Node *nr)
 {
-	vlong cl, cr;
+	vlong cl;
 	Prog *p1;
 	int op;
 	Node *c, n1, n2;
@@ -720,17 +762,8 @@ cmpandthrow(Node *nl, Node *nr)
 		cl = mpgetfix(nl->val.u.xval);
 		if(cl == 0)
 			return;
-		if(smallintconst(nr)) {
-			cr = mpgetfix(nr->val.u.xval);
-			if(cl > cr) {
-				if(throwpc == nil) {
-					throwpc = pc;
-					ginscall(panicslice, 0);
-				} else
-					patch(gbranch(AB, T), throwpc);
-			}
+		if(smallintconst(nr))
 			return;
-		}
 
 		// put the constant on the right
 		op = brrev(op);
@@ -794,6 +827,8 @@ cgen_inline(Node *n, Node *res)
 		goto no;
 	if(!n->left->addable)
 		goto no;
+	if(n->left->sym == S)
+		goto no;
 	if(n->left->sym->pkg != runtimepkg)
 		goto no;
 	if(strcmp(n->left->sym->name, "slicearray") == 0)
@@ -810,6 +845,8 @@ cgen_inline(Node *n, Node *res)
 
 slicearray:
 	if(!sleasy(res))
+		goto no;
+	if(!fix64(n->list, 5))
 		goto no;
 	getargs(n->list, nodes, 5);
 
@@ -902,6 +939,8 @@ slicearray:
 	return 1;
 
 sliceslice:
+	if(!fix64(n->list, narg))
+		goto no;
 	ntemp.op = OXXX;
 	if(!sleasy(n->list->n->right)) {
 		Node *n0;

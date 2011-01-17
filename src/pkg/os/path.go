@@ -12,9 +12,9 @@ package os
 // directories that MkdirAll creates.
 // If path is already a directory, MkdirAll does nothing
 // and returns nil.
-func MkdirAll(path string, perm int) Error {
+func MkdirAll(path string, perm uint32) Error {
 	// If path exists, stop with success or error.
-	dir, err := Lstat(path)
+	dir, err := Stat(path)
 	if err == nil {
 		if dir.IsDirectory() {
 			return nil
@@ -84,7 +84,6 @@ func RemoveAll(path string) Error {
 	if err != nil {
 		return err
 	}
-	defer fd.Close()
 
 	// Remove contents & return first error.
 	err = nil
@@ -104,6 +103,9 @@ func RemoveAll(path string) Error {
 			break
 		}
 	}
+
+	// Close directory, because windows won't remove opened directory.
+	fd.Close()
 
 	// Remove directory.
 	err1 := Remove(path)

@@ -19,6 +19,9 @@ type Error struct {
 // but failed to return an explicit error.
 var ErrShortWrite os.Error = &Error{"short write"}
 
+// ErrShortBuffer means that a read required a longer buffer than was provided.
+var ErrShortBuffer os.Error = &Error{"short buffer"}
+
 // ErrUnexpectedEOF means that os.EOF was encountered in the
 // middle of reading a fixed-size block or data structure.
 var ErrUnexpectedEOF os.Error = &Error{"unexpected EOF"}
@@ -165,8 +168,11 @@ func WriteString(w Writer, s string) (n int, err os.Error) {
 // The error is os.EOF only if no bytes were read.
 // If an EOF happens after reading fewer than min bytes,
 // ReadAtLeast returns ErrUnexpectedEOF.
+// If min is greater than the length of buf, ReadAtLeast returns ErrShortBuffer.
 func ReadAtLeast(r Reader, buf []byte, min int) (n int, err os.Error) {
-	n = 0
+	if len(buf) < min {
+		return 0, ErrShortBuffer
+	}
 	for n < min {
 		nn, e := r.Read(buf[n:])
 		if nn > 0 {
@@ -179,7 +185,7 @@ func ReadAtLeast(r Reader, buf []byte, min int) (n int, err os.Error) {
 			return n, e
 		}
 	}
-	return n, nil
+	return
 }
 
 // ReadFull reads exactly len(buf) bytes from r into buf.
@@ -197,10 +203,15 @@ func ReadFull(r Reader, buf []byte) (n int, err os.Error) {
 // If dst implements the ReaderFrom interface,
 // the copy is implemented by calling dst.ReadFrom(src).
 func Copyn(dst Writer, src Reader, n int64) (written int64, err os.Error) {
-	// If the writer has a ReadFrom method, use it to to do the copy.
+	// If the writer has a ReadFrom method, use it to do the copy.
 	// Avoids a buffer allocation and a copy.
 	if rt, ok := dst.(ReaderFrom); ok {
-		return rt.ReadFrom(LimitReader(src, n))
+		written, err = rt.ReadFrom(LimitReader(src, n))
+		if written < n && err == nil {
+			// rt stopped early; must have been EOF.
+			err = os.EOF
+		}
+		return
 	}
 	buf := make([]byte, 32*1024)
 	for written < n {
@@ -240,12 +251,12 @@ func Copyn(dst Writer, src Reader, n int64) (written int64, err os.Error) {
 // Otherwise, if src implements the WriterTo interface,
 // the copy is implemented by calling src.WriteTo(dst).
 func Copy(dst Writer, src Reader) (written int64, err os.Error) {
-	// If the writer has a ReadFrom method, use it to to do the copy.
+	// If the writer has a ReadFrom method, use it to do the copy.
 	// Avoids an allocation and a copy.
 	if rt, ok := dst.(ReaderFrom); ok {
 		return rt.ReadFrom(src)
 	}
-	// Similarly, if the reader has a WriteTo method, use it to to do the copy.
+	// Similarly, if the reader has a WriteTo method, use it to do the copy.
 	if wt, ok := src.(WriterTo); ok {
 		return wt.WriteTo(dst)
 	}
@@ -336,7 +347,7 @@ func (s *SectionReader) Seek(offset int64, whence int) (ret int64, err os.Error)
 	case 2:
 		offset += s.limit
 	}
-	if offset < s.off || offset > s.limit {
+	if offset < s.base || offset > s.limit {
 		return 0, os.EINVAL
 	}
 	s.off = offset

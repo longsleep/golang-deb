@@ -20,6 +20,8 @@ The flags are:
 		unless -w is also set.
 	-r rule
 		apply the rewrite rule to the source before reformatting.
+	-s
+		try to simplify code (after applying the rewrite rule, if any).
 	-w
 		if set, overwrite each input file with its output.
 	-spaces
@@ -33,6 +35,8 @@ Debugging flags:
 
 	-trace
 		print parse trace.
+	-ast
+		print AST (before rewrites).
 	-comments=true
 		print comments; if false, all comments are elided from the output.
 

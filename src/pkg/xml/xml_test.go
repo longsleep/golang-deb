@@ -36,16 +36,16 @@ var rawTokens = []Token{
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"`),
 	),
 	CharData([]byte("\n")),
-	StartElement{Name{"", "body"}, []Attr{Attr{Name{"xmlns", "foo"}, "ns1"}, Attr{Name{"", "xmlns"}, "ns2"}, Attr{Name{"xmlns", "tag"}, "ns3"}}},
+	StartElement{Name{"", "body"}, []Attr{{Name{"xmlns", "foo"}, "ns1"}, {Name{"", "xmlns"}, "ns2"}, {Name{"xmlns", "tag"}, "ns3"}}},
 	CharData([]byte("\n  ")),
-	StartElement{Name{"", "hello"}, []Attr{Attr{Name{"", "lang"}, "en"}}},
+	StartElement{Name{"", "hello"}, []Attr{{Name{"", "lang"}, "en"}}},
 	CharData([]byte("World <>'\" 白鵬翔")),
 	EndElement{Name{"", "hello"}},
 	CharData([]byte("\n  ")),
 	StartElement{Name{"", "goodbye"}, nil},
 	EndElement{Name{"", "goodbye"}},
 	CharData([]byte("\n  ")),
-	StartElement{Name{"", "outer"}, []Attr{Attr{Name{"foo", "attr"}, "value"}, Attr{Name{"xmlns", "tag"}, "ns4"}}},
+	StartElement{Name{"", "outer"}, []Attr{{Name{"foo", "attr"}, "value"}, {Name{"xmlns", "tag"}, "ns4"}}},
 	CharData([]byte("\n    ")),
 	StartElement{Name{"", "inner"}, nil},
 	EndElement{Name{"", "inner"}},
@@ -70,16 +70,16 @@ var cookedTokens = []Token{
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"`),
 	),
 	CharData([]byte("\n")),
-	StartElement{Name{"ns2", "body"}, []Attr{Attr{Name{"xmlns", "foo"}, "ns1"}, Attr{Name{"", "xmlns"}, "ns2"}, Attr{Name{"xmlns", "tag"}, "ns3"}}},
+	StartElement{Name{"ns2", "body"}, []Attr{{Name{"xmlns", "foo"}, "ns1"}, {Name{"", "xmlns"}, "ns2"}, {Name{"xmlns", "tag"}, "ns3"}}},
 	CharData([]byte("\n  ")),
-	StartElement{Name{"ns2", "hello"}, []Attr{Attr{Name{"", "lang"}, "en"}}},
+	StartElement{Name{"ns2", "hello"}, []Attr{{Name{"", "lang"}, "en"}}},
 	CharData([]byte("World <>'\" 白鵬翔")),
 	EndElement{Name{"ns2", "hello"}},
 	CharData([]byte("\n  ")),
 	StartElement{Name{"ns2", "goodbye"}, nil},
 	EndElement{Name{"ns2", "goodbye"}},
 	CharData([]byte("\n  ")),
-	StartElement{Name{"ns2", "outer"}, []Attr{Attr{Name{"ns1", "attr"}, "value"}, Attr{Name{"xmlns", "tag"}, "ns4"}}},
+	StartElement{Name{"ns2", "outer"}, []Attr{{Name{"ns1", "attr"}, "value"}, {Name{"xmlns", "tag"}, "ns4"}}},
 	CharData([]byte("\n    ")),
 	StartElement{Name{"ns2", "inner"}, nil},
 	EndElement{Name{"ns2", "inner"}},
@@ -301,7 +301,7 @@ func TestIssue569(t *testing.T) {
 	err := Unmarshal(buf, &i)
 
 	if err != nil || i.Field_a != "abcd" {
-		t.Fatalf("Expecting abcd")
+		t.Fatal("Expecting abcd")
 	}
 }
 
@@ -339,7 +339,7 @@ func TestCopyTokenCharData(t *testing.T) {
 }
 
 func TestCopyTokenStartElement(t *testing.T) {
-	elt := StartElement{Name{"", "hello"}, []Attr{Attr{Name{"", "lang"}, "en"}}}
+	elt := StartElement{Name{"", "hello"}, []Attr{{Name{"", "lang"}, "en"}}}
 	var tok1 Token = elt
 	tok2 := CopyToken(tok1)
 	if !reflect.DeepEqual(tok1, tok2) {
@@ -385,5 +385,57 @@ func TestTrailingToken(t *testing.T) {
 	}
 	if err != os.EOF {
 		t.Fatalf("p.Token() = _, %v, want _, os.EOF", err)
+	}
+}
+
+func TestEntityInsideCDATA(t *testing.T) {
+	input := `<test><![CDATA[ &val=foo ]]></test>`
+	p := NewParser(StringReader(input))
+	var err os.Error
+	for _, err = p.Token(); err == nil; _, err = p.Token() {
+	}
+	if err != os.EOF {
+		t.Fatalf("p.Token() = _, %v, want _, os.EOF", err)
+	}
+}
+
+
+// The last three tests (respectively one for characters in attribute
+// names and two for character entities) pass not because of code
+// changed for issue 1259, but instead pass with the given messages
+// from other parts of xml.Parser.  I provide these to note the
+// current behavior of situations where one might think that character
+// range checking would detect the error, but it does not in fact.
+
+var characterTests = []struct {
+	in  string
+	err string
+}{
+	{"\x12<doc/>", "illegal character code U+0012"},
+	{"<?xml version=\"1.0\"?>\x0b<doc/>", "illegal character code U+000B"},
+	{"\xef\xbf\xbe<doc/>", "illegal character code U+FFFE"},
+	{"<?xml version=\"1.0\"?><doc>\r\n<hiya/>\x07<toots/></doc>", "illegal character code U+0007"},
+	{"<?xml version=\"1.0\"?><doc \x12='value'>what's up</doc>", "expected attribute name in element"},
+	{"<doc>&\x01;</doc>", "invalid character entity &;"},
+	{"<doc>&\xef\xbf\xbe;</doc>", "invalid character entity &;"},
+}
+
+
+func TestDisallowedCharacters(t *testing.T) {
+
+	for i, tt := range characterTests {
+		p := NewParser(StringReader(tt.in))
+		var err os.Error
+
+		for err == nil {
+			_, err = p.Token()
+		}
+		synerr, ok := err.(*SyntaxError)
+		if !ok {
+			t.Fatalf("input %d p.Token() = _, %v, want _, *SyntaxError", i, err)
+		}
+		if synerr.Msg != tt.err {
+			t.Fatalf("input %d synerr.Msg wrong: want '%s', got '%s'", i, tt.err, synerr.Msg)
+		}
 	}
 }

@@ -18,10 +18,11 @@
 	indirection.
 
 	In the following, 'field' is one of several things, according to the data.
-	- the name of a field of a struct (result = data.field)
-	- the value stored in a map under that key (result = data[field])
-	- the result of invoking a niladic single-valued method with that name
-	   (result = data.field())
+
+		- The name of a field of a struct (result = data.field),
+		- The value stored in a map under that key (result = data[field]), or
+		- The result of invoking a niladic single-valued method with that name
+		  (result = data.field())
 
 	Major constructs ({} are metacharacters; [] marks optional elements):
 
@@ -43,9 +44,11 @@
 	is present, ZZZ is executed between iterations of XXX.
 
 		{field}
+		{field1 field2 ...}
 		{field|formatter}
+		{field1 field2...|formatter}
 
-	Insert the value of the field into the output. Field is
+	Insert the value of the fields into the output. Each field is
 	first looked for in the cursor, as in .section and .repeated.
 	If it is not found, the search continues in outer sections
 	until the top level is reached.
@@ -54,9 +57,11 @@
 	map passed to the template set up routines or in the default
 	set ("html","str","") and is used to process the data for
 	output.  The formatter function has signature
-		func(wr io.Writer, data interface{}, formatter string)
-	where wr is the destination for output, data is the field
-	value, and formatter is its name at the invocation site.
+		func(wr io.Writer, formatter string, data ...interface{})
+	where wr is the destination for output, data holds the field
+	values at the instantiation, and formatter is its name at
+	the invocation site.  The default formatter just concatenates
+	the string representations of the fields.
 */
 package template
 
@@ -68,6 +73,8 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"unicode"
+	"utf8"
 )
 
 // Errors returned during parsing and execution.  Users may extract the information and reformat
@@ -100,7 +107,7 @@ const (
 
 // FormatterMap is the type describing the mapping from formatter
 // names to the functions that implement them.
-type FormatterMap map[string]func(io.Writer, interface{}, string)
+type FormatterMap map[string]func(io.Writer, string, ...interface{})
 
 // Built-in formatters.
 var builtins = FormatterMap{
@@ -122,11 +129,11 @@ type literalElement struct {
 	text []byte
 }
 
-// A variable to be evaluated
+// A variable invocation to be evaluated
 type variableElement struct {
 	linenum   int
-	name      string
-	formatter string // TODO(r): implement pipelines
+	word      []string // The fields in the invocation.
+	formatter string   // TODO(r): implement pipelines
 }
 
 // A .section block, possibly with a .or
@@ -184,13 +191,19 @@ func New(fmap FormatterMap) *Template {
 
 // Report error and stop executing.  The line number must be provided explicitly.
 func (t *Template) execError(st *state, line int, err string, args ...interface{}) {
-	panic(&Error{line, fmt.Sprintf(err, args)})
+	panic(&Error{line, fmt.Sprintf(err, args...)})
 }
 
 // Report error, panic to terminate parsing.
 // The line number comes from the template state.
 func (t *Template) parseError(err string, args ...interface{}) {
-	panic(&Error{t.linenum, fmt.Sprintf(err, args)})
+	panic(&Error{t.linenum, fmt.Sprintf(err, args...)})
+}
+
+// Is this an exported - upper case - name?
+func isExported(name string) bool {
+	rune, _ := utf8.DecodeRuneInString(name)
+	return unicode.IsUpper(rune)
 }
 
 // -- Lexical analysis
@@ -216,12 +229,10 @@ func equal(s []byte, n int, t []byte) bool {
 // item is empty, we are at EOF.  The item will be either a
 // delimited string or a non-empty string between delimited
 // strings. Tokens stop at (but include, if plain text) a newline.
-// Action tokens on a line by themselves drop the white space on
+// Action tokens on a line by themselves drop any space on
 // either side, up to and including the newline.
 func (t *Template) nextItem() []byte {
-	special := false // is this a {.foo} directive, which means trim white space?
-	// Delete surrounding white space if this {.foo} is the only thing on the line.
-	trimSpace := t.p == 0 || t.buf[t.p-1] == '\n'
+	startOfLine := t.p == 0 || t.buf[t.p-1] == '\n'
 	start := t.p
 	var i int
 	newline := func() {
@@ -234,13 +245,7 @@ func (t *Template) nextItem() []byte {
 			break
 		}
 	}
-	if trimSpace {
-		start = i
-	} else if i > start {
-		// white space is valid text
-		t.p = i
-		return t.buf[start:i]
-	}
+	leadingSpace := i > start
 	// What's left is nothing, newline, delimited string, or plain text
 Switch:
 	switch {
@@ -249,21 +254,50 @@ Switch:
 	case t.buf[i] == '\n':
 		newline()
 	case equal(t.buf, i, t.ldelim):
-		i += len(t.ldelim) // position after delimiter
-		if i+1 < len(t.buf) && (t.buf[i] == '.' || t.buf[i] == '#') {
-			special = true
-		}
+		left := i         // Start of left delimiter.
+		right := -1       // Will be (immediately after) right delimiter.
+		haveText := false // Delimiters contain text.
+		i += len(t.ldelim)
+		// Find the end of the action.
 		for ; i < len(t.buf); i++ {
 			if t.buf[i] == '\n' {
 				break
 			}
 			if equal(t.buf, i, t.rdelim) {
 				i += len(t.rdelim)
-				break Switch
+				right = i
+				break
+			}
+			haveText = true
+		}
+		if right < 0 {
+			t.parseError("unmatched opening delimiter")
+			return nil
+		}
+		// Is this a special action (starts with '.' or '#') and the only thing on the line?
+		if startOfLine && haveText {
+			firstChar := t.buf[left+len(t.ldelim)]
+			if firstChar == '.' || firstChar == '#' {
+				// It's special and the first thing on the line. Is it the last?
+				for j := right; j < len(t.buf) && white(t.buf[j]); j++ {
+					if t.buf[j] == '\n' {
+						// Yes it is. Drop the surrounding space and return the {.foo}
+						t.linenum++
+						t.p = j + 1
+						return t.buf[left:right]
+					}
+				}
 			}
 		}
-		t.parseError("unmatched opening delimiter")
-		return nil
+		// No it's not. If there's leading space, return that.
+		if leadingSpace {
+			// not trimming space: return leading white space if there is some.
+			t.p = left
+			return t.buf[start:left]
+		}
+		// Return the word, leave the trailing space.
+		start = left
+		break
 	default:
 		for ; i < len(t.buf); i++ {
 			if t.buf[i] == '\n' {
@@ -276,15 +310,6 @@ Switch:
 		}
 	}
 	item := t.buf[start:i]
-	if special && trimSpace {
-		// consume trailing white space
-		for ; i < len(t.buf) && white(t.buf[i]); i++ {
-			if t.buf[i] == '\n' {
-				newline()
-				break // stop before newline
-			}
-		}
-	}
 	t.p = i
 	return item
 }
@@ -305,15 +330,7 @@ func words(buf []byte) []string {
 		if start == p { // no text left
 			break
 		}
-		if i == cap(s) {
-			ns := make([]string, 2*cap(s))
-			for j := range s {
-				ns[j] = s[j]
-			}
-			s = ns
-		}
-		s = s[0 : i+1]
-		s[i] = string(buf[start:p])
+		s = append(s, string(buf[start:p]))
 	}
 	return s
 }
@@ -345,7 +362,7 @@ func (t *Template) analyze(item []byte) (tok int, w []string) {
 		t.parseError("empty directive")
 		return
 	}
-	if len(w) == 1 && w[0][0] != '.' {
+	if len(w) > 0 && w[0][0] != '.' {
 		tok = tokVariable
 		return
 	}
@@ -388,16 +405,18 @@ func (t *Template) analyze(item []byte) (tok int, w []string) {
 // -- Parsing
 
 // Allocate a new variable-evaluation element.
-func (t *Template) newVariable(name_formatter string) (v *variableElement) {
-	name := name_formatter
+func (t *Template) newVariable(words []string) (v *variableElement) {
+	// The words are tokenized elements from the {item}. The last one may be of
+	// the form "|fmt".  For example: {a b c|d}
 	formatter := ""
-	bar := strings.Index(name_formatter, "|")
+	lastWord := words[len(words)-1]
+	bar := strings.Index(lastWord, "|")
 	if bar >= 0 {
-		name = name_formatter[0:bar]
-		formatter = name_formatter[bar+1:]
+		words[len(words)-1] = lastWord[0:bar]
+		formatter = lastWord[bar+1:]
 	}
 	// Probably ok, so let's build it.
-	v = &variableElement{t.linenum, name, formatter}
+	v = &variableElement{t.linenum, words, formatter}
 
 	// We could remember the function address here and avoid the lookup later,
 	// but it's more dynamic to let the user change the map contents underfoot.
@@ -443,7 +462,7 @@ func (t *Template) parseSimple(item []byte) (done bool, tok int, w []string) {
 		}
 		return
 	case tokVariable:
-		t.elems.Push(t.newVariable(w[0]))
+		t.elems.Push(t.newVariable(w))
 		return
 	}
 	return false, tok, w
@@ -577,17 +596,17 @@ func (t *Template) parse() {
 
 // Evaluate interfaces and pointers looking for a value that can look up the name, via a
 // struct field, method, or map key, and return the result of the lookup.
-func lookup(v reflect.Value, name string) reflect.Value {
+func (t *Template) lookup(st *state, v reflect.Value, name string) reflect.Value {
 	for v != nil {
 		typ := v.Type()
 		if n := v.Type().NumMethod(); n > 0 {
 			for i := 0; i < n; i++ {
 				m := typ.Method(i)
 				mtyp := m.Type
-				// We must check receiver type because of a bug in the reflection type tables:
-				// it should not be possible to find a method with the wrong receiver type but
-				// this can happen due to value/pointer receiver mismatch.
-				if m.Name == name && mtyp.NumIn() == 1 && mtyp.NumOut() == 1 && mtyp.In(0) == typ {
+				if m.Name == name && mtyp.NumIn() == 1 && mtyp.NumOut() == 1 {
+					if !isExported(name) {
+						t.execError(st, t.linenum, "name not exported: %s in type %s", name, st.data.Type())
+					}
 					return v.Method(i).Call(nil)[0]
 				}
 			}
@@ -598,6 +617,9 @@ func lookup(v reflect.Value, name string) reflect.Value {
 		case *reflect.InterfaceValue:
 			v = av.Elem()
 		case *reflect.StructValue:
+			if !isExported(name) {
+				t.execError(st, t.linenum, "name not exported: %s in type %s", name, st.data.Type())
+			}
 			return av.FieldByName(name)
 		case *reflect.MapValue:
 			return av.Elem(reflect.NewValue(name))
@@ -630,14 +652,14 @@ loop:
 // The value coming in (st.data) might need indirecting to reach
 // a struct while the return value is not indirected - that is,
 // it represents the actual named field.
-func (st *state) findVar(s string) reflect.Value {
+func (t *Template) findVar(st *state, s string) reflect.Value {
 	if s == "@" {
 		return st.data
 	}
 	data := st.data
 	for _, elem := range strings.Split(s, ".", -1) {
 		// Look up field; data must be a struct or map.
-		data = lookup(data, elem)
+		data = t.lookup(st, data, elem)
 		if data == nil {
 			return nil
 		}
@@ -665,12 +687,12 @@ func empty(v reflect.Value) bool {
 	case *reflect.SliceValue:
 		return v.Len() == 0
 	}
-	return true
+	return false
 }
 
 // Look up a variable or method, up through the parent if necessary.
 func (t *Template) varValue(name string, st *state) reflect.Value {
-	field := st.findVar(name)
+	field := t.findVar(st, name)
 	if field == nil {
 		if st.parent == nil {
 			t.execError(st, t.linenum, "name not found: %s in type %s", name, st.data.Type())
@@ -684,20 +706,24 @@ func (t *Template) varValue(name string, st *state) reflect.Value {
 // If it has a formatter attached ({var|formatter}) run that too.
 func (t *Template) writeVariable(v *variableElement, st *state) {
 	formatter := v.formatter
-	val := t.varValue(v.name, st).Interface()
+	// Turn the words of the invocation into values.
+	val := make([]interface{}, len(v.word))
+	for i, word := range v.word {
+		val[i] = t.varValue(word, st).Interface()
+	}
 	// is it in user-supplied map?
 	if t.fmap != nil {
 		if fn, ok := t.fmap[formatter]; ok {
-			fn(st.wr, val, formatter)
+			fn(st.wr, formatter, val...)
 			return
 		}
 	}
 	// is it in builtin map?
 	if fn, ok := builtins[formatter]; ok {
-		fn(st.wr, val, formatter)
+		fn(st.wr, formatter, val...)
 		return
 	}
-	t.execError(st, v.linenum, "missing formatter %s for variable %s", formatter, v.name)
+	t.execError(st, v.linenum, "missing formatter %s for variable %s", formatter, v.word[0])
 }
 
 // Execute element i.  Return next index to execute.
@@ -886,6 +912,16 @@ func (t *Template) Parse(s string) (err os.Error) {
 	t.linenum = 1
 	t.parse()
 	return nil
+}
+
+// ParseFile is like Parse but reads the template definition from the
+// named file.
+func (t *Template) ParseFile(filename string) (err os.Error) {
+	b, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	return t.Parse(string(b))
 }
 
 // Execute applies a parsed template to the specified data object,

@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// The os package provides a platform-independent interface to operating
-// system functionality.  The design is Unix-like.
 package os
 
 import (
@@ -18,10 +16,14 @@ type dirInfo struct {
 	bufp int    // location of next record in buf.
 }
 
+// DevNull is the name of the operating system's ``null device.''
+// On Unix-like systems, it is "/dev/null"; on Windows, "NUL".
+const DevNull = "/dev/null"
+
 // Open opens the named file with specified flag (O_RDONLY etc.) and perm, (0666 etc.)
 // if applicable.  If successful, methods on the returned File can be used for I/O.
 // It returns the File and an Error, if any.
-func Open(name string, flag int, perm int) (file *File, err Error) {
+func Open(name string, flag int, perm uint32) (file *File, err Error) {
 	r, e := syscall.Open(name, flag|syscall.O_CLOEXEC, perm)
 	if e != 0 {
 		return nil, &PathError{"open", name, Errno(e)}
@@ -66,7 +68,7 @@ func (file *File) Stat() (fi *FileInfo, err Error) {
 
 // Readdir reads the contents of the directory associated with file and
 // returns an array of up to count FileInfo structures, as would be returned
-// by Stat, in directory order.  Subsequent calls on the same file will yield
+// by Lstat, in directory order.  Subsequent calls on the same file will yield
 // further FileInfos.
 // A negative count means to read until EOF.
 // Readdir returns the array and an Error, if any.

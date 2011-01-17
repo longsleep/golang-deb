@@ -57,6 +57,12 @@ cgen(Node *n, Node *nn)
 	l = n->left;
 	r = n->right;
 	o = n->op;
+	
+	if(n->op == OEXREG || (nn != Z && nn->op == OEXREG)) {
+		gmove(n, nn);
+		return;
+	}
+
 	if(n->addable >= INDEXED) {
 		if(nn == Z) {
 			switch(o) {
@@ -1922,7 +1928,7 @@ vaddr(Node *n, int a)
 int32
 hi64v(Node *n)
 {
-	if(align(0, types[TCHAR], Aarg1))	/* isbigendian */
+	if(align(0, types[TCHAR], Aarg1, nil))	/* isbigendian */
 		return (int32)(n->vconst) & ~0L;
 	else
 		return (int32)((uvlong)n->vconst>>32) & ~0L;
@@ -1931,7 +1937,7 @@ hi64v(Node *n)
 int32
 lo64v(Node *n)
 {
-	if(align(0, types[TCHAR], Aarg1))	/* isbigendian */
+	if(align(0, types[TCHAR], Aarg1, nil))	/* isbigendian */
 		return (int32)((uvlong)n->vconst>>32) & ~0L;
 	else
 		return (int32)(n->vconst) & ~0L;

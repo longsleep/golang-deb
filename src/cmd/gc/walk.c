@@ -11,12 +11,14 @@ static	Node*	makenewvar(Type*, NodeList**, Node**);
 static	Node*	ascompatee1(int, Node*, Node*, NodeList**);
 static	NodeList*	ascompatee(int, NodeList*, NodeList*, NodeList**);
 static	NodeList*	ascompatet(int, NodeList*, Type**, int, NodeList**);
-static	NodeList*	ascompatte(int, Type**, NodeList*, int, NodeList**);
+static	NodeList*	ascompatte(int, int, Type**, NodeList*, int, NodeList**);
 static	Node*	convas(Node*, NodeList**);
 static	void	heapmoves(void);
 static	NodeList*	paramstoheap(Type **argin, int out);
 static	NodeList*	reorder1(NodeList*);
 static	NodeList*	reorder3(NodeList*);
+static	Node*	addstr(Node*, NodeList**);
+static	Node*	append(Node*, NodeList**);
 
 static	NodeList*	walkdefstack;
 
@@ -131,6 +133,10 @@ walkdeftype(Node *n)
 	n->typecheck = 1;
 	typecheck(&n->ntype, Etype);
 	if((t = n->ntype->type) == T) {
+		n->diag = 1;
+		goto ret;
+	}
+	if(n->type == T) {
 		n->diag = 1;
 		goto ret;
 	}
@@ -257,6 +263,10 @@ walkdef(Node *n)
 			yyerror("const initializer must be constant");
 			goto ret;
 		}
+		if(isconst(e, CTNIL)) {
+			yyerror("const initializer cannot be nil");
+			goto ret;
+		}
 		t = n->type;
 		if(t != T) {
 			convlit(&e, t);
@@ -281,6 +291,13 @@ walkdef(Node *n)
 		if(n->defn == N) {
 			if(n->etype != 0)	// like OPRINTN
 				break;
+			if(nerrors > 0) {
+				// Can have undefined variables in x := foo
+				// that make x have an n->ndefn == nil.
+				// If there are other errors anyway, don't
+				// bother adding to the noise.
+				break;
+			}
 			fatal("var without type, init: %S", n->sym);
 		}
 		if(n->defn->op == ONAME) {
@@ -292,10 +309,14 @@ walkdef(Node *n)
 		break;
 
 	case OTYPE:
+		if(curfn)
+			defercheckwidth();
 		n->walkdef = 1;
 		n->type = typ(TFORW);
 		n->type->sym = n->sym;
 		walkdeftype(n);
+		if(curfn)
+			resumecheckwidth();
 		break;
 
 	case OPACK:
@@ -354,7 +375,7 @@ walkstmt(Node **np)
 	NodeList *init;
 	NodeList *ll, *rl;
 	int cl, lno;
-	Node *n;
+	Node *n, *f;
 
 	n = *np;
 	if(n == N)
@@ -481,11 +502,19 @@ walkstmt(Node **np)
 				n->list = nil;
 				break;
 			}
+			if(count(n->list) == 1 && count(rl) > 1) {
+				// OAS2FUNC in disguise
+				f = n->list->n;
+				if(f->op != OCALLFUNC && f->op != OCALLMETH && f->op != OCALLINTER)
+					fatal("expected return of call, have %#N", f);
+				n->list = concat(list1(f), ascompatet(n->op, rl, &f->type, 0, &n->ninit));
+				break;
+			}
 			ll = ascompatee(n->op, rl, n->list, &n->ninit);
 			n->list = reorder3(ll);
 			break;
 		}
-		ll = ascompatte(n->op, getoutarg(curfn->type), n->list, 1, &n->ninit);
+		ll = ascompatte(n->op, 0, getoutarg(curfn->type), n->list, 1, &n->ninit);
 		n->list = ll;
 		break;
 
@@ -542,6 +571,7 @@ walkexpr(Node **np, NodeList **init)
 	NodeList *ll, *lr, *lpost;
 	Type *t;
 	int et;
+	int64 v, v1, v2, len;
 	int32 lno;
 	Node *n, *fn;
 	char buf[100], *p;
@@ -594,8 +624,6 @@ walkexpr(Node **np, NodeList **init)
 	case OMINUS:
 	case OPLUS:
 	case OCOM:
-	case OLEN:
-	case OCAP:
 	case OREAL:
 	case OIMAG:
 	case ODOT:
@@ -606,13 +634,27 @@ walkexpr(Node **np, NodeList **init)
 		walkexpr(&n->left, init);
 		goto ret;
 
+	case OLEN:
+	case OCAP:
+		walkexpr(&n->left, init);
+		
+		// replace len(*[10]int) with 10.
+		// delayed until now to preserve side effects.
+		t = n->left->type;
+		if(isptr[t->etype])
+			t = t->type;
+		if(isfixedarray(t)) {
+			safeexpr(n->left, init);
+			nodconst(n, n->type, t->bound);
+			n->typecheck = 1;
+		}
+		goto ret;
+	
 	case OLSH:
 	case ORSH:
 	case OAND:
 	case OOR:
 	case OXOR:
-	case OANDAND:
-	case OOROR:
 	case OSUB:
 	case OMUL:
 	case OEQ:
@@ -625,6 +667,17 @@ walkexpr(Node **np, NodeList **init)
 	case OCMPLX:
 		walkexpr(&n->left, init);
 		walkexpr(&n->right, init);
+		goto ret;
+	
+	case OANDAND:
+	case OOROR:
+		walkexpr(&n->left, init);
+		// cannot put side effects from n->right on init,
+		// because they cannot run before n->left is checked.
+		// save elsewhere and store on the eventual n->right.
+		ll = nil;
+		walkexpr(&n->right, &ll);
+		n->right->ninit = concat(n->right->ninit, ll);
 		goto ret;
 
 	case OPRINT:
@@ -656,7 +709,7 @@ walkexpr(Node **np, NodeList **init)
 			goto ret;
 		walkexpr(&n->left, init);
 		walkexprlist(n->list, init);
-		ll = ascompatte(n->op, getinarg(t), n->list, 0, init);
+		ll = ascompatte(n->op, n->isddd, getinarg(t), n->list, 0, init);
 		n->list = reorder1(ll);
 		goto ret;
 
@@ -666,7 +719,7 @@ walkexpr(Node **np, NodeList **init)
 			goto ret;
 		walkexpr(&n->left, init);
 		walkexprlist(n->list, init);
-		ll = ascompatte(n->op, getinarg(t), n->list, 0, init);
+		ll = ascompatte(n->op, n->isddd, getinarg(t), n->list, 0, init);
 		n->list = reorder1(ll);
 		if(isselect(n)) {
 			// special prob with selectsend and selectrecv:
@@ -676,7 +729,7 @@ walkexpr(Node **np, NodeList **init)
 			Node *b;
 			b = nodbool(0);
 			typecheck(&b, Erv);
-			lr = ascompatte(n->op, getoutarg(t), list1(b), 0, init);
+			lr = ascompatte(n->op, 0, getoutarg(t), list1(b), 0, init);
 			n->list = concat(n->list, lr);
 		}
 		goto ret;
@@ -687,8 +740,8 @@ walkexpr(Node **np, NodeList **init)
 			goto ret;
 		walkexpr(&n->left, init);
 		walkexprlist(n->list, init);
-		ll = ascompatte(n->op, getinarg(t), n->list, 0, init);
-		lr = ascompatte(n->op, getthis(t), list1(n->left->left), 0, init);
+		ll = ascompatte(n->op, 0, getthis(t), list1(n->left->left), 0, init);
+		lr = ascompatte(n->op, n->isddd, getinarg(t), n->list, 0, init);
 		ll = concat(ll, lr);
 		n->left->left = N;
 		ullmancalc(n->left);
@@ -882,43 +935,55 @@ walkexpr(Node **np, NodeList **init)
 	case OCONV:
 	case OCONVNOP:
 		if(thechar == '5') {
-			if(isfloat[n->left->type->etype] &&
-			   (n->type->etype == TINT64 || n->type->etype == TUINT64)) {
-				n = mkcall("float64toint64", n->type, init, conv(n->left, types[TFLOAT64]));
-				goto ret;
+			if(isfloat[n->left->type->etype]) {
+				if(n->type->etype == TINT64) {
+					n = mkcall("float64toint64", n->type, init, conv(n->left, types[TFLOAT64]));
+					goto ret;
+				}
+				if(n->type->etype == TUINT64) {
+					n = mkcall("float64touint64", n->type, init, conv(n->left, types[TFLOAT64]));
+					goto ret;
+				}
 			}
-			if((n->left->type->etype == TINT64 || n->left->type->etype == TUINT64) &&
-			   isfloat[n->type->etype]) {
-				n = mkcall("int64tofloat64", n->type, init, conv(n->left, types[TINT64]));
-				goto ret;
+			if(isfloat[n->type->etype]) {
+				if(n->left->type->etype == TINT64) {
+					n = mkcall("int64tofloat64", n->type, init, conv(n->left, types[TINT64]));
+					goto ret;
+				}
+				if(n->left->type->etype == TUINT64) {
+					n = mkcall("uint64tofloat64", n->type, init, conv(n->left, types[TUINT64]));
+					goto ret;
+				}
 			}
 		}
 		walkexpr(&n->left, init);
 		goto ret;
 
 	case OASOP:
-		n->left = safeexpr(n->left, init);
-		walkexpr(&n->left, init);
-		l = n->left;
-		walkexpr(&n->right, init);
 		if(n->etype == OANDNOT) {
 			n->etype = OAND;
 			n->right = nod(OCOM, n->right, N);
 			typecheck(&n->right, Erv);
 		}
+		n->left = safeexpr(n->left, init);
+		walkexpr(&n->left, init);
+		l = n->left;
+		walkexpr(&n->right, init);
 
 		/*
 		 * on 32-bit arch, rewrite 64-bit ops into l = l op r.
 		 * on 386, rewrite float ops into l = l op r.
 		 * everywhere, rewrite map ops into l = l op r.
 		 * everywhere, rewrite string += into l = l op r.
+		 * everywhere, rewrite complex /= into l = l op r.
 		 * TODO(rsc): Maybe this rewrite should be done always?
 		 */
 		et = n->left->type->etype;
 		if((widthptr == 4 && (et == TUINT64 || et == TINT64)) ||
 		   (thechar == '8' && isfloat[et]) ||
 		   l->op == OINDEXMAP ||
-		   et == TSTRING) {
+		   et == TSTRING ||
+		   (iscomplex[et] && n->etype == ODIV)) {
 			l = safeexpr(n->left, init);
 			a = l;
 			if(a->op == OINDEXMAP) {
@@ -952,9 +1017,11 @@ walkexpr(Node **np, NodeList **init)
 		 */
 		et = n->left->type->etype;
 		if(iscomplex[et] && n->op == ODIV) {
-			n = mkcall("complex128div", n->type, init,
+			t = n->type;
+			n = mkcall("complex128div", types[TCOMPLEX128], init,
 				conv(n->left, types[TCOMPLEX128]),
 				conv(n->right, types[TCOMPLEX128]));
+			n = conv(n, t);
 			goto ret;
 		}
 		/*
@@ -981,11 +1048,36 @@ walkexpr(Node **np, NodeList **init)
 
 		// if range of type cannot exceed static array bound,
 		// disable bounds check
-		if(!isslice(n->left->type))
+		if(isfixedarray(n->left->type))
 		if(n->right->type->width < 4)
 		if((1<<(8*n->right->type->width)) <= n->left->type->bound)
 			n->etype = 1;
 
+		if(isconst(n->left, CTSTR))
+		if(n->right->type->width < 4)
+		if((1<<(8*n->right->type->width)) <= n->left->val.u.sval->len)
+			n->etype = 1;
+
+		// check for static out of bounds
+		if(isconst(n->right, CTINT) && !n->etype) {
+			v = mpgetfix(n->right->val.u.xval);
+			len = 1LL<<60;
+			t = n->left->type;
+			if(isconst(n->left, CTSTR))
+				len = n->left->val.u.sval->len;
+			if(t != T && isptr[t->etype])
+				t = t->type;
+			if(isfixedarray(t))
+				len = t->bound;
+			if(v < 0 || v >= (1LL<<31) || v >= len)
+				yyerror("index out of bounds");
+			else if(isconst(n->left, CTSTR)) {
+				// replace "abc"[2] with 'b'.
+				// delayed until now because "abc"[2] is not
+				// an ideal constant.
+				nodconst(n, n->type, n->left->val.u.sval->s[v]);
+			}
+		}
 		goto ret;
 
 	case OINDEXMAP:
@@ -1002,36 +1094,6 @@ walkexpr(Node **np, NodeList **init)
 		goto ret;
 
 	case OSLICE:
-		walkexpr(&n->left, init);
-		n->left = safeexpr(n->left, init);
-		walkexpr(&n->right->left, init);
-		n->right->left = safeexpr(n->right->left, init);
-		walkexpr(&n->right->right, init);
-		n->right->right = safeexpr(n->right->right, init);
-		// dynamic slice
-		// sliceslice(old []any, lb int, hb int, width int) (ary []any)
-		// sliceslice1(old []any, lb int, width int) (ary []any)
-		t = n->type;
-		if(n->right->right != N) {
-			fn = syslook("sliceslice", 1);
-			argtype(fn, t->type);			// any-1
-			argtype(fn, t->type);			// any-2
-			n = mkcall1(fn, t, init,
-				n->left,
-				conv(n->right->left, types[TINT]),
-				conv(n->right->right, types[TINT]),
-				nodintconst(t->type->width));
-		} else {
-			fn = syslook("sliceslice1", 1);
-			argtype(fn, t->type);			// any-1
-			argtype(fn, t->type);			// any-2
-			n = mkcall1(fn, t, init,
-				n->left,
-				conv(n->right->left, types[TINT]),
-				nodintconst(t->type->width));
-		}
-		goto ret;
-
 	case OSLICEARR:
 		walkexpr(&n->left, init);
 		n->left = safeexpr(n->left, init);
@@ -1039,33 +1101,86 @@ walkexpr(Node **np, NodeList **init)
 		n->right->left = safeexpr(n->right->left, init);
 		walkexpr(&n->right->right, init);
 		n->right->right = safeexpr(n->right->right, init);
-		// static slice
-		// slicearray(old *any, nel int, lb int, hb int, width int) (ary []any)
+
+		len = 1LL<<60;
+		t = n->left->type;
+		if(t != T && isptr[t->etype])
+			t = t->type;
+		if(isfixedarray(t))
+			len = t->bound;
+
+		// check for static out of bounds
+		// NOTE: v > len not v >= len.
+		v1 = -1;
+		v2 = -1;
+		if(isconst(n->right->left, CTINT)) {
+			v1 = mpgetfix(n->right->left->val.u.xval);
+			if(v1 < 0 || v1 >= (1LL<<31) || v1 > len) {
+				yyerror("slice index out of bounds");
+				v1 = -1;
+			}
+		}
+		if(isconst(n->right->right, CTINT)) {
+			v2 = mpgetfix(n->right->right->val.u.xval);
+			if(v2 < 0 || v2 >= (1LL<<31) || v2 > len) {
+				yyerror("slice index out of bounds");
+				v2 = -1;
+			}
+		}
+		if(v1 >= 0 && v2 >= 0 && v1 > v2)
+			yyerror("inverted slice range");
+		
+		if(n->op == OSLICEARR)
+			goto slicearray;
+
+		// dynamic slice
+		// sliceslice(old []any, lb uint64, hb uint64, width uint64) (ary []any)
+		// sliceslice1(old []any, lb uint64, width uint64) (ary []any)
 		t = n->type;
-		fn = syslook("slicearray", 1);
-		argtype(fn, n->left->type);	// any-1
-		argtype(fn, t->type);			// any-2
-		if(n->right->right == N)
-			r = nodintconst(n->left->type->bound);
+		if(n->right->left == N)
+			l = nodintconst(0);
 		else
-			r = conv(n->right->right, types[TINT]);
-		n = mkcall1(fn, t, init,
-			nod(OADDR, n->left, N), nodintconst(n->left->type->bound),
-			conv(n->right->left, types[TINT]),
-			r,
-			nodintconst(t->type->width));
+			l = conv(n->right->left, types[TUINT64]);
+		if(n->right->right != N) {
+			fn = syslook("sliceslice", 1);
+			argtype(fn, t->type);			// any-1
+			argtype(fn, t->type);			// any-2
+			n = mkcall1(fn, t, init,
+				n->left,
+				l,
+				conv(n->right->right, types[TUINT64]),
+				nodintconst(t->type->width));
+		} else {
+			fn = syslook("sliceslice1", 1);
+			argtype(fn, t->type);			// any-1
+			argtype(fn, t->type);			// any-2
+			n = mkcall1(fn, t, init,
+				n->left,
+				l,
+				nodintconst(t->type->width));
+		}
 		goto ret;
 
-	case OCONVSLICE:
-		// slicearray(old *any, nel int, lb int, hb int, width int) (ary []any)
+	slicearray:
+		// static slice
+		// slicearray(old *any, uint64 nel, lb uint64, hb uint64, width uint64) (ary []any)
+		t = n->type;
 		fn = syslook("slicearray", 1);
-		argtype(fn, n->left->type->type);		// any-1
-		argtype(fn, n->type->type);			// any-2
-		n = mkcall1(fn, n->type, init, n->left,
-			nodintconst(n->left->type->type->bound),
-			nodintconst(0),
-			nodintconst(n->left->type->type->bound),
-			nodintconst(n->type->type->width));
+		argtype(fn, n->left->type->type);	// any-1
+		argtype(fn, t->type);			// any-2
+		if(n->right->left == N)
+			l = nodintconst(0);
+		else
+			l = conv(n->right->left, types[TUINT64]);
+		if(n->right->right == N)
+			r = nodintconst(n->left->type->type->bound);
+		else
+			r = conv(n->right->right, types[TUINT64]);
+		n = mkcall1(fn, t, init,
+			n->left, nodintconst(n->left->type->type->bound),
+			l,
+			r,
+			nodintconst(t->type->width));
 		goto ret;
 
 	case OADDR:;
@@ -1118,46 +1233,62 @@ walkexpr(Node **np, NodeList **init)
 			goto ret;
 		}
 
+		// prepare for rewrite below
+		if(n->etype == OEQ || n->etype == ONE) {
+			n->left = cheapexpr(n->left, init);
+			n->right = cheapexpr(n->right, init);
+		}
+
 		// sys_cmpstring(s1, s2) :: 0
 		r = mkcall("cmpstring", types[TINT], init,
 			conv(n->left, types[TSTRING]),
 			conv(n->right, types[TSTRING]));
 		r = nod(n->etype, r, nodintconst(0));
+
+		// quick check of len before full compare for == or !=
+		if(n->etype == OEQ || n->etype == ONE) {
+			if(n->etype == OEQ)
+				r = nod(OANDAND, nod(OEQ, nod(OLEN, n->left, N), nod(OLEN, n->right, N)), r);
+			else
+				r = nod(OOROR, nod(ONE, nod(OLEN, n->left, N), nod(OLEN, n->right, N)), r);
+			typecheck(&r, Erv);
+			walkexpr(&r, nil);
+		}
 		typecheck(&r, Erv);
 		n = r;
 		goto ret;
 
 	case OADDSTR:
-		// sys_catstring(s1, s2)
-		n = mkcall("catstring", n->type, init,
-			conv(n->left, types[TSTRING]),
-			conv(n->right, types[TSTRING]));
+		n = addstr(n, init);
 		goto ret;
 
 	case OSLICESTR:
 		// sys_slicestring(s, lb, hb)
+		if(n->right->left == N)
+			l = nodintconst(0);
+		else
+			l = conv(n->right->left, types[TINT]);
 		if(n->right->right) {
 			n = mkcall("slicestring", n->type, init,
 				conv(n->left, types[TSTRING]),
-				conv(n->right->left, types[TINT]),
+				l,
 				conv(n->right->right, types[TINT]));
 		} else {
 			n = mkcall("slicestring1", n->type, init,
 				conv(n->left, types[TSTRING]),
-				conv(n->right->left, types[TINT]));
+				l);
 		}
 		goto ret;
-
-	case OINDEXSTR:
-		// TODO(rsc): should be done in back end
-		// sys_indexstring(s, i)
-		n = mkcall("indexstring", n->type, init,
-			conv(n->left, types[TSTRING]),
-			conv(n->right, types[TINT]));
+	
+	case OAPPEND:
+		n = append(n, init);
 		goto ret;
 
 	case OCOPY:
-		fn = syslook("slicecopy", 1);
+		if(n->right->type->etype == TSTRING)
+			fn = syslook("slicestringcopy", 1);
+		else
+			fn = syslook("slicecopy", 1);
 		argtype(fn, n->left->type);
 		argtype(fn, n->right->type);
 		n = mkcall1(fn, n->type, init,
@@ -1441,47 +1572,51 @@ mkdotargslice(NodeList *lr0, NodeList *nn, Type *l, int fp, NodeList **init)
 /*
  * helpers for shape errors
  */
-static void
+static char*
 dumptypes(Type **nl, char *what)
 {
 	int first;
 	Type *l;
 	Iter savel;
+	Fmt fmt;
 
+	fmtstrinit(&fmt);
+	fmtprint(&fmt, "\t");
 	l = structfirst(&savel, nl);
-	print("\t");
 	first = 1;
 	for(l = structfirst(&savel, nl); l != T; l = structnext(&savel)) {
 		if(first)
 			first = 0;
 		else
-			print(", ");
-		print("%T", l);
+			fmtprint(&fmt, ", ");
+		fmtprint(&fmt, "%T", l);
 	}
 	if(first)
-		print("[no arguments %s]", what);
-	print("\n");
+		fmtprint(&fmt, "[no arguments %s]", what);
+	return fmtstrflush(&fmt);
 }
 
-static void
+static char*
 dumpnodetypes(NodeList *l, char *what)
 {
 	int first;
 	Node *r;
+	Fmt fmt;
 
-	print("\t");
+	fmtstrinit(&fmt);
+	fmtprint(&fmt, "\t");
 	first = 1;
 	for(; l; l=l->next) {
 		r = l->n;
 		if(first)
 			first = 0;
 		else
-			print(", ");
-		print("%T", r->type);
+			fmtprint(&fmt, ", ");
+		fmtprint(&fmt, "%T", r->type);
 	}
 	if(first)
-		print("[no arguments %s]", what);
-	print("\n");
+		fmtprint(&fmt, "[no arguments %s]", what);
+	return fmtstrflush(&fmt);
 }
 
 /*
@@ -1491,12 +1626,13 @@ dumpnodetypes(NodeList *l, char *what)
  *	func(expr-list)
  */
 static NodeList*
-ascompatte(int op, Type **nl, NodeList *lr, int fp, NodeList **init)
+ascompatte(int op, int isddd, Type **nl, NodeList *lr, int fp, NodeList **init)
 {
 	Type *l, *ll;
 	Node *r, *a;
 	NodeList *nn, *lr0, *alist;
 	Iter savel;
+	char *l1, *l2;
 
 	lr0 = lr;
 	l = structfirst(&savel, nl);
@@ -1545,7 +1681,7 @@ loop:
 		// only if we are assigning a single ddd
 		// argument to a ddd parameter then it is
 		// passed thru unencapsulated
-		if(r != N && lr->next == nil && r->isddd && eqtype(l->type, r->type)) {
+		if(r != N && lr->next == nil && isddd && eqtype(l->type, r->type)) {
 			a = nod(OAS, nodarg(l, fp), r);
 			a = convas(a, init);
 			nn = list(nn, a);
@@ -1561,12 +1697,12 @@ loop:
 
 	if(l == T || r == N) {
 		if(l != T || r != N) {
+			l1 = dumptypes(nl, "expected");
+			l2 = dumpnodetypes(lr0, "given");
 			if(l != T)
-				yyerror("not enough arguments to %O", op);
+				yyerror("not enough arguments to %O\n%s\n%s", op, l1, l2);
 			else
-				yyerror("too many arguments to %O", op);
-			dumptypes(nl, "expected");
-			dumpnodetypes(lr0, "given");
+				yyerror("too many arguments to %O\n%s\n%s", op, l1, l2);
 		}
 		goto ret;
 	}
@@ -1740,7 +1876,7 @@ walkprint(Node *nn, NodeList **init, int defer)
 	if(defer) {
 		if(op == OPRINTN)
 			fmtprint(&fmt, "\n");
-		on = syslook("printf", 1);
+		on = syslook("goprintf", 1);
 		on->type = functype(nil, intypes, nil);
 		args->n = nod(OLITERAL, N, N);
 		args->n->val.ctype = CTSTR;
@@ -1769,7 +1905,7 @@ callnew(Type *t)
 	Node *fn;
 
 	dowidth(t);
-	fn = syslook("mal", 1);
+	fn = syslook("new", 1);
 	argtype(fn, t);
 	return mkcall1(fn, ptrto(t), nil, nodintconst(t->width));
 }
@@ -2046,12 +2182,17 @@ static void
 heapmoves(void)
 {
 	NodeList *nn;
-
+	int32 lno;
+	
+	lno = lineno;
+	lineno = curfn->lineno;
 	nn = paramstoheap(getthis(curfn->type), 0);
 	nn = concat(nn, paramstoheap(getinarg(curfn->type), 0));
 	nn = concat(nn, paramstoheap(getoutarg(curfn->type), 1));
 	curfn->enter = concat(curfn->enter, nn);
+	lineno = curfn->endlineno;
 	curfn->exit = returnsfromheap(getoutarg(curfn->type));
+	lineno = lno;
 }
 
 static Node*
@@ -2142,4 +2283,84 @@ mapfn(char *name, Type *t)
 	argtype(fn, t->down);
 	argtype(fn, t->type);
 	return fn;
+}
+
+static Node*
+addstr(Node *n, NodeList **init)
+{
+	Node *r, *cat, *typstr;
+	NodeList *in, *args;
+	int i, count;
+	
+	count = 0;
+	for(r=n; r->op == OADDSTR; r=r->left)
+		count++;	// r->right
+	count++;	// r
+
+	// prepare call of runtime.catstring of type int, string, string, string
+	// with as many strings as we have.
+	cat = syslook("concatstring", 1);
+	cat->type = T;
+	cat->ntype = nod(OTFUNC, N, N);
+	in = list1(nod(ODCLFIELD, N, typenod(types[TINT])));	// count
+	typstr = typenod(types[TSTRING]);
+	for(i=0; i<count; i++)
+		in = list(in, nod(ODCLFIELD, N, typstr));
+	cat->ntype->list = in;
+	cat->ntype->rlist = list1(nod(ODCLFIELD, N, typstr));
+
+	args = nil;
+	for(r=n; r->op == OADDSTR; r=r->left)
+		args = concat(list1(conv(r->right, types[TSTRING])), args);
+	args = concat(list1(conv(r, types[TSTRING])), args);
+	args = concat(list1(nodintconst(count)), args);
+
+	r = nod(OCALL, cat, N);
+	r->list = args;
+	typecheck(&r, Erv);
+	walkexpr(&r, init);
+	r->type = n->type;
+	
+	return r;
+}
+
+static Node*
+append(Node *n, NodeList **init)
+{
+	int i, j;
+	Node *f, *r;
+	NodeList *in, *args;
+	
+	if(n->isddd) {
+		f = syslook("appendslice", 1);
+		argtype(f, n->type);
+		argtype(f, n->type->type);
+		argtype(f, n->type);
+		r = mkcall1(f, n->type, init, typename(n->type), n->list->n, n->list->next->n);
+		return r;
+	}
+
+	j = count(n->list) - 1;
+	f = syslook("append", 1);
+	f->type = T;
+	f->ntype = nod(OTFUNC, N, N);
+	in = list1(nod(ODCLFIELD, N, typenod(ptrto(types[TUINT8]))));	// type
+	in = list(in, nod(ODCLFIELD, N, typenod(types[TINT])));	// count
+	in = list(in, nod(ODCLFIELD, N, typenod(n->type)));	// slice
+	for(i=0; i<j; i++)
+		in = list(in, nod(ODCLFIELD, N, typenod(n->type->type)));
+	f->ntype->list = in;
+	f->ntype->rlist = list1(nod(ODCLFIELD, N, typenod(n->type)));
+	
+	args = list1(typename(n->type));
+	args = list(args, nodintconst(j));
+	args = concat(args, n->list);
+	
+	r = nod(OCALL, f, N);
+	r->list = args;
+	typecheck(&r, Erv);
+	walkexpr(&r, init);
+	r->type = n->type;
+
+	return r;
 }

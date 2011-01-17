@@ -52,6 +52,13 @@ func (p *pipe) run() {
 		case <-p.done:
 			if ndone++; ndone == 2 {
 				// both reader and writer are gone
+				// close out any existing i/o
+				if r1 == nil {
+					p.r2 <- pipeResult{0, os.EINVAL}
+				}
+				if w1 == nil {
+					p.w2 <- pipeResult{0, os.EINVAL}
+				}
 				return
 			}
 			continue
@@ -89,11 +96,21 @@ func (p *pipe) run() {
 				p.r2 <- pipeResult{0, werr}
 				continue
 			}
+			if rerr != nil {
+				// read end is closed
+				p.r2 <- pipeResult{0, os.EINVAL}
+				continue
+			}
 			r1 = nil // disable Read until this one is done
 		case wb = <-w1:
 			if rerr != nil {
 				// read end is closed
 				p.w2 <- pipeResult{0, rerr}
+				continue
+			}
+			if werr != nil {
+				// write end is closed
+				p.w2 <- pipeResult{0, os.EINVAL}
 				continue
 			}
 			w1 = nil // disable Write until this one is done
@@ -275,20 +292,14 @@ func Pipe() (*PipeReader, *PipeWriter) {
 	r.c2 = p.r2
 	r.cclose = p.rclose
 	r.done = p.done
-	// TODO(rsc): Should be able to write
-	//	runtime.SetFinalizer(r, (*PipeReader).finalizer)
-	// but 6g doesn't see the finalizer method.
-	runtime.SetFinalizer(&r.pipeHalf, (*pipeHalf).finalizer)
+	runtime.SetFinalizer(r, (*PipeReader).finalizer)
 
 	w := new(PipeWriter)
 	w.c1 = p.w1
 	w.c2 = p.w2
 	w.cclose = p.wclose
 	w.done = p.done
-	// TODO(rsc): Should be able to write
-	//	runtime.SetFinalizer(w, (*PipeWriter).finalizer)
-	// but 6g doesn't see the finalizer method.
-	runtime.SetFinalizer(&w.pipeHalf, (*pipeHalf).finalizer)
+	runtime.SetFinalizer(w, (*PipeWriter).finalizer)
 
 	return r, w
 }

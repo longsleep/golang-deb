@@ -19,14 +19,14 @@ type example struct {
 }
 
 var examples = []example{
-	example{`1`, `1`},
-	example{`{}`, `{}`},
-	example{`[]`, `[]`},
-	example{`{"":2}`, "{\n\t\"\": 2\n}"},
-	example{`[3]`, "[\n\t3\n]"},
-	example{`[1,2,3]`, "[\n\t1,\n\t2,\n\t3\n]"},
-	example{`{"x":1}`, "{\n\t\"x\": 1\n}"},
-	example{ex1, ex1i},
+	{`1`, `1`},
+	{`{}`, `{}`},
+	{`[]`, `[]`},
+	{`{"":2}`, "{\n\t\"\": 2\n}"},
+	{`[3]`, "[\n\t3\n]"},
+	{`[1,2,3]`, "[\n\t1,\n\t2,\n\t3\n]"},
+	{`{"x":1}`, "{\n\t\"x\": 1\n}"},
+	{ex1, ex1i},
 }
 
 var ex1 = `[true,false,null,"x",1,1.5,0,-5e+2]`
@@ -138,7 +138,7 @@ func TestNextValueBig(t *testing.T) {
 	var scan scanner
 	item, rest, err := nextValue(jsonBig, &scan)
 	if err != nil {
-		t.Fatalf("nextValue: ", err)
+		t.Fatalf("nextValue: %s", err)
 	}
 	if len(item) != len(jsonBig) || &item[0] != &jsonBig[0] {
 		t.Errorf("invalid item: %d %d", len(item), len(jsonBig))
@@ -147,9 +147,9 @@ func TestNextValueBig(t *testing.T) {
 		t.Errorf("invalid rest: %d", len(rest))
 	}
 
-	item, rest, err = nextValue(bytes.Add(jsonBig, []byte("HELLO WORLD")), &scan)
+	item, rest, err = nextValue(append(jsonBig, []byte("HELLO WORLD")...), &scan)
 	if err != nil {
-		t.Fatalf("nextValue extra: ", err)
+		t.Fatalf("nextValue extra: %s", err)
 	}
 	if len(item) != len(jsonBig) {
 		t.Errorf("invalid item: %d %d", len(item), len(jsonBig))

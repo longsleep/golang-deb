@@ -2,7 +2,8 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.conf
+include ../../Make.inc
+O:=$(HOST_O)
 
 # The directory is cov because the source is portable and general.
 # We call the binary 6cov to avoid confusion and because this binary
@@ -16,15 +17,22 @@ OFILES=\
 HFILES=\
 	tree.h\
 
-$(TARG): $(OFILES)
-	$(LD) -o $(TARG) -L"$(GOROOT)"/lib $(OFILES) -lmach -lbio -l9
+LIB=\
+	../../../lib/libmach.a\
 
-clean:
-	rm -f *.$O $(TARG)
+NOINSTALL=1
+include ../../Make.ccmd
 
-install: install-$(shell uname | tr A-Z a-z)
+ifeq ($(GOOS),windows)
+NAME=windows
+else
+NAME=$(shell uname | tr A-Z a-z)
+endif
+
+install: install-$(NAME)
 install-linux: install-default
 install-freebsd: install-default
+install-windows: install-default
 
 # on Darwin, have to install and setgid; see $GOROOT/src/sudo.bash
 install-darwin: $(TARG)
@@ -32,5 +40,3 @@ install-darwin: $(TARG)
 
 install-default: $(TARG)
 	cp $(TARG) "$(GOBIN)"/$(TARG)
-
-$(OFILES): $(HFILES)

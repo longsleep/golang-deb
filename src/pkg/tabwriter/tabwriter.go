@@ -12,7 +12,6 @@ package tabwriter
 
 import (
 	"bytes"
-	"container/vector"
 	"io"
 	"os"
 	"utf8"
@@ -34,9 +33,8 @@ type cell struct {
 }
 
 
-// A Writer is a filter that inserts padding around
-// tab-delimited columns in its input to align them
-// in the output.
+// A Writer is a filter that inserts padding around tab-delimited
+// columns in its input to align them in the output.
 //
 // The Writer treats incoming bytes as UTF-8 encoded text consisting
 // of cells terminated by (horizontal or vertical) tabs or line
@@ -48,23 +46,26 @@ type cell struct {
 // Note that cells are tab-terminated, not tab-separated: trailing
 // non-tab text at the end of a line does not form a column cell.
 //
+// The Writer assumes that all Unicode code points have the same width;
+// this may not be true in some fonts.
+//
 // If DiscardEmptyColumns is set, empty columns that are terminated
 // entirely by vertical (or "soft") tabs are discarded. Columns
 // terminated by horizontal (or "hard") tabs are not affected by
 // this flag.
 //
-// A segment of text may be escaped by bracketing it with Escape
-// characters. The tabwriter strips the Escape characters but otherwise
-// passes escaped text segments through unchanged. In particular, it
-// does not interpret any tabs or line breaks within the segment.
-//
-// The Writer assumes that all characters have the same width;
-// this may not be true in some fonts, especially with certain
-// UTF-8 characters.
-//
 // If a Writer is configured to filter HTML, HTML tags and entities
 // are simply passed through. The widths of tags and entities are
 // assumed to be zero (tags) and one (entities) for formatting purposes.
+//
+// A segment of text may be escaped by bracketing it with Escape
+// characters. The tabwriter passes escaped text segments through
+// unchanged. In particular, it does not interpret any tabs or line
+// breaks within the segment. If the StripEscape flag is set, the
+// Escape characters are stripped from the output; otherwise they
+// are passed through as well. For the purpose of formatting, the
+// width of the escaped text is always computed excluding the Escape
+// characters.
 //
 // The formfeed character ('\f') acts like a newline but it also
 // terminates all columns in the current line (effectively calling
@@ -86,19 +87,16 @@ type Writer struct {
 	flags    uint
 
 	// current state
-	buf     bytes.Buffer     // collected text excluding tabs or line breaks
-	pos     int              // buffer position up to which cell.width of incomplete cell has been computed
-	cell    cell             // current incomplete cell; cell.width is up to buf[pos] excluding ignored sections
-	endChar byte             // terminating char of escaped sequence (Escape for escapes, '>', ';' for HTML tags/entities, or 0)
-	lines   vector.Vector    // list of lines; each line is a list of cells
-	widths  vector.IntVector // list of column widths in runes - re-used during formatting
+	buf     bytes.Buffer // collected text excluding tabs or line breaks
+	pos     int          // buffer position up to which cell.width of incomplete cell has been computed
+	cell    cell         // current incomplete cell; cell.width is up to buf[pos] excluding ignored sections
+	endChar byte         // terminating char of escaped sequence (Escape for escapes, '>', ';' for HTML tags/entities, or 0)
+	lines   [][]cell     // list of lines; each line is a list of cells
+	widths  []int        // list of column widths in runes - re-used during formatting
 }
 
 
-func (b *Writer) addLine() { b.lines.Push(new(vector.Vector)) }
-
-
-func (b *Writer) line(i int) *vector.Vector { return b.lines.At(i).(*vector.Vector) }
+func (b *Writer) addLine() { b.lines = append(b.lines, []cell{}) }
 
 
 // Reset the current state.
@@ -107,8 +105,8 @@ func (b *Writer) reset() {
 	b.pos = 0
 	b.cell = cell{}
 	b.endChar = 0
-	b.lines.Resize(0, 0)
-	b.widths.Resize(0, 0)
+	b.lines = b.lines[0:0]
+	b.widths = b.widths[0:0]
 	b.addLine()
 }
 
@@ -122,9 +120,9 @@ func (b *Writer) reset() {
 // - cell.width is text width in runes of that cell from the start of the cell to
 //   position pos; html tags and entities are excluded from this width if html
 //   filtering is enabled
-// - the sizes and widths of processed text are kept in the lines vector
-//   which contains a vector of cells for each line
-// - the widths vector is a temporary vector with current widths used during
+// - the sizes and widths of processed text are kept in the lines list
+//   which contains a list of cells for each line
+// - the widths list is a temporary list with current widths used during
 //   formatting; it is kept in Writer because it's re-used
 //
 //                    |<---------- size ---------->|
@@ -142,6 +140,10 @@ const (
 	// Ignore html tags and treat entities (starting with '&'
 	// and ending in ';') as single characters (width = 1).
 	FilterHTML uint = 1 << iota
+
+	// Strip Escape characters bracketing escaped text segments
+	// instead of passing them through unchanged with the text.
+	StripEscape
 
 	// Force right-alignment of cell content.
 	// Default is left-alignment.
@@ -165,7 +167,7 @@ const (
 // specifies the filter output. The remaining parameters control the formatting:
 //
 //	minwidth	minimal cell width including any padding
-//      tabwidth	width of tab characters (equivalent number of spaces)
+//	tabwidth	width of tab characters (equivalent number of spaces)
 //	padding		padding added to a cell before computing its width
 //	padchar		ASCII char used for padding
 //			if padchar == '\t', the Writer will assume that the
@@ -207,11 +209,9 @@ func (b *Writer) Init(output io.Writer, minwidth, tabwidth, padding int, padchar
 // debugging support (keep code around)
 func (b *Writer) dump() {
 	pos := 0
-	for i := 0; i < b.lines.Len(); i++ {
-		line := b.line(i)
+	for i, line := range b.lines {
 		print("(", i, ") ")
-		for j := 0; j < line.Len(); j++ {
-			c := line.At(j).(cell)
+		for _, c := range line {
 			print("[", string(b.buf.Bytes()[pos:pos+c.size]), "]")
 			pos += c.size
 		}
@@ -280,14 +280,12 @@ var vbar = []byte{'|'}
 func (b *Writer) writeLines(pos0 int, line0, line1 int) (pos int) {
 	pos = pos0
 	for i := line0; i < line1; i++ {
-		line := b.line(i)
+		line := b.lines[i]
 
 		// if TabIndent is set, use tabs to pad leading empty cells
 		useTabs := b.flags&TabIndent != 0
 
-		for j := 0; j < line.Len(); j++ {
-			c := line.At(j).(cell)
-
+		for j, c := range line {
 			if j > 0 && b.flags&Debug != 0 {
 				// indicate column break
 				b.write0(vbar)
@@ -295,8 +293,8 @@ func (b *Writer) writeLines(pos0 int, line0, line1 int) (pos int) {
 
 			if c.size == 0 {
 				// empty cell
-				if j < b.widths.Len() {
-					b.writePadding(c.width, b.widths.At(j), useTabs)
+				if j < len(b.widths) {
+					b.writePadding(c.width, b.widths[j], useTabs)
 				}
 			} else {
 				// non-empty cell
@@ -304,12 +302,12 @@ func (b *Writer) writeLines(pos0 int, line0, line1 int) (pos int) {
 				if b.flags&AlignRight == 0 { // align left
 					b.write0(b.buf.Bytes()[pos : pos+c.size])
 					pos += c.size
-					if j < b.widths.Len() {
-						b.writePadding(c.width, b.widths.At(j), false)
+					if j < len(b.widths) {
+						b.writePadding(c.width, b.widths[j], false)
 					}
 				} else { // align right
-					if j < b.widths.Len() {
-						b.writePadding(c.width, b.widths.At(j), false)
+					if j < len(b.widths) {
+						b.writePadding(c.width, b.widths[j], false)
 					}
 					b.write0(b.buf.Bytes()[pos : pos+c.size])
 					pos += c.size
@@ -317,7 +315,7 @@ func (b *Writer) writeLines(pos0 int, line0, line1 int) (pos int) {
 			}
 		}
 
-		if i+1 == b.lines.Len() {
+		if i+1 == len(b.lines) {
 			// last buffered line - we don't have a newline, so just write
 			// any outstanding buffered data
 			b.write0(b.buf.Bytes()[pos : pos+b.cell.size])
@@ -338,11 +336,11 @@ func (b *Writer) writeLines(pos0 int, line0, line1 int) (pos int) {
 //
 func (b *Writer) format(pos0 int, line0, line1 int) (pos int) {
 	pos = pos0
-	column := b.widths.Len()
+	column := len(b.widths)
 	for this := line0; this < line1; this++ {
-		line := b.line(this)
+		line := b.lines[this]
 
-		if column < line.Len()-1 {
+		if column < len(line)-1 {
 			// cell exists in this column => this line
 			// has more cells than the previous line
 			// (the last cell per line is ignored because cells are
@@ -358,10 +356,10 @@ func (b *Writer) format(pos0 int, line0, line1 int) (pos int) {
 			width := b.minwidth // minimal column width
 			discardable := true // true if all cells in this column are empty and "soft"
 			for ; this < line1; this++ {
-				line = b.line(this)
-				if column < line.Len()-1 {
+				line = b.lines[this]
+				if column < len(line)-1 {
 					// cell exists in this column
-					c := line.At(column).(cell)
+					c := line[column]
 					// update width
 					if w := c.width + b.padding; w > width {
 						width = w
@@ -383,9 +381,9 @@ func (b *Writer) format(pos0 int, line0, line1 int) (pos int) {
 
 			// format and print all columns to the right of this column
 			// (we know the widths of this column and all columns to the left)
-			b.widths.Push(width)
+			b.widths = append(b.widths, width) // push width
 			pos = b.format(pos, line0, this)
-			b.widths.Pop()
+			b.widths = b.widths[0 : len(b.widths)-1] // pop width
 			line0 = this
 		}
 	}
@@ -441,6 +439,9 @@ func (b *Writer) endEscape() {
 	switch b.endChar {
 	case Escape:
 		b.updateWidth()
+		if b.flags&StripEscape == 0 {
+			b.cell.width -= 2 // don't count the Escape chars
+		}
 	case '>': // tag of zero width
 	case ';':
 		b.cell.width++ // entity, count as one rune
@@ -455,10 +456,10 @@ func (b *Writer) endEscape() {
 //
 func (b *Writer) terminateCell(htab bool) int {
 	b.cell.htab = htab
-	line := b.line(b.lines.Len() - 1)
-	line.Push(b.cell)
+	line := &b.lines[len(b.lines)-1]
+	*line = append(*line, b.cell)
 	b.cell = cell{}
-	return line.Len()
+	return len(*line)
 }
 
 
@@ -488,7 +489,7 @@ func (b *Writer) Flush() (err os.Error) {
 	}
 
 	// format contents of buffer
-	b.format(0, 0, b.lines.Len())
+	b.format(0, 0, len(b.lines))
 
 	return
 }
@@ -538,7 +539,10 @@ func (b *Writer) Write(buf []byte) (n int, err os.Error) {
 				// start of escaped sequence
 				b.append(buf[n:i])
 				b.updateWidth()
-				n = i + 1 // exclude Escape
+				n = i
+				if b.flags&StripEscape != 0 {
+					n++ // strip Escape
+				}
 				b.startEscape(Escape)
 
 			case '<', '&':
@@ -557,8 +561,8 @@ func (b *Writer) Write(buf []byte) (n int, err os.Error) {
 			if ch == b.endChar {
 				// end of tag/entity
 				j := i + 1
-				if ch == Escape {
-					j = i // exclude Escape
+				if ch == Escape && b.flags&StripEscape != 0 {
+					j = i // strip Escape
 				}
 				b.append(buf[n:j])
 				n = i + 1 // ch consumed

@@ -41,11 +41,18 @@ typecheckselect(Node *sel)
 			setlineno(n);
 			switch(n->op) {
 			default:
-				yyerror("select case must be receive, send or assign recv");;
+				yyerror("select case must be receive, send or assign recv");
 				break;
 
 			case OAS:
 				// convert x = <-c into OSELRECV(x, c)
+				// assignment might have introduced a
+				// conversion.  throw it away.
+				// it will come back when the select code
+				// gets generated, because it always assigns
+				// through a temporary.
+				if((n->right->op == OCONVNOP || n->right->op == OCONVIFACE) && n->right->implicit)
+					n->right = n->right->left;
 				if(n->right->op != ORECV) {
 					yyerror("select assignment must have receive on right hand side");
 					break;
@@ -68,8 +75,6 @@ typecheckselect(Node *sel)
 		typechecklist(ncase->nbody, Etop);
 	}
 	sel->xoffset = count;
-	if(count == 0)
-		yyerror("empty select");
 	lineno = lno;
 }
 
@@ -91,7 +96,7 @@ walkselect(Node *sel)
 	typecheck(&r, Etop);
 	init = list(init, r);
 
-	if(sel->list == nil)
+	if(sel->list == nil && sel->xoffset != 0)
 		fatal("double walkselect");	// already rewrote
 
 	// register cases

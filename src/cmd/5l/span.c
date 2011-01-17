@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Instruction layout.
+
 #include	"l.h"
 #include	"../ld/lib.h"
 
@@ -52,9 +54,9 @@ ispad(Prog *p)
 {
 	if(p->as != AMOVW)
 		return 0;
-	if(p->from.type != D_REG || p->from.reg != REGSB)
+	if(p->from.type != D_REG || p->from.reg != REGTMP)
 		return 0;
-	if(p->to.type != D_REG || p->to.reg != REGSB)
+	if(p->to.type != D_REG || p->to.reg != REGTMP)
 		return 0;
 	return 1;
 }
@@ -100,7 +102,7 @@ fnpinc(Sym *s)
 		if(!debug['f'])
 			diag("fnptr == 0 in fnpinc");
 		if(s->foreign)
-			diag("bad usage in fnpinc %s %d %d %d", s->name, s->used, s->foreign, s->thumb);
+			diag("bad usage in fnpinc %s %d %d", s->name, s->foreign, s->thumb);
 		return 0;
 	}
 	/* 0, 1, 2, 3 squared */
@@ -119,9 +121,9 @@ pad(Prog *p, int pc)
 	q->as = AMOVW;
 	q->line = p->line;
 	q->from.type = D_REG;
-	q->from.reg = REGSB;
+	q->from.reg = REGTMP;
 	q->to.type = D_REG;
-	q->to.reg = REGSB;
+	q->to.reg = REGTMP;
 	q->pc = pc;
 	q->link = p->link;
 	return q;
@@ -132,7 +134,7 @@ scan(Prog *op, Prog *p, int c)
 {
 	Prog *q;
 
-	for(q = op->link; q != p; q = q->link){
+	for(q = op->link; q != p && q != P; q = q->link){
 		q->pc = c;
 		c += oplook(q)->size;
 		nocache(q);
@@ -163,11 +165,12 @@ void
 span(void)
 {
 	Prog *p, *op;
-	Sym *setext, *s;
 	Optab *o;
-	int m, bflag, i;
-	int32 c, otxt, v;
+	int m, bflag, i, v;
+	int32 c, otxt, out[6];
 	int lastthumb = -1;
+	Section *sect;
+	uchar *bp;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f span\n", cputime());
@@ -176,61 +179,65 @@ span(void)
 	bflag = 0;
 	c = INITTEXT;
 	op = nil;
+	p = nil;
 	otxt = c;
-	for(p = firstp; p != P; op = p, p = p->link) {
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		p = cursym->text;
 		setarch(p);
 		p->pc = c;
-		o = oplook(p);
-		m = o->size;
-		// must check literal pool here in case p generates many instructions
-		if(blitrl){
-			if(thumb && isbranch(p))
-				pool.extra += brextra(p);
-			if(checkpool(op, p->as == ACASE ? casesz(p) : m))
-				c = p->pc = scan(op, p, c);
-		}
-		if(m == 0) {
-			if(p->as == ATEXT) {
-				if(blitrl && lastthumb != -1 && lastthumb != thumb){	// flush literal pool
-					if(flushpool(op, 0, 1))
-						c = p->pc = scan(op, p, c);
-				}
-				lastthumb = thumb;
-				curtext = p;
-				autosize = p->to.offset + 4;
-				if(p->from.sym != S)
-					p->from.sym->value = c;
-				/* need passes to resolve branches */
-				if(c-otxt >= 1L<<17)
-					bflag = 1;
-				otxt = c;
-				if(thumb && blitrl)
+		cursym->value = c;
+
+		lastthumb = thumb;
+		autosize = p->to.offset + 4;
+		if(p->from.sym != S)
+			p->from.sym->value = c;
+		/* need passes to resolve branches */
+		if(c-otxt >= 1L<<17)
+			bflag = 1;
+		otxt = c;
+		if(thumb && blitrl)
+			pool.extra += brextra(p);
+
+		for(op = p, p = p->link; p != P; op = p, p = p->link) {
+			curp = p;
+			setarch(p);
+			p->pc = c;
+			o = oplook(p);
+			m = o->size;
+			// must check literal pool here in case p generates many instructions
+			if(blitrl){
+				if(thumb && isbranch(p))
 					pool.extra += brextra(p);
+				if(checkpool(op, p->as == ACASE ? casesz(p) : m))
+					c = p->pc = scan(op, p, c);
+			}
+			if(m == 0) {
+				diag("zero-width instruction\n%P", p);
 				continue;
 			}
-			diag("zero-width instruction\n%P", p);
-			continue;
-		}
-		switch(o->flag & (LFROM|LTO|LPOOL)) {
-		case LFROM:
-			addpool(p, &p->from);
-			break;
-		case LTO:
-			addpool(p, &p->to);
-			break;
-		case LPOOL:
-			if ((p->scond&C_SCOND) == 14)
+			switch(o->flag & (LFROM|LTO|LPOOL)) {
+			case LFROM:
+				addpool(p, &p->from);
+				break;
+			case LTO:
+				addpool(p, &p->to);
+				break;
+			case LPOOL:
+				if ((p->scond&C_SCOND) == 14)
+					flushpool(p, 0, 0);
+				break;
+			}
+			if(p->as==AMOVW && p->to.type==D_REG && p->to.reg==REGPC && (p->scond&C_SCOND) == 14)
 				flushpool(p, 0, 0);
-			break;
+			c += m;
 		}
-		if(p->as==AMOVW && p->to.type==D_REG && p->to.reg==REGPC && (p->scond&C_SCOND) == 14)
-			flushpool(p, 0, 0);
-		c += m;
-		if(blitrl && p->link == P){
-			if(thumb && isbranch(p))
-				pool.extra += brextra(p);
-			checkpool(p, 0);
+		if(blitrl){
+			if(thumb && isbranch(op))
+				pool.extra += brextra(op);
+			if(checkpool(op, 0))
+				c = scan(op, P, c);
 		}
+		cursym->size = c - cursym->value;
 	}
 
 	/*
@@ -244,48 +251,52 @@ span(void)
 			Bprint(&bso, "%5.2f span1\n", cputime());
 		bflag = 0;
 		c = INITTEXT;
-		for(p = firstp; p != P; p = p->link) {
-			setarch(p);
-			p->pc = c;
-			if(thumb && isbranch(p))
-				nocache(p);
-			o = oplook(p);
-/* very larg branches
-			if(o->type == 6 && p->cond) {
-				otxt = p->cond->pc - c;
-				if(otxt < 0)
-					otxt = -otxt;
-				if(otxt >= (1L<<17) - 10) {
-					q = prg();
-					q->link = p->link;
-					p->link = q;
-					q->as = AB;
-					q->to.type = D_BRANCH;
-					q->cond = p->cond;
-					p->cond = q;
-					q = prg();
-					q->link = p->link;
-					p->link = q;
-					q->as = AB;
-					q->to.type = D_BRANCH;
-					q->cond = q->link->link;
-					bflag = 1;
+		for(cursym = textp; cursym != nil; cursym = cursym->next) {
+			cursym->value = c;
+			for(p = cursym->text; p != P; p = p->link) {
+				curp = p;
+				setarch(p);
+				p->pc = c;
+				if(thumb && isbranch(p))
+					nocache(p);
+				o = oplook(p);
+/* very large branches
+				if(o->type == 6 && p->cond) {
+					otxt = p->cond->pc - c;
+					if(otxt < 0)
+						otxt = -otxt;
+					if(otxt >= (1L<<17) - 10) {
+						q = prg();
+						q->link = p->link;
+						p->link = q;
+						q->as = AB;
+						q->to.type = D_BRANCH;
+						q->cond = p->cond;
+						p->cond = q;
+						q = prg();
+						q->link = p->link;
+						p->link = q;
+						q->as = AB;
+						q->to.type = D_BRANCH;
+						q->cond = q->link->link;
+						bflag = 1;
+					}
 				}
-			}
  */
-			m = o->size;
-			if(m == 0) {
-				if(p->as == ATEXT) {
-					curtext = p;
-					autosize = p->to.offset + 4;
-					if(p->from.sym != S)
-						p->from.sym->value = c;
+				m = o->size;
+				if(m == 0) {
+					if(p->as == ATEXT) {
+						autosize = p->to.offset + 4;
+						if(p->from.sym != S)
+							p->from.sym->value = c;
+						continue;
+					}
+					diag("zero-width instruction\n%P", p);
 					continue;
 				}
-				diag("zero-width instruction\n%P", p);
-				continue;
+				c += m;
 			}
-			c += m;
+			cursym->size = c - cursym->value;
 		}
 	}
 
@@ -304,107 +315,94 @@ span(void)
 		c = INITTEXT;
 		oop = op = nil;
 		again = 0;
-		for(p = firstp; p != P; oop = op, op = p, p = p->link){
-			setarch(p);
-			if(p->pc != c)
-				again = 1;
-			p->pc = c;
-			if(thumb && isbranch(p))
-				nocache(p);
-			o = oplook(p);
-			m = o->size;
-			if(passes == 1 && thumb && isbranch(p)){	// start conservative so unneeded alignment is not added
-				if(p->as == ABL)
-					m = 4;
-				else
-					m = 2;
-				p->align = 0;
-			}
-			if(p->align){
-				if((p->align == 4 && (c&3)) || (p->align == 2 && !(c&3))){
-					if(ispad(op)){
-						oop->link = p;
-						op = oop;
-						c -= 2;
-						p->pc = c;
-					}
-					else{
-						op->link = pad(op, c);
-						op = op->link;
-						c += 2;
-						p->pc = c;
-					}
+		for(cursym = textp; cursym != nil; cursym = cursym->next) {
+			cursym->value = c;
+			for(p = cursym->text; p != P; oop = op, op = p, p = p->link) {
+				curp = p;
+				setarch(p);
+				if(p->pc != c)
 					again = 1;
+				p->pc = c;
+				if(thumb && isbranch(p))
+					nocache(p);
+				o = oplook(p);
+				m = o->size;
+				if(passes == 1 && thumb && isbranch(p)){	// start conservative so unneeded alignment is not added
+					if(p->as == ABL)
+						m = 4;
+					else
+						m = 2;
+					p->align = 0;
 				}
-			}
-			if(m == 0) {
-				if(p->as == ATEXT) {
-					curtext = p;
-					autosize = p->to.offset + 4;
-					if(p->from.sym != S)
-						p->from.sym->value = c;
-					continue;
+				if(p->align){
+					if((p->align == 4 && (c&3)) || (p->align == 2 && !(c&3))){
+						if(ispad(op)){
+							oop->link = p;
+							op = oop;
+							c -= 2;
+							p->pc = c;
+						}
+						else{
+							op->link = pad(op, c);
+							op = op->link;
+							c += 2;
+							p->pc = c;
+						}
+						again = 1;
+					}
 				}
+				if(m == 0) {
+					if(p->as == ATEXT) {
+						autosize = p->to.offset + 4;
+						if(p->from.sym != S)
+							p->from.sym->value = c;
+						continue;
+					}
+				}
+				c += m;
 			}
-			c += m;
+			cursym->size = c - cursym->value;
 		}
 		if(c != lastc || again){
 			lastc = c;
 			goto loop;
 		}
 	}
-
-	if(0 && seenthumb){		// rm redundant padding - obsolete
-		int d;
-
-		op = nil;
-		d = 0;
-		for(p = firstp; p != P; op = p, p = p->link){
-			p->pc -= d;
-			if(p->as == ATEXT){
-				if(p->from.sym != S)
-					p->from.sym->value -= d;
-// if(p->from.sym != S) print("%s %ux %d %d %d\n", p->from.sym->name ? p->from.sym->name : "?", p->from.sym->value, p->from.sym->thumb, p->from.sym->foreign, p->from.sym->fnptr);
-			}
-			if(ispad(p) && p->link != P && ispad(p->link)){
-				op->link = p->link->link;
-				d += 4;
-				p = op;
-			}
-		}
-		// print("%d bytes removed (padding)\n", d);
-		c -= d;
-	}
-
-	if(debug['t']) {
-		/*
-		 * add strings to text segment
-		 */
-		c = rnd(c, 8);
-		for(i=0; i<NHASH; i++)
-		for(s = hash[i]; s != S; s = s->link) {
-			if(s->type != SSTRING)
-				continue;
-			v = s->value;
-			while(v & 3)
-				v++;
-			s->value = c;
-			c += v;
-		}
-	}
-
 	c = rnd(c, 8);
-
-	setext = lookup("etext", 0);
-	if(setext != S) {
-		setext->value = c;
-		textsize = c - INITTEXT;
+	
+	/*
+	 * lay out the code.  all the pc-relative code references,
+	 * even cross-function, are resolved now;
+	 * only data references need to be relocated.
+	 * with more work we could leave cross-function
+	 * code references to be relocated too, and then
+	 * perhaps we'd be able to parallelize the span loop above.
+	 */
+	for(cursym = textp; cursym != nil; cursym = cursym->next) {
+		p = cursym->text;
+		setarch(p);
+		autosize = p->to.offset + 4;
+		symgrow(cursym, cursym->size);
+	
+		bp = cursym->p;
+		for(p = p->link; p != P; p = p->link) {
+			curp = p;
+			pc = p->pc;
+			curp = p;
+			o = oplook(p);
+			asmout(p, o, out);
+			for(i=0; i<o->size/4; i++) {
+				v = out[i];
+				*bp++ = v;
+				*bp++ = v>>8;
+				*bp++ = v>>16;
+				*bp++ = v>>24;
+			}
+		}
 	}
-	if(INITRND)
-		INITDAT = rnd(c, INITRND);
-	if(debug['v'])
-		Bprint(&bso, "tsize = %lux\n", textsize);
-	Bflush(&bso);
+	sect = addsection(&segtext, ".text", 05);
+	sect->vaddr = INITTEXT;
+	sect->len = c - INITTEXT;
 }
 
 /*
@@ -437,7 +435,7 @@ flushpool(Prog *p, int skip, int force)
 
 	if(blitrl) {
 		if(skip){
-			if(0 && skip==1)print("note: flush literal pool at %lux: len=%lud ref=%lux\n", p->pc+4, pool.size, pool.start);
+			if(0 && skip==1)print("note: flush literal pool at %ux: len=%ud ref=%ux\n", p->pc+4, pool.size, pool.start);
 			q = prg();
 			q->as = AB;
 			q->to.type = D_BRANCH;
@@ -523,10 +521,10 @@ xdefine(char *p, int t, int32 v)
 	Sym *s;
 
 	s = lookup(p, 0);
-	if(s->type == 0 || s->type == SXREF) {
-		s->type = t;
-		s->value = v;
-	}
+	s->type = t;
+	s->value = v;
+	s->reachable = 1;
+	s->special = 1;
 }
 
 int32
@@ -583,6 +581,38 @@ immhalf(int32 v)
 	return 0;
 }
 
+int32
+symaddr(Sym *s)
+{
+	int32 v;
+
+	v = s->value;
+	switch(s->type) {
+	default:
+		diag("unexpected type %d in symaddr(%s)", s->type, s->name);
+		return 0;
+	
+	case STEXT:
+/* TODO(rsc): what is this for?
+#ifdef CALLEEBX
+		v += fnpinc(s);
+#else
+		if(s->thumb)
+			v++;	// T bit
+#endif
+*/
+		break;
+	
+	case SELFDATA:
+	case SRODATA:
+	case SDATA:
+	case SBSS:
+	case SCONST:
+		break;
+	}
+	return v;
+}
+
 int
 aclass(Adr *a)
 {
@@ -619,36 +649,9 @@ aclass(Adr *a)
 			}
 			s = a->sym;
 			t = s->type;
-			if(t == 0 || t == SXREF) {
-				diag("undefined external: %s in %s",
-					s->name, TNAME);
-				s->type = SDATA;
-			}
-			if(dlm) {
-				switch(t) {
-				default:
-					instoffset = s->value + a->offset + INITDAT;
-					break;
-				case SUNDEF:
-				case STEXT:
-				case SCONST:
-				case SLEAF:
-				case SSTRING:
-					instoffset = s->value + a->offset;
-					break;
-				}
-				return C_ADDR;
-			}
-			instoffset = s->value + a->offset - BIG;
-			t = immaddr(instoffset);
-			if(t) {
-				if(immhalf(instoffset))
-					return immfloat(t) ? C_HFEXT : C_HEXT;
-				if(immfloat(t))
-					return C_FEXT;
-				return C_SEXT;
-			}
-			return C_LEXT;
+			instoffset = 0;	// s.b. unused but just in case
+			return C_ADDR;
+
 		case D_AUTO:
 			instoffset = autosize + a->offset;
 			t = immaddr(instoffset);
@@ -703,32 +706,17 @@ aclass(Adr *a)
 		case D_STATIC:
 			s = a->sym;
 			t = s->type;
-			if(t == 0 || t == SXREF) {
-				diag("undefined external: %s in %s",
-					s->name, TNAME);
-				s->type = SDATA;
-			}
-			if(s->type == SFIXED) {
-				instoffset = s->value + a->offset;
-				return C_LCON;
-			}
-			instoffset = s->value + a->offset + INITDAT;
-			if(s->type == STEXT || s->type == SLEAF || s->type == SUNDEF) {
-				instoffset = s->value + a->offset;
-#ifdef CALLEEBX
-				instoffset += fnpinc(s);
-#else
-				if(s->thumb)
-					instoffset++;	// T bit
-#endif
-				return C_LCON;
-			}
-			return C_LCON;
+			instoffset = 0;	// s.b. unused but just in case
+			return C_ADDR;
 		}
 		return C_GOK;
 
 	case D_FCONST:
-		return C_FCON;
+		if(chipzero(&a->ieee) >= 0)
+			return C_ZFCON;
+		if(chipfloat(&a->ieee) >= 0)
+			return C_SFCON;
+		return C_LFCON;
 
 	case D_CONST:
 	case D_CONST2:
@@ -753,37 +741,7 @@ aclass(Adr *a)
 			if(s == S)
 				break;
 			t = s->type;
-			switch(t) {
-			case 0:
-			case SXREF:
-				diag("undefined external: %s in %s",
-					s->name, TNAME);
-				s->type = SDATA;
-				break;
-			case SFIXED:
-				instoffset = s->value + a->offset;
-				return C_LCON;
-			case SUNDEF:
-			case STEXT:
-			case SSTRING:
-			case SCONST:
-			case SLEAF:
-				instoffset = s->value + a->offset;
-#ifdef CALLEEBX
-				instoffset += fnpinc(s);
-#else
-				if(s->thumb)
-					instoffset++;	// T bit
-#endif
-				return C_LCON;
-			}
-			if(!dlm) {
-				instoffset = s->value + a->offset - BIG;
-				t = immrot(instoffset);
-				if(t && instoffset != 0)
-					return C_RECON;
-			}
-			instoffset = s->value + a->offset + INITDAT;
+			instoffset = 0;	// s.b. unused but just in case
 			return C_LCON;
 
 		case D_AUTO:
@@ -895,20 +853,10 @@ cmp(int a, int b)
 		if(b == C_RACON)
 			return 1;
 		break;
-	case C_LECON:
-		if(b == C_RECON)
+	case C_LFCON:
+		if(b == C_ZFCON || b == C_SFCON)
 			return 1;
 		break;
-
-	case C_HFEXT:
-		return b == C_HEXT || b == C_FEXT;
-	case C_FEXT:
-	case C_HEXT:
-		return b == C_HFEXT;
-	case C_SEXT:
-		return cmp(C_HFEXT, b);
-	case C_LEXT:
-		return cmp(C_SEXT, b);
 
 	case C_HFAUTO:
 		return b == C_HAUTO || b == C_FAUTO;
@@ -1091,9 +1039,11 @@ buildop(void)
 			break;
 
 		case AMOVFW:
-			oprange[AMOVWF] = oprange[r];
-			oprange[AMOVWD] = oprange[r];
 			oprange[AMOVDW] = oprange[r];
+			break;
+
+		case AMOVWF:
+			oprange[AMOVWD] = oprange[r];
 			break;
 
 		case AMULL:
@@ -1102,6 +1052,7 @@ buildop(void)
 			oprange[AMULLU] = oprange[r];
 			oprange[AMULALU] = oprange[r];
 			break;
+
 		case ALDREX:
 		case ASTREX:
 			break;
@@ -1146,159 +1097,3 @@ buildrep(int x, int as)
 	oprange[as].start = 0;
 }
 */
-
-enum{
-	ABSD = 0,
-	ABSU = 1,
-	RELD = 2,
-	RELU = 3,
-};
-
-int modemap[4] = { 0, 1, -1, 2, };
-
-typedef struct Reloc Reloc;
-
-struct Reloc
-{
-	int n;
-	int t;
-	uchar *m;
-	uint32 *a;
-};
-
-Reloc rels;
-
-static void
-grow(Reloc *r)
-{
-	int t;
-	uchar *m, *nm;
-	uint32 *a, *na;
-
-	t = r->t;
-	r->t += 64;
-	m = r->m;
-	a = r->a;
-	r->m = nm = malloc(r->t*sizeof(uchar));
-	r->a = na = malloc(r->t*sizeof(uint32));
-	memmove(nm, m, t*sizeof(uchar));
-	memmove(na, a, t*sizeof(uint32));
-	free(m);
-	free(a);
-}
-
-void
-dynreloc(Sym *s, int32 v, int abs)
-{
-	int i, k, n;
-	uchar *m;
-	uint32 *a;
-	Reloc *r;
-
-	if(v&3)
-		diag("bad relocation address");
-	v >>= 2;
-	if(s != S && s->type == SUNDEF)
-		k = abs ? ABSU : RELU;
-	else
-		k = abs ? ABSD : RELD;
-	/* Bprint(&bso, "R %s a=%ld(%lx) %d\n", s->name, a, a, k); */
-	k = modemap[k];
-	r = &rels;
-	n = r->n;
-	if(n >= r->t)
-		grow(r);
-	m = r->m;
-	a = r->a;
-	for(i = n; i > 0; i--){
-		if(v < a[i-1]){	/* happens occasionally for data */
-			m[i] = m[i-1];
-			a[i] = a[i-1];
-		}
-		else
-			break;
-	}
-	m[i] = k;
-	a[i] = v;
-	r->n++;
-}
-
-static int
-sput(char *s)
-{
-	char *p;
-
-	p = s;
-	while(*s)
-		cput(*s++);
-	cput(0);
-	return  s-p+1;
-}
-
-void
-asmdyn()
-{
-	int i, n, t, c;
-	Sym *s;
-	uint32 la, ra, *a;
-	vlong off;
-	uchar *m;
-	Reloc *r;
-
-	cflush();
-	off = seek(cout, 0, 1);
-	lput(0);
-	t = 0;
-	lput(imports);
-	t += 4;
-	for(i = 0; i < NHASH; i++)
-		for(s = hash[i]; s != S; s = s->link)
-			if(s->type == SUNDEF){
-				lput(s->sig);
-				t += 4;
-				t += sput(s->name);
-			}
-
-	la = 0;
-	r = &rels;
-	n = r->n;
-	m = r->m;
-	a = r->a;
-	lput(n);
-	t += 4;
-	for(i = 0; i < n; i++){
-		ra = *a-la;
-		if(*a < la)
-			diag("bad relocation order");
-		if(ra < 256)
-			c = 0;
-		else if(ra < 65536)
-			c = 1;
-		else
-			c = 2;
-		cput((c<<6)|*m++);
-		t++;
-		if(c == 0){
-			cput(ra);
-			t++;
-		}
-		else if(c == 1){
-			wput(ra);
-			t += 2;
-		}
-		else{
-			lput(ra);
-			t += 4;
-		}
-		la = *a++;
-	}
-
-	cflush();
-	seek(cout, off, 0);
-	lput(t);
-
-	if(debug['v']){
-		Bprint(&bso, "import table entries = %d\n", imports);
-		Bprint(&bso, "export table entries = %d\n", exports);
-	}
-}

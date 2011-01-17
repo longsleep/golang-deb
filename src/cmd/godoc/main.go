@@ -49,7 +49,7 @@ var (
 	// periodic sync
 	syncCmd   = flag.String("sync", "", "sync command; disabled if empty")
 	syncMin   = flag.Int("sync_minutes", 0, "sync interval in minutes; disabled if <= 0")
-	syncDelay delayTime // actual sync delay in minutes; usually syncDelay == syncMin, but delay may back off exponentially
+	syncDelay delayTime // actual sync interval in minutes; usually syncDelay == syncMin, but syncDelay may back off exponentially
 
 	// network
 	httpAddr   = flag.String("http", "", "HTTP service address (e.g., '"+defaultAddr+"')")
@@ -64,29 +64,30 @@ var (
 )
 
 
-func serveError(c *http.Conn, r *http.Request, relpath string, err os.Error) {
+func serveError(w http.ResponseWriter, r *http.Request, relpath string, err os.Error) {
 	contents := applyTemplate(errorHTML, "errorHTML", err) // err may contain an absolute path!
-	servePage(c, "File "+relpath, "", "", contents)
+	w.WriteHeader(http.StatusNotFound)
+	servePage(w, "File "+relpath, "", "", contents)
 }
 
 
-func exec(c *http.Conn, args []string) (status int) {
+func exec(rw http.ResponseWriter, args []string) (status int) {
 	r, w, err := os.Pipe()
 	if err != nil {
-		log.Stderrf("os.Pipe(): %v\n", err)
+		log.Printf("os.Pipe(): %v", err)
 		return 2
 	}
 
 	bin := args[0]
 	fds := []*os.File{nil, w, w}
 	if *verbose {
-		log.Stderrf("executing %v", args)
+		log.Printf("executing %v", args)
 	}
 	pid, err := os.ForkExec(bin, args, os.Environ(), *goroot, fds)
 	defer r.Close()
 	w.Close()
 	if err != nil {
-		log.Stderrf("os.ForkExec(%q): %v\n", bin, err)
+		log.Printf("os.ForkExec(%q): %v", bin, err)
 		return 2
 	}
 
@@ -95,41 +96,38 @@ func exec(c *http.Conn, args []string) (status int) {
 	wait, err := os.Wait(pid, 0)
 	if err != nil {
 		os.Stderr.Write(buf.Bytes())
-		log.Stderrf("os.Wait(%d, 0): %v\n", pid, err)
+		log.Printf("os.Wait(%d, 0): %v", pid, err)
 		return 2
 	}
 	status = wait.ExitStatus()
 	if !wait.Exited() || status > 1 {
 		os.Stderr.Write(buf.Bytes())
-		log.Stderrf("executing %v failed (exit status = %d)", args, status)
+		log.Printf("executing %v failed (exit status = %d)", args, status)
 		return
 	}
 
 	if *verbose {
 		os.Stderr.Write(buf.Bytes())
 	}
-	if c != nil {
-		c.SetHeader("content-type", "text/plain; charset=utf-8")
-		c.Write(buf.Bytes())
+	if rw != nil {
+		rw.SetHeader("content-type", "text/plain; charset=utf-8")
+		rw.Write(buf.Bytes())
 	}
 
 	return
 }
 
 
-// Maximum directory depth, adjust as needed.
-const maxDirDepth = 24
-
-func dosync(c *http.Conn, r *http.Request) {
+func dosync(w http.ResponseWriter, r *http.Request) {
 	args := []string{"/bin/sh", "-c", *syncCmd}
-	switch exec(c, args) {
+	switch exec(w, args) {
 	case 0:
 		// sync succeeded and some files have changed;
 		// update package tree.
 		// TODO(gri): The directory tree may be temporarily out-of-sync.
 		//            Consider keeping separate time stamps so the web-
 		//            page can indicate this discrepancy.
-		fsTree.set(newDirectory(*goroot, maxDirDepth))
+		initFSTree()
 		fallthrough
 	case 1:
 		// sync failed because no files changed;
@@ -152,9 +150,9 @@ func usage() {
 
 
 func loggingHandler(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(c *http.Conn, req *http.Request) {
-		log.Stderrf("%s\t%s", c.RemoteAddr, req.URL)
-		h.ServeHTTP(c, req)
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		log.Printf("%s\t%s", w.RemoteAddr(), req.URL)
+		h.ServeHTTP(w, req)
 	})
 }
 
@@ -239,13 +237,16 @@ func main() {
 		// HTTP server mode.
 		var handler http.Handler = http.DefaultServeMux
 		if *verbose {
-			log.Stderrf("Go Documentation Server\n")
-			log.Stderrf("version = %s\n", runtime.Version())
-			log.Stderrf("address = %s\n", *httpAddr)
-			log.Stderrf("goroot = %s\n", *goroot)
-			log.Stderrf("tabwidth = %d\n", *tabwidth)
+			log.Printf("Go Documentation Server")
+			log.Printf("version = %s", runtime.Version())
+			log.Printf("address = %s", *httpAddr)
+			log.Printf("goroot = %s", *goroot)
+			log.Printf("tabwidth = %d", *tabwidth)
+			if *fulltextIndex {
+				log.Print("full text index enabled")
+			}
 			if !fsMap.IsEmpty() {
-				log.Stderr("user-defined mapping:")
+				log.Print("user-defined mapping:")
 				fsMap.Fprint(os.Stderr)
 			}
 			handler = loggingHandler(handler)
@@ -256,12 +257,12 @@ func main() {
 			http.Handle("/debug/sync", http.HandlerFunc(dosync))
 		}
 
-		// Initialize directory tree with corresponding timestamp.
-		// Do it in two steps:
-		// 1) set timestamp right away so that the indexer is kicked on
-		fsTree.set(nil)
-		// 2) compute initial directory tree in a goroutine so that launch is quick
-		go func() { fsTree.set(newDirectory(*goroot, maxDirDepth)) }()
+		// Initialize default directory tree with corresponding timestamp.
+		// (Do it in a goroutine so that launch is quick.)
+		go initFSTree()
+
+		// Initialize directory trees for user-defined file systems (-path flag).
+		initDirTrees()
 
 		// Start sync goroutine, if enabled.
 		if *syncCmd != "" && *syncMin > 0 {
@@ -271,7 +272,7 @@ func main() {
 					dosync(nil, nil)
 					delay, _ := syncDelay.get()
 					if *verbose {
-						log.Stderrf("next sync in %dmin", delay.(int))
+						log.Printf("next sync in %dmin", delay.(int))
 					}
 					time.Sleep(int64(delay.(int)) * 60e9)
 				}
@@ -333,14 +334,17 @@ func main() {
 	}
 	// TODO(gri): Provide a mechanism (flag?) to select a package
 	//            if there are multiple packages in a directory.
-	info := pkgHandler.getPageInfo(abspath, relpath, "", mode|tryMode)
+	info := pkgHandler.getPageInfo(abspath, relpath, "", mode)
 
-	if info.PAst == nil && info.PDoc == nil && info.Dirs == nil {
+	if info.Err != nil || info.PAst == nil && info.PDoc == nil && info.Dirs == nil {
 		// try again, this time assume it's a command
 		if len(path) > 0 && path[0] != '/' {
 			abspath = absolutePath(path, cmdHandler.fsRoot)
 		}
 		info = cmdHandler.getPageInfo(abspath, relpath, "", mode)
+	}
+	if info.Err != nil {
+		log.Exitf("%v", info.Err)
 	}
 
 	// If we have more than one argument, use the remaining arguments for filtering
@@ -362,7 +366,7 @@ func main() {
 				if i > 0 {
 					fmt.Println()
 				}
-				writeAny(os.Stdout, d, *html)
+				writeAny(os.Stdout, info.FSet, *html, d)
 				fmt.Println()
 			}
 			return
@@ -373,6 +377,6 @@ func main() {
 	}
 
 	if err := packageText.Execute(info, os.Stdout); err != nil {
-		log.Stderrf("packageText.Execute: %s", err)
+		log.Printf("packageText.Execute: %s", err)
 	}
 }

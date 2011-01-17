@@ -35,24 +35,6 @@ func Callers(skip int, pc []uintptr) int
 // given program counter address, or else nil.
 func FuncForPC(pc uintptr) *Func
 
-// NOTE(rsc): Func must match struct Func in runtime.h
-
-// Func records information about a function in the program,
-// in particular  the mapping from program counters to source
-// line numbers within that function.
-type Func struct {
-	name   string
-	typ    string
-	src    string
-	pcln   []byte
-	entry  uintptr
-	pc0    uintptr
-	ln0    int32
-	frame  int32
-	args   int32
-	locals int32
-}
-
 // Name returns the name of the function.
 func (f *Func) Name() string { return f.name }
 
@@ -66,13 +48,17 @@ func (f *Func) Entry() uintptr { return f.entry }
 func (f *Func) FileLine(pc uintptr) (file string, line int) {
 	// NOTE(rsc): If you edit this function, also edit
 	// symtab.c:/^funcline.
-	const PcQuant = 1
+	var pcQuant uintptr = 1
+	if GOARCH == "arm" {
+		pcQuant = 4
+	}
 
+	targetpc := pc
 	p := f.pcln
-	pc1 := f.pc0
+	pc = f.pc0
 	line = int(f.ln0)
 	file = f.src
-	for i := 0; i < len(p) && pc1 <= pc; i++ {
+	for i := 0; i < len(p) && pc <= targetpc; i++ {
 		switch {
 		case p[i] == 0:
 			line += int(p[i+1]<<24) | int(p[i+2]<<16) | int(p[i+3]<<8) | int(p[i+4])
@@ -80,11 +66,11 @@ func (f *Func) FileLine(pc uintptr) (file string, line int) {
 		case p[i] <= 64:
 			line += int(p[i])
 		case p[i] <= 128:
-			line += int(p[i] - 64)
+			line -= int(p[i] - 64)
 		default:
-			line += PcQuant * int(p[i]-129)
+			pc += pcQuant * uintptr(p[i]-129)
 		}
-		pc += PcQuant
+		pc += pcQuant
 	}
 	return
 }
@@ -105,13 +91,13 @@ func Semrelease(s *uint32)
 
 // SetFinalizer sets the finalizer associated with x to f.
 // When the garbage collector finds an unreachable block
-// with an associated finalizer, it clears the association and creates
-// a new goroutine running f(x).  Creating the new goroutine makes
-// x reachable again, but now without an associated finalizer.
-// Assuming that SetFinalizer is not called again, the next time
-// the garbage collector sees that x is unreachable, it will free x.
+// with an associated finalizer, it clears the association and runs
+// f(x) in a separate goroutine.  This makes x reachable again, but
+// now without an associated finalizer.  Assuming that SetFinalizer
+// is not called again, the next time the garbage collector sees
+// that x is unreachable, it will free x.
 //
-// SetFinalizer(x, nil) clears any finalizer associated with f.
+// SetFinalizer(x, nil) clears any finalizer associated with x.
 //
 // The argument x must be a pointer to an object allocated by
 // calling new or by taking the address of a composite literal.
@@ -142,7 +128,6 @@ func Semrelease(s *uint32)
 // If a finalizer must run for a long time, it should do so by starting
 // a new goroutine.
 //
-// TODO(rsc): make os.File use SetFinalizer
 // TODO(rsc): allow f to have (ignored) return values
 //
 func SetFinalizer(x, f interface{})
@@ -165,4 +150,14 @@ func GOROOT() string {
 // a release tag like "release.2010-03-04".
 // A trailing + indicates that the tree had local modifications
 // at the time of the build.
-func Version() string { return defaultVersion }
+func Version() string {
+	return theVersion
+}
+
+// GOOS is the Go tree's operating system target:
+// one of darwin, freebsd, linux, and so on.
+const GOOS string = theGoos
+
+// GOARCH is the Go tree's architecture target:
+// 386, amd64, or arm.
+const GOARCH string = theGoarch

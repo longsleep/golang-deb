@@ -17,30 +17,65 @@ import (
 // For non-local packages or packages without Makefiles,
 // domake generates a standard Makefile and passes it
 // to make on standard input.
-func domake(dir, pkg string, local bool) os.Error {
+func domake(dir, pkg string, local bool) (err os.Error) {
+	needMakefile := true
 	if local {
 		_, err := os.Stat(dir + "/Makefile")
 		if err == nil {
-			return run(dir, nil, gobin+"/gomake", "install")
+			needMakefile = false
 		}
 	}
-	makefile, err := makeMakefile(dir, pkg)
-	if err != nil {
-		return err
+	cmd := []string{"gomake"}
+	var makefile []byte
+	if needMakefile {
+		if makefile, err = makeMakefile(dir, pkg); err != nil {
+			return err
+		}
+		cmd = append(cmd, "-f-")
 	}
-	return run(dir, makefile, gobin+"/gomake", "-f-", "install")
+	if *clean {
+		cmd = append(cmd, "clean")
+	}
+	cmd = append(cmd, "install")
+	return run(dir, makefile, cmd...)
 }
 
 // makeMakefile computes the standard Makefile for the directory dir
 // installing as package pkg.  It includes all *.go files in the directory
 // except those in package main and those ending in _test.go.
 func makeMakefile(dir, pkg string) ([]byte, os.Error) {
-	files, _, _, err := goFiles(dir, false)
+	dirInfo, err := scanDir(dir, false)
 	if err != nil {
 		return nil, err
 	}
+
+	if len(dirInfo.cgoFiles) == 0 && len(dirInfo.cFiles) > 0 {
+		// When using cgo, .c files are compiled with gcc.  Without cgo,
+		// they may be intended for 6c.  Just error out for now.
+		return nil, os.ErrorString("C files found in non-cgo package")
+	}
+
+	cgoFiles := dirInfo.cgoFiles
+	isCgo := make(map[string]bool, len(cgoFiles))
+	for _, file := range cgoFiles {
+		isCgo[file] = true
+	}
+
+	oFiles := make([]string, 0, len(dirInfo.cFiles))
+	for _, file := range dirInfo.cFiles {
+		oFiles = append(oFiles, file[:len(file)-2]+".o")
+	}
+
+	goFiles := make([]string, 0, len(dirInfo.goFiles))
+	for _, file := range dirInfo.goFiles {
+		if !isCgo[file] {
+			goFiles = append(goFiles, file)
+		}
+	}
+
 	var buf bytes.Buffer
-	if err := makefileTemplate.Execute(&makedata{pkg, files}, &buf); err != nil {
+	md := makedata{pkg, goFiles, cgoFiles, oFiles}
+	if err := makefileTemplate.Execute(&md, &buf); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -48,19 +83,38 @@ func makeMakefile(dir, pkg string) ([]byte, os.Error) {
 
 // makedata is the data type for the makefileTemplate.
 type makedata struct {
-	pkg   string   // package import path
-	files []string // list of .go files
+	Pkg      string   // package import path
+	GoFiles  []string // list of non-cgo .go files
+	CgoFiles []string // list of cgo .go files
+	OFiles   []string // list of ofiles for cgo
 }
 
 var makefileTemplate = template.MustParse(`
-include $(GOROOT)/src/Make.$(GOARCH)
+include $(GOROOT)/src/Make.inc
 
-TARG={pkg}
+TARG={Pkg}
+
+{.section GoFiles}
 GOFILES=\
-{.repeated section files}
+{.repeated section GoFiles}
 	{@}\
 {.end}
 
+{.end}
+{.section CgoFiles}
+CGOFILES=\
+{.repeated section CgoFiles}
+	{@}\
+{.end}
+
+{.end}
+{.section OFiles}
+CGO_OFILES=\
+{.repeated section OFiles}
+	{@}\
+{.end}
+
+{.end}
 include $(GOROOT)/src/Make.pkg
 `,
 	nil)

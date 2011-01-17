@@ -3,6 +3,8 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
+eval $(gomake --no-print-directory -f ../Make.inc go-env)
+
 OUT="Make.deps"
 TMP="Make.deps.tmp"
 
@@ -12,8 +14,8 @@ if [ -f $OUT ] && ! [ -w $OUT ]; then
 fi
 
 # Get list of directories from Makefile
-dirs=$(sed '1,/^DIRS=/d; /^$/,$d; s/\\//g' Makefile)
-dirpat=$(echo $dirs | sed 's/ /|/g; s/.*/^(&)$/')
+dirs=$(gomake --no-print-directory echo-dirs)
+dirpat=$(echo $dirs C | sed 's/ /|/g; s/.*/^(&)$/')
 
 for dir in $dirs; do (
 	cd $dir || exit 1
@@ -31,6 +33,7 @@ for dir in $dirs; do (
 		egrep "$dirpat" |
 		grep -v "^$dir\$" |
 		sed 's/$/.install/' |
+		sed 's;^C\.install;runtime/cgo.install;' |
 		sort -u
 	)
 

@@ -8,21 +8,21 @@
 
 #include "386/asm.h"
 
-TEXT exit(SB),7,$0
+TEXT runtime·exit(SB),7,$0
 	MOVL	$252, AX	// syscall number
 	MOVL	4(SP), BX
 	INT	$0x80
 	INT $3	// not reached
 	RET
 
-TEXT exit1(SB),7,$0
+TEXT runtime·exit1(SB),7,$0
 	MOVL	$1, AX	// exit - exit the current os thread
 	MOVL	4(SP), BX
 	INT	$0x80
 	INT $3	// not reached
 	RET
 
-TEXT write(SB),7,$0
+TEXT runtime·write(SB),7,$0
 	MOVL	$4, AX		// syscall - write
 	MOVL	4(SP),  BX
 	MOVL	8(SP), CX
@@ -30,7 +30,7 @@ TEXT write(SB),7,$0
 	INT	$0x80
 	RET
 
-TEXT	gettime(SB), 7, $32
+TEXT runtime·gettime(SB), 7, $32
 	MOVL	$78, AX			// syscall - gettimeofday
 	LEAL	8(SP), BX
 	MOVL	$0, CX
@@ -47,7 +47,7 @@ TEXT	gettime(SB), 7, $32
 	MOVL	BX, (DI)
 	RET
 
-TEXT rt_sigaction(SB),7,$0
+TEXT runtime·rt_sigaction(SB),7,$0
 	MOVL	$174, AX		// syscall - rt_sigaction
 	MOVL	4(SP), BX
 	MOVL	8(SP), CX
@@ -56,7 +56,7 @@ TEXT rt_sigaction(SB),7,$0
 	INT	$0x80
 	RET
 
-TEXT sigtramp(SB),7,$40
+TEXT runtime·sigtramp(SB),7,$40
 	get_tls(CX)
 	
 	// save g
@@ -76,7 +76,7 @@ TEXT sigtramp(SB),7,$40
 	MOVL	context+8(FP), BX
 	MOVL	BX, 8(SP)
 
-	CALL	sighandler(SB)
+	CALL	runtime·sighandler(SB)
 	
 	// restore g
 	get_tls(CX)
@@ -85,16 +85,16 @@ TEXT sigtramp(SB),7,$40
 	
 	RET
 
-TEXT sigignore(SB),7,$0
+TEXT runtime·sigignore(SB),7,$0
 	RET
 
-TEXT sigreturn(SB),7,$0
+TEXT runtime·sigreturn(SB),7,$0
 	MOVL	$173, AX	// rt_sigreturn
 	INT $0x80
 	INT $3	// not reached
 	RET
 
-TEXT ·mmap(SB),7,$0
+TEXT runtime·mmap(SB),7,$0
 	MOVL	$192, AX	// mmap2
 	MOVL	4(SP), BX
 	MOVL	8(SP), CX
@@ -110,9 +110,19 @@ TEXT ·mmap(SB),7,$0
 	INCL	AX
 	RET
 
+TEXT runtime·munmap(SB),7,$0
+	MOVL	$91, AX	// munmap
+	MOVL	4(SP), BX
+	MOVL	8(SP), CX
+	INT	$0x80
+	CMPL	AX, $0xfffff001
+	JLS	2(PC)
+	INT $3
+	RET
+
 // int32 futex(int32 *uaddr, int32 op, int32 val,
 //	struct timespec *timeout, int32 *uaddr2, int32 val2);
-TEXT futex(SB),7,$0
+TEXT runtime·futex(SB),7,$0
 	MOVL	$240, AX	// futex
 	MOVL	4(SP), BX
 	MOVL	8(SP), CX
@@ -124,7 +134,7 @@ TEXT futex(SB),7,$0
 	RET
 
 // int32 clone(int32 flags, void *stack, M *m, G *g, void (*fn)(void));
-TEXT clone(SB),7,$0
+TEXT runtime·clone(SB),7,$0
 	MOVL	$120, AX	// clone
 	MOVL	flags+4(SP), BX
 	MOVL	stack+8(SP), CX
@@ -161,12 +171,12 @@ TEXT clone(SB),7,$0
 	// In child on new stack.  Reload registers (paranoia).
 	MOVL	0(SP), BX	// m
 	MOVL	4(SP), DX	// g
-	MOVL	8(SP), CX	// fn
+	MOVL	8(SP), SI	// fn
 
 	MOVL	AX, m_procid(BX)	// save tid as m->procid
 
 	// set up ldt 7+id to point at m->tls.
-	// m->tls is at m+40.  newosproc left the id in tls[0].
+	// newosproc left the id in tls[0].
 	LEAL	m_tls(BX), BP
 	MOVL	0(BP), DI
 	ADDL	$7, DI	// m0 is LDT#7. count up.
@@ -175,7 +185,7 @@ TEXT clone(SB),7,$0
 	PUSHL	$32	// sizeof tls
 	PUSHL	BP	// &tls
 	PUSHL	DI	// tls #
-	CALL	setldt(SB)
+	CALL	runtime·setldt(SB)
 	POPL	AX
 	POPL	AX
 	POPL	AX
@@ -186,21 +196,21 @@ TEXT clone(SB),7,$0
 	MOVL	DX, g(AX)
 	MOVL	BX, m(AX)
 
-	CALL	stackcheck(SB)	// smashes AX
+	CALL	runtime·stackcheck(SB)	// smashes AX, CX
 	MOVL	0(DX), DX	// paranoia; check they are not nil
 	MOVL	0(BX), BX
 
 	// more paranoia; check that stack splitting code works
 	PUSHAL
-	CALL	emptyfunc(SB)
+	CALL	runtime·emptyfunc(SB)
 	POPAL
 
-	CALL	CX	// fn()
-	CALL	exit1(SB)
+	CALL	SI	// fn()
+	CALL	runtime·exit1(SB)
 	MOVL	$0x1234, 0x1005
 	RET
 
-TEXT sigaltstack(SB),7,$-8
+TEXT runtime·sigaltstack(SB),7,$-8
 	MOVL	$186, AX	// sigaltstack
 	MOVL	new+4(SP), BX
 	MOVL	old+8(SP), CX
@@ -233,7 +243,7 @@ TEXT sigaltstack(SB),7,$-8
 #define USEABLE 0x40
 
 // setldt(int entry, int address, int limit)
-TEXT setldt(SB),7,$32
+TEXT runtime·setldt(SB),7,$32
 	MOVL	entry+0(FP), BX	// entry
 	MOVL	address+4(FP), CX	// base address
 
@@ -247,8 +257,11 @@ TEXT setldt(SB),7,$32
 	 * To accommodate that rewrite, we translate
 	 * the address here and bump the limit to 0xffffffff (no limit)
 	 * so that -8(GS) maps to 0(address).
+	 * Also, the final 0(GS) (current 8(CX)) has to point
+	 * to itself, to mimic ELF.
 	 */
 	ADDL	$0x8, CX	// address
+	MOVL	CX, 0(CX)
 
 	// set up user_desc
 	LEAL	16(SP), AX	// struct user_desc

@@ -6,6 +6,7 @@
 // http://developer.apple.com/mac/library/DOCUMENTATION/DeveloperTools/Conceptual/MachORuntime/Reference/reference.html
 
 #include "l.h"
+#include "../ld/dwarf.h"
 #include "../ld/lib.h"
 #include "../ld/macho.h"
 
@@ -46,6 +47,10 @@ newMachoLoad(uint32 type, uint32 ndata)
 		diag("too many loads");
 		errorexit();
 	}
+	
+	if(macho64 && (ndata & 1))
+		ndata++;
+	
 	l = &load[nload++];
 	l->type = type;
 	l->ndata = ndata;
@@ -97,22 +102,6 @@ newMachoDebug(void)
 
 // Generic linking code.
 
-static uchar *linkdata;
-static uint32 nlinkdata;
-static uint32 mlinkdata;
-
-static uchar *strtab;
-static uint32 nstrtab;
-static uint32 mstrtab;
-
-struct	Expsym
-{
-	int	off;
-	Sym*	s;
-} *expsym;
-static int nexpsym;
-static int nimpsym;
-
 static char **dylib;
 static int ndylib;
 
@@ -129,7 +118,7 @@ machowrite(void)
 	MachoDebug *d;
 	MachoLoad *l;
 
-	o1 = Boffset(&bso);
+	o1 = cpos();
 
 	loadsize = 4*4*ndebug;
 	for(i=0; i<nload; i++)
@@ -194,8 +183,8 @@ machowrite(void)
 				LPUT(t->reloc);
 				LPUT(t->nreloc);
 				LPUT(t->flag);
-				LPUT(0);	/* reserved */
-				LPUT(0);	/* reserved */
+				LPUT(t->res1);	/* reserved */
+				LPUT(t->res2);	/* reserved */
 				LPUT(0);	/* reserved */
 			} else {
 				strnput(t->name, 16);
@@ -207,8 +196,8 @@ machowrite(void)
 				LPUT(t->reloc);
 				LPUT(t->nreloc);
 				LPUT(t->flag);
-				LPUT(0);	/* reserved */
-				LPUT(0);	/* reserved */
+				LPUT(t->res1);	/* reserved */
+				LPUT(t->res2);	/* reserved */
 			}
 		}
 	}
@@ -229,224 +218,71 @@ machowrite(void)
 		LPUT(d->filesize);
 	}
 
-	return Boffset(&bso) - o1;
-}
-
-static void*
-grow(uchar **dat, uint32 *ndat, uint32 *mdat, uint32 n)
-{
-	uchar *p;
-	uint32 old;
-
-	if(*ndat+n > *mdat) {
-		old = *mdat;
-		*mdat = (*ndat+n)*2 + 128;
-		*dat = realloc(*dat, *mdat);
-		if(*dat == 0) {
-			diag("out of memory");
-			errorexit();
-		}
-		memset(*dat+old, 0, *mdat-old);
-	}
-	p = *dat + *ndat;
-	*ndat += n;
-	return p;
-}
-
-static int
-needlib(char *name)
-{
-	char *p;
-	Sym *s;
-
-	/* reuse hash code in symbol table */
-	p = smprint(".machoload.%s", name);
-	s = lookup(p, 0);
-	if(s->type == 0) {
-		s->type = 100;	// avoid SDATA, etc.
-		return 1;
-	}
-	return 0;
+	return cpos() - o1;
 }
 
 void
 domacho(void)
 {
-	int h, ptrsize, t;
-	char *p;
-	uchar *dat;
-	uint32 x;
 	Sym *s;
-	Sym **impsym;
 
-	ptrsize = 4;
-	if(macho64)
-		ptrsize = 8;
+	if(debug['d'])
+		return;
 
 	// empirically, string table must begin with " \x00".
-	if(!debug['d'])
-		*(char*)grow(&strtab, &nstrtab, &mstrtab, 2) = ' ';
-
-	impsym = nil;
-	for(h=0; h<NHASH; h++) {
-		for(s=hash[h]; s!=S; s=s->link) {
-			if(!s->reachable || (s->type != STEXT && s->type != SDATA && s->type != SBSS) || s->dynimpname == nil)
-				continue;
-			if(debug['d']) {
-				diag("cannot use dynamic loading and -d");
-				errorexit();
-			}
-			if(!s->dynexport) {
-				if(nimpsym%32 == 0) {
-					impsym = realloc(impsym, (nimpsym+32)*sizeof impsym[0]);
-					if(impsym == nil) {
-						diag("out of memory");
-						errorexit();
-					}
-				}
-				impsym[nimpsym++] = s;
-				continue;
-			}
-
-			/* symbol table entry - darwin still puts _ prefixes on all C symbols */
-			x = nstrtab;
-			p = grow(&strtab, &nstrtab, &mstrtab, 1+strlen(s->dynimpname)+1);
-			*p++ = '_';
-			strcpy(p, s->dynimpname);
-
-			dat = grow(&linkdata, &nlinkdata, &mlinkdata, 8+ptrsize);
-			dat[0] = x;
-			dat[1] = x>>8;
-			dat[2] = x>>16;
-			dat[3] = x>>24;
-
-			dat[4] = 0x0f;	// type: N_SECT | N_EXT - external, defined in sect
-			switch(s->type) {
-			default:
-			case STEXT:
-				t = 1;
-				break;
-			case SDATA:
-				t = 2;
-				break;
-			case SBSS:
-				t = 4;
-				break;
-			}
-			dat[5] = t;	// sect: section number
-
-			if (nexpsym%32 == 0) {
-				expsym = realloc(expsym, (nexpsym+32)*sizeof expsym[0]);
-				if (expsym == nil) {
-					diag("out of memory");
-					errorexit();
-				}
-			}
-			expsym[nexpsym].off = nlinkdata - ptrsize;
-			expsym[nexpsym++].s = s;
-		}
-	}
-
-	for(h=0; h<nimpsym; h++) {
-		s = impsym[h];
-		s->type = SMACHO;
-		s->value = (nexpsym+h) * ptrsize;
-
-		/* symbol table entry - darwin still puts _ prefixes on all C symbols */
-		x = nstrtab;
-		p = grow(&strtab, &nstrtab, &mstrtab, 1+strlen(s->dynimpname)+1);
-		*p++ = '_';
-		strcpy(p, s->dynimpname);
-
-		dat = grow(&linkdata, &nlinkdata, &mlinkdata, 8+ptrsize);
-		dat[0] = x;
-		dat[1] = x>>8;
-		dat[2] = x>>16;
-		dat[3] = x>>24;
-
-		dat[4] = 0x01;	// type: N_EXT - external symbol
-
-		if(needlib(s->dynimplib)) {
-			if(ndylib%32 == 0) {
-				dylib = realloc(dylib, (ndylib+32)*sizeof dylib[0]);
-				if(dylib == nil) {
-					diag("out of memory");
-					errorexit();
-				}
-			}
-			dylib[ndylib++] = s->dynimplib;
-		}
-	}
-	free(impsym);
-
-	/*
-	 * list of symbol table indexes.
-	 * we don't take advantage of the opportunity
-	 * to order the symbol table differently from
-	 * this list, so it is boring: 0 1 2 3 4 ...
-	 */
-	for(x=0; x<nexpsym+nimpsym; x++) {
-		dat = grow(&linkdata, &nlinkdata, &mlinkdata, 4);
-		dat[0] = x;
-		dat[1] = x>>8;
-		dat[2] = x>>16;
-		dat[3] = x>>24;
-	}
-
-	dynptrsize = (nexpsym+nimpsym) * ptrsize;
-}
-
-vlong
-domacholink(void)
-{
-	int i;
-	uchar *p;
-	Sym *s;
-	uint64 val;
-
-	linkoff = 0;
-	if(nlinkdata > 0) {
-		linkoff = rnd(HEADR+textsize, INITRND) + rnd(datsize, INITRND);
-		seek(cout, linkoff, 0);
-
-		for(i = 0; i<nexpsym; ++i) {
-			s = expsym[i].s;
-			val = s->value;
-			if(s->type == SUNDEF)
-				diag("export of undefined symbol %s", s->name);
-			if (s->type != STEXT)
-				val += INITDAT;
-			p = linkdata+expsym[i].off;
-			p[0] = val;
-			p[1] = val >> 8;
-			p[2] = val >> 16;
-			p[3] = val >> 24;
-			if (macho64) {
-				p[4] = val >> 32;
-				p[5] = val >> 40;
-				p[6] = val >> 48;
-				p[7] = val >> 56;
-			}
-		}
-
-		write(cout, linkdata, nlinkdata);
-		write(cout, strtab, nstrtab);
-	}
-	return rnd(nlinkdata+nstrtab, INITRND);
+	s = lookup(".dynstr", 0);
+	s->type = SMACHODYNSTR;
+	s->reachable = 1;
+	adduint8(s, ' ');
+	adduint8(s, '\0');
+	
+	s = lookup(".dynsym", 0);
+	s->type = SMACHODYNSYM;
+	s->reachable = 1;
+	
+	s = lookup(".plt", 0);	// will be __symbol_stub
+	s->type = SMACHOPLT;
+	s->reachable = 1;
+	
+	s = lookup(".got", 0);	// will be __nl_symbol_ptr
+	s->type = SMACHOGOT;
+	s->reachable = 1;
+	
+	s = lookup(".linkedit.plt", 0);	// indirect table for .plt
+	s->type = SMACHOINDIRECTPLT;
+	s->reachable = 1;
+	
+	s = lookup(".linkedit.got", 0);	// indirect table for .got
+	s->type = SMACHOINDIRECTGOT;
+	s->reachable = 1;
 }
 
 void
-asmbmacho(vlong symdatva, vlong symo)
+machoadddynlib(char *lib)
+{
+	if(ndylib%32 == 0) {
+		dylib = realloc(dylib, (ndylib+32)*sizeof dylib[0]);
+		if(dylib == nil) {
+			diag("out of memory");
+			errorexit();
+		}
+	}
+	dylib[ndylib++] = lib;
+}
+
+void
+asmbmacho(void)
 {
 	vlong v, w;
 	vlong va;
-	int a, i, ptrsize;
+	int a, i;
 	char *pkgroot;
 	MachoHdr *mh;
 	MachoSect *msect;
 	MachoSeg *ms;
 	MachoDebug *md;
 	MachoLoad *ml;
+	Sym *s;
 
 	/* apple MACH */
 	va = INITTEXT - HEADR;
@@ -458,12 +294,10 @@ asmbmacho(vlong symdatva, vlong symo)
 	case '6':
 		mh->cpu = MACHO_CPU_AMD64;
 		mh->subcpu = MACHO_SUBCPU_X86;
-		ptrsize = 8;
 		break;
 	case '8':
 		mh->cpu = MACHO_CPU_386;
 		mh->subcpu = MACHO_SUBCPU_X86;
-		ptrsize = 4;
 		break;
 	}
 
@@ -472,8 +306,8 @@ asmbmacho(vlong symdatva, vlong symo)
 	ms->vsize = va;
 
 	/* text */
-	v = rnd(HEADR+textsize, INITRND);
-	ms = newMachoSeg("__TEXT", 1);
+	v = rnd(HEADR+segtext.len, INITRND);
+	ms = newMachoSeg("__TEXT", 2);
 	ms->vaddr = va;
 	ms->vsize = v;
 	ms->filesize = v;
@@ -482,45 +316,50 @@ asmbmacho(vlong symdatva, vlong symo)
 
 	msect = newMachoSect(ms, "__text");
 	msect->addr = INITTEXT;
-	msect->size = textsize;
+	msect->size = segtext.sect->len;
 	msect->off = INITTEXT - va;
 	msect->flag = 0x400;	/* flag - some instructions */
+	
+	s = lookup(".plt", 0);
+	if(s->size > 0) {
+		msect = newMachoSect(ms, "__symbol_stub1");
+		msect->addr = symaddr(s);
+		msect->size = s->size;
+		msect->off = ms->fileoffset + msect->addr - ms->vaddr;
+		msect->flag = 0x80000408;	/* flag */
+		msect->res1 = 0;	/* index into indirect symbol table */
+		msect->res2 = 6;	/* size of stubs */
+	}
 
 	/* data */
-	w = datsize+dynptrsize+bsssize;
-	ms = newMachoSeg("__DATA", 2+(dynptrsize>0));
+	w = segdata.len;
+	ms = newMachoSeg("__DATA", 3);
 	ms->vaddr = va+v;
 	ms->vsize = w;
 	ms->fileoffset = v;
-	ms->filesize = datsize;
+	ms->filesize = segdata.filelen;
 	ms->prot1 = 7;
 	ms->prot2 = 3;
 
 	msect = newMachoSect(ms, "__data");
 	msect->addr = va+v;
-	msect->size = datsize;
+	msect->size = symaddr(lookup(".got", 0)) - msect->addr;
 	msect->off = v;
 
-	if(dynptrsize > 0) {
+	s = lookup(".got", 0);
+	if(s->size > 0) {
 		msect = newMachoSect(ms, "__nl_symbol_ptr");
-		msect->addr = va+v+datsize;
-		msect->size = dynptrsize;
+		msect->addr = symaddr(s);
+		msect->size = s->size;
+		msect->off = datoff(msect->addr);
 		msect->align = 2;
 		msect->flag = 6;	/* section with nonlazy symbol pointers */
-		/*
-		 * The reserved1 field is supposed to be the index of
-		 * the first entry in the list of symbol table indexes
-		 * in isymtab for the symbols we need.  We only use
-		 * pointers, so we need the entire list, so the index
-		 * here should be 0, which luckily is what the Mach-O
-		 * writing code emits by default for this not really reserved field.
-		msect->reserved1 = 0; - first indirect symbol table entry we need
-		 */
+		msect->res1 = lookup(".linkedit.plt", 0)->size / 4;	/* offset into indirect symbol table */
 	}
 
 	msect = newMachoSect(ms, "__bss");
-	msect->addr = va+v+datsize+dynptrsize;
-	msect->size = bsssize;
+	msect->addr = va+v+segdata.filelen;
+	msect->size = segdata.len - segdata.filelen;
 	msect->flag = 1;	/* flag - zero fill */
 
 	switch(thechar) {
@@ -532,7 +371,7 @@ asmbmacho(vlong symdatva, vlong symo)
 		ml->data[0] = 4;	/* thread type */
 		ml->data[1] = 42;	/* word count */
 		ml->data[2+32] = entryvalue();	/* start pc */
-		ml->data[2+32+1] = entryvalue()>>32;
+		ml->data[2+32+1] = entryvalue()>>16>>16;	// hide >>32 for 8l
 		break;
 	case '8':
 		ml = newMachoLoad(5, 16+2);	/* unix thread */
@@ -543,39 +382,43 @@ asmbmacho(vlong symdatva, vlong symo)
 	}
 
 	if(!debug['d']) {
-		int nsym;
+		Sym *s1, *s2, *s3, *s4;
 
-		nsym = dynptrsize/ptrsize;
+		// must match domacholink below
+		s1 = lookup(".dynsym", 0);
+		s2 = lookup(".dynstr", 0);
+		s3 = lookup(".linkedit.plt", 0);
+		s4 = lookup(".linkedit.got", 0);
 
 		ms = newMachoSeg("__LINKEDIT", 0);
-		ms->vaddr = va+v+rnd(datsize+dynptrsize+bsssize, INITRND);
-		ms->vsize = nlinkdata+nstrtab;
+		ms->vaddr = va+v+rnd(segdata.len, INITRND);
+		ms->vsize = s1->size + s2->size + s3->size + s4->size;
 		ms->fileoffset = linkoff;
-		ms->filesize = nlinkdata+nstrtab;
+		ms->filesize = ms->vsize;
 		ms->prot1 = 7;
 		ms->prot2 = 3;
 
 		ml = newMachoLoad(2, 4);	/* LC_SYMTAB */
 		ml->data[0] = linkoff;	/* symoff */
-		ml->data[1] = nsym;	/* nsyms */
-		ml->data[2] = linkoff + nlinkdata;	/* stroff */
-		ml->data[3] = nstrtab;	/* strsize */
+		ml->data[1] = s1->size / (macho64 ? 16 : 12);	/* nsyms */
+		ml->data[2] = linkoff + s1->size;	/* stroff */
+		ml->data[3] = s2->size;	/* strsize */
 
 		ml = newMachoLoad(11, 18);	/* LC_DYSYMTAB */
 		ml->data[0] = 0;	/* ilocalsym */
 		ml->data[1] = 0;	/* nlocalsym */
 		ml->data[2] = 0;	/* iextdefsym */
-		ml->data[3] = nexpsym;	/* nextdefsym */
-		ml->data[4] = nexpsym;	/* iundefsym */
-		ml->data[5] = nimpsym;	/* nundefsym */
+		ml->data[3] = ndynexp;	/* nextdefsym */
+		ml->data[4] = ndynexp;	/* iundefsym */
+		ml->data[5] = (s1->size / (macho64 ? 16 : 12)) - ndynexp;	/* nundefsym */
 		ml->data[6] = 0;	/* tocoffset */
 		ml->data[7] = 0;	/* ntoc */
 		ml->data[8] = 0;	/* modtaboff */
 		ml->data[9] = 0;	/* nmodtab */
 		ml->data[10] = 0;	/* extrefsymoff */
 		ml->data[11] = 0;	/* nextrefsyms */
-		ml->data[12] = linkoff + nlinkdata - nsym*4;	/* indirectsymoff */
-		ml->data[13] = nsym;	/* nindirectsyms */
+		ml->data[12] = linkoff + s1->size + s2->size;	/* indirectsymoff */
+		ml->data[13] = (s3->size + s4->size) / 4;	/* nindirectsyms */
 		ml->data[14] = 0;	/* extreloff */
 		ml->data[15] = 0;	/* nextrel */
 		ml->data[16] = 0;	/* locreloff */
@@ -602,24 +445,53 @@ asmbmacho(vlong symdatva, vlong symo)
 	}
 
 	if(!debug['s']) {
-		ms = newMachoSeg("__SYMDAT", 1);
-		ms->vaddr = symdatva;
-		ms->vsize = 8+symsize+lcsize;
-		ms->fileoffset = symo;
-		ms->filesize = 8+symsize+lcsize;
-		ms->prot1 = 7;
-		ms->prot2 = 5;
+		Sym *s;
 
 		md = newMachoDebug();
-		md->fileoffset = symo+8;
-		md->filesize = symsize;
+		s = lookup("symtab", 0);
+		md->fileoffset = datoff(s->value);
+		md->filesize = s->size;
 
 		md = newMachoDebug();
-		md->fileoffset = symo+8+symsize;
-		md->filesize = lcsize;
+		s = lookup("pclntab", 0);
+		md->fileoffset = datoff(s->value);
+		md->filesize = s->size;
+
+		dwarfaddmachoheaders();
 	}
 
 	a = machowrite();
 	if(a > MACHORESERVE)
 		diag("MACHORESERVE too small: %d > %d", a, MACHORESERVE);
+}
+
+vlong
+domacholink(void)
+{
+	int size;
+	Sym *s1, *s2, *s3, *s4;
+
+	// write data that will be linkedit section
+	s1 = lookup(".dynsym", 0);
+	relocsym(s1);
+	s2 = lookup(".dynstr", 0);
+	s3 = lookup(".linkedit.plt", 0);
+	s4 = lookup(".linkedit.got", 0);
+
+	while(s2->size%4)
+		adduint8(s2, 0);
+	
+	size = s1->size + s2->size + s3->size + s4->size;
+
+	if(size > 0) {
+		linkoff = rnd(HEADR+segtext.len, INITRND) + rnd(segdata.filelen, INITRND);
+		seek(cout, linkoff, 0);
+
+		ewrite(cout, s1->p, s1->size);
+		ewrite(cout, s2->p, s2->size);
+		ewrite(cout, s3->p, s3->size);
+		ewrite(cout, s4->p, s4->size);
+	}
+
+	return rnd(size, INITRND);
 }

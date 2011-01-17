@@ -2,22 +2,21 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-all: $(TARG)
+ifeq ($(GOOS),windows)
+TARG:=$(TARG).exe
+endif
 
-# ugly hack to deal with whitespaces in $GOROOT
-nullstring :=
-space := $(nullstring) # a space at the end
-QUOTED_GOROOT:=$(subst $(space),\ ,$(GOROOT))
+all: $(TARG)
 
 include $(QUOTED_GOROOT)/src/Make.common
 
 PREREQ+=$(patsubst %,%.make,$(DEPS))
 
-$(TARG): _go_.$O $(OFILES)
-	$(QUOTED_GOBIN)/$(LD) -o $@ _go_.$O $(OFILES)
+$(TARG): _go_.$O
+	$(LD) -o $@ _go_.$O
 
 _go_.$O: $(GOFILES) $(PREREQ)
-	$(QUOTED_GOBIN)/$(GC) -o $@ $(GOFILES)
+	$(GC) -o $@ $(GOFILES)
 
 install: $(QUOTED_GOBIN)/$(TARG)
 

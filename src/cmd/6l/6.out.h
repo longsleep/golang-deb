@@ -33,6 +33,7 @@
 #define NOPROF	(1<<0)
 #define DUPOK	(1<<1)
 #define NOSPLIT	(1<<2)
+#define RODATA	(1<<3)
 
 /*
  *	amd64
@@ -389,8 +390,8 @@ enum	as
 
 	AEND,
 
-	ADYNT,
-	AINIT,
+	ADYNT_,
+	AINIT_,
 
 	ASIGNAME,
 
@@ -823,6 +824,7 @@ enum
 	D_INDIR,	/* additive */
 
 	D_SIZE = D_INDIR + D_INDIR,	/* 6l internal */
+	D_PCREL,
 
 	T_TYPE		= 1<<0,
 	T_INDEX		= 1<<1,

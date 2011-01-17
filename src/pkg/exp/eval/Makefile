@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../../Make.$(GOARCH)
+include ../../../Make.inc
 
 TARG=exp/eval
 GOFILES=\
@@ -16,14 +16,22 @@ GOFILES=\
 	stmt.go\
 	type.go\
 	typec.go\
-	util.go\
 	value.go\
 	world.go\
 
 include ../../../Make.pkg
 
 main.$O: main.go $(pkgdir)/$(TARG).a
-	$(QUOTED_GOBIN)/$(GC) $<
+	$(GC) $<
 
 eval: main.$O
-	$(QUOTED_GOBIN)/$(LD) -o $@ $<
+	$(LD) -o $@ $<
+
+gen.$O: gen.go
+	$(GC) $<
+
+generate: gen.$O $(pkgdir)/$(TARG).a
+	$(LD) -o $@ $<;\
+	./generate > expr1.go;\
+	gofmt -w expr1.go
+

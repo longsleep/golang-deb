@@ -8,7 +8,6 @@ package doc
 
 import (
 	"go/ast"
-	"http" // for URLEscape
 	"io"
 	"regexp"
 	"strings"
@@ -63,16 +62,7 @@ func CommentText(comment *ast.CommentGroup) string {
 
 		// Walk lines, stripping trailing white space and adding to list.
 		for _, l := range cl {
-			l = stripTrailingWhitespace(l)
-			// Add to list.
-			n := len(lines)
-			if n+1 >= cap(lines) {
-				newlines := make([]string, n, 2*cap(lines))
-				copy(newlines, lines)
-				lines = newlines
-			}
-			lines = lines[0 : n+1]
-			lines[n] = l
+			lines = append(lines, stripTrailingWhitespace(l))
 		}
 	}
 
@@ -88,10 +78,8 @@ func CommentText(comment *ast.CommentGroup) string {
 	lines = lines[0:n]
 
 	// Add final "" entry to get trailing newline from Join.
-	// The original loop always leaves room for one more.
 	if n > 0 && lines[n-1] != "" {
-		lines = lines[0 : n+1]
-		lines[n] = ""
+		lines = append(lines, "")
 	}
 
 	return strings.Join(lines, "\n")
@@ -195,12 +183,12 @@ var (
 // into a link). Go identifiers that appear in the words map are italicized; if
 // the corresponding map value is not the empty string, it is considered a URL
 // and the word is converted into a link. If nice is set, the remaining text's
-// appearance is improved where is makes sense (e.g., `` is turned into &ldquo;
+// appearance is improved where it makes sense (e.g., `` is turned into &ldquo;
 // and '' into &rdquo;).
 func emphasize(w io.Writer, line []byte, words map[string]string, nice bool) {
 	for {
-		m := matchRx.Execute(line)
-		if len(m) == 0 {
+		m := matchRx.FindSubmatchIndex(line)
+		if m == nil {
 			break
 		}
 		// m >= 6 (two parenthesized sub-regexps in matchRx, 1st one is identRx)
@@ -224,11 +212,10 @@ func emphasize(w io.Writer, line []byte, words map[string]string, nice bool) {
 			italics = false // don't italicize URLs
 		}
 
-
 		// write match
 		if len(url) > 0 {
 			w.Write(html_a)
-			w.Write([]byte(http.URLEscape(url)))
+			template.HTMLEscape(w, []byte(url))
 			w.Write(html_aq)
 		}
 		if italics {

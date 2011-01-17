@@ -6,19 +6,22 @@ package syscall
 
 // Constants
 const (
-	sizeofPtr           = 0x4
-	sizeofShort         = 0x2
-	sizeofInt           = 0x4
-	sizeofLong          = 0x4
-	sizeofLongLong      = 0x8
-	PathMax             = 0x1000
-	SizeofSockaddrInet4 = 0x10
-	SizeofSockaddrInet6 = 0x1c
-	SizeofSockaddrAny   = 0x70
-	SizeofSockaddrUnix  = 0x6e
-	SizeofLinger        = 0x8
-	SizeofMsghdr        = 0x1c
-	SizeofCmsghdr       = 0xc
+	sizeofPtr               = 0x4
+	sizeofShort             = 0x2
+	sizeofInt               = 0x4
+	sizeofLong              = 0x4
+	sizeofLongLong          = 0x8
+	PathMax                 = 0x1000
+	SizeofSockaddrInet4     = 0x10
+	SizeofSockaddrInet6     = 0x1c
+	SizeofSockaddrAny       = 0x70
+	SizeofSockaddrUnix      = 0x6e
+	SizeofSockaddrLinklayer = 0x14
+	SizeofLinger            = 0x8
+	SizeofMsghdr            = 0x1c
+	SizeofCmsghdr           = 0xc
+	SizeofUcred             = 0xc
+	SizeofInotifyEvent      = 0x10
 )
 
 // Types
@@ -61,6 +64,7 @@ type Timex struct {
 	Calcnt    int32
 	Errcnt    int32
 	Stbcnt    int32
+	Tai       int32
 	Pad0      int32
 	Pad1      int32
 	Pad2      int32
@@ -72,7 +76,6 @@ type Timex struct {
 	Pad8      int32
 	Pad9      int32
 	Pad10     int32
-	Pad11     int32
 }
 
 type Time_t int32
@@ -179,6 +182,16 @@ type RawSockaddrUnix struct {
 	Path   [108]int8
 }
 
+type RawSockaddrLinklayer struct {
+	Family   uint16
+	Protocol uint16
+	Ifindex  int32
+	Hatype   uint16
+	Pkttype  uint8
+	Halen    uint8
+	Addr     [8]uint8
+}
+
 type RawSockaddr struct {
 	Family uint16
 	Data   [14]int8
@@ -217,6 +230,19 @@ type Cmsghdr struct {
 	Type  int32
 }
 
+type Ucred struct {
+	Pid int32
+	Uid uint32
+	Gid uint32
+}
+
+type InotifyEvent struct {
+	Wd     int32
+	Mask   uint32
+	Cookie uint32
+	Len    uint32
+}
+
 type PtraceRegs struct {
 	Ebx      int32
 	Ecx      int32
@@ -225,22 +251,16 @@ type PtraceRegs struct {
 	Edi      int32
 	Ebp      int32
 	Eax      int32
-	Ds       uint16
-	X__ds    uint16
-	Es       uint16
-	X__es    uint16
-	Fs       uint16
-	X__fs    uint16
-	Gs       uint16
-	X__gs    uint16
+	Xds      int32
+	Xes      int32
+	Xfs      int32
+	Xgs      int32
 	Orig_eax int32
 	Eip      int32
-	Cs       uint16
-	X__cs    uint16
+	Xcs      int32
 	Eflags   int32
 	Esp      int32
-	Ss       uint16
-	X__ss    uint16
+	Xss      int32
 }
 
 type FdSet struct {

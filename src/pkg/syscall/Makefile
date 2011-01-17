@@ -2,12 +2,11 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=syscall
 GOFILES=\
 	str.go\
-	exec.go\
 	syscall.go\
 	syscall_$(GOARCH).go\
 	syscall_$(GOOS).go\
@@ -20,16 +19,19 @@ GOFILES=\
 GOFILES_freebsd=\
 	syscall_bsd.go\
 	syscall_unix.go\
+	exec_unix.go\
 
 GOFILES_darwin=\
 	syscall_bsd.go\
 	syscall_unix.go\
+	exec_unix.go\
 
 GOFILES_linux=\
 	syscall_unix.go\
+	exec_unix.go\
 
-GOFILES_nacl=\
-	syscall_unix.go\
+GOFILES_windows=\
+	exec_windows.go
 
 OFILES=\
 	asm_$(GOOS)_$(GOARCH).$O\

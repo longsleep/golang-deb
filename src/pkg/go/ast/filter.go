@@ -197,7 +197,7 @@ type Filter func(string) bool
 func filterIdentList(list []*Ident, f Filter) []*Ident {
 	j := 0
 	for _, x := range list {
-		if f(x.Name()) {
+		if f(x.Name) {
 			list[j] = x
 			j++
 		}
@@ -212,7 +212,7 @@ func filterSpec(spec Spec, f Filter) bool {
 		s.Names = filterIdentList(s.Names, f)
 		return len(s.Names) > 0
 	case *TypeSpec:
-		return f(s.Name.Name())
+		return f(s.Name.Name)
 	}
 	return false
 }
@@ -236,7 +236,7 @@ func filterDecl(decl Decl, f Filter) bool {
 		d.Specs = filterSpecList(d.Specs, f)
 		return len(d.Specs) > 0
 	case *FuncDecl:
-		return f(d.Name.Name())
+		return f(d.Name.Name)
 	}
 	return false
 }
@@ -307,27 +307,6 @@ const (
 var separator = &Comment{noPos, []byte("//")}
 
 
-// lineAfterComment computes the position of the beginning
-// of the line immediately following a comment.
-func lineAfterComment(c *Comment) token.Position {
-	pos := c.Pos()
-	line := pos.Line
-	text := c.Text
-	if text[1] == '*' {
-		/*-style comment - determine endline */
-		for _, ch := range text {
-			if ch == '\n' {
-				line++
-			}
-		}
-	}
-	pos.Offset += len(text) + 1 // +1 for newline
-	pos.Line = line + 1         // line after comment
-	pos.Column = 1              // beginning of line
-	return pos
-}
-
-
 // MergePackageFiles creates a file AST by merging the ASTs of the
 // files belonging to a package. The mode flags control merging behavior.
 //
@@ -351,7 +330,7 @@ func MergePackageFiles(pkg *Package, mode MergeMode) *File {
 	// a package comment; but it's better to collect extra comments
 	// than drop them on the floor.
 	var doc *CommentGroup
-	var pos token.Position
+	var pos token.Pos
 	if ndocs > 0 {
 		list := make([]*Comment, ndocs-1) // -1: no separator before first group
 		i := 0
@@ -366,11 +345,11 @@ func MergePackageFiles(pkg *Package, mode MergeMode) *File {
 					list[i] = c
 					i++
 				}
-				end := lineAfterComment(f.Doc.List[len(f.Doc.List)-1])
-				if end.Offset > pos.Offset {
-					// Keep the maximum end position as
-					// position for the package clause.
-					pos = end
+				if f.Package > pos {
+					// Keep the maximum package clause position as
+					// position for the package clause of the merged
+					// files.
+					pos = f.Package
 				}
 			}
 		}
@@ -397,7 +376,7 @@ func MergePackageFiles(pkg *Package, mode MergeMode) *File {
 					//            entities (const, type, vars) if
 					//            multiple declarations are common.
 					if f, isFun := d.(*FuncDecl); isFun {
-						name := f.Name.Name()
+						name := f.Name.Name
 						if j, exists := funcs[name]; exists {
 							// function declared already
 							if decls[j] != nil && decls[j].(*FuncDecl).Doc == nil {

@@ -40,6 +40,34 @@ struct Library
 	char *pkg;	// import path
 };
 
+// Terrible but standard terminology.
+// A segment describes a block of file to load into memory.
+// A section further describes the pieces of that block for
+// use in debuggers and such.
+
+typedef struct Segment Segment;
+typedef struct Section Section;
+
+struct Segment
+{
+	uchar	rwx;		// permission as usual unix bits (5 = r-x etc)
+	uvlong	vaddr;	// virtual address
+	uvlong	len;		// length in memory
+	uvlong	fileoff;	// file offset
+	uvlong	filelen;	// length on disk
+	Section*	sect;
+};
+
+struct Section
+{
+	uchar	rwx;
+	char	*name;
+	uvlong	vaddr;
+	uvlong	len;
+	Section	*next;	// in segment list
+	Segment	*seg;
+};
+
 extern	char	symname[];
 extern	char	*libdir[];
 extern	int	nlibdir;
@@ -64,11 +92,18 @@ EXTERN	uchar	inuxi8[8];
 EXTERN	char*	outfile;
 EXTERN	int32	nsymbol;
 EXTERN	char*	thestring;
+EXTERN	int	ndynexp;
+
+EXTERN	Segment	segtext;
+EXTERN	Segment	segdata;
+EXTERN	Segment	segsym;
 
 void	addlib(char *src, char *obj);
 void	addlibpath(char *srcref, char *objref, char *file, char *pkg);
+Section*	addsection(Segment*, char*, int);
 void	copyhistfrog(char *buf, int nbuf);
 void	addhist(int32 line, int type);
+void	asmlc(void);
 void	histtoauto(void);
 void	collapsefrog(Sym *s);
 Sym*	lookup(char *symb, int v);
@@ -83,20 +118,82 @@ void	readundefs(char *f, int t);
 int32	Bget4(Biobuf *f);
 void	loadlib(void);
 void	errorexit(void);
+void	mangle(char*);
 void	objfile(char *file, char *pkg);
 void	libinit(void);
+void	pclntab(void);
+void	symtab(void);
 void	Lflag(char *arg);
 void	usage(void);
+void	adddynrel(Sym*, Reloc*);
 void	ldobj1(Biobuf *f, char*, int64 len, char *pn);
 void	ldobj(Biobuf*, char*, int64, char*, int);
+void	ldelf(Biobuf*, char*, int64, char*);
+void	ldmacho(Biobuf*, char*, int64, char*);
 void	ldpkg(Biobuf*, char*, int64, char*, int);
 void	mark(Sym *s);
+void	mkfwd(void);
 char*	expandpkg(char*, char*);
 void	deadcode(void);
+void	ewrite(int, void*, int);
+Reloc*	addrel(Sym*);
+void	codeblk(int32, int32);
+void	datblk(int32, int32);
+Sym*	datsort(Sym*);
+void	reloc(void);
+void	relocsym(Sym*);
+void	savedata(Sym*, Prog*);
+void	symgrow(Sym*, int32);
+vlong	addstring(Sym*, char*);
+vlong	adduint32(Sym*, uint32);
+vlong	adduint64(Sym*, uint64);
+vlong	addaddr(Sym*, Sym*);
+vlong	addaddrplus(Sym*, Sym*, int32);
+vlong	addpcrelplus(Sym*, Sym*, int32);
+vlong	addsize(Sym*, Sym*);
+vlong	adduint8(Sym*, uint8);
+vlong	adduint16(Sym*, uint16);
+void	asmsym(void);
+void	asmelfsym64(void);
+void	strnput(char*, int);
+void	dodata(void);
+void	address(void);
+void	textaddress(void);
+void	genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*));
+vlong	datoff(vlong);
+void	adddynlib(char*);
+int	archreloc(Reloc*, Sym*, vlong*);
+void	adddynsym(Sym*);
+void	addexport(void);
 
 int	pathchar(void);
 void*	mal(uint32);
+void	unmal(void*, uint32);
 void	mywhatsys(void);
+int	rbyoff(const void*, const void*);
+
+uint16	le16(uchar*);
+uint32	le32(uchar*);
+uint64	le64(uchar*);
+uint16	be16(uchar*);
+uint32	be32(uchar*);
+uint64	be64(uchar*);
+
+typedef struct Endian Endian;
+struct Endian
+{
+	uint16	(*e16)(uchar*);
+	uint32	(*e32)(uchar*);
+	uint64	(*e64)(uchar*);
+};
+
+extern Endian be, le;
+
+// relocation size bits
+enum {
+	Rbig = 128,
+	Rlittle = 64,
+};
 
 /* set by call to mywhatsys() */
 extern	char*	goroot;

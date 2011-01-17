@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Reading object files.
+
 #define	EXTERN
 #include	"l.h"
 #include	"../ld/lib.h"
@@ -49,28 +51,6 @@ char	*thestring 	= "arm";
  *	-H4				is IXP1200 (raw)
  *	-H5 -T0xC0008010 -R1024		is ipaq
  */
-
-static int
-isobjfile(char *f)
-{
-	int n, v;
-	Biobuf *b;
-	char buf1[5], buf2[SARMAG];
-
-	b = Bopen(f, OREAD);
-	if(b == nil)
-		return 0;
-	n = Bread(b, buf1, 5);
-	if(n == 5 && (buf1[2] == 1 && buf1[3] == '<' || buf1[3] == 1 && buf1[4] == '<'))
-		v = 1;	/* good enough for our purposes */
-	else{
-		Bseek(b, 0, 0);
-		n = Bread(b, buf2, SARMAG);
-		v = n == SARMAG && strncmp(buf2, ARMAG, SARMAG) == 0;
-	}
-	Bterm(b);
-	return v;
-}
 
 static char*
 linkername[] =
@@ -94,7 +74,6 @@ main(int argc, char *argv[])
 	cout = -1;
 	listinit();
 	nerrors = 0;
-	curtext = P;
 	outfile = "5.out";
 	HEADTYPE = -1;
 	INITTEXT = -1;
@@ -231,10 +210,10 @@ main(int argc, char *argv[])
 		break;
 	}
 	if(INITDAT != 0 && INITRND != 0)
-		print("warning: -D0x%lux is ignored because of -R0x%lux\n",
+		print("warning: -D0x%ux is ignored because of -R0x%ux\n",
 			INITDAT, INITRND);
 	if(debug['v'])
-		Bprint(&bso, "HEADER = -H0x%d -T0x%lux -D0x%lux -R0x%lux\n",
+		Bprint(&bso, "HEADER = -H0x%d -T0x%ux -D0x%ux -R0x%ux\n",
 			HEADTYPE, INITTEXT, INITDAT, INITRND);
 	Bflush(&bso);
 	zprg.as = AGOK;
@@ -247,9 +226,6 @@ main(int argc, char *argv[])
 	buildop();
 	thumbbuildop();	// could build on demand
 	histgen = 0;
-	textp = P;
-	datap = P;
-	edatap = P;
 	pc = 0;
 	dtype = 4;
 	nuxiinit();
@@ -257,8 +233,6 @@ main(int argc, char *argv[])
 	version = 0;
 	cbp = buf.cbuf;
 	cbc = sizeof(buf.cbuf);
-	firstp = prg();
-	lastp = firstp;
 
 	addlibpath("command line", "command line", argv[0], "main");
 	loadlib();
@@ -268,52 +242,30 @@ main(int argc, char *argv[])
 	for(i=0; i<nelem(linkername); i++)
 		mark(lookup(linkername[i], 0));
 	deadcode();
-
-	firstp = firstp->link;
-	if(firstp == P)
-		goto out;
-	if(doexp || dlm){
-		EXPTAB = "_exporttab";
-		zerosig(EXPTAB);
-		zerosig("etext");
-		zerosig("edata");
-		zerosig("end");
-		if(dlm){
-			initdiv();
-			import();
-			HEADTYPE = 2;
-			INITTEXT = INITDAT = 0;
-			INITRND = 8;
-			INITENTRY = EXPTAB;
-		}
-		else
-			divsig();
-		export();
+	if(textp == nil) {
+		diag("no code");
+		errorexit();
 	}
+
 	patch();
 	if(debug['p'])
 		if(debug['1'])
 			doprof1();
 		else
 			doprof2();
-	if(debug['u'])
-		reachable();
 	doelf();
-	dodata();
-	if(seenthumb && debug['f'])
-		fnptrs();
 	follow();
-	if(firstp == P) {
-		diag("no code");
-		errorexit();
-	}
 	softfloat();
 	noops();
 	span();
+	pclntab();
+	symtab();
+	dodata();
+	address();
+	reloc();
 	asmb();
 	undef();
 
-out:
 	if(debug['c']){
 		thumbcount();
 		print("ARM size = %d\n", armsize);
@@ -327,7 +279,7 @@ out:
 	errorexit();
 }
 
-void
+static void
 zaddr(Biobuf *f, Adr *a, Sym *h[])
 {
 	int i, c;
@@ -355,7 +307,7 @@ zaddr(Biobuf *f, Adr *a, Sym *h[])
 	if(a->type == D_CONST || a->type == D_OCONST) {
 		if(a->name == D_EXTERN || a->name == D_STATIC) {
 			s = a->sym;
-			if(s != S && (s->type == STEXT || s->type == SLEAF || s->type == SCONST || s->type == SXREF)) {
+			if(s != S && (s->type == STEXT || s->type == SCONST || s->type == SXREF)) {
 				if(0 && !s->fnptr && s->name[0] != '.')
 					print("%s used as function pointer\n", s->name);
 				s->fnptr = 1;	// over the top cos of SXREF
@@ -398,9 +350,8 @@ zaddr(Biobuf *f, Adr *a, Sym *h[])
 		break;
 
 	case D_FCONST:
-		a->ieee = mal(sizeof(Ieee));
-		a->ieee->l = Bget4(f);
-		a->ieee->h = Bget4(f);
+		a->ieee.l = Bget4(f);
+		a->ieee.h = Bget4(f);
 		break;
 	}
 	s = a->sym;
@@ -441,7 +392,7 @@ void
 ldobj1(Biobuf *f, char *pkg, int64 len, char *pn)
 {
 	int32 ipc;
-	Prog *p, *t;
+	Prog *p;
 	Sym *h[NSYM], *s, *di;
 	int v, o, r, skip;
 	uint32 sig;
@@ -449,7 +400,9 @@ ldobj1(Biobuf *f, char *pkg, int64 len, char *pn)
 	int ntext;
 	int32 eof;
 	char src[1024], *x;
+	Prog *lastp;
 
+	lastp = nil;
 	ntext = 0;
 	eof = Boffset(f) + len;
 	di = S;
@@ -499,13 +452,17 @@ loop:
 
 		if(sig != 0){
 			if(s->sig != 0 && s->sig != sig)
-				diag("incompatible type signatures %lux(%s) and %lux(%s) for %s", s->sig, s->file, sig, pn, s->name);
+				diag("incompatible type signatures %ux(%s) and %ux(%s) for %s", s->sig, s->file, sig, pn, s->name);
 			s->sig = sig;
 			s->file = pn;
 		}
 
 		if(debug['W'])
 			print("	ANAME	%s\n", s->name);
+		if(o < 0 || o >= nelem(h)) {
+			fprint(2, "%s: mangled input file\n", pn);
+			errorexit();
+		}
 		h[o] = s;
 		if((v == D_EXTERN || v == D_STATIC) && s->type == 0)
 			s->type = SXREF;
@@ -533,8 +490,8 @@ loop:
 	zaddr(f, &p->from, h);
 	zaddr(f, &p->to, h);
 
-	if(p->reg > NREG)
-		diag("register out of range %d", p->reg);
+	if(p->as != ATEXT && p->as != AGLOBL && p->reg > NREG)
+		diag("register out of range %A %d", p->as, p->reg);
 
 	p->link = P;
 	p->cond = P;
@@ -559,10 +516,10 @@ loop:
 
 	case AEND:
 		histtoauto();
-		if(curtext != P)
-			curtext->to.autom = curauto;
+		if(cursym != nil && cursym->text)
+			cursym->autom = curauto;
 		curauto = 0;
-		curtext = P;
+		cursym = nil;
 		if(Boffset(f) == eof)
 			return;
 		goto newloop;
@@ -582,70 +539,10 @@ loop:
 			s->type = SBSS;
 			s->value = 0;
 		}
-		if(p->to.offset > s->value)
-			s->value = p->to.offset;
+		if(p->to.offset > s->size)
+			s->size = p->to.offset;
 		if(p->reg & DUPOK)
 			s->dupok = 1;
-		break;
-
-	case ADYNT:
-		s = p->from.sym;
-		if(p->to.sym == S) {
-			diag("DYNT without a sym\n%P", p);
-			break;
-		}
-		di = p->to.sym;
-		p->reg = 4;
-		if(di->type == SXREF) {
-			if(debug['z'])
-				Bprint(&bso, "%P set to %d\n", p, dtype);
-			di->type = SCONST;
-			di->value = dtype;
-			dtype += 4;
-		}
-		if(s == S)
-			break;
-
-		p->from.offset = di->value;
-		s->type = SDATA;
-		if(curtext == P) {
-			diag("DYNT not in text: %P", p);
-			break;
-		}
-		p->to.sym = curtext->from.sym;
-		p->to.type = D_CONST;
-		if(s != S) {
-			p->dlink = s->data;
-			s->data = p;
-		}
-		if(edatap == P)
-			datap = p;
-		else
-			edatap->link = p;
-		edatap = p;
-		break;
-
-	case AINIT:
-		s = p->from.sym;
-		if(s == S) {
-			diag("INIT without a sym\n%P", p);
-			break;
-		}
-		if(di == S) {
-			diag("INIT without previous DYNT\n%P", p);
-			break;
-		}
-		p->from.offset = di->value;
-		s->type = SDATA;
-		if(s != S) {
-			p->dlink = s->data;
-			s->data = p;
-		}
-		if(edatap == P)
-			datap = p;
-		else
-			edatap->link = p;
-		edatap = p;
 		break;
 
 	case ADATA:
@@ -654,26 +551,19 @@ loop:
 		// ignore any more ADATA we see, which must be
 		// redefinitions.
 		s = p->from.sym;
-		if(s != S && s->dupok) {
+		if(s->dupok) {
 			if(debug['v'])
 				Bprint(&bso, "skipping %s in %s: dupok\n", s->name, pn);
 			goto loop;
 		}
-		if(s != S) {
-			p->dlink = s->data;
-			s->data = p;
-			if(s->file == nil)
-				s->file = pn;
-			else if(s->file != pn) {
-				diag("multiple initialization for %s: in both %s and %s", s->name, s->file, pn);
-				errorexit();
-			}			
+		if(s->file == nil)
+			s->file = pn;
+		else if(s->file != pn) {
+			diag("multiple initialization for %s: in both %s and %s", s->name, s->file, pn);
+			errorexit();
 		}
-		if(edatap == P)
-			datap = p;
-		else
-			edatap->link = p;
-		edatap = p;
+		savedata(s, p);
+		unmal(p, sizeof *p);
 		break;
 
 	case AGOK:
@@ -683,31 +573,24 @@ loop:
 		break;
 
 	case ATEXT:
+		if(cursym != nil && cursym->text) {
+			histtoauto();
+			cursym->autom = curauto;
+			curauto = 0;
+		}
 		s = p->from.sym;
+		if(s == S) {
+			diag("TEXT must have a name\n%P", p);
+			errorexit();
+		}
+		cursym = s;
 		if(ntext++ == 0 && s->type != 0 && s->type != SXREF) {
 			/* redefinition, so file has probably been seen before */
 			if(debug['v'])
 				Bprint(&bso, "skipping: %s: redefinition: %s", pn, s->name);
 			return;
 		}
-		setarch(p);
-		setthumb(p);
-		p->align = 4;
-		if(curtext != P) {
-			histtoauto();
-			curtext->to.autom = curauto;
-			curauto = 0;
-		}
 		skip = 0;
-		curtext = p;
-		autosize = (p->to.offset+3L) & ~3L;
-		p->to.offset = autosize;
-		autosize += 4;
-		s = p->from.sym;
-		if(s == S) {
-			diag("TEXT must have a name\n%P", p);
-			errorexit();
-		}
 		if(s->type != 0 && s->type != SXREF) {
 			if(p->reg & DUPOK) {
 				skip = 1;
@@ -715,21 +598,24 @@ loop:
 			}
 			diag("redefinition: %s\n%P", s->name, p);
 		}
+		if(etextp)
+			etextp->next = s;
+		else
+			textp = s;
+		etextp = s;
+		setarch(p);
+		setthumb(p);
+		p->align = 4;
+		autosize = (p->to.offset+3L) & ~3L;
+		p->to.offset = autosize;
+		autosize += 4;
 		s->type = STEXT;
 		s->text = p;
 		s->value = pc;
 		s->thumb = thumb;
-		lastp->link = p;
 		lastp = p;
 		p->pc = pc;
 		pc++;
-		if(textp == P) {
-			textp = p;
-			etextp = p;
-			goto loop;
-		}
-		etextp->cond = p;
-		etextp = p;
 		break;
 
 	case ASUB:
@@ -778,27 +664,15 @@ loop:
 		if(skip)
 			goto casedef;
 
-		if(p->from.type == D_FCONST && chipfloat(p->from.ieee) < 0) {
+		if(p->from.type == D_FCONST && chipfloat(&p->from.ieee) < 0 &&
+		   (chipzero(&p->from.ieee) < 0 || (p->scond & C_SCOND) != C_SCOND_NONE)) {
 			/* size sb 9 max */
-			sprint(literal, "$%lux", ieeedtof(p->from.ieee));
+			sprint(literal, "$%ux", ieeedtof(&p->from.ieee));
 			s = lookup(literal, 0);
 			if(s->type == 0) {
 				s->type = SBSS;
-				s->value = 4;
-				t = prg();
-				t->as = ADATA;
-				t->line = p->line;
-				t->from.type = D_OREG;
-				t->from.sym = s;
-				t->from.name = D_EXTERN;
-				t->reg = 4;
-				t->to = p->from;
-				if(edatap == P)
-					datap = t;
-				else
-					edatap->link = t;
-				edatap = t;
-				t->link = P;
+				adduint32(s, ieeedtof(&p->from.ieee));
+				s->reachable = 0;
 			}
 			p->from.type = D_OREG;
 			p->from.sym = s;
@@ -813,28 +687,17 @@ loop:
 		if(skip)
 			goto casedef;
 
-		if(p->from.type == D_FCONST && chipfloat(p->from.ieee) < 0) {
+		if(p->from.type == D_FCONST && chipfloat(&p->from.ieee) < 0 &&
+		   (chipzero(&p->from.ieee) < 0 || (p->scond & C_SCOND) != C_SCOND_NONE)) {
 			/* size sb 18 max */
-			sprint(literal, "$%lux.%lux",
-				p->from.ieee->l, p->from.ieee->h);
+			sprint(literal, "$%ux.%ux",
+				p->from.ieee.l, p->from.ieee.h);
 			s = lookup(literal, 0);
 			if(s->type == 0) {
 				s->type = SBSS;
-				s->value = 8;
-				t = prg();
-				t->as = ADATA;
-				t->line = p->line;
-				t->from.type = D_OREG;
-				t->from.sym = s;
-				t->from.name = D_EXTERN;
-				t->reg = 8;
-				t->to = p->from;
-				if(edatap == P)
-					datap = t;
-				else
-					edatap->link = t;
-				edatap = t;
-				t->link = P;
+				adduint32(s, p->from.ieee.l);
+				adduint32(s, p->from.ieee.h);
+				s->reachable = 0;
 			}
 			p->from.type = D_OREG;
 			p->from.sym = s;
@@ -847,13 +710,17 @@ loop:
 	casedef:
 		if(skip)
 			nopout(p);
-
-		if(p->to.type == D_BRANCH)
-			p->to.offset += ipc;
-		lastp->link = p;
-		lastp = p;
 		p->pc = pc;
 		pc++;
+		if(p->to.type == D_BRANCH)
+			p->to.offset += ipc;
+		if(lastp == nil) {
+			if(p->as != ANOP)
+				diag("unexpected instruction: %P", p);
+			break;
+		}
+		lastp->link = p;
+		lastp = p;
 		break;
 	}
 	goto loop;
@@ -872,191 +739,13 @@ prg(void)
 	return p;
 }
 
-void
-doprof1(void)
-{
-	Sym *s;
-	int32 n;
-	Prog *p, *q;
-
-	if(debug['v'])
-		Bprint(&bso, "%5.2f profile 1\n", cputime());
-	Bflush(&bso);
-	s = lookup("__mcount", 0);
-	n = 1;
-	for(p = firstp->link; p != P; p = p->link) {
-		setarch(p);
-		if(p->as == ATEXT) {
-			q = prg();
-			q->line = p->line;
-			q->link = datap;
-			datap = q;
-			q->as = ADATA;
-			q->from.type = D_OREG;
-			q->from.name = D_EXTERN;
-			q->from.offset = n*4;
-			q->from.sym = s;
-			q->reg = 4;
-			q->to = p->from;
-			q->to.type = D_CONST;
-
-			q = prg();
-			q->line = p->line;
-			q->pc = p->pc;
-			q->link = p->link;
-			p->link = q;
-			p = q;
-			p->as = AMOVW;
-			p->from.type = D_OREG;
-			p->from.name = D_EXTERN;
-			p->from.sym = s;
-			p->from.offset = n*4 + 4;
-			p->to.type = D_REG;
-			p->to.reg = thumb ? REGTMPT : REGTMP;
-
-			q = prg();
-			q->line = p->line;
-			q->pc = p->pc;
-			q->link = p->link;
-			p->link = q;
-			p = q;
-			p->as = AADD;
-			p->from.type = D_CONST;
-			p->from.offset = 1;
-			p->to.type = D_REG;
-			p->to.reg = thumb ? REGTMPT : REGTMP;
-
-			q = prg();
-			q->line = p->line;
-			q->pc = p->pc;
-			q->link = p->link;
-			p->link = q;
-			p = q;
-			p->as = AMOVW;
-			p->from.type = D_REG;
-			p->from.reg = thumb ? REGTMPT : REGTMP;
-			p->to.type = D_OREG;
-			p->to.name = D_EXTERN;
-			p->to.sym = s;
-			p->to.offset = n*4 + 4;
-
-			n += 2;
-			continue;
-		}
-	}
-	q = prg();
-	q->line = 0;
-	q->link = datap;
-	datap = q;
-
-	q->as = ADATA;
-	q->from.type = D_OREG;
-	q->from.name = D_EXTERN;
-	q->from.sym = s;
-	q->reg = 4;
-	q->to.type = D_CONST;
-	q->to.offset = n;
-
-	s->type = SBSS;
-	s->value = n*4;
-}
-
-void
-doprof2(void)
-{
-	Sym *s2, *s4;
-	Prog *p, *q, *ps2, *ps4;
-
-	if(debug['v'])
-		Bprint(&bso, "%5.2f profile 2\n", cputime());
-	Bflush(&bso);
-	s2 = lookup("_profin", 0);
-	s4 = lookup("_profout", 0);
-	if(s2->type != STEXT || s4->type != STEXT) {
-		diag("_profin/_profout not defined");
-		return;
-	}
-	ps2 = P;
-	ps4 = P;
-	for(p = firstp; p != P; p = p->link) {
-		setarch(p);
-		if(p->as == ATEXT) {
-			if(p->from.sym == s2) {
-				ps2 = p;
-				p->reg = 1;
-			}
-			if(p->from.sym == s4) {
-				ps4 = p;
-				p->reg = 1;
-			}
-		}
-	}
-	for(p = firstp; p != P; p = p->link) {
-		setarch(p);
-		if(p->as == ATEXT) {
-			if(p->reg & NOPROF) {
-				for(;;) {
-					q = p->link;
-					if(q == P)
-						break;
-					if(q->as == ATEXT)
-						break;
-					p = q;
-				}
-				continue;
-			}
-
-			/*
-			 * BL	profin, R2
-			 */
-			q = prg();
-			q->line = p->line;
-			q->pc = p->pc;
-			q->link = p->link;
-			p->link = q;
-			p = q;
-			p->as = ABL;
-			p->to.type = D_BRANCH;
-			p->cond = ps2;
-			p->to.sym = s2;
-
-			continue;
-		}
-		if(p->as == ARET) {
-			/*
-			 * RET
-			 */
-			q = prg();
-			q->as = ARET;
-			q->from = p->from;
-			q->to = p->to;
-			q->link = p->link;
-			p->link = q;
-
-			/*
-			 * BL	profout
-			 */
-			p->as = ABL;
-			p->from = zprg.from;
-			p->to = zprg.to;
-			p->to.type = D_BRANCH;
-			p->cond = ps4;
-			p->to.sym = s4;
-
-			p = q;
-
-			continue;
-		}
-	}
-}
-
 static void
 puntfp(Prog *p)
 {
 	USED(p);
 	/* floating point - punt for now */
-	curtext->reg = NREG;	/* ARM */
-	curtext->from.sym->thumb = 0;
+	cursym->text->reg = NREG;	/* ARM */
+	cursym->thumb = 0;
 	thumb = 0;
 	// print("%s: generating ARM code (contains floating point ops %d)\n", curtext->from.sym->name, p->line);
 }

@@ -99,6 +99,7 @@ void	cgen_aret(Node*, Node*);
 int	cgen_inline(Node*, Node*);
 void	restx(Node*, Node*);
 void	savex(int, Node*, Node*, Node*, Type*);
+int	componentgen(Node*, Node*);
 
 /*
  * gsubr.c
@@ -122,6 +123,7 @@ Node*	nodarg(Type*, int);
 void	nodreg(Node*, Type*, int);
 void	nodindreg(Node*, Type*, int);
 void	gconreg(int, vlong, int);
+void	ginscon(int, vlong, Node*);
 void	buildtxt(void);
 Plist*	newplist(void);
 int	isfat(Type*);

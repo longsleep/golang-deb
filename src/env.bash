@@ -3,24 +3,11 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-if test -z "$GOBIN"; then
-	if ! test -d "$HOME"/bin; then
-		echo '$GOBIN is not set and $HOME/bin is not a directory or does not exist.' 1>&2
-		echo 'mkdir $HOME/bin or set $GOBIN to a directory where binaries should' 1>&2
-		echo 'be installed.' 1>&2
-		exit 1
-	fi
-	GOBIN="$HOME/bin"
-elif ! test -d "$GOBIN"; then
-	echo '$GOBIN is not a directory or does not exist' 1>&2
-	echo 'create it or set $GOBIN differently' 1>&2
-	exit 1
-fi
+export GOROOT=${GOROOT:-$(cd ..; pwd)}
 
-GOROOT=${GOROOT:-$(cd ..; pwd)}
 if ! test -f "$GOROOT"/include/u.h
 then
-	echo '$GOROOT is not set correctly or not exported' 1>&2
+	echo '$GOROOT is not set correctly or not exported: '$GOROOT 1>&2
 	exit 1
 fi
 
@@ -28,28 +15,35 @@ fi
 # Various aspects of the build cd into $GOROOT-rooted paths,
 # making it easy to jump to a different tree and get confused.
 DIR1=$(cd ..; pwd)
-DIR2=$(cd $GOROOT; pwd)
+DIR2=$(cd "$GOROOT"; pwd)
 if [ "$DIR1" != "$DIR2" ]; then
-	echo 'Suspicious $GOROOT: does not match current directory.' 1>&2
+	echo 'Suspicious $GOROOT '"$GOROOT"': does not match current directory.' 1>&2
 	exit 1
 fi
 
-GOARCH=${GOARCH:-$(uname -m | sed 's/^..86$/386/; s/^.86$/386/; s/x86_64/amd64/')}
-case "$GOARCH" in
-amd64 | 386 | arm)
-	;;
-*)
-	echo '$GOARCH is set to <'$GOARCH'>, must be amd64, 386, or arm' 1>&2
+export GOBIN=${GOBIN:-"$GOROOT/bin"}
+if [ ! -d "$GOBIN" -a "$GOBIN" != "$GOROOT/bin" ]; then
+	echo '$GOBIN is not a directory or does not exist' 1>&2
+	echo 'create it or set $GOBIN differently' 1>&2
 	exit 1
-esac
+fi
 
-GOOS=${GOOS:-$(uname | tr A-Z a-z)}
-case "$GOOS" in
-darwin | freebsd | linux | windows | nacl)
-	;;
-*)
-	echo '$GOOS is set to <'$GOOS'>, must be darwin, freebsd, linux, windows, or nacl' 1>&2
+export OLDPATH=$PATH
+export PATH=/bin:/usr/bin:"$GOBIN":$PATH
+
+MAKE=make
+if ! make --version 2>/dev/null | grep 'GNU Make' >/dev/null; then
+	MAKE=gmake
+fi
+
+# Tried to use . <($MAKE ...) here, but it cannot set environment
+# variables in the version of bash that ships with OS X.  Amazing.
+eval $($MAKE --no-print-directory -f Make.inc go-env | egrep 'GOARCH|GOOS|GO_ENV')
+
+# Shell doesn't tell us whether make succeeded,
+# so Make.inc generates a fake variable name.
+if [ "$MAKE_GO_ENV_WORKED" != 1 ]; then
+	echo 'Did not find Go environment variables.' 1>&2
 	exit 1
-esac
-
-export GOBIN GOROOT GOARCH GOOS
+fi
+unset MAKE_GO_ENV_WORKED

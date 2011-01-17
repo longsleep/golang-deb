@@ -4,10 +4,9 @@
 	license that can be found in the LICENSE file.
 -->
 
-{.section Accurate}
-{.or}
+{.section Alert}
 	<p>
-	<span class="alert" style="font-size:120%">Indexing in progress - result may be inaccurate</span>
+	<span class="alert" style="font-size:120%">{@}</span>
 	</p>
 {.end}
 {.section Alt}
@@ -26,8 +25,8 @@
 			{.repeated section Files}
 				{.repeated section Groups}
 					{.repeated section Infos}
-						<a href="/{File.Path|url-src}?h={Query|html-esc}#L{@|infoLine}">{File.Path|url-src}:{@|infoLine}</a>
-						<pre>{@|infoSnippet}</pre>
+						<a href="/{File.Path|url-src}?h={Query|urlquery-esc}#L{@|infoLine}">{File.Path|url-src}:{@|infoLine}</a>
+						{@|infoSnippet}
 					{.end}
 				{.end}
 			{.end}
@@ -38,7 +37,7 @@
 		{.repeated section @}
 			<h3 id="Local_{Pak.Path|url-pkg}">package <a href="/{Pak.Path|url-pkg}">{Pak.Name|html-esc}</a></h3>
 			{.repeated section Files}
-				<a href="/{File.Path|url-src}?h={Query|html-esc}">{File.Path|url-src}</a>
+				<a href="/{File.Path|url-src}?h={Query|urlquery-esc}">{File.Path|url-src}</a>
 				<table class="layout">
 				{.repeated section Groups}
 					<tr>
@@ -47,7 +46,7 @@
 					<td align="left" width="4"></td>
 					<td>
 					{.repeated section Infos}
-						<a href="/{File.Path|url-src}?h={Query|html-esc}#L{@|infoLine}">{@|infoLine}</a>
+						<a href="/{File.Path|url-src}?h={Query|urlquery-esc}#L{@|infoLine}">{@|infoLine}</a>
 					{.end}
 					</td>
 					</tr>
@@ -57,12 +56,36 @@
 		{.end}
 	{.end}
 {.end}
-{.section Illegal}
+{.section Textual}
+	{.section Complete}
+		<h2 id="Textual">{Found|html-esc} textual occurrences</h2>
+	{.or}
+		<h2 id="Textual">More than {Found|html-esc} textual occurrences</h2>
+		<p>
+		<span class="alert" style="font-size:120%">Not all files or lines containing "{Query|html-esc}" are shown.</span>
+		</p>
+	{.end}
 	<p>
-	<span class="alert" style="font-size:120%">Illegal query syntax</span>
-	</p>
-	<p>
-	A legal query is a single identifier (such as <a href="search?q=ToLower">ToLower</a>)
-	or a qualified identifier (such as <a href="search?q=math.Sin">math.Sin</a>).
+	<table class="layout">
+	{.repeated section @}
+		<tr>
+		<td align="left" valign="top">
+		<a href="/{Filename|url-src}?h={Query|urlquery-esc}">{Filename|url-src}</a>:
+		</td>
+		<td align="left" width="4"></td>
+		<th align="left" valign="top">{Lines|numlines}</th>
+		<td align="left" width="4"></td>
+		<td align="left">
+		{.repeated section Lines}
+			<a href="/{Filename|url-src}?h={Query|urlquery-esc}#L{@|html-esc}">{@|html-esc}</a>
+		{.end}
+		</td>
+		</tr>
+	{.end}
+	{.section Complete}
+	{.or}
+		<tr><td align="left">...</td></tr>
+	{.end}
+	</table>
 	</p>
 {.end}

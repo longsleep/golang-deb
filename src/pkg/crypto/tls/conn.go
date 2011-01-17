@@ -1,10 +1,16 @@
+// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 // TLS low level connection and record layer
 
 package tls
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"crypto/subtle"
+	"crypto/x509"
 	"hash"
 	"io"
 	"net"
@@ -26,6 +32,8 @@ type Conn struct {
 	config            *Config    // configuration passed to constructor
 	handshakeComplete bool
 	cipherSuite       uint16
+	ocspResponse      []byte // stapled OCSP response
+	peerCertificates  []*x509.Certificate
 
 	clientProtocol string
 
@@ -96,31 +104,31 @@ func (c *Conn) SetWriteTimeout(nsec int64) os.Error {
 // connection, either sending or receiving.
 type halfConn struct {
 	sync.Mutex
-	crypt encryptor // encryption state
-	mac   hash.Hash // MAC algorithm
-	seq   [8]byte   // 64-bit sequence number
-	bfree *block    // list of free blocks
+	cipher interface{} // cipher algorithm
+	mac    hash.Hash   // MAC algorithm
+	seq    [8]byte     // 64-bit sequence number
+	bfree  *block      // list of free blocks
 
-	nextCrypt encryptor // next encryption state
-	nextMac   hash.Hash // next MAC algorithm
+	nextCipher interface{} // next encryption state
+	nextMac    hash.Hash   // next MAC algorithm
 }
 
 // prepareCipherSpec sets the encryption and MAC states
 // that a subsequent changeCipherSpec will use.
-func (hc *halfConn) prepareCipherSpec(crypt encryptor, mac hash.Hash) {
-	hc.nextCrypt = crypt
+func (hc *halfConn) prepareCipherSpec(cipher interface{}, mac hash.Hash) {
+	hc.nextCipher = cipher
 	hc.nextMac = mac
 }
 
 // changeCipherSpec changes the encryption and MAC states
 // to the ones previously passed to prepareCipherSpec.
 func (hc *halfConn) changeCipherSpec() os.Error {
-	if hc.nextCrypt == nil {
+	if hc.nextCipher == nil {
 		return alertInternalError
 	}
-	hc.crypt = hc.nextCrypt
+	hc.cipher = hc.nextCipher
 	hc.mac = hc.nextMac
-	hc.nextCrypt = nil
+	hc.nextCipher = nil
 	hc.nextMac = nil
 	return nil
 }
@@ -147,27 +155,102 @@ func (hc *halfConn) resetSeq() {
 	}
 }
 
+// removePadding returns an unpadded slice, in constant time, which is a prefix
+// of the input. It also returns a byte which is equal to 255 if the padding
+// was valid and 0 otherwise. See RFC 2246, section 6.2.3.2
+func removePadding(payload []byte) ([]byte, byte) {
+	if len(payload) < 1 {
+		return payload, 0
+	}
+
+	paddingLen := payload[len(payload)-1]
+	t := uint(len(payload)-1) - uint(paddingLen)
+	// if len(payload) >= (paddingLen - 1) then the MSB of t is zero
+	good := byte(int32(^t) >> 31)
+
+	toCheck := 255 // the maximum possible padding length
+	// The length of the padded data is public, so we can use an if here
+	if toCheck+1 > len(payload) {
+		toCheck = len(payload) - 1
+	}
+
+	for i := 0; i < toCheck; i++ {
+		t := uint(paddingLen) - uint(i)
+		// if i <= paddingLen then the MSB of t is zero
+		mask := byte(int32(^t) >> 31)
+		b := payload[len(payload)-1-i]
+		good &^= mask&paddingLen ^ mask&b
+	}
+
+	// We AND together the bits of good and replicate the result across
+	// all the bits.
+	good &= good << 4
+	good &= good << 2
+	good &= good << 1
+	good = uint8(int8(good) >> 7)
+
+	toRemove := good&paddingLen + 1
+	return payload[:len(payload)-int(toRemove)], good
+}
+
+func roundUp(a, b int) int {
+	return a + (b-a%b)%b
+}
+
 // decrypt checks and strips the mac and decrypts the data in b.
 func (hc *halfConn) decrypt(b *block) (bool, alert) {
 	// pull out payload
 	payload := b.data[recordHeaderLen:]
 
+	macSize := 0
+	if hc.mac != nil {
+		macSize = hc.mac.Size()
+	}
+
+	paddingGood := byte(255)
+
 	// decrypt
-	if hc.crypt != nil {
-		hc.crypt.XORKeyStream(payload)
+	if hc.cipher != nil {
+		switch c := hc.cipher.(type) {
+		case cipher.Stream:
+			c.XORKeyStream(payload, payload)
+		case cipher.BlockMode:
+			blockSize := c.BlockSize()
+
+			if len(payload)%blockSize != 0 || len(payload) < roundUp(macSize+1, blockSize) {
+				return false, alertBadRecordMAC
+			}
+
+			c.CryptBlocks(payload, payload)
+			payload, paddingGood = removePadding(payload)
+			b.resize(recordHeaderLen + len(payload))
+
+			// note that we still have a timing side-channel in the
+			// MAC check, below. An attacker can align the record
+			// so that a correct padding will cause one less hash
+			// block to be calculated. Then they can iteratively
+			// decrypt a record by breaking each byte. See
+			// "Password Interception in a SSL/TLS Channel", Brice
+			// Canvel et al.
+			//
+			// However, our behaviour matches OpenSSL, so we leak
+			// only as much as they do.
+		default:
+			panic("unknown cipher type")
+		}
 	}
 
 	// check, strip mac
 	if hc.mac != nil {
-		if len(payload) < hc.mac.Size() {
+		if len(payload) < macSize {
 			return false, alertBadRecordMAC
 		}
 
 		// strip mac off payload, b.data
-		n := len(payload) - hc.mac.Size()
+		n := len(payload) - macSize
 		b.data[3] = byte(n >> 8)
 		b.data[4] = byte(n)
-		b.data = b.data[0 : recordHeaderLen+n]
+		b.resize(recordHeaderLen + n)
 		remoteMAC := payload[n:]
 
 		hc.mac.Reset()
@@ -175,12 +258,29 @@ func (hc *halfConn) decrypt(b *block) (bool, alert) {
 		hc.incSeq()
 		hc.mac.Write(b.data)
 
-		if subtle.ConstantTimeCompare(hc.mac.Sum(), remoteMAC) != 1 {
+		if subtle.ConstantTimeCompare(hc.mac.Sum(), remoteMAC) != 1 || paddingGood != 255 {
 			return false, alertBadRecordMAC
 		}
 	}
 
 	return true, 0
+}
+
+// padToBlockSize calculates the needed padding block, if any, for a payload.
+// On exit, prefix aliases payload and extends to the end of the last full
+// block of payload. finalBlock is a fresh slice which contains the contents of
+// any suffix of payload as well as the needed padding to make finalBlock a
+// full block.
+func padToBlockSize(payload []byte, blockSize int) (prefix, finalBlock []byte) {
+	overrun := len(payload) % blockSize
+	paddingLen := blockSize - overrun
+	prefix = payload[:len(payload)-overrun]
+	finalBlock = make([]byte, blockSize)
+	copy(finalBlock, payload[len(payload)-overrun:])
+	for i := overrun; i < blockSize; i++ {
+		finalBlock[i] = byte(paddingLen - 1)
+	}
+	return
 }
 
 // encrypt encrypts and macs the data in b.
@@ -195,17 +295,29 @@ func (hc *halfConn) encrypt(b *block) (bool, alert) {
 		n := len(b.data)
 		b.resize(n + len(mac))
 		copy(b.data[n:], mac)
-
-		// update length to include mac
-		n = len(b.data) - recordHeaderLen
-		b.data[3] = byte(n >> 8)
-		b.data[4] = byte(n)
 	}
+
+	payload := b.data[recordHeaderLen:]
 
 	// encrypt
-	if hc.crypt != nil {
-		hc.crypt.XORKeyStream(b.data[recordHeaderLen:])
+	if hc.cipher != nil {
+		switch c := hc.cipher.(type) {
+		case cipher.Stream:
+			c.XORKeyStream(payload, payload)
+		case cipher.BlockMode:
+			prefix, finalBlock := padToBlockSize(payload, c.BlockSize())
+			b.resize(recordHeaderLen + len(prefix) + len(finalBlock))
+			c.CryptBlocks(b.data[recordHeaderLen:], prefix)
+			c.CryptBlocks(b.data[recordHeaderLen+len(prefix):], finalBlock)
+		default:
+			panic("unknown cipher type")
+		}
 	}
+
+	// update length to include MAC and any block padding needed.
+	n := len(b.data) - recordHeaderLen
+	b.data[3] = byte(n >> 8)
+	b.data[4] = byte(n)
 
 	return true, 0
 }
@@ -442,7 +554,11 @@ func (c *Conn) sendAlertLocked(err alert) os.Error {
 	}
 	c.tmp[1] = byte(err)
 	c.writeRecord(recordTypeAlert, c.tmp[0:2])
-	return c.setError(&net.OpError{Op: "local error", Error: err})
+	// closeNotify is a special case in that it isn't an error:
+	if err != alertCloseNotify {
+		return c.setError(&net.OpError{Op: "local error", Error: err})
+	}
+	return nil
 }
 
 // sendAlert sends a TLS alert message.
@@ -531,10 +647,18 @@ func (c *Conn) readHandshake() (interface{}, os.Error) {
 		m = new(serverHelloMsg)
 	case typeCertificate:
 		m = new(certificateMsg)
+	case typeCertificateRequest:
+		m = new(certificateRequestMsg)
+	case typeCertificateStatus:
+		m = new(certificateStatusMsg)
+	case typeServerKeyExchange:
+		m = new(serverKeyExchangeMsg)
 	case typeServerHelloDone:
 		m = new(serverHelloDoneMsg)
 	case typeClientKeyExchange:
 		m = new(clientKeyExchangeMsg)
+	case typeCertificateVerify:
+		m = new(certificateVerifyMsg)
 	case typeNextProtocol:
 		m = new(nextProtoMsg)
 	case typeFinished:
@@ -547,7 +671,7 @@ func (c *Conn) readHandshake() (interface{}, os.Error) {
 	// The handshake message unmarshallers
 	// expect to be able to keep references to data,
 	// so pass in a fresh copy that won't be overwritten.
-	data = bytes.Add(nil, data)
+	data = append([]byte(nil), data...)
 
 	if !m.unmarshal(data) {
 		c.sendAlert(alertUnexpectedMessage)
@@ -585,7 +709,10 @@ func (c *Conn) Read(b []byte) (n int, err os.Error) {
 	defer c.in.Unlock()
 
 	for c.input == nil && c.err == nil {
-		c.readRecord(recordTypeApplicationData)
+		if err := c.readRecord(recordTypeApplicationData); err != nil {
+			// Soft error, like EAGAIN
+			return 0, err
+		}
 	}
 	if c.err != nil {
 		return 0, c.err
@@ -608,7 +735,7 @@ func (c *Conn) Close() os.Error {
 
 // Handshake runs the client or server handshake
 // protocol if it has not yet been run.
-// Most uses of this packge need not call Handshake
+// Most uses of this package need not call Handshake
 // explicitly: the first Read or Write will call it automatically.
 func (c *Conn) Handshake() os.Error {
 	c.handshakeMutex.Lock()
@@ -625,11 +752,50 @@ func (c *Conn) Handshake() os.Error {
 	return c.serverHandshake()
 }
 
-// If c is a TLS server, ClientConnection returns the protocol
-// requested by the client during the TLS handshake.
-// Handshake must have been called already.
-func (c *Conn) ClientConnection() string {
+// ConnectionState returns basic TLS details about the connection.
+func (c *Conn) ConnectionState() ConnectionState {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
-	return c.clientProtocol
+
+	var state ConnectionState
+	state.HandshakeComplete = c.handshakeComplete
+	if c.handshakeComplete {
+		state.NegotiatedProtocol = c.clientProtocol
+		state.CipherSuite = c.cipherSuite
+	}
+
+	return state
+}
+
+// OCSPResponse returns the stapled OCSP response from the TLS server, if
+// any. (Only valid for client connections.)
+func (c *Conn) OCSPResponse() []byte {
+	c.handshakeMutex.Lock()
+	defer c.handshakeMutex.Unlock()
+
+	return c.ocspResponse
+}
+
+// PeerCertificates returns the certificate chain that was presented by the
+// other side.
+func (c *Conn) PeerCertificates() []*x509.Certificate {
+	c.handshakeMutex.Lock()
+	defer c.handshakeMutex.Unlock()
+
+	return c.peerCertificates
+}
+
+// VerifyHostname checks that the peer certificate chain is valid for
+// connecting to host.  If so, it returns nil; if not, it returns an os.Error
+// describing the problem.
+func (c *Conn) VerifyHostname(host string) os.Error {
+	c.handshakeMutex.Lock()
+	defer c.handshakeMutex.Unlock()
+	if !c.isClient {
+		return os.ErrorString("VerifyHostname called on TLS server connection")
+	}
+	if !c.handshakeComplete {
+		return os.ErrorString("TLS handshake has not yet been performed")
+	}
+	return c.peerCertificates[0].VerifyHostname(host)
 }

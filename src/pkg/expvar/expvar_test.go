@@ -27,6 +27,11 @@ func TestInt(t *testing.T) {
 	if s := reqs.String(); s != "4" {
 		t.Errorf("reqs.String() = %q, want \"4\"", s)
 	}
+
+	reqs.Set(-2)
+	if reqs.i != -2 {
+		t.Errorf("reqs.i = %v, want -2", reqs.i)
+	}
 }
 
 func TestString(t *testing.T) {
@@ -76,13 +81,13 @@ func TestMapCounter(t *testing.T) {
 		t.Error("red.Kind() is not a number.")
 	}
 	if x != 3 {
-		t.Error("red = %v, want 3", x)
+		t.Errorf("red = %v, want 3", x)
 	}
 }
 
 func TestIntFunc(t *testing.T) {
-	x := int(4)
-	ix := IntFunc(func() int64 { return int64(x) })
+	x := int64(4)
+	ix := IntFunc(func() int64 { return x })
 	if s := ix.String(); s != "4" {
 		t.Errorf("ix.String() = %v, want 4", s)
 	}
@@ -90,5 +95,18 @@ func TestIntFunc(t *testing.T) {
 	x++
 	if s := ix.String(); s != "5" {
 		t.Errorf("ix.String() = %v, want 5", s)
+	}
+}
+
+func TestStringFunc(t *testing.T) {
+	x := "hello"
+	sx := StringFunc(func() string { return x })
+	if s, exp := sx.String(), `"hello"`; s != exp {
+		t.Errorf(`sx.String() = %q, want %q`, s, exp)
+	}
+
+	x = "goodbye"
+	if s, exp := sx.String(), `"goodbye"`; s != exp {
+		t.Errorf(`sx.String() = %q, want %q`, s, exp)
 	}
 }

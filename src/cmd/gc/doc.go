@@ -25,13 +25,18 @@ other packages. It is therefore not necessary when compiling client C of
 package P to read the files of P's dependencies, only the compiled output
 of P.
 
-Usage: 6g [flags] *.go  (or 8g or 5g)
+Usage:
+	6g [flags] file...
+The specified files must be Go source files and all part of the same package.
+Substitute 6g with 8g or 5g where appropriate.
 
 Flags:
 	-o file
-		output file, default 6.out for 6g, etc.
+		output file, default file.6 for 6g, etc.
 	-e
 		normally the compiler quits after 10 errors; -e prints all errors
+	-L
+		show entire file path when printing line numbers in errors
 	-I dir1 -I dir2
 		add dir1 and dir2 to the list of paths to check for imported packages
 	-N

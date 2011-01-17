@@ -9,18 +9,13 @@
 #
 # to rebuild the dependency information in Make.deps.
 
-nullstring :=
-space := $(nullstring) # a space at the end
-ifndef GOBIN
-QUOTED_HOME=$(subst $(space),\ ,$(HOME))
-GOBIN=$(QUOTED_HOME)/bin
-endif
-QUOTED_GOBIN=$(subst $(space),\ ,$(GOBIN))
+include ../Make.inc
 
 all: install
 
 DIRS=\
 	archive/tar\
+	archive/zip\
 	asn1\
 	big\
 	bufio\
@@ -36,9 +31,13 @@ DIRS=\
 	crypto/aes\
 	crypto/block\
 	crypto/blowfish\
+	crypto/cast5\
+	crypto/cipher\
+	crypto/elliptic\
 	crypto/hmac\
 	crypto/md4\
 	crypto/md5\
+	crypto/ocsp\
 	crypto/rand\
 	crypto/rc4\
 	crypto/ripemd160\
@@ -48,12 +47,14 @@ DIRS=\
 	crypto/sha512\
 	crypto/subtle\
 	crypto/tls\
+	crypto/twofish\
 	crypto/x509\
 	crypto/xtea\
 	debug/dwarf\
 	debug/macho\
 	debug/elf\
 	debug/gosym\
+	debug/pe\
 	debug/proc\
 	ebnf\
 	encoding/ascii85\
@@ -61,14 +62,13 @@ DIRS=\
 	encoding/binary\
 	encoding/git85\
 	encoding/hex\
+	encoding/line\
 	encoding/pem\
 	exec\
-	exp/bignum\
 	exp/datafmt\
 	exp/draw\
 	exp/draw/x11\
 	exp/eval\
-	exp/iterable\
 	expvar\
 	flag\
 	fmt\
@@ -78,26 +78,30 @@ DIRS=\
 	go/printer\
 	go/scanner\
 	go/token\
+	go/typechecker\
 	gob\
 	hash\
 	hash/adler32\
 	hash/crc32\
 	hash/crc64\
+	html\
 	http\
 	http/pprof\
 	image\
 	image/jpeg\
 	image/png\
+	index/suffixarray\
 	io\
 	io/ioutil\
 	json\
 	log\
 	math\
 	mime\
+	mime/multipart\
 	net\
+	net/dict\
+	net/textproto\
 	netchan\
-	nntp\
-	once\
 	os\
 	os/signal\
 	patch\
@@ -108,8 +112,10 @@ DIRS=\
 	rpc\
 	rpc/jsonrpc\
 	runtime\
+	runtime/cgo\
 	runtime/pprof\
 	scanner\
+	smtp\
 	sort\
 	strconv\
 	strings\
@@ -123,11 +129,30 @@ DIRS=\
 	testing/quick\
 	testing/script\
 	time\
+	try\
 	unicode\
 	utf16\
 	utf8\
 	websocket\
 	xml\
+	../cmd/cgo\
+	../cmd/ebnflint\
+	../cmd/godoc\
+	../cmd/gofmt\
+	../cmd/goinstall\
+	../cmd/govet\
+	../cmd/goyacc\
+	../cmd/hgpatch\
+
+ifeq ($(GOOS),linux)
+DIRS+=\
+	os/inotify\
+
+endif
+
+ifeq ($(GOOS),windows)
+DIRS:=$(filter-out runtime/cgo,$(DIRS))
+endif
 
 NOTEST=\
 	debug/proc\
@@ -139,11 +164,22 @@ NOTEST=\
 	http/pprof\
 	image\
 	image/jpeg\
+	net/dict\
 	rand\
-	runtime\
+	runtime/cgo\
 	runtime/pprof\
 	syscall\
+	testing\
 	testing/iotest\
+	try\
+	../cmd/cgo\
+	../cmd/ebnflint\
+	../cmd/godoc\
+	../cmd/gofmt\
+	../cmd/goinstall\
+	../cmd/govet\
+	../cmd/goyacc\
+	../cmd/hgpatch\
 
 NOBENCH=\
 	container/vector\
@@ -153,24 +189,12 @@ ifeq ($(DISABLE_NET_TESTS),1)
 NOTEST+=http net
 endif
 
-# Disable tests that NaCl cannot run yet.
-ifeq ($(GOOS),nacl)
-NOTEST+=archive/tar  # no pipe
-NOTEST+=debug/dwarf  # no pread
-NOTEST+=debug/macho  # no pread
-NOTEST+=debug/elf    # no pread
-NOTEST+=exec         # no pipe
-NOTEST+=http         # no network
-NOTEST+=log          # no runtime.Caller
-NOTEST+=net          # no network
-NOTEST+=netchan      # no network
-NOTEST+=os           # many things unimplemented
+# Disable tests that windows cannot run yet.
+ifeq ($(GOOS),windows)
 NOTEST+=os/signal    # no signals
 NOTEST+=path         # tree walking does not work
-NOTEST+=rpc          # no network
 NOTEST+=syslog       # no network
 NOTEST+=time         # no syscall.Kill, syscall.SIGCHLD for sleep tests
-NOTEST+=websocket    # no network
 endif
 
 TEST=\
@@ -186,19 +210,19 @@ test.dirs: $(addsuffix .test, $(TEST))
 bench.dirs: $(addsuffix .bench, $(BENCH))
 
 %.clean:
-	+cd $* && $(QUOTED_GOBIN)/gomake clean
+	+cd $* && gomake clean
 
 %.install:
-	+cd $* && $(QUOTED_GOBIN)/gomake install
+	+cd $* && gomake install
 
 %.nuke:
-	+cd $* && $(QUOTED_GOBIN)/gomake nuke
+	+cd $* && gomake nuke
 
 %.test:
-	+cd $* && $(QUOTED_GOBIN)/gomake test
+	+cd $* && gomake test
 
 %.bench:
-	+cd $* && $(QUOTED_GOBIN)/gomake bench
+	+cd $* && gomake bench
 
 clean: clean.dirs
 
@@ -214,4 +238,9 @@ nuke: nuke.dirs
 deps:
 	./deps.bash
 
+echo-dirs:
+	@echo $(DIRS)
+
 -include Make.deps
+
+runtime/cgo.install: ../cmd/cgo.install

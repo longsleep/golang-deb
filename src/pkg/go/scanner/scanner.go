@@ -4,13 +4,25 @@
 
 // A scanner for Go source text. Takes a []byte as source which can
 // then be tokenized through repeated calls to the Scan function.
-// For a sample use of a scanner, see the implementation of Tokenize.
+// Typical use:
+//
+//	var s Scanner
+//	fset := token.NewFileSet()  // position information is relative to fset
+//	s.Init(fset, filename, src, nil /* no error handler */, 0)
+//	for {
+//		pos, tok, lit := s.Scan()
+//		if tok == token.EOF {
+//			break
+//		}
+//		// do something here with pos, tok, and lit
+//	}
 //
 package scanner
 
 import (
 	"bytes"
 	"go/token"
+	"path"
 	"strconv"
 	"unicode"
 	"utf8"
@@ -19,20 +31,22 @@ import (
 
 // A Scanner holds the scanner's internal state while processing
 // a given text.  It can be allocated as part of another data
-// structure but must be initialized via Init before use. For
-// a sample use, see the implementation of Tokenize.
+// structure but must be initialized via Init before use.
 //
 type Scanner struct {
 	// immutable state
+	file *token.File  // source file handle
+	dir  string       // directory portion of file.Name()
 	src  []byte       // source
 	err  ErrorHandler // error reporting; or nil
 	mode uint         // scanning mode
 
 	// scanning state
-	pos        token.Position // previous reading position (position before ch)
-	offset     int            // current reading offset (position after ch)
-	ch         int            // one char look-ahead
-	insertSemi bool           // insert a semicolon before next newline
+	ch         int  // current character
+	offset     int  // character offset
+	rdOffset   int  // reading offset (position after current character)
+	lineOffset int  // current line offset
+	insertSemi bool // insert a semicolon before next newline
 
 	// public state - ok to modify
 	ErrorCount int // number of errors encountered
@@ -43,29 +57,31 @@ type Scanner struct {
 // S.ch < 0 means end-of-file.
 //
 func (S *Scanner) next() {
-	if S.offset < len(S.src) {
-		S.pos.Offset = S.offset
-		S.pos.Column++
+	if S.rdOffset < len(S.src) {
+		S.offset = S.rdOffset
 		if S.ch == '\n' {
-			// next character starts a new line
-			S.pos.Line++
-			S.pos.Column = 1
+			S.lineOffset = S.offset
+			S.file.AddLine(S.offset)
 		}
-		r, w := int(S.src[S.offset]), 1
+		r, w := int(S.src[S.rdOffset]), 1
 		switch {
 		case r == 0:
-			S.error(S.pos, "illegal character NUL")
+			S.error(S.offset, "illegal character NUL")
 		case r >= 0x80:
 			// not ASCII
-			r, w = utf8.DecodeRune(S.src[S.offset:])
+			r, w = utf8.DecodeRune(S.src[S.rdOffset:])
 			if r == utf8.RuneError && w == 1 {
-				S.error(S.pos, "illegal UTF-8 encoding")
+				S.error(S.offset, "illegal UTF-8 encoding")
 			}
 		}
-		S.offset += w
+		S.rdOffset += w
 		S.ch = r
 	} else {
-		S.pos.Offset = len(S.src)
+		S.offset = len(S.src)
+		if S.ch == '\n' {
+			S.lineOffset = S.offset
+			S.file.AddLine(S.offset)
+		}
 		S.ch = -1 // eof
 	}
 }
@@ -80,24 +96,38 @@ const (
 	InsertSemis                   // automatically insert semicolons
 )
 
+// TODO(gri) Would it be better to simply provide *token.File to Init
+//           instead of fset, and filename, and then return the file?
+//           It could cause an error/panic if the provided file.Size()
+//           doesn't match len(src).
 
-// Init prepares the scanner S to tokenize the text src. Calls to Scan
-// will use the error handler err if they encounter a syntax error and
-// err is not nil. Also, for each error encountered, the Scanner field
-// ErrorCount is incremented by one. The filename parameter is used as
-// filename in the token.Position returned by Scan for each token. The
-// mode parameter determines how comments and illegal characters are
-// handled.
+// Init prepares the scanner S to tokenize the text src. It sets the
+// scanner at the beginning of the source text, adds a new file with
+// the given filename to the file set fset, and returns that file.
 //
-func (S *Scanner) Init(filename string, src []byte, err ErrorHandler, mode uint) {
+// Calls to Scan will use the error handler err if they encounter a
+// syntax error and err is not nil. Also, for each error encountered,
+// the Scanner field ErrorCount is incremented by one. The mode parameter
+// determines how comments, illegal characters, and semicolons are handled.
+//
+func (S *Scanner) Init(fset *token.FileSet, filename string, src []byte, err ErrorHandler, mode uint) *token.File {
 	// Explicitly initialize all fields since a scanner may be reused.
+	S.file = fset.AddFile(filename, fset.Base(), len(src))
+	S.dir, _ = path.Split(filename)
 	S.src = src
 	S.err = err
 	S.mode = mode
-	S.pos = token.Position{filename, 0, 1, 0}
+
+	S.ch = ' '
 	S.offset = 0
+	S.rdOffset = 0
+	S.lineOffset = 0
+	S.insertSemi = false
 	S.ErrorCount = 0
+
 	S.next()
+
+	return S.file
 }
 
 
@@ -131,111 +161,109 @@ func charString(ch int) string {
 }
 
 
-func (S *Scanner) error(pos token.Position, msg string) {
+func (S *Scanner) error(offs int, msg string) {
 	if S.err != nil {
-		S.err.Error(pos, msg)
+		S.err.Error(S.file.Position(S.file.Pos(offs)), msg)
 	}
 	S.ErrorCount++
 }
 
 
-func (S *Scanner) expect(ch int) {
-	if S.ch != ch {
-		S.error(S.pos, "expected "+charString(ch)+", found "+charString(S.ch))
+var prefix = []byte("//line ")
+
+func (S *Scanner) interpretLineComment(text []byte) {
+	if bytes.HasPrefix(text, prefix) {
+		// get filename and line number, if any
+		if i := bytes.Index(text, []byte{':'}); i > 0 {
+			if line, err := strconv.Atoi(string(text[i+1:])); err == nil && line > 0 {
+				// valid //line filename:line comment;
+				filename := path.Clean(string(text[len(prefix):i]))
+				if filename[0] != '/' {
+					// make filename relative to current directory
+					filename = path.Join(S.dir, filename)
+				}
+				// update scanner position
+				S.file.AddLineInfo(S.lineOffset, filename, line-1) // -1 since comment applies to next line
+			}
+		}
 	}
-	S.next() // always make progress
 }
 
 
-var prefix = []byte("line ")
-
-func (S *Scanner) scanComment(pos token.Position) {
-	// first '/' already consumed
+func (S *Scanner) scanComment() {
+	// initial '/' already consumed; S.ch == '/' || S.ch == '*'
+	offs := S.offset - 1 // position of initial '/'
 
 	if S.ch == '/' {
 		//-style comment
-		for S.ch >= 0 {
+		S.next()
+		for S.ch != '\n' && S.ch >= 0 {
 			S.next()
-			if S.ch == '\n' {
-				// '\n' is not part of the comment for purposes of scanning
-				// (the comment ends on the same line where it started)
-				if pos.Column == 1 {
-					text := S.src[pos.Offset+2 : S.pos.Offset]
-					if bytes.HasPrefix(text, prefix) {
-						// comment starts at beginning of line with "//line ";
-						// get filename and line number, if any
-						i := bytes.Index(text, []byte{':'})
-						if i >= 0 {
-							if line, err := strconv.Atoi(string(text[i+1:])); err == nil && line > 0 {
-								// valid //line filename:line comment;
-								// update scanner position
-								S.pos.Filename = string(text[len(prefix):i])
-								S.pos.Line = line - 1 // -1 since the '\n' has not been consumed yet
-							}
-						}
-					}
-				}
-				return
-			}
 		}
+		if offs == S.lineOffset {
+			// comment starts at the beginning of the current line
+			S.interpretLineComment(S.src[offs:S.offset])
+		}
+		return
+	}
 
-	} else {
-		/*-style comment */
-		S.expect('*')
-		for S.ch >= 0 {
-			ch := S.ch
+	/*-style comment */
+	S.next()
+	for S.ch >= 0 {
+		ch := S.ch
+		S.next()
+		if ch == '*' && S.ch == '/' {
 			S.next()
-			if ch == '*' && S.ch == '/' {
-				S.next()
-				return
-			}
+			return
 		}
 	}
 
-	S.error(pos, "comment not terminated")
+	S.error(offs, "comment not terminated")
 }
 
 
-func (S *Scanner) findNewline(pos token.Position) bool {
-	// first '/' already consumed; assume S.ch == '/' || S.ch == '*'
+func (S *Scanner) findLineEnd() bool {
+	// initial '/' already consumed
 
-	// read ahead until a newline or non-comment token is found
-	newline := false
-	for pos1 := pos; S.ch >= 0; {
+	defer func(offs int) {
+		// reset scanner state to where it was upon calling findLineEnd
+		S.ch = '/'
+		S.offset = offs
+		S.rdOffset = offs + 1
+		S.next() // consume initial '/' again
+	}(S.offset - 1)
+
+	// read ahead until a newline, EOF, or non-comment token is found
+	for S.ch == '/' || S.ch == '*' {
 		if S.ch == '/' {
 			//-style comment always contains a newline
-			newline = true
-			break
+			return true
 		}
-		S.scanComment(pos1)
-		if pos1.Line < S.pos.Line {
-			/*-style comment contained a newline */
-			newline = true
-			break
+		/*-style comment: look for newline */
+		S.next()
+		for S.ch >= 0 {
+			ch := S.ch
+			if ch == '\n' {
+				return true
+			}
+			S.next()
+			if ch == '*' && S.ch == '/' {
+				S.next()
+				break
+			}
 		}
 		S.skipWhitespace() // S.insertSemi is set
-		if S.ch == '\n' {
-			newline = true
-			break
+		if S.ch < 0 || S.ch == '\n' {
+			return true
 		}
 		if S.ch != '/' {
 			// non-comment token
-			break
+			return false
 		}
-		pos1 = S.pos
-		S.next()
-		if S.ch != '/' && S.ch != '*' {
-			// non-comment token
-			break
-		}
+		S.next() // consume '/'
 	}
 
-	// reset position to where it was upon calling findNewline
-	S.pos = pos
-	S.offset = pos.Offset + 1
-	S.next()
-
-	return newline
+	return false
 }
 
 
@@ -250,11 +278,11 @@ func isDigit(ch int) bool {
 
 
 func (S *Scanner) scanIdentifier() token.Token {
-	pos := S.pos.Offset
+	offs := S.offset
 	for isLetter(S.ch) || isDigit(S.ch) {
 		S.next()
 	}
-	return token.Lookup(S.src[pos:S.pos.Offset])
+	return token.Lookup(S.src[offs:S.offset])
 }
 
 
@@ -278,7 +306,7 @@ func (S *Scanner) scanMantissa(base int) {
 }
 
 
-func (S *Scanner) scanNumber(pos token.Position, seenDecimalPoint bool) token.Token {
+func (S *Scanner) scanNumber(seenDecimalPoint bool) token.Token {
 	// digitVal(S.ch) < 10
 	tok := token.INT
 
@@ -290,6 +318,7 @@ func (S *Scanner) scanNumber(pos token.Position, seenDecimalPoint bool) token.To
 
 	if S.ch == '0' {
 		// int or float
+		offs := S.offset
 		S.next()
 		if S.ch == 'x' || S.ch == 'X' {
 			// hexadecimal int
@@ -309,7 +338,7 @@ func (S *Scanner) scanNumber(pos token.Position, seenDecimalPoint bool) token.To
 			}
 			// octal int
 			if seenDecimalDigit {
-				S.error(pos, "illegal octal number")
+				S.error(offs, "illegal octal number")
 			}
 		}
 		goto exit
@@ -346,7 +375,7 @@ exit:
 
 
 func (S *Scanner) scanEscape(quote int) {
-	pos := S.pos
+	offs := S.offset
 
 	var i, base, max uint32
 	switch S.ch {
@@ -366,28 +395,33 @@ func (S *Scanner) scanEscape(quote int) {
 		i, base, max = 8, 16, unicode.MaxRune
 	default:
 		S.next() // always make progress
-		S.error(pos, "unknown escape sequence")
+		S.error(offs, "unknown escape sequence")
 		return
 	}
 
 	var x uint32
-	for ; i > 0; i-- {
+	for ; i > 0 && S.ch != quote && S.ch >= 0; i-- {
 		d := uint32(digitVal(S.ch))
-		if d > base {
-			S.error(S.pos, "illegal character in escape sequence")
-			return
+		if d >= base {
+			S.error(S.offset, "illegal character in escape sequence")
+			break
 		}
 		x = x*base + d
 		S.next()
 	}
+	// in case of an error, consume remaining chars
+	for ; i > 0 && S.ch != quote && S.ch >= 0; i-- {
+		S.next()
+	}
 	if x > max || 0xd800 <= x && x < 0xe000 {
-		S.error(pos, "escape sequence is invalid Unicode code point")
+		S.error(offs, "escape sequence is invalid Unicode code point")
 	}
 }
 
 
-func (S *Scanner) scanChar(pos token.Position) {
-	// '\'' already consumed
+func (S *Scanner) scanChar() {
+	// '\'' opening already consumed
+	offs := S.offset - 1
 
 	n := 0
 	for S.ch != '\'' {
@@ -395,7 +429,7 @@ func (S *Scanner) scanChar(pos token.Position) {
 		n++
 		S.next()
 		if ch == '\n' || ch < 0 {
-			S.error(pos, "character literal not terminated")
+			S.error(offs, "character literal not terminated")
 			n = 1
 			break
 		}
@@ -407,19 +441,20 @@ func (S *Scanner) scanChar(pos token.Position) {
 	S.next()
 
 	if n != 1 {
-		S.error(pos, "illegal character literal")
+		S.error(offs, "illegal character literal")
 	}
 }
 
 
-func (S *Scanner) scanString(pos token.Position) {
-	// '"' already consumed
+func (S *Scanner) scanString() {
+	// '"' opening already consumed
+	offs := S.offset - 1
 
 	for S.ch != '"' {
 		ch := S.ch
 		S.next()
 		if ch == '\n' || ch < 0 {
-			S.error(pos, "string not terminated")
+			S.error(offs, "string not terminated")
 			break
 		}
 		if ch == '\\' {
@@ -431,14 +466,15 @@ func (S *Scanner) scanString(pos token.Position) {
 }
 
 
-func (S *Scanner) scanRawString(pos token.Position) {
-	// '`' already consumed
+func (S *Scanner) scanRawString() {
+	// '`' opening already consumed
+	offs := S.offset - 1
 
 	for S.ch != '`' {
 		ch := S.ch
 		S.next()
 		if ch < 0 {
-			S.error(pos, "string not terminated")
+			S.error(offs, "string not terminated")
 			break
 		}
 	}
@@ -499,11 +535,16 @@ func (S *Scanner) switch4(tok0, tok1 token.Token, ch2 int, tok2, tok3 token.Toke
 }
 
 
-var semicolon = []byte{';'}
+var newline = []byte{'\n'}
 
 // Scan scans the next token and returns the token position pos,
 // the token tok, and the literal text lit corresponding to the
 // token. The source end is indicated by token.EOF.
+//
+// If the returned token is token.SEMICOLON, the corresponding
+// literal value is ";" if the semicolon was present in the source,
+// and "\n" if the semicolon was inserted because of a newline or
+// at EOF.
 //
 // For more tolerant parsing, Scan will return a valid token if
 // possible even if a syntax error was encountered. Thus, even
@@ -512,13 +553,18 @@ var semicolon = []byte{';'}
 // must check the scanner's ErrorCount or the number of calls
 // of the error handler, if there was one installed.
 //
-func (S *Scanner) Scan() (pos token.Position, tok token.Token, lit []byte) {
+// Scan adds line information to the file added to the file
+// set with Init. Token positions are relative to that file
+// and thus relative to the file set.
+//
+func (S *Scanner) Scan() (token.Pos, token.Token, []byte) {
 scanAgain:
 	S.skipWhitespace()
 
 	// current token start
 	insertSemi := false
-	pos, tok = S.pos, token.ILLEGAL
+	offs := S.offset
+	tok := token.ILLEGAL
 
 	// determine token value
 	switch ch := S.ch; {
@@ -530,36 +576,40 @@ scanAgain:
 		}
 	case digitVal(ch) < 10:
 		insertSemi = true
-		tok = S.scanNumber(pos, false)
+		tok = S.scanNumber(false)
 	default:
 		S.next() // always make progress
 		switch ch {
 		case -1:
+			if S.insertSemi {
+				S.insertSemi = false // EOF consumed
+				return S.file.Pos(offs), token.SEMICOLON, newline
+			}
 			tok = token.EOF
 		case '\n':
 			// we only reach here if S.insertSemi was
 			// set in the first place and exited early
 			// from S.skipWhitespace()
 			S.insertSemi = false // newline consumed
-			return pos, token.SEMICOLON, semicolon
+			return S.file.Pos(offs), token.SEMICOLON, newline
 		case '"':
 			insertSemi = true
 			tok = token.STRING
-			S.scanString(pos)
+			S.scanString()
 		case '\'':
 			insertSemi = true
 			tok = token.CHAR
-			S.scanChar(pos)
+			S.scanChar()
 		case '`':
 			insertSemi = true
 			tok = token.STRING
-			S.scanRawString(pos)
+			S.scanRawString()
 		case ':':
 			tok = S.switch2(token.COLON, token.DEFINE)
 		case '.':
 			if digitVal(S.ch) < 10 {
 				insertSemi = true
-				tok = S.scanNumber(pos, true)
+				tok = S.scanNumber(true)
 			} else if S.ch == '.' {
 				S.next()
 				if S.ch == '.' {
@@ -603,15 +653,15 @@ scanAgain:
 		case '/':
 			if S.ch == '/' || S.ch == '*' {
 				// comment
-				if S.insertSemi && S.findNewline(pos) {
+				if S.insertSemi && S.findLineEnd() {
 					// reset position to the beginning of the comment
-					S.pos = pos
-					S.offset = pos.Offset + 1
 					S.ch = '/'
+					S.offset = offs
+					S.rdOffset = offs + 1
 					S.insertSemi = false // newline consumed
-					return pos, token.SEMICOLON, semicolon
+					return S.file.Pos(offs), token.SEMICOLON, newline
 				}
-				S.scanComment(pos)
+				S.scanComment()
 				if S.mode&ScanComments == 0 {
 					// skip comment
 					S.insertSemi = false // newline consumed
@@ -649,7 +699,7 @@ scanAgain:
 			tok = S.switch3(token.OR, token.OR_ASSIGN, '|', token.LOR)
 		default:
 			if S.mode&AllowIllegalChars == 0 {
-				S.error(pos, "illegal character "+charString(ch))
+				S.error(offs, "illegal character "+charString(ch))
 			}
 			insertSemi = S.insertSemi // preserve insertSemi info
 		}
@@ -658,21 +708,5 @@ scanAgain:
 	if S.mode&InsertSemis != 0 {
 		S.insertSemi = insertSemi
 	}
-	return pos, tok, S.src[pos.Offset:S.pos.Offset]
-}
-
-
-// Tokenize calls a function f with the token position, token value, and token
-// text for each token in the source src. The other parameters have the same
-// meaning as for the Init function. Tokenize keeps scanning until f returns
-// false (usually when the token value is token.EOF). The result is the number
-// of errors encountered.
-//
-func Tokenize(filename string, src []byte, err ErrorHandler, mode uint, f func(pos token.Position, tok token.Token, lit []byte) bool) int {
-	var s Scanner
-	s.Init(filename, src, err, mode)
-	for f(s.Scan()) {
-		// action happens in f
-	}
-	return s.ErrorCount
+	return S.file.Pos(offs), tok, S.src[offs:S.offset]
 }

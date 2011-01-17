@@ -3,10 +3,10 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# Using all the test*.go files in the current directory, write out a file
+# Using all the *_test.go files in the current directory, write out a file
 # _testmain.go that runs all its tests. Compile everything and run the
 # tests.
-# If files are named on the command line, use them instead of test*.go.
+# If files are named on the command line, use them instead of *_test.go.
 
 # Makes egrep,grep work better in general if we put them
 # in ordinary C mode instead of what the current language is.
@@ -14,16 +14,15 @@ unset LANG
 export LC_ALL=C
 export LC_CTYPE=C
 
-GOBIN="${GOBIN:-$HOME/bin}"
-
-_GC=$GC	# Make.$GOARCH will overwrite this
+_GC=$GC	# Make.inc will overwrite this
 
 if [ ! -f [Mm]akefile ]; then
 	echo 'please create a Makefile for gotest; see http://golang.org/doc/code.html for details' 1>&2
 	exit 2
 fi
 
-. "$GOROOT"/src/Make.$GOARCH
+export GOROOT=${GOROOT:-"@@GOROOT@@"}
+eval $(gomake -j1 --no-print-directory -f "$GOROOT"/src/Make.inc go-env)
 if [ -z "$O" ]; then
 	echo 'missing $O - maybe no Make.$GOARCH?' 1>&2
 	exit 2
@@ -31,18 +30,12 @@ fi
 
 E="$GORUN"
 
-# TODO(kaib): proper emulator strategy
-case x"$GOARCH" in
-xarm)
-	export E=${GORUN:-qemu-arm -cpu cortex-a8}
-esac
-
 # Allow overrides
-GC="$GOBIN/${_GC:-$GC} -I _test"
-GL="$GOBIN/${GL:-$LD} -L _test"
-AS="$GOBIN/$AS"
-CC="$GOBIN/$CC"
-LD="$GOBIN/$LD"
+GC="${_GC:-$GC} -I _test"
+GL="${GL:-$LD} -L _test"
+AS="$AS"
+CC="$CC"
+LD="$LD"
 export GC GL O AS CC LD
 
 gofiles=""
@@ -93,14 +86,13 @@ fi
 
 set -e
 
-"$GOBIN"/gomake testpackage-clean
-"$GOBIN"/gomake testpackage "GOTESTFILES=$gofiles"
+gomake testpackage-clean
+gomake testpackage "GOTESTFILES=$gofiles"
 if $havex; then
 	$GC -o $xofile $xgofiles
 fi
 
 # They all compile; now generate the code to call them.
-trap "rm -f _testmain.go _testmain.$O" 0 1 2 3 14 15
 
 # Suppress output to stdout on Linux
 MAKEFLAGS=
@@ -116,18 +108,18 @@ nmgrep() {
 		# Figure out pkg.
 		case "$i" in
 		*.a)
-			pkg=$("$GOBIN"/gopack p $i __.PKGDEF | sed -n 's/^package //p' | sed 's/ .*//' | sed 1q)
+			pkg=$(gopack p $i __.PKGDEF | sed -n 's/^package //p' | sed 's/ .*//' | sed 1q)
 			;;
 		*)
 			pkg=$(sed -n 's/^ .* in package "\(.*\)".*/\1/p' $i | sed 1q)
 			;;
 		esac
-		"$GOBIN"/6nm -s "$i" | egrep ' T .*\.'"$pat"'$' |
+		6nm -s "$i" | egrep ' T .*\.'"$pat"'$' |
 		sed 's/.* //; /\..*\./d; s/""\./'"$pkg"'./g'
 	done
 }
 
-importpath=$("$GOBIN"/gomake -s importpath)
+importpath=$(gomake -s importpath)
 {
 	# test functions are named TestFoo
 	# the grep -v eliminates methods and other special names
@@ -155,30 +147,43 @@ importpath=$("$GOBIN"/gomake -s importpath)
 		echo 'import "./_xtest_"'
 	fi
 	echo 'import "testing"'
+	echo 'import __regexp__ "regexp"' # rename in case tested package is called regexp
 	# test array
 	echo
-	echo 'var tests = []testing.Test {'
+	echo 'var tests = []testing.InternalTest{'
 	for i in $tests
 	do
-		echo '	testing.Test{ "'$i'", '$i' },'
+		echo '	{"'$i'", '$i'},'
 	done
 	echo '}'
 	# benchmark array
-	echo 'var benchmarks = []testing.Benchmark {'
-	for i in $benchmarks
-	do
-		echo '	testing.Benchmark{ "'$i'", '$i' },'
-	done
-	echo '}'
-
+	if [ "$benchmarks" = "" ]
+	then
+		# keep the empty array gofmt-safe.
+		# (not an issue for the test array, which is never empty.)
+		echo 'var benchmarks = []testing.InternalBenchmark{}'
+	else
+		echo 'var benchmarks = []testing.InternalBenchmark{'
+		for i in $benchmarks
+		do
+			echo '	{"'$i'", '$i'},'
+		done
+		echo '}'
+	fi
 	# body
 	echo
 	echo 'func main() {'
-	echo '	testing.Main(tests);'
-	echo '	testing.RunBenchmarks(benchmarks)'
+	echo '	testing.Main(__regexp__.MatchString, tests)'
+	echo '	testing.RunBenchmarks(__regexp__.MatchString, benchmarks)'
 	echo '}'
 }>_testmain.go
 
 $GC _testmain.go
 $GL _testmain.$O
+
+# Set dynamic linker library path, no matter what it's called,
+# to include the current directory while running $O.out,
+# so that cgo libraries can be tested without installation.
+LD_LIBRARY_PATH=.:$LD_LIBRARY_PATH \
+DYLD_LIBRARY_PATH=.:$DYLD_LIBRARY_PATH \
 $E ./$O.out "$@"

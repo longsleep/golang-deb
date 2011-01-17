@@ -28,8 +28,10 @@ func explode(s string, n int) []string {
 		a[i] = string(rune)
 		cur += size
 	}
-	// add the rest
-	a[i] = s[cur:]
+	// add the rest, if there is any
+	if cur < len(s) {
+		a[i] = s[cur:]
+	}
 	return a
 }
 
@@ -57,6 +59,11 @@ func Count(s, sep string) int {
 		}
 	}
 	return n
+}
+
+// Contains returns true if substr is within s.
+func Contains(s, substr string) bool {
+	return Index(s, substr) != -1
 }
 
 // Index returns the index of the first instance of sep in s, or -1 if sep is not present in s.
@@ -135,6 +142,24 @@ func IndexAny(s, chars string) int {
 	return -1
 }
 
+// LastIndexAny returns the index of the last instance of any Unicode code
+// point from chars in s, or -1 if no Unicode code point from chars is
+// present in s.
+func LastIndexAny(s, chars string) int {
+	if len(chars) > 0 {
+		for i := len(s); i > 0; {
+			rune, size := utf8.DecodeLastRuneInString(s[0:i])
+			i -= size
+			for _, m := range chars {
+				if rune == m {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
 // Generic split: splits after each instance of sep,
 // including sepSave bytes of sep in the subarrays.
 func genSplit(s, sep string, sepSave, n int) []string {
@@ -163,16 +188,22 @@ func genSplit(s, sep string, sepSave, n int) []string {
 	return a[0 : na+1]
 }
 
-// Split splits the string s around each instance of sep, returning an array of substrings of s.
-// If sep is empty, Split splits s after each UTF-8 sequence.
-// If n >= 0, Split splits s into at most n substrings; the last substring will be the unsplit remainder.
-// Thus if n == 0, the result will be nil.
+// Split slices s into substrings separated by sep and returns a slice of
+// the substrings between those separators.
+// If sep is empty, Split splits after each UTF-8 sequence.
+// The count determines the number of substrings to return:
+//   n > 0: at most n substrings; the last substring will be the unsplit remainder.
+//   n == 0: the result is nil (zero substrings)
+//   n < 0: all substrings
 func Split(s, sep string, n int) []string { return genSplit(s, sep, 0, n) }
 
-// SplitAfter splits the string s after each instance of sep, returning an array of substrings of s.
-// If sep is empty, SplitAfter splits s after each UTF-8 sequence.
-// If n >= 0, SplitAfter splits s into at most n substrings; the last substring will be the unsplit remainder.
-// Thus if n == 0, the result will be nil.
+// SplitAfter slices s into substrings after each instance of sep and
+// returns a slice of those substrings.
+// If sep is empty, Split splits after each UTF-8 sequence.
+// The count determines the number of substrings to return:
+//   n > 0: at most n substrings; the last substring will be the unsplit remainder.
+//   n == 0: the result is nil (zero substrings)
+//   n < 0: all substrings
 func SplitAfter(s, sep string, n int) []string {
 	return genSplit(s, sep, len(sep), n)
 }
@@ -183,9 +214,9 @@ func Fields(s string) []string {
 	return FieldsFunc(s, unicode.IsSpace)
 }
 
-// FieldsFunc splits the string s at each run of Unicode code points c satifying f(c)
-// and returns an array of slices of s. If no code points in s satisfy f(c), an empty slice
-// is returned.
+// FieldsFunc splits the string s at each run of Unicode code points c satisfying f(c)
+// and returns an array of slices of s. If all code points in s satisfy f(c) or the
+// string is empty, an empty slice is returned.
 func FieldsFunc(s string, f func(int) bool) []string {
 	// First count the fields.
 	n := 0
@@ -286,7 +317,7 @@ func Map(mapping func(rune int) int, s string) string {
 				copy(nb, b[0:nbytes])
 				b = nb
 			}
-			nbytes += utf8.EncodeRune(rune, b[nbytes:maxbytes])
+			nbytes += utf8.EncodeRune(b[nbytes:maxbytes], rune)
 		}
 	}
 	return string(b[0:nbytes])
@@ -333,6 +364,52 @@ func ToTitleSpecial(_case unicode.SpecialCase, s string) string {
 	return Map(func(r int) int { return _case.ToTitle(r) }, s)
 }
 
+// isSeparator reports whether the rune could mark a word boundary.
+// TODO: update when package unicode captures more of the properties.
+func isSeparator(rune int) bool {
+	// ASCII alphanumerics and underscore are not separators
+	if rune <= 0x7F {
+		switch {
+		case '0' <= rune && rune <= '9':
+			return false
+		case 'a' <= rune && rune <= 'z':
+			return false
+		case 'A' <= rune && rune <= 'Z':
+			return false
+		case rune == '_':
+			return false
+		}
+		return true
+	}
+	// Letters and digits are not separators
+	if unicode.IsLetter(rune) || unicode.IsDigit(rune) {
+		return false
+	}
+	// Otherwise, all we can do for now is treat spaces as separators.
+	return unicode.IsSpace(rune)
+}
+
+// BUG(r): The rule Title uses for word boundaries does not handle Unicode punctuation properly.
+
+// Title returns a copy of the string s with all Unicode letters that begin words
+// mapped to their title case.
+func Title(s string) string {
+	// Use a closure here to remember state.
+	// Hackish but effective. Depends on Map scanning in order and calling
+	// the closure once per rune.
+	prev := ' '
+	return Map(
+		func(r int) int {
+			if isSeparator(prev) {
+				prev = r
+				return unicode.ToTitle(r)
+			}
+			prev = r
+			return r
+		},
+		s)
+}
+
 // TrimLeftFunc returns a slice of the string s with all leading
 // Unicode code points c satisfying f(c) removed.
 func TrimLeftFunc(s string, f func(r int) bool) string {
@@ -376,8 +453,7 @@ func LastIndexFunc(s string, f func(r int) bool) int {
 
 // indexFunc is the same as IndexFunc except that if
 // truth==false, the sense of the predicate function is
-// inverted. We could use IndexFunc directly, but this
-// way saves a closure allocation.
+// inverted.
 func indexFunc(s string, f func(r int) bool, truth bool) int {
 	start := 0
 	for start < len(s) {
@@ -396,37 +472,14 @@ func indexFunc(s string, f func(r int) bool, truth bool) int {
 
 // lastIndexFunc is the same as LastIndexFunc except that if
 // truth==false, the sense of the predicate function is
-// inverted. We could use IndexFunc directly, but this
-// way saves a closure allocation.
+// inverted.
 func lastIndexFunc(s string, f func(r int) bool, truth bool) int {
-	end := len(s)
-	for end > 0 {
-		start := end - 1
-		rune := int(s[start])
-		if rune >= utf8.RuneSelf {
-			// Back up & look for beginning of rune. Mustn't pass start.
-			for start--; start >= 0; start-- {
-				if utf8.RuneStart(s[start]) {
-					break
-				}
-			}
-			if start < 0 {
-				return -1
-			}
-			var wid int
-			rune, wid = utf8.DecodeRuneInString(s[start:end])
-
-			// If we've decoded fewer bytes than we expected,
-			// we've got some invalid UTF-8, so make sure we return
-			// the last possible index in s.
-			if start+wid < end && f(utf8.RuneError) == truth {
-				return end - 1
-			}
-		}
+	for i := len(s); i > 0; {
+		rune, size := utf8.DecodeLastRuneInString(s[0:i])
+		i -= size
 		if f(rune) == truth {
-			return start
+			return i
 		}
-		end = start
 	}
 	return -1
 }
@@ -497,21 +550,10 @@ func Replace(s, old, new string, n int) string {
 		} else {
 			j += Index(s[start:], old)
 		}
-		w += copyString(t[w:], s[start:j])
-		w += copyString(t[w:], new)
+		w += copy(t[w:], s[start:j])
+		w += copy(t[w:], new)
 		start = j + len(old)
 	}
-	w += copyString(t[w:], s[start:])
+	w += copy(t[w:], s[start:])
 	return string(t[0:w])
-}
-
-func copyString(dst []byte, src string) int {
-	n := len(dst)
-	if n > len(src) {
-		n = len(src)
-	}
-	for i := 0; i < n; i++ {
-		dst[i] = src[i]
-	}
-	return n
 }

@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"go/ast"
 	"go/parser"
+	"go/token"
 	"path"
 	"testing"
 )
@@ -22,6 +23,9 @@ const (
 
 
 var update = flag.Bool("update", false, "update golden files")
+
+
+var fset = token.NewFileSet()
 
 
 func lineString(text []byte, i int) string {
@@ -43,7 +47,7 @@ const (
 
 func check(t *testing.T, source, golden string, mode checkMode) {
 	// parse source
-	prog, err := parser.ParseFile(source, nil, nil, parser.ParseComments)
+	prog, err := parser.ParseFile(fset, source, nil, parser.ParseComments)
 	if err != nil {
 		t.Error(err)
 		return
@@ -63,7 +67,7 @@ func check(t *testing.T, source, golden string, mode checkMode) {
 
 	// format source
 	var buf bytes.Buffer
-	if _, err := cfg.Fprint(&buf, prog); err != nil {
+	if _, err := cfg.Fprint(&buf, fset, prog); err != nil {
 		t.Error(err)
 	}
 	res := buf.Bytes()
@@ -112,14 +116,14 @@ type entry struct {
 
 // Use gotest -update to create/update the respective golden files.
 var data = []entry{
-	entry{"empty.input", "empty.golden", 0},
-	entry{"comments.input", "comments.golden", 0},
-	entry{"comments.input", "comments.x", export},
-	entry{"linebreaks.input", "linebreaks.golden", 0},
-	entry{"expressions.input", "expressions.golden", 0},
-	entry{"expressions.input", "expressions.raw", rawFormat},
-	entry{"declarations.input", "declarations.golden", 0},
-	entry{"statements.input", "statements.golden", 0},
+	{"empty.input", "empty.golden", 0},
+	{"comments.input", "comments.golden", 0},
+	{"comments.input", "comments.x", export},
+	{"linebreaks.input", "linebreaks.golden", 0},
+	{"expressions.input", "expressions.golden", 0},
+	{"expressions.input", "expressions.raw", rawFormat},
+	{"declarations.input", "declarations.golden", 0},
+	{"statements.input", "statements.golden", 0},
 }
 
 

@@ -17,7 +17,7 @@
 #include "os.h"
 #include "arch.h"
 
-extern int32 symdat[];
+extern byte pclntab[], epclntab[], symtab[], esymtab[];
 
 typedef struct Sym Sym;
 struct Sym
@@ -32,25 +32,16 @@ struct Sym
 static void
 walksymtab(void (*fn)(Sym*))
 {
-	int32 *v;
 	byte *p, *ep, *q;
 	Sym s;
 
-	if(symdat == nil)
-		return;
-
-#ifdef __WINDOWS__
-	v = get_symdat_addr();
-	p = (byte*)v+8;
-#else
-	v = symdat;
-	p = (byte*)(symdat+2);
-#endif
-	ep = p + v[0];
+	p = symtab;
+	ep = esymtab;
 	while(p < ep) {
 		if(p + 7 > ep)
 			break;
 		s.value = ((uint32)p[0]<<24) | ((uint32)p[1]<<16) | ((uint32)p[2]<<8) | ((uint32)p[3]);
+
 		if(!(p[4]&0x80))
 			break;
 		s.symtype = p[4] & ~0x80;
@@ -69,7 +60,7 @@ walksymtab(void (*fn)(Sym*))
 			}
 			p = q+2;
 		}else{
-			q = mchr(p, '\0', ep);
+			q = runtime·mchr(p, '\0', ep);
 			if(q == nil)
 				break;
 			p = q+1;
@@ -99,14 +90,14 @@ dofunc(Sym *sym)
 	case 'T':
 	case 'l':
 	case 'L':
-		if(strcmp(sym->name, (byte*)"etext") == 0)
+		if(runtime·strcmp(sym->name, (byte*)"etext") == 0)
 			break;
 		if(func == nil) {
 			nfunc++;
 			break;
 		}
 		f = &func[nfunc++];
-		f->name = gostringnocopy(sym->name);
+		f->name = runtime·gostringnocopy(sym->name);
 		f->entry = sym->value;
 		if(sym->symtype == 'L' || sym->symtype == 'l')
 			f->frame = -sizeof(uintptr);
@@ -127,8 +118,13 @@ dofunc(Sym *sym)
 		break;
 	case 'f':
 		if(fname == nil) {
-			if(sym->value >= nfname)
+			if(sym->value >= nfname) {
+				if(sym->value >= 0x10000) {
+					runtime·printf("invalid symbol file index %p\n", sym->value);
+					runtime·throw("mangled symbol table");
+				}
 				nfname = sym->value+1;
+			}
 			break;
 		}
 		fname[sym->value] = sym->name;
@@ -158,12 +154,12 @@ makepath(byte *buf, int32 nbuf, byte *path)
 		if(n >= nfname)
 			break;
 		q = fname[n];
-		len = findnull(q);
+		len = runtime·findnull(q);
 		if(p+1+len >= ep)
 			break;
 		if(p > buf && p[-1] != '/')
 			*p++ = '/';
-		mcpy(p, q, len+1);
+		runtime·mcpy(p, q, len+1);
 		p += len;
 	}
 }
@@ -189,7 +185,7 @@ dosrcline(Sym *sym)
 	switch(sym->symtype) {
 	case 't':
 	case 'T':
-		if(strcmp(sym->name, (byte*)"etext") == 0)
+		if(runtime·strcmp(sym->name, (byte*)"etext") == 0)
 			break;
 		f = &func[nfunc++];
 		// find source file
@@ -208,7 +204,7 @@ dosrcline(Sym *sym)
 			nfile = 0;
 			if(nfile == nelem(files))
 				return;
-			files[nfile].srcstring = gostring(srcbuf);
+			files[nfile].srcstring = runtime·gostring(srcbuf);
 			files[nfile].aline = 0;
 			files[nfile++].delta = 0;
 		} else {
@@ -219,7 +215,7 @@ dosrcline(Sym *sym)
 					incstart = sym->value;
 				if(nhist == 0 && nfile < nelem(files)) {
 					// new top-level file
-					files[nfile].srcstring = gostring(srcbuf);
+					files[nfile].srcstring = runtime·gostring(srcbuf);
 					files[nfile].aline = sym->value;
 					// this is "line 0"
 					files[nfile++].delta = sym->value - 1;
@@ -240,8 +236,10 @@ splitpcln(void)
 	uintptr pc;
 	byte *p, *ep;
 	Func *f, *ef;
-	int32 *v;
 	int32 pcquant;
+
+	if(pclntab == epclntab || nfunc == 0)
+		return;
 
 	switch(thechar) {
 	case '5':
@@ -252,19 +250,9 @@ splitpcln(void)
 		break;
 	}
 
-	if(symdat == nil)
-		return;
-
 	// pc/ln table bounds
-#ifdef __WINDOWS__
-	v = get_symdat_addr();
-	p = (byte*)v+8;
-#else
-	v = symdat;
-	p = (byte*)(symdat+2);
-#endif
-	p += v[0];
-	ep = p+v[1];
+	p = pclntab;
+	ep = epclntab;
 
 	f = func;
 	ef = func + nfunc;
@@ -305,7 +293,7 @@ splitpcln(void)
 // (Source file is f->src.)
 // NOTE(rsc): If you edit this function, also edit extern.go:/FileLine
 int32
-funcline(Func *f, uint64 targetpc)
+runtime·funcline(Func *f, uint64 targetpc)
 {
 	byte *p, *ep;
 	uintptr pc;
@@ -360,9 +348,9 @@ buildfuncs(void)
 	walksymtab(dofunc);
 
 	// initialize tables
-	func = mal((nfunc+1)*sizeof func[0]);
+	func = runtime·mal((nfunc+1)*sizeof func[0]);
 	func[nfunc].entry = (uint64)etext;
-	fname = mal(nfname*sizeof fname[0]);
+	fname = runtime·mal(nfname*sizeof fname[0]);
 	nfunc = 0;
 	walksymtab(dofunc);
 
@@ -376,15 +364,15 @@ buildfuncs(void)
 }
 
 Func*
-findfunc(uintptr addr)
+runtime·findfunc(uintptr addr)
 {
 	Func *f;
 	int32 nf, n;
 
-	lock(&funclock);
+	runtime·lock(&funclock);
 	if(func == nil)
 		buildfuncs();
-	unlock(&funclock);
+	runtime·unlock(&funclock);
 
 	if(nfunc == 0)
 		return nil;
@@ -410,6 +398,6 @@ findfunc(uintptr addr)
 	// that the address was in the table bounds.
 	// this can only happen if the table isn't sorted
 	// by address or if the binary search above is buggy.
-	prints("findfunc unreachable\n");
+	runtime·prints("findfunc unreachable\n");
 	return nil;
 }

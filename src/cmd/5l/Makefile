@@ -2,24 +2,29 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.conf
+include ../../Make.inc
+O:=$(HOST_O)
 
-TARG=\
-	5l\
+TARG=5l
 
 OFILES=\
 	asm.$O\
+	data.$O\
 	elf.$O\
 	enam.$O\
+	ldelf.$O\
+	ldmacho.$O\
 	lib.$O\
 	list.$O\
 	noop.$O\
 	obj.$O\
 	optab.$O\
 	pass.$O\
+	prof.$O\
 	thumb.$O\
 	softfloat.$O\
 	span.$O\
+	symtab.$O\
 	go.$O\
 
 HFILES=\
@@ -27,19 +32,12 @@ HFILES=\
 	../5l/5.out.h\
 	../ld/elf.h\
 
-$(TARG): $(OFILES)
-	$(LD) -o $(TARG) -L"$(GOROOT)"/lib $(OFILES) -lbio -l9
-
-$(OFILES): $(HFILES)
+include ../../Make.ccmd
 
 enam.c: 5.out.h
 	sh mkenam
 
-clean:
-	rm -f *.o $(TARG) *.5 enam.c 5.out a.out
-
-install: $(TARG)
-	cp $(TARG) "$(GOBIN)"/$(TARG)
+CLEANFILES+=enam.c
 
 %.$O: ../ld/%.c
-	$(CC) $(CFLAGS) -c -I. ../ld/$*.c
+	$(HOST_CC) $(HOST_CFLAGS) -c -I. ../ld/$*.c

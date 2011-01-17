@@ -2,28 +2,21 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// The following function allows one to dynamically
-// resolve DLL function names.
-// The arguments are strings.
-void *get_proc_addr(void *library, void *name);
-
-extern void *VirtualAlloc;
-extern void *LoadLibraryEx;
-extern void *GetProcAddress;
-extern void *GetLastError;
-
-#define goargs windows_goargs
-void windows_goargs(void);
+extern void *runtime·LoadLibraryEx;
+extern void *runtime·GetProcAddress;
+extern void *runtime·GetLastError;
 
 // Get start address of symbol data in memory.
-void *get_symdat_addr(void);
-
-// Call a Windows function with stdcall conventions.
-void *stdcall_raw(void *fn, ...);
+void *runtime·get_symdat_addr(void);
 
 // Call a Windows function with stdcall conventions,
 // and switch to os stack during the call.
-void *stdcall(void *fn, int32 count, ...);
+void *runtime·stdcall_raw(void *fn, int32 count, uintptr *args);
+void *runtime·stdcall(void *fn, int32 count, ...);
+
+// Function to be called by windows CreateTread
+// to start new os thread.
+uint32 runtime·tstart_stdcall(M *newm);
 
 // Call stdcall Windows function StdcallParams.fn
 // with params StdcallParams.args,
@@ -34,9 +27,10 @@ typedef struct StdcallParams StdcallParams;
 struct StdcallParams
 {
 	void	*fn;
-	uintptr args[9];
+	uintptr args[12];
+	int32	n;
 	uintptr	r;
 	uintptr	err;
 };
-void call_syscall(void *args);
-void syscall(StdcallParams *p);
+
+void runtime·syscall(StdcallParams *p);

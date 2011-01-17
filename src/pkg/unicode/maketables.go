@@ -157,7 +157,7 @@ func parseCategory(line string) (state State) {
 	char := &chars[point]
 	char.field = field
 	if char.codePoint != 0 {
-		die.Logf("point U+%04x reused\n")
+		die.Logf("point %U reused\n")
 	}
 	char.codePoint = lastChar
 	char.category = field[FGeneralCategory]
@@ -167,7 +167,7 @@ func parseCategory(line string) (state State) {
 		// Decimal digit
 		_, err := strconv.Atoi(field[FNumericValue])
 		if err != nil {
-			die.Log("U+%04x: bad numeric field: %s", point, err)
+			die.Log("%U: bad numeric field: %s", point, err)
 		}
 	case "Lu":
 		char.letter(field[FCodePoint], field[FSimpleLowercaseMapping], field[FSimpleTitlecaseMapping])
@@ -208,7 +208,7 @@ func (char *Char) letterValue(s string, cas string) int {
 	v, err := strconv.Btoui64(s, 16)
 	if err != nil {
 		char.dump(cas)
-		die.Logf("U+%04x: bad letter(%s): %s", char.codePoint, s, err)
+		die.Logf("%U: bad letter(%s): %s", char.codePoint, s, err)
 	}
 	return int(v)
 }
@@ -326,10 +326,10 @@ func printCategories() {
 	if *tablelist == "all" {
 		fmt.Println("// Categories is the set of Unicode data tables.")
 		fmt.Println("var Categories = map[string] []Range {")
-		for k, _ := range category {
+		for k := range category {
 			fmt.Printf("\t%q: %s,\n", k, k)
 		}
-		fmt.Printf("}\n\n")
+		fmt.Print("}\n\n")
 	}
 
 	decl := make(sort.StringArray, len(list))
@@ -377,7 +377,7 @@ func printCategories() {
 	for _, d := range decl {
 		fmt.Print(d)
 	}
-	fmt.Println(")\n")
+	fmt.Print(")\n\n")
 }
 
 type Op func(code int) bool
@@ -493,17 +493,7 @@ func parseScript(line string, scripts map[string][]Script) {
 		}
 	}
 	name := matches[3]
-	s, ok := scripts[name]
-	if !ok || len(s) == cap(s) {
-		ns := make([]Script, len(s), len(s)+100)
-		for i, sc := range s {
-			ns[i] = sc
-		}
-		s = ns
-	}
-	s = s[0 : len(s)+1]
-	s[len(s)-1] = Script{uint32(lo), uint32(hi), name}
-	scripts[name] = s
+	scripts[name] = append(scripts[name], Script{uint32(lo), uint32(hi), name})
 }
 
 // The script tables have a lot of adjacent elements. Fold them together.
@@ -604,10 +594,10 @@ func printScriptOrProperty(doProps bool) {
 			fmt.Println("// Scripts is the set of Unicode script tables.")
 			fmt.Println("var Scripts = map[string] []Range {")
 		}
-		for k, _ := range table {
+		for k := range table {
 			fmt.Printf("\t%q: %s,\n", k, k)
 		}
-		fmt.Printf("}\n\n")
+		fmt.Print("}\n\n")
 	}
 
 	decl := make(sort.StringArray, len(list))
@@ -628,14 +618,14 @@ func printScriptOrProperty(doProps bool) {
 		for _, s := range ranges {
 			fmt.Printf(format, s.Lo, s.Hi, s.Stride)
 		}
-		fmt.Printf("}\n\n")
+		fmt.Print("}\n\n")
 	}
 	decl.Sort()
 	fmt.Println("var (")
 	for _, d := range decl {
 		fmt.Print(d)
 	}
-	fmt.Println(")\n")
+	fmt.Print(")\n\n")
 }
 
 const (
@@ -802,7 +792,7 @@ func printCases() {
 		}
 		prevState = state
 	}
-	fmt.Printf("}\n")
+	fmt.Print("}\n")
 }
 
 func printCaseRange(lo, hi *caseState) {

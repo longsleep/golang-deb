@@ -23,14 +23,21 @@ void
 exprfmt(Fmt *f, Node *n, int prec)
 {
 	int nprec;
+	char *p;
 
 	nprec = 0;
 	if(n == nil) {
 		fmtprint(f, "<nil>");
 		return;
 	}
+	
+	if(n->implicit) {
+		exprfmt(f, n->left, prec);
+		return;
+	}
 
 	switch(n->op) {
+	case OAPPEND:
 	case ONAME:
 	case ONONAME:
 	case OPACK:
@@ -53,9 +60,11 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case OPRINT:
 	case OPRINTN:
 	case OCALL:
+	case OCALLMETH:
+	case OCALLINTER:
+	case OCALLFUNC:
 	case OCONV:
 	case OCONVNOP:
-	case OCONVSLICE:
 	case OMAKESLICE:
 	case ORUNESTR:
 	case OADDR:
@@ -66,6 +75,9 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case OPLUS:
 	case ORECV:
 	case OCONVIFACE:
+	case OTPAREN:
+	case OINDEX:
+	case OINDEXMAP:
 		nprec = 7;
 		break;
 
@@ -106,6 +118,11 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case OOROR:
 		nprec = 1;
 		break;
+	
+	case OTYPE:
+		if(n->sym != S)
+			nprec = 7;
+		break;
 	}
 
 	if(prec > nprec)
@@ -118,6 +135,10 @@ exprfmt(Fmt *f, Node *n, int prec)
 		break;
 
 	case OLITERAL:
+		if(n->sym != S) {
+			fmtprint(f, "%S", n->sym);
+			break;
+		}
 		switch(n->val.ctype) {
 		default:
 			goto bad;
@@ -154,12 +175,22 @@ exprfmt(Fmt *f, Node *n, int prec)
 		break;
 
 	case OTYPE:
+		if(n->type == T && n->sym != S) {
+			fmtprint(f, "%S", n->sym);
+			break;
+		}
 		fmtprint(f, "%T", n->type);
 		break;
 
 	case OTARRAY:
 		fmtprint(f, "[]");
 		exprfmt(f, n->left, PFIXME);
+		break;
+	
+	case OTPAREN:
+		fmtprint(f, "(");
+		exprfmt(f, n->left, 0);
+		fmtprint(f, ")");
 		break;
 
 	case OTMAP:
@@ -178,7 +209,7 @@ exprfmt(Fmt *f, Node *n, int prec)
 			exprfmt(f, n->left, 0);
 		} else {
 			fmtprint(f, " ");
-			if(n->left->op == OTCHAN && n->left->etype == Crecv) {
+			if(n->left->op == OTCHAN && n->left->sym == S && n->left->etype == Crecv) {
 				fmtprint(f, "(");
 				exprfmt(f, n->left, 0);
 				fmtprint(f, ")");
@@ -248,6 +279,10 @@ exprfmt(Fmt *f, Node *n, int prec)
 		exprfmt(f, n->left, 0);
 		break;
 
+	case OCLOSURE:
+		fmtprint(f, "func literal");
+		break;
+
 	case OCOMPLIT:
 		fmtprint(f, "composite literal");
 		break;
@@ -267,6 +302,7 @@ exprfmt(Fmt *f, Node *n, int prec)
 		fmtprint(f, "struct literal");
 		break;
 
+	case OXDOT:
 	case ODOT:
 	case ODOTPTR:
 	case ODOTINTER:
@@ -274,8 +310,15 @@ exprfmt(Fmt *f, Node *n, int prec)
 		exprfmt(f, n->left, 7);
 		if(n->right == N || n->right->sym == S)
 			fmtprint(f, ".<nil>");
-		else
-			fmtprint(f, ".%s", n->right->sym->name);
+		else {
+			// skip leading type· in method name
+			p = utfrrune(n->right->sym->name, 0xb7);
+			if(p)
+				p+=2;
+			else
+				p = n->right->sym->name;
+			fmtprint(f, ".%s", p);
+		}
 		break;
 
 	case ODOTTYPE:
@@ -291,7 +334,6 @@ exprfmt(Fmt *f, Node *n, int prec)
 
 	case OINDEX:
 	case OINDEXMAP:
-	case OINDEXSTR:
 		exprfmt(f, n->left, 7);
 		fmtprint(f, "[");
 		exprfmt(f, n->right, 0);
@@ -299,9 +341,12 @@ exprfmt(Fmt *f, Node *n, int prec)
 		break;
 
 	case OSLICE:
+	case OSLICESTR:
+	case OSLICEARR:
 		exprfmt(f, n->left, 7);
 		fmtprint(f, "[");
-		exprfmt(f, n->right->left, 0);
+		if(n->right->left != N)
+			exprfmt(f, n->right->left, 0);
 		fmtprint(f, ":");
 		if(n->right->right != N)
 			exprfmt(f, n->right->right, 0);
@@ -315,6 +360,8 @@ exprfmt(Fmt *f, Node *n, int prec)
 		exprfmt(f, n->left, 7);
 		fmtprint(f, "(");
 		exprlistfmt(f, n->list);
+		if(n->isddd)
+			fmtprint(f, "...");
 		fmtprint(f, ")");
 		break;
 
@@ -341,7 +388,6 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case OCONV:
 	case OCONVIFACE:
 	case OCONVNOP:
-	case OCONVSLICE:
 	case OARRAYBYTESTR:
 	case ORUNESTR:
 		if(n->type == T || n->type->sym == S)
@@ -355,6 +401,7 @@ exprfmt(Fmt *f, Node *n, int prec)
 		fmtprint(f, ")");
 		break;
 
+	case OAPPEND:
 	case OCAP:
 	case OCLOSE:
 	case OCLOSED:

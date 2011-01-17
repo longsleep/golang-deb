@@ -31,26 +31,26 @@ import (
 
 
 // Handler for /doc/codewalk/ and below.
-func codewalk(c *http.Conn, r *http.Request) {
+func codewalk(w http.ResponseWriter, r *http.Request) {
 	relpath := r.URL.Path[len("/doc/codewalk/"):]
 	abspath := absolutePath(r.URL.Path[1:], *goroot)
 
 	r.ParseForm()
 	if f := r.FormValue("fileprint"); f != "" {
-		codewalkFileprint(c, r, f)
+		codewalkFileprint(w, r, f)
 		return
 	}
 
 	// If directory exists, serve list of code walks.
 	dir, err := os.Lstat(abspath)
 	if err == nil && dir.IsDirectory() {
-		codewalkDir(c, r, relpath, abspath)
+		codewalkDir(w, r, relpath, abspath)
 		return
 	}
 
 	// If file exists, serve using standard file server.
 	if err == nil {
-		serveFile(c, r)
+		serveFile(w, r)
 		return
 	}
 
@@ -58,18 +58,18 @@ func codewalk(c *http.Conn, r *http.Request) {
 	// a codewalk description.
 	cw, err := loadCodewalk(abspath + ".xml")
 	if err != nil {
-		log.Stderr(err)
-		serveError(c, r, relpath, err)
+		log.Print(err)
+		serveError(w, r, relpath, err)
 		return
 	}
 
 	// Canonicalize the path and redirect if changed
-	if redirect(c, r) {
+	if redirect(w, r) {
 		return
 	}
 
 	b := applyTemplate(codewalkHTML, "codewalk", cw)
-	servePage(c, "Codewalk: "+cw.Title, "", "", b)
+	servePage(w, "Codewalk: "+cw.Title, "", "", b)
 }
 
 
@@ -178,7 +178,7 @@ func loadCodewalk(file string) (*Codewalk, os.Error) {
 // codewalkDir serves the codewalk directory listing.
 // It scans the directory for subdirectories or files named *.xml
 // and prepares a table.
-func codewalkDir(c *http.Conn, r *http.Request, relpath, abspath string) {
+func codewalkDir(w http.ResponseWriter, r *http.Request, relpath, abspath string) {
 	type elem struct {
 		Name  string
 		Title string
@@ -186,8 +186,8 @@ func codewalkDir(c *http.Conn, r *http.Request, relpath, abspath string) {
 
 	dir, err := ioutil.ReadDir(abspath)
 	if err != nil {
-		log.Stderr(err)
-		serveError(c, r, relpath, err)
+		log.Print(err)
+		serveError(w, r, relpath, err)
 		return
 	}
 	var v vector.Vector
@@ -204,7 +204,7 @@ func codewalkDir(c *http.Conn, r *http.Request, relpath, abspath string) {
 	}
 
 	b := applyTemplate(codewalkdirHTML, "codewalkdir", v)
-	servePage(c, "Codewalks", "", "", b)
+	servePage(w, "Codewalks", "", "", b)
 }
 
 
@@ -214,11 +214,12 @@ func codewalkDir(c *http.Conn, r *http.Request, relpath, abspath string) {
 // in the response.  This format is used for the middle window pane
 // of the codewalk pages.  It is a separate iframe and does not get
 // the usual godoc HTML wrapper.
-func codewalkFileprint(c *http.Conn, r *http.Request, f string) {
+func codewalkFileprint(w http.ResponseWriter, r *http.Request, f string) {
 	abspath := absolutePath(f, *goroot)
 	data, err := ioutil.ReadFile(abspath)
 	if err != nil {
-		serveError(c, r, f, err)
+		log.Print(err)
+		serveError(w, r, f, err)
 		return
 	}
 	lo, _ := strconv.Atoi(r.FormValue("lo"))
@@ -242,17 +243,17 @@ func codewalkFileprint(c *http.Conn, r *http.Request, f string) {
 		}
 	}
 
-	io.WriteString(c, `<style type="text/css">@import "/doc/codewalk/codewalk.css";</style><pre>`)
-	template.HTMLEscape(c, data[0:mark])
-	io.WriteString(c, "<a name='mark'></a>")
-	template.HTMLEscape(c, data[mark:lo])
+	io.WriteString(w, `<style type="text/css">@import "/doc/codewalk/codewalk.css";</style><pre>`)
+	template.HTMLEscape(w, data[0:mark])
+	io.WriteString(w, "<a name='mark'></a>")
+	template.HTMLEscape(w, data[mark:lo])
 	if lo < hi {
-		io.WriteString(c, "<div class='codewalkhighlight'>")
-		template.HTMLEscape(c, data[lo:hi])
-		io.WriteString(c, "</div>")
+		io.WriteString(w, "<div class='codewalkhighlight'>")
+		template.HTMLEscape(w, data[lo:hi])
+		io.WriteString(w, "</div>")
 	}
-	template.HTMLEscape(c, data[hi:])
-	io.WriteString(c, "</pre>")
+	template.HTMLEscape(w, data[hi:])
+	io.WriteString(w, "</pre>")
 }
 
 
@@ -450,13 +451,13 @@ func addrRegexp(data []byte, lo, hi int, dir byte, pattern string) (int, int, os
 		// through file, but that seems like overkill.
 		return 0, 0, os.NewError("reverse search not implemented")
 	}
-	m := re.Execute(data[hi:])
+	m := re.FindIndex(data[hi:])
 	if len(m) > 0 {
 		m[0] += hi
 		m[1] += hi
 	} else if hi > 0 {
 		// No match.  Wrap to beginning of data.
-		m = re.Execute(data)
+		m = re.FindIndex(data)
 	}
 	if len(m) == 0 {
 		return 0, 0, os.NewError("no match for " + pattern)

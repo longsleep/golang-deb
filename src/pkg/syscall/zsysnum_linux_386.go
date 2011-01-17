@@ -262,6 +262,14 @@ const (
 	SYS_REMAP_FILE_PAGES       = 257
 	SYS_SET_TID_ADDRESS        = 258
 	SYS_TIMER_CREATE           = 259
+	SYS_TIMER_SETTIME          = 260
+	SYS_TIMER_GETTIME          = 261
+	SYS_TIMER_GETOVERRUN       = 262
+	SYS_TIMER_DELETE           = 263
+	SYS_CLOCK_SETTIME          = 264
+	SYS_CLOCK_GETTIME          = 265
+	SYS_CLOCK_GETRES           = 266
+	SYS_CLOCK_NANOSLEEP        = 267
 	SYS_STATFS64               = 268
 	SYS_FSTATFS64              = 269
 	SYS_TGKILL                 = 270
@@ -272,6 +280,11 @@ const (
 	SYS_GET_MEMPOLICY          = 275
 	SYS_SET_MEMPOLICY          = 276
 	SYS_MQ_OPEN                = 277
+	SYS_MQ_UNLINK              = 278
+	SYS_MQ_TIMEDSEND           = 279
+	SYS_MQ_TIMEDRECEIVE        = 280
+	SYS_MQ_NOTIFY              = 281
+	SYS_MQ_GETSETATTR          = 282
 	SYS_KEXEC_LOAD             = 283
 	SYS_WAITID                 = 284
 	SYS_ADD_KEY                = 286
@@ -310,9 +323,19 @@ const (
 	SYS_EPOLL_PWAIT            = 319
 	SYS_UTIMENSAT              = 320
 	SYS_SIGNALFD               = 321
-	SYS_TIMERFD                = 322
+	SYS_TIMERFD_CREATE         = 322
 	SYS_EVENTFD                = 323
 	SYS_FALLOCATE              = 324
+	SYS_TIMERFD_SETTIME        = 325
+	SYS_TIMERFD_GETTIME        = 326
+	SYS_SIGNALFD4              = 327
+	SYS_EVENTFD2               = 328
+	SYS_EPOLL_CREATE1          = 329
+	SYS_DUP3                   = 330
+	SYS_PIPE2                  = 331
+	SYS_INOTIFY_INIT1          = 332
+	SYS_PREADV                 = 333
+	SYS_PWRITEV                = 334
+	SYS_RT_TGSIGQUEUEINFO      = 335
+	SYS_PERF_EVENT_OPEN        = 336
 )
-
-func _darwin_system_call_conflict() {}

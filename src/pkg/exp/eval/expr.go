@@ -5,7 +5,7 @@
 package eval
 
 import (
-	"exp/bignum"
+	"big"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -13,6 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"os"
+)
+
+var (
+	idealZero = big.NewInt(0)
+	idealOne  = big.NewInt(1)
 )
 
 // An expr is the result of compiling an expression.  It stores the
@@ -52,7 +57,7 @@ type expr struct {
 // compiled from it.
 type exprInfo struct {
 	*compiler
-	pos token.Position
+	pos token.Pos
 }
 
 func (a *exprInfo) newExpr(t Type, desc string) *expr {
@@ -60,7 +65,7 @@ func (a *exprInfo) newExpr(t Type, desc string) *expr {
 }
 
 func (a *exprInfo) diag(format string, args ...interface{}) {
-	a.diagAt(&a.pos, format, args)
+	a.diagAt(a.pos, format, args...)
 }
 
 func (a *exprInfo) diagOpType(op token.Token, vt Type) {
@@ -82,10 +87,10 @@ func (a *exprInfo) diagOpTypes(op token.Token, lt Type, rt Type) {
 // TODO(austin) Rename to resolveIdeal or something?
 func (a *expr) convertTo(t Type) *expr {
 	if !a.t.isIdeal() {
-		log.Crashf("attempted to convert from %v, expected ideal", a.t)
+		log.Panicf("attempted to convert from %v, expected ideal", a.t)
 	}
 
-	var rat *bignum.Rational
+	var rat *big.Rat
 
 	// XXX(Spec)  The spec says "It is erroneous".
 	//
@@ -97,24 +102,24 @@ func (a *expr) convertTo(t Type) *expr {
 	case IdealFloatType:
 		rat = a.asIdealFloat()()
 		if t.isInteger() && !rat.IsInt() {
-			a.diag("constant %v truncated to integer", ratToString(rat))
+			a.diag("constant %v truncated to integer", rat.FloatString(6))
 			return nil
 		}
 	case IdealIntType:
 		i := a.asIdealInt()()
-		rat = bignum.MakeRat(i, bignum.Nat(1))
+		rat = new(big.Rat).SetInt(i)
 	default:
-		log.Crashf("unexpected ideal type %v", a.t)
+		log.Panicf("unexpected ideal type %v", a.t)
 	}
 
 	// Check bounds
 	if t, ok := t.lit().(BoundedType); ok {
 		if rat.Cmp(t.minVal()) < 0 {
-			a.diag("constant %v underflows %v", ratToString(rat), t)
+			a.diag("constant %v underflows %v", rat.FloatString(6), t)
 			return nil
 		}
 		if rat.Cmp(t.maxVal()) > 0 {
-			a.diag("constant %v overflows %v", ratToString(rat), t)
+			a.diag("constant %v overflows %v", rat.FloatString(6), t)
 			return nil
 		}
 	}
@@ -123,27 +128,28 @@ func (a *expr) convertTo(t Type) *expr {
 	res := a.newExpr(t, a.desc)
 	switch t := t.lit().(type) {
 	case *uintType:
-		n, d := rat.Value()
-		f := n.Quo(bignum.MakeInt(false, d))
-		v := f.Abs().Value()
+		n, d := rat.Num(), rat.Denom()
+		f := new(big.Int).Quo(n, d)
+		f = f.Abs(f)
+		v := uint64(f.Int64())
 		res.eval = func(*Thread) uint64 { return v }
 	case *intType:
-		n, d := rat.Value()
-		f := n.Quo(bignum.MakeInt(false, d))
-		v := f.Value()
+		n, d := rat.Num(), rat.Denom()
+		f := new(big.Int).Quo(n, d)
+		v := f.Int64()
 		res.eval = func(*Thread) int64 { return v }
 	case *idealIntType:
-		n, d := rat.Value()
-		f := n.Quo(bignum.MakeInt(false, d))
-		res.eval = func() *bignum.Integer { return f }
+		n, d := rat.Num(), rat.Denom()
+		f := new(big.Int).Quo(n, d)
+		res.eval = func() *big.Int { return f }
 	case *floatType:
-		n, d := rat.Value()
-		v := float64(n.Value()) / float64(d.Value())
+		n, d := rat.Num(), rat.Denom()
+		v := float64(n.Int64()) / float64(d.Int64())
 		res.eval = func(*Thread) float64 { return v }
 	case *idealFloatType:
-		res.eval = func() *bignum.Rational { return rat }
+		res.eval = func() *big.Rat { return rat }
 	default:
-		log.Crashf("cannot convert to type %T", t)
+		log.Panicf("cannot convert to type %T", t)
 	}
 
 	return res
@@ -158,7 +164,7 @@ func (a *expr) convertToInt(max int64, negErr string, errOp string) *expr {
 	switch a.t.lit().(type) {
 	case *idealIntType:
 		val := a.asIdealInt()()
-		if negErr != "" && val.IsNeg() {
+		if negErr != "" && val.Sign() < 0 {
 			a.diag("negative %s: %s", negErr, val)
 			return nil
 		}
@@ -166,7 +172,7 @@ func (a *expr) convertToInt(max int64, negErr string, errOp string) *expr {
 		if negErr == "slice" {
 			bound++
 		}
-		if max != -1 && val.Cmp(bignum.Int(bound)) >= 0 {
+		if max != -1 && val.Cmp(big.NewInt(bound)) >= 0 {
 			a.diag("index %s exceeds length %d", val, max)
 			return nil
 		}
@@ -196,7 +202,7 @@ func (a *expr) derefArray() *expr {
 		if _, ok := pt.Elem.lit().(*ArrayType); ok {
 			deref := a.compileStarExpr(a)
 			if deref == nil {
-				log.Crashf("failed to dereference *array")
+				log.Panicf("failed to dereference *array")
 			}
 			return deref
 		}
@@ -223,7 +229,7 @@ func (a *expr) derefArray() *expr {
 //    multi-valued type.
 type assignCompiler struct {
 	*compiler
-	pos token.Position
+	pos token.Pos
 	// The RHS expressions.  This may include nil's for
 	// expressions that failed to compile.
 	rs []*expr
@@ -248,7 +254,7 @@ type assignCompiler struct {
 // assignCompiler with rmt set, but if type checking fails, slots in
 // the MultiType may be nil.  If rs contains nil's, type checking will
 // fail and these expressions given a nil type.
-func (a *compiler) checkAssign(pos token.Position, rs []*expr, errOp, errPosName string) (*assignCompiler, bool) {
+func (a *compiler) checkAssign(pos token.Pos, rs []*expr, errOp, errPosName string) (*assignCompiler, bool) {
 	c := &assignCompiler{
 		compiler:   a,
 		pos:        pos,
@@ -325,7 +331,7 @@ func (a *assignCompiler) compile(b *block, lt Type) func(Value, *Thread) {
 				pos = a.rs[lcount-1].pos
 			}
 		}
-		a.diagAt(&pos, "%s %ss for %s\n\t%s\n\t%s", msg, a.errPosName, a.errOp, lt, rmt)
+		a.diagAt(pos, "%s %ss for %s\n\t%s\n\t%s", msg, a.errPosName, a.errOp, lt, rmt)
 		return nil
 	}
 
@@ -364,7 +370,7 @@ func (a *assignCompiler) compile(b *block, lt Type) func(Value, *Thread) {
 		a.rs = make([]*expr, len(a.rmt.Elems))
 		for i, t := range a.rmt.Elems {
 			if t.isIdeal() {
-				log.Crashf("Right side of unpack contains ideal: %s", rmt)
+				log.Panicf("Right side of unpack contains ideal: %s", rmt)
 			}
 			a.rs[i] = orig.newExpr(t, orig.desc)
 			index := i
@@ -447,7 +453,7 @@ func (a *assignCompiler) compile(b *block, lt Type) func(Value, *Thread) {
 // compileAssign compiles an assignment operation without the full
 // generality of an assignCompiler.  See assignCompiler for a
 // description of the arguments.
-func (a *compiler) compileAssign(pos token.Position, b *block, lt Type, rs []*expr, errOp, errPosName string) func(Value, *Thread) {
+func (a *compiler) compileAssign(pos token.Pos, b *block, lt Type, rs []*expr, errOp, errPosName string) func(Value, *Thread) {
 	ac, ok := a.checkAssign(pos, rs, errOp, errPosName)
 	if !ok {
 		return nil
@@ -490,7 +496,7 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 		case token.STRING:
 			return ei.compileStringLit(string(x.Value))
 		default:
-			log.Crashf("unexpected basic literal type %v", x.Kind)
+			log.Panicf("unexpected basic literal type %v", x.Kind)
 		}
 
 	case *ast.CompositeLit:
@@ -508,7 +514,7 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 			return nil
 		}
 		if a.constant {
-			a.diagAt(x, "function literal used in constant expression")
+			a.diagAt(x.Pos(), "function literal used in constant expression")
 			return nil
 		}
 		return ei.compileFuncLit(decl, fn)
@@ -565,12 +571,12 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 			return nil
 		}
 		if a.constant {
-			a.diagAt(x, "function call in constant context")
+			a.diagAt(x.Pos(), "function call in constant context")
 			return nil
 		}
 
 		if l.valType != nil {
-			a.diagAt(x, "type conversions not implemented")
+			a.diagAt(x.Pos(), "type conversions not implemented")
 			return nil
 		} else if ft, ok := l.t.(*FuncType); ok && ft.builtin != "" {
 			return ei.compileBuiltinCallExpr(a.block, ft, args)
@@ -579,7 +585,7 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 		}
 
 	case *ast.Ident:
-		return ei.compileIdent(a.block, a.constant, callCtx, x.Name())
+		return ei.compileIdent(a.block, a.constant, callCtx, x.Name)
 
 	case *ast.IndexExpr:
 		l, r := a.compile(x.X, false), a.compile(x.Index, false)
@@ -589,15 +595,21 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 		return ei.compileIndexExpr(l, r)
 
 	case *ast.SliceExpr:
-		var hi *expr
+		var lo, hi *expr
 		arr := a.compile(x.X, false)
-		lo := a.compile(x.Index, false)
-		if x.End == nil {
+		if x.Low == nil {
+			// beginning was omitted, so we need to provide it
+			ei := &exprInfo{a.compiler, x.Pos()}
+			lo = ei.compileIntLit("0")
+		} else {
+			lo = a.compile(x.Low, false)
+		}
+		if x.High == nil {
 			// End was omitted, so we need to compute len(x.X)
 			ei := &exprInfo{a.compiler, x.Pos()}
 			hi = ei.compileBuiltinCallExpr(a.block, lenType, []*expr{arr})
 		} else {
-			hi = a.compile(x.End, false)
+			hi = a.compile(x.High, false)
 		}
 		if arr == nil || lo == nil || hi == nil {
 			return nil
@@ -615,7 +627,7 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 		if v == nil {
 			return nil
 		}
-		return ei.compileSelectorExpr(v, x.Sel.Name())
+		return ei.compileSelectorExpr(v, x.Sel.Name)
 
 	case *ast.StarExpr:
 		// We pass down our call context because this could be
@@ -643,18 +655,18 @@ func (a *exprCompiler) compile(x ast.Expr, callCtx bool) *expr {
 		}
 		return ei.compileUnaryExpr(x.Op, v)
 	}
-	log.Crashf("unexpected ast node type %T", x)
+	log.Panicf("unexpected ast node type %T", x)
 	panic("unreachable")
 
 typeexpr:
 	if !callCtx {
-		a.diagAt(x, "type used as expression")
+		a.diagAt(x.Pos(), "type used as expression")
 		return nil
 	}
 	return ei.exprFromType(a.compileType(a.block, x))
 
 notimpl:
-	a.diagAt(x, "%T expression node not implemented", x)
+	a.diagAt(x.Pos(), "%T expression node not implemented", x)
 	return nil
 }
 
@@ -705,7 +717,7 @@ func (a *exprInfo) compileIdent(b *block, constant bool, callCtx bool, name stri
 		a.diag("type %v used as expression", name)
 		return nil
 	}
-	log.Crashf("name %s has unknown type %T", name, def)
+	log.Panicf("name %s has unknown type %T", name, def)
 	panic("unreachable")
 }
 
@@ -735,14 +747,14 @@ func (a *exprInfo) compileGlobalVariable(v *Variable) *expr {
 	return expr
 }
 
-func (a *exprInfo) compileIdealInt(i *bignum.Integer, desc string) *expr {
+func (a *exprInfo) compileIdealInt(i *big.Int, desc string) *expr {
 	expr := a.newExpr(IdealIntType, desc)
-	expr.eval = func() *bignum.Integer { return i }
+	expr.eval = func() *big.Int { return i }
 	return expr
 }
 
 func (a *exprInfo) compileIntLit(lit string) *expr {
-	i, _, _ := bignum.IntFromString(lit, 0)
+	i, _ := new(big.Int).SetString(lit, 0)
 	return a.compileIdealInt(i, "integer literal")
 }
 
@@ -758,16 +770,16 @@ func (a *exprInfo) compileCharLit(lit string) *expr {
 		a.silentErrors++
 		return nil
 	}
-	return a.compileIdealInt(bignum.Int(int64(v)), "character literal")
+	return a.compileIdealInt(big.NewInt(int64(v)), "character literal")
 }
 
 func (a *exprInfo) compileFloatLit(lit string) *expr {
-	f, _, n := bignum.RatFromString(lit, 10)
-	if n != len(lit) {
-		log.Crashf("malformed float literal %s at %v passed parser", lit, a.pos)
+	f, ok := new(big.Rat).SetString(lit)
+	if !ok {
+		log.Panicf("malformed float literal %s at %v passed parser", lit, a.pos)
 	}
 	expr := a.newExpr(IdealFloatType, "float literal")
-	expr.eval = func() *bignum.Rational { return f }
+	expr.eval = func() *big.Rat { return f }
 	return expr
 }
 
@@ -822,7 +834,7 @@ func (a *exprInfo) compileSelectorExpr(v *expr, name string) *expr {
 			ambig = true
 
 		default:
-			log.Crashf("Marked field at depth %d, but already found one at depth %d", depth, bestDepth)
+			log.Panicf("Marked field at depth %d, but already found one at depth %d", depth, bestDepth)
 		}
 		amberr += "\n\t" + pathName[1:]
 	}
@@ -864,7 +876,7 @@ func (a *exprInfo) compileSelectorExpr(v *expr, name string) *expr {
 			_, ok := ti.methods[name]
 			if ok {
 				mark(depth, pathName+"."+name)
-				log.Crash("Methods not implemented")
+				log.Panic("Methods not implemented")
 			}
 			t = ti.Def
 		}
@@ -996,7 +1008,7 @@ func (a *exprInfo) compileSliceExpr(arr, lo, hi *expr) *expr {
 		}
 
 	default:
-		log.Crashf("unexpected left operand type %T", arr.t.lit())
+		log.Panicf("unexpected left operand type %T", arr.t.lit())
 	}
 
 	return expr
@@ -1120,7 +1132,7 @@ func (a *exprInfo) compileIndexExpr(l, r *expr) *expr {
 		}
 
 	default:
-		log.Crashf("unexpected left operand type %T", l.t.lit())
+		log.Panicf("unexpected left operand type %T", l.t.lit())
 	}
 
 	return expr
@@ -1168,12 +1180,8 @@ func (a *exprInfo) compileCallExpr(b *block, l *expr, as []*expr) *expr {
 
 	// Gather argument and out types to initialize frame variables
 	vts := make([]Type, nin+nout)
-	for i, t := range lt.In {
-		vts[i] = t
-	}
-	for i, t := range lt.Out {
-		vts[i+nin] = t
-	}
+	copy(vts, lt.In)
+	copy(vts[nin:], lt.Out)
 
 	// Compile
 	lf := l.asFunc()
@@ -1230,6 +1238,38 @@ func (a *exprInfo) compileBuiltinCallExpr(b *block, ft *FuncType, as []*expr) *e
 		default:
 			a.diag("illegal argument type for cap function\n\t%v", arg.t)
 			return nil
+		}
+		return expr
+
+	case copyType:
+		if !checkCount(2, 2) {
+			return nil
+		}
+		src := as[1]
+		dst := as[0]
+		if src.t != dst.t {
+			a.diag("arguments to built-in function 'copy' must have same type\nsrc: %s\ndst: %s\n", src.t, dst.t)
+			return nil
+		}
+		if _, ok := src.t.lit().(*SliceType); !ok {
+			a.diag("src argument to 'copy' must be a slice (got: %s)", src.t)
+			return nil
+		}
+		if _, ok := dst.t.lit().(*SliceType); !ok {
+			a.diag("dst argument to 'copy' must be a slice (got: %s)", dst.t)
+			return nil
+		}
+		expr := a.newExpr(IntType, "function call")
+		srcf := src.asSlice()
+		dstf := dst.asSlice()
+		expr.eval = func(t *Thread) int64 {
+			src, dst := srcf(t), dstf(t)
+			nelems := src.Len
+			if nelems > dst.Len {
+				nelems = dst.Len
+			}
+			dst.Base.Sub(0, nelems).Assign(t, src.Base.Sub(0, nelems))
+			return nelems
 		}
 		return expr
 
@@ -1425,7 +1465,7 @@ func (a *exprInfo) compileBuiltinCallExpr(b *block, ft *FuncType, as []*expr) *e
 		return expr
 	}
 
-	log.Crashf("unexpected built-in function '%s'", ft.builtin)
+	log.Panicf("unexpected built-in function '%s'", ft.builtin)
 	panic("unreachable")
 }
 
@@ -1492,10 +1532,10 @@ func (a *exprInfo) compileUnaryExpr(op token.Token, v *expr) *expr {
 		t = NewPtrType(v.t)
 
 	case token.ARROW:
-		log.Crashf("Unary op %v not implemented", op)
+		log.Panicf("Unary op %v not implemented", op)
 
 	default:
-		log.Crashf("unknown unary operator %v", op)
+		log.Panicf("unknown unary operator %v", op)
 	}
 
 	desc, ok := unaryOpDescs[op]
@@ -1526,7 +1566,7 @@ func (a *exprInfo) compileUnaryExpr(op token.Token, v *expr) *expr {
 		expr.eval = func(t *Thread) Value { return vf(t) }
 
 	default:
-		log.Crashf("Compilation of unary op %v not implemented", op)
+		log.Panicf("Compilation of unary op %v not implemented", op)
 	}
 
 	return expr
@@ -1650,7 +1690,7 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 			if l.t.isIdeal() && !r.t.isInteger() {
 				r = r.convertTo(IdealIntType)
 				if r == nil {
-					log.Crashf("conversion to uintType succeeded, but conversion to idealIntType failed")
+					log.Panicf("conversion to uintType succeeded, but conversion to idealIntType failed")
 				}
 			}
 		} else if _, ok := r.t.lit().(*uintType); !ok {
@@ -1693,7 +1733,7 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 		// The operands in channel sends differ in type: one
 		// is always a channel and the other is a variable or
 		// value of the channel's element type.
-		log.Crash("Binary op <- not implemented")
+		log.Panic("Binary op <- not implemented")
 		t = BoolType
 
 	case token.LSS, token.GTR, token.LEQ, token.GEQ:
@@ -1761,7 +1801,7 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 		t = BoolType
 
 	default:
-		log.Crashf("unknown binary operator %v", op)
+		log.Panicf("unknown binary operator %v", op)
 	}
 
 	desc, ok := binOpDescs[op]
@@ -1774,8 +1814,8 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 	switch op {
 	case token.QUO, token.REM:
 		if r.t.isIdeal() {
-			if (r.t.isInteger() && r.asIdealInt()().IsZero()) ||
-				(r.t.isFloat() && r.asIdealFloat()().IsZero()) {
+			if (r.t.isInteger() && r.asIdealInt()().Sign() == 0) ||
+				(r.t.isFloat() && r.asIdealFloat()().Sign() == 0) {
 				a.diag("divide by zero")
 				return nil
 			}
@@ -1817,13 +1857,13 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 			lv := l.asIdealInt()()
 			rv := r.asIdealInt()()
 			const maxShift = 99999
-			if rv.Cmp(bignum.Int(maxShift)) > 0 {
+			if rv.Cmp(big.NewInt(maxShift)) > 0 {
 				a.diag("left shift by %v; exceeds implementation limit of %v", rv, maxShift)
 				expr.t = nil
 				return nil
 			}
-			val := lv.Shl(uint(rv.Value()))
-			expr.eval = func() *bignum.Integer { return val }
+			val := new(big.Int).Lsh(lv, uint(rv.Int64()))
+			expr.eval = func() *big.Int { return val }
 		} else {
 			expr.genBinOpShl(l, r)
 		}
@@ -1832,8 +1872,8 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 		if l.t.isIdeal() {
 			lv := l.asIdealInt()()
 			rv := r.asIdealInt()()
-			val := lv.Shr(uint(rv.Value()))
-			expr.eval = func() *bignum.Integer { return val }
+			val := new(big.Int).Rsh(lv, uint(rv.Int64()))
+			expr.eval = func() *big.Int { return val }
 		} else {
 			expr.genBinOpShr(l, r)
 		}
@@ -1863,7 +1903,7 @@ func (a *exprInfo) compileBinaryExpr(op token.Token, l, r *expr) *expr {
 		expr.genBinOpLogOr(l, r)
 
 	default:
-		log.Crashf("Compilation of binary op %v not implemented", op)
+		log.Panicf("Compilation of binary op %v not implemented", op)
 	}
 
 	return expr
@@ -1886,7 +1926,7 @@ func (a *compiler) compileArrayLen(b *block, expr ast.Expr) (int64, bool) {
 	}
 
 	if !lenExpr.t.isInteger() {
-		a.diagAt(expr, "array size must be an integer")
+		a.diagAt(expr.Pos(), "array size must be an integer")
 		return 0, false
 	}
 
@@ -1896,7 +1936,7 @@ func (a *compiler) compileArrayLen(b *block, expr ast.Expr) (int64, bool) {
 	case *uintType:
 		return int64(lenExpr.asUint()(nil)), true
 	}
-	log.Crashf("unexpected integer type %T", lenExpr.t)
+	log.Panicf("unexpected integer type %T", lenExpr.t)
 	return 0, false
 }
 
@@ -1905,7 +1945,7 @@ func (a *compiler) compileExpr(b *block, constant bool, expr ast.Expr) *expr {
 	nerr := a.numError()
 	e := ec.compile(expr, false)
 	if e == nil && nerr == a.numError() {
-		log.Crashf("expression compilation failed without reporting errors")
+		log.Panicf("expression compilation failed without reporting errors")
 	}
 	return e
 }
@@ -1943,7 +1983,7 @@ func (a *expr) extractEffect(b *block, errOp string) (func(*Thread), *expr) {
 		case tempType.isFloat():
 			tempType = FloatType
 		default:
-			log.Crashf("unexpected ideal type %v", tempType)
+			log.Panicf("unexpected ideal type %v", tempType)
 		}
 	}
 	temp := b.DefineTemp(tempType)
@@ -1952,7 +1992,7 @@ func (a *expr) extractEffect(b *block, errOp string) (func(*Thread), *expr) {
 	// Create "temp := rhs"
 	assign := ac.compile(b, tempType)
 	if assign == nil {
-		log.Crashf("compileAssign type check failed")
+		log.Panicf("compileAssign type check failed")
 	}
 
 	effect := func(t *Thread) {

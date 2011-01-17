@@ -2,12 +2,13 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=gofmt
 GOFILES=\
 	gofmt.go\
 	rewrite.go\
+	simplify.go\
 
 include ../../Make.cmd
 
@@ -15,5 +16,4 @@ test: $(TARG)
 	./test.sh
 
 smoketest: $(TARG)
-	./test.sh "$(GOROOT)"/src/pkg/go/parser/parser.go
-
+	(cd testdata; ./test.sh)

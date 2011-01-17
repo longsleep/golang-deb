@@ -82,7 +82,7 @@
 
 #include "a.h"
 
-#ifdef __MINGW32__
+#ifdef _WIN32
 int
 spawn(char *prog, char **argv)
 {
@@ -133,7 +133,7 @@ Lang go =
 
 	"type %s struct {\n",
 	"type %s struct {\n",
-	"\tPad%d [%d]byte;\n",
+	"\tPad_godefs_%d [%d]byte;\n",
 	"}\n",
 
 	gotypefmt,
@@ -150,7 +150,7 @@ Lang c =
 
 	"typedef struct %s %s;\nstruct %s {\n",
 	"typedef union %s %s;\nunion %s {\n",
-	"\tbyte pad%d[%d];\n",
+	"\tbyte pad_godefs_%d[%d];\n",
 	"};\n",
 
 	ctypefmt,
@@ -373,6 +373,8 @@ Continue:
 				prefix = prefixlen(t);
 			for(j=0; j<t->nf; j++) {
 				f = &t->f[j];
+				if(f->type->kind == 0)
+					continue;
 				// padding
 				if(t->kind == Struct || lang == &go) {
 					if(f->offset%8 != 0 || f->size%8 != 0) {
@@ -391,7 +393,7 @@ Continue:
 				if(cutprefix(name))
 					name += prefix;
 				if(strcmp(name, "") == 0) {
-					snprint(nambuf, sizeof nambuf, "Pad%d", npad++);
+					snprint(nambuf, sizeof nambuf, "Pad_godefs_%d", npad++);
 					name = nambuf;
 				}
 				Bprint(bout, "\t%#lT;\n", name, f->type);

@@ -286,14 +286,15 @@ In Go, since arrays are values, it's meaningful (and useful) to talk
 about pointers to arrays.
 <p>
 The size of the array is part of its type; however, one can declare
-a <i>slice</i> variable, to which one can assign a pointer to
-any array
-with the same element type or&mdash;much more commonly&mdash;a <i>slice
-expression</i> of the form <code>a[low : high]</code>, representing
-the subarray indexed by <code>low</code> through <code>high-1</code>.
-Slices look a lot like arrays but have
+a <i>slice</i> variable to hold a reference to any array, of any size,
+with the same element type.
+A <i>slice
+expression</i> has the form <code>a[low : high]</code>, representing
+the internal array indexed from <code>low</code> through <code>high-1</code>; the resulting
+slice is indexed from <code>0</code> through <code>high-low-1</code>.
+In short, slices look a lot like arrays but with
 no explicit size (<code>[]</code> vs. <code>[10]</code>) and they reference a segment of
-an underlying, often anonymous, regular array.  Multiple slices
+an underlying, usually anonymous, regular array.  Multiple slices
 can share data if they represent pieces of the same array;
 multiple arrays can never share data.
 <p>
@@ -302,17 +303,28 @@ regular arrays; they're more flexible, have reference semantics,
 and are efficient.  What they lack is the precise control of storage
 layout of a regular array; if you want to have a hundred elements
 of an array stored within your structure, you should use a regular
-array.
+array. To create one, use a compound value <i>constructor</i>&mdash;an
+expression formed
+from a type followed by a brace-bounded expression like this:
+<p>
+<pre>
+    [3]int{1,2,3}
+</pre>
+<p>
+In this case the constructor builds an array of 3 <code>ints</code>.
 <p>
 When passing an array to a function, you almost always want
 to declare the formal parameter to be a slice.  When you call
-the function, take the address of the array and  Go will
-create (efficiently) a slice reference and pass that.
+the function, slice the array to create
+(efficiently) a slice reference and pass that.
+By default, the lower and upper bounds of a slice match the
+ends of the existing object, so the concise notation <code>[:]</code>
+will slice the whole array.
 <p>
 Using slices one can write this function (from <code>sum.go</code>):
 <p>
 <pre> <!-- progs/sum.go /sum/ /^}/ -->
-09    func sum(a []int) int {   // returns an int
+09    func sum(a []int) int { // returns an int
 10        s := 0
 11        for i := 0; i &lt; len(a); i++ {
 12            s += a[i]
@@ -321,32 +333,27 @@ Using slices one can write this function (from <code>sum.go</code>):
 15    }
 </pre>
 <p>
-and invoke it like this:
-<p>
-<pre> <!-- progs/sum.go /1,2,3/ -->
-19        s := sum(&amp;[3]int{1,2,3})  // a slice of the array is passed to sum
-</pre>
-<p>
 Note how the return type (<code>int</code>) is defined for <code>sum()</code> by stating it
 after the parameter list.
-The expression <code>[3]int{1,2,3}</code>&mdash;a type followed by a
-brace-bounded
-expression&mdash;is a constructor for a value, in this case an array
-of 3 <code>ints</code>.
-Putting an <code>&amp;</code>
-in front gives us the address of a unique instance of the value.  We pass the
-pointer to <code>sum()</code> by (implicitly) promoting it to a slice.
+<p>
+To call the function, we slice the array.  This intricate call (we'll show
+a simpler way in a moment) constructs
+an array and slices it:
+<p>
+<pre>
+    s := sum([3]int{1,2,3}[:])
+</pre>
 <p>
 If you are creating a regular array but want the compiler to count the
 elements for you, use <code>...</code> as the array size:
 <p>
 <pre>
-    s := sum(&amp;[...]int{1,2,3})
+    s := sum([...]int{1,2,3}[:])
 </pre>
 <p>
-In practice, though, unless you're meticulous about storage layout within a
-data structure, a slice itself&mdash;using empty brackets and no
-<code>&amp;</code>&mdash;is all you need:
+That's fussier than necessary, though.
+In practice, unless you're meticulous about storage layout within a
+data structure, a slice itself&mdash;using empty brackets with no size&mdash;is all you need:
 <p>
 <pre>
     s := sum([]int{1,2,3})
@@ -470,8 +477,8 @@ sort of open/close/read/write interface.  Here's the start of <code>file.go</cod
 10    )
 <p>
 12    type File struct {
-13        fd      int    // file descriptor number
-14        name    string // file name at Open time
+13        fd   int    // file descriptor number
+14        name string // file name at Open time
 15    }
 </pre>
 <p>
@@ -524,7 +531,7 @@ object.  We could write
     return n
 </pre>
 <p>
-but for simple structures like <code>File</code> it's easier to return the address of a nonce
+but for simple structures like <code>File</code> it's easier to return the address of a 
 composite literal, as is done here on line 21.
 <p>
 We can use the factory to construct some familiar, exported variables of type <code>*File</code>:
@@ -541,7 +548,7 @@ The <code>newFile</code> function was not exported because it's internal. The pr
 exported factory to use is <code>Open</code>:
 <p>
 <pre> <!-- progs/file.go /func.Open/ /^}/ -->
-30    func Open(name string, mode int, perm int) (file *File, err os.Error) {
+30    func Open(name string, mode int, perm uint32) (file *File, err os.Error) {
 31        r, e := syscall.Open(name, mode, perm)
 32        if e != 0 {
 33            err = os.Errno(e)
@@ -581,7 +588,7 @@ each of which declares a receiver variable <code>file</code>.
 40            return os.EINVAL
 41        }
 42        e := syscall.Close(file.fd)
-43        file.fd = -1  // so it can't be closed again
+43        file.fd = -1 // so it can't be closed again
 44        if e != 0 {
 45            return os.Errno(e)
 46        }
@@ -642,24 +649,30 @@ We can now use our new package:
 13    func main() {
 14        hello := []byte(&quot;hello, world\n&quot;)
 15        file.Stdout.Write(hello)
-16        file, err := file.Open(&quot;/does/not/exist&quot;,  0,  0)
-17        if file == nil {
+16        f, err := file.Open(&quot;/does/not/exist&quot;,  0,  0)
+17        if f == nil {
 18            fmt.Printf(&quot;can't open file; err=%s\n&quot;,  err.String())
 19            os.Exit(1)
 20        }
 21    }
 </pre>
 <p>
-The ''<code>./</code>'' in the import of ''<code>./file</code>'' tells the compiler to use our own package rather than
+The ''<code>./</code>'' in the import of ''<code>./file</code>'' tells the compiler
+to use our own package rather than
 something from the directory of installed packages.
+(Also, ''<code>file.go</code>'' must be compiled before we can import the
+package.)
 <p>
-Finally we can run the program:
+Now we can compile and run the program:
 <p>
 <pre>
-    % helloworld3
+    $ 6g file.go                       # compile file package
+    $ 6g helloworld3.go                # compile main package
+    $ 6l -o helloworld3 helloworld3.6  # link - no need to mention "file"
+    $ helloworld3
     hello, world
     can't open file; err=No such file or directory
-    %
+    $
 </pre>
 <p>
 <h2>Rotting cats</h2>
@@ -681,11 +694,11 @@ Building on the <code>file</code> package, here's a simple version of the Unix u
 15        const NBUF = 512
 16        var buf [NBUF]byte
 17        for {
-18            switch nr, er := f.Read(&amp;buf); true {
+18            switch nr, er := f.Read(buf[:]); true {
 19            case nr &lt; 0:
 20                fmt.Fprintf(os.Stderr, &quot;cat: error reading from %s: %s\n&quot;, f.String(), er.String())
 21                os.Exit(1)
-22            case nr == 0:  // EOF
+22            case nr == 0: // EOF
 23                return
 24            case nr &gt; 0:
 25                if nw, ew := file.Stdout.Write(buf[0:nr]); nw != nr {
@@ -696,7 +709,7 @@ Building on the <code>file</code> package, here's a simple version of the Unix u
 30    }
 <p>
 32    func main() {
-33        flag.Parse()   // Scans the arg list and sets up flags
+33        flag.Parse() // Scans the arg list and sets up flags
 34        if flag.NArg() == 0 {
 35            cat(file.Stdin)
 36        }
@@ -757,7 +770,7 @@ we have a second implementation of the <code>reader</code> interface.
 <p>
 <pre> <!-- progs/cat_rot13.go /type.rotate13/ /end.of.rotate13/ -->
 31    type rotate13 struct {
-32        source    reader
+32        source reader
 33    }
 <p>
 35    func newRotate13(source reader) *rotate13 {
@@ -797,11 +810,11 @@ and use it from within a mostly unchanged <code>cat()</code> function:
 57            r = newRotate13(r)
 58        }
 59        for {
-60            switch nr, er := r.Read(&amp;buf); {
+60            switch nr, er := r.Read(buf[:]); {
 61            case nr &lt; 0:
 62                fmt.Fprintf(os.Stderr, &quot;cat: error reading from %s: %s\n&quot;, r.String(), er.String())
 63                os.Exit(1)
-64            case nr == 0:  // EOF
+64            case nr == 0: // EOF
 65                return
 66            case nr &gt; 0:
 67                nw, ew := file.Stdout.Write(buf[0:nr])
@@ -823,11 +836,11 @@ even though under the covers it holds a pointer to a <code>struct</code>.
 Here it is in action:
 <p>
 <pre>
-    % echo abcdefghijklmnopqrstuvwxyz | ./cat
+    $ echo abcdefghijklmnopqrstuvwxyz | ./cat
     abcdefghijklmnopqrstuvwxyz
-    % echo abcdefghijklmnopqrstuvwxyz | ./cat --rot13
+    $ echo abcdefghijklmnopqrstuvwxyz | ./cat --rot13
     nopqrstuvwxyzabcdefghijklm
-    %
+    $
 </pre>
 <p>
 Fans of dependency injection may take cheer from how easily interfaces

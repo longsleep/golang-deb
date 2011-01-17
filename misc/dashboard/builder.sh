@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Copyright 2009 The Go Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style
@@ -31,8 +31,9 @@ fi
 
 export PATH=$PATH:`pwd`/candidate/bin
 export GOBIN=`pwd`/candidate/bin
+export GOROOT_FINAL=/usr/local/go
 
-while true ; do
+while true ; do (
     cd go || fatal "Cannot cd into 'go'"
     hg pull -u || fatal "hg sync failed"
     rev=`python ../buildcontrol.py next $BUILDER`
@@ -72,7 +73,23 @@ while true ; do
             python ../../../buildcontrol.py benchmarks $BUILDER $rev ../../benchmarks || fatal "Cannot record benchmarks"
             cd .. || fatal "failed to cd out of pkg"
         fi
+        # check if we're at a release (via the hg summary)
+        #  if so, package the tar.gz and upload to googlecode
+        SUMMARY=$(hg log -l 1 | grep summary\: | awk '{print $2}')
+        if [[ "x${SUMMARY:0:7}" == "xrelease" ]]; then
+            echo "Uploading binary to googlecode"
+            TARBALL="go.$SUMMARY.$BUILDER.tar.gz"
+            ./clean.bash --nopkg
+	    # move contents of candidate/ to candidate/go/ for archival
+            cd ../..                     || fatal "Cannot cd up"
+	    mv candidate go-candidate    || fatal "Cannot rename candidate"
+	    mkdir candidate              || fatal "Cannot mkdir candidate"
+	    mv go-candidate candidate/go || fatal "Cannot mv directory"
+	    cd candidate                 || fatal "Cannot cd candidate"
+	    # build tarball
+            tar czf ../$TARBALL go       || fatal "Cannot create tarball"
+            ../buildcontrol.py upload $BUILDER $SUMMARY ../$TARBALL || fatal "Cannot upload tarball"
+        fi
     fi
-    cd ../.. || fatal "Cannot cd up"
     sleep 10
-done
+) done

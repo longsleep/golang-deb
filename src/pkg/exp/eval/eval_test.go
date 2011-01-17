@@ -5,14 +5,19 @@
 package eval
 
 import (
-	"exp/bignum"
+	"big"
 	"flag"
 	"fmt"
+	"go/token"
 	"log"
 	"os"
 	"reflect"
+	"regexp"
 	"testing"
 )
+
+// All tests are done using the same file set.
+var fset = token.NewFileSet()
 
 // Print each statement or expression before parsing it
 var noisy = false
@@ -48,7 +53,7 @@ func (a test) run(t *testing.T, name string) {
 			println("code:", src)
 		}
 
-		code, err := w.Compile(src)
+		code, err := w.Compile(fset, src)
 		if err != nil {
 			if j.cerr == "" {
 				t.Errorf("%s: Compile %s: %v", name, src, err)
@@ -89,9 +94,9 @@ func (a test) run(t *testing.T, name string) {
 }
 
 func match(t *testing.T, err os.Error, pat string) bool {
-	ok, errstr := testing.MatchString(pat, err.String())
-	if errstr != "" {
-		t.Fatalf("compile regexp %s: %v", pat, errstr)
+	ok, err1 := regexp.MatchString(pat, err.String())
+	if err1 != nil {
+		t.Fatalf("compile regexp %s: %v", pat, err1)
 	}
 	return ok
 }
@@ -102,40 +107,40 @@ func match(t *testing.T, err os.Error, pat string) bool {
  */
 
 // Expression compile error
-func CErr(expr string, cerr string) test { return test([]job{job{code: expr, cerr: cerr}}) }
+func CErr(expr string, cerr string) test { return test([]job{{code: expr, cerr: cerr}}) }
 
 // Expression runtime error
-func RErr(expr string, rterr string) test { return test([]job{job{code: expr, rterr: rterr}}) }
+func RErr(expr string, rterr string) test { return test([]job{{code: expr, rterr: rterr}}) }
 
 // Expression value
 func Val(expr string, val interface{}) test {
-	return test([]job{job{code: expr, val: toValue(val)}})
+	return test([]job{{code: expr, val: toValue(val)}})
 }
 
 // Statement runs without error
-func Run(stmts string) test { return test([]job{job{code: stmts, noval: true}}) }
+func Run(stmts string) test { return test([]job{{code: stmts, noval: true}}) }
 
 // Two statements without error.
 // TODO(rsc): Should be possible with Run but the parser
 // won't let us do both top-level and non-top-level statements.
 func Run2(stmt1, stmt2 string) test {
-	return test([]job{job{code: stmt1, noval: true}, job{code: stmt2, noval: true}})
+	return test([]job{{code: stmt1, noval: true}, {code: stmt2, noval: true}})
 }
 
 // Statement runs and test one expression's value
 func Val1(stmts string, expr1 string, val1 interface{}) test {
 	return test([]job{
-		job{code: stmts, noval: true},
-		job{code: expr1, val: toValue(val1)},
+		{code: stmts, noval: true},
+		{code: expr1, val: toValue(val1)},
 	})
 }
 
 // Statement runs and test two expressions' values
 func Val2(stmts string, expr1 string, val1 interface{}, expr2 string, val2 interface{}) test {
 	return test([]job{
-		job{code: stmts, noval: true},
-		job{code: expr1, val: toValue(val1)},
-		job{code: expr2, val: toValue(val2)},
+		{code: stmts, noval: true},
+		{code: expr1, val: toValue(val1)},
+		{code: expr2, val: toValue(val2)},
 	})
 }
 
@@ -166,12 +171,12 @@ func toValue(val interface{}) Value {
 	case int:
 		r := intV(val)
 		return &r
-	case *bignum.Integer:
+	case *big.Int:
 		return &idealIntV{val}
 	case float:
 		r := floatV(val)
 		return &r
-	case *bignum.Rational:
+	case *big.Rat:
 		return &idealFloatV{val}
 	case string:
 		r := stringV(val)
@@ -195,7 +200,7 @@ func toValue(val interface{}) Value {
 	case Func:
 		return &funcV{val}
 	}
-	log.Crashf("toValue(%T) not implemented", val)
+	log.Panicf("toValue(%T) not implemented", val)
 	panic("unreachable")
 }
 
@@ -205,7 +210,7 @@ func toValue(val interface{}) Value {
 
 type testFunc struct{}
 
-func (*testFunc) NewFrame() *Frame { return &Frame{nil, &[2]Value{}} }
+func (*testFunc) NewFrame() *Frame { return &Frame{nil, make([]Value, 2)} }
 
 func (*testFunc) Call(t *Thread) {
 	n := t.f.Vars[0].(IntValue).Get(t)
@@ -217,7 +222,7 @@ func (*testFunc) Call(t *Thread) {
 
 type oneTwoFunc struct{}
 
-func (*oneTwoFunc) NewFrame() *Frame { return &Frame{nil, &[2]Value{}} }
+func (*oneTwoFunc) NewFrame() *Frame { return &Frame{nil, make([]Value, 2)} }
 
 func (*oneTwoFunc) Call(t *Thread) {
 	t.f.Vars[0].(IntValue).Set(t, 1)
@@ -235,13 +240,13 @@ func newTestWorld() *World {
 
 	def := func(name string, t Type, val interface{}) { w.DefineVar(name, t, toValue(val)) }
 
-	w.DefineConst("c", IdealIntType, toValue(bignum.Int(1)))
+	w.DefineConst("c", IdealIntType, toValue(big.NewInt(1)))
 	def("i", IntType, 1)
 	def("i2", IntType, 2)
 	def("u", UintType, uint(1))
 	def("f", FloatType, 1.0)
 	def("s", StringType, "abc")
-	def("t", NewStructType([]StructField{StructField{"a", IntType, false}}), vstruct{1})
+	def("t", NewStructType([]StructField{{"a", IntType, false}}), vstruct{1})
 	def("ai", NewArrayType(2, IntType), varray{1, 2})
 	def("aai", NewArrayType(2, NewArrayType(2, IntType)), varray{varray{1, 2}, varray{3, 4}})
 	def("aai2", NewArrayType(2, NewArrayType(2, IntType)), varray{varray{5, 6}, varray{7, 8}})

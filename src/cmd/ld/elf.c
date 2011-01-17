@@ -21,6 +21,16 @@ static	ElfPhdr	*phdr[NSECT];
 static	ElfShdr	*shdr[NSECT];
 static	char	*interp;
 
+typedef struct Elfstring Elfstring;
+struct Elfstring
+{
+	char *s;
+	int off;
+};
+
+static Elfstring elfstr[100];
+static int nelfstr;
+
 /*
  Initialize the global variable that describes the ELF header. It will be updated as
  we write section and prog headers.
@@ -122,6 +132,18 @@ elfwriteshdrs(void)
 	return hdr.shnum * ELF32SHDRSIZE;
 }
 
+void
+elfsetstring(char *s, int off)
+{
+	if(nelfstr >= nelem(elfstr)) {
+		diag("too many elf strings");
+		errorexit();
+	}
+	elfstr[nelfstr].s = s;
+	elfstr[nelfstr].off = off;
+	nelfstr++;
+}
+
 uint32
 elfwritephdrs(void)
 {
@@ -142,8 +164,7 @@ newElfPhdr(void)
 {
 	ElfPhdr *e;
 
-	e = malloc(sizeof *e);
-	memset(e, 0, sizeof *e);
+	e = mal(sizeof *e);
 	if (hdr.phnum >= NSECT)
 		diag("too many phdrs");
 	else
@@ -167,8 +188,7 @@ newElfShdr(vlong name)
 {
 	ElfShdr *e;
 
-	e = malloc(sizeof *e);
-	memset(e, 0, sizeof *e);
+	e = mal(sizeof *e);
 	e->name = name;
 	if (hdr.shnum >= NSECT) {
 		diag("too many shdrs");
@@ -294,7 +314,7 @@ elfwriteinterp(void)
 
 	n = strlen(interp)+1;
 	seek(cout, ELFRESERVE-n, 0);
-	write(cout, interp, n);
+	ewrite(cout, interp, n);
 	return n;
 }
 
@@ -310,17 +330,25 @@ elfinterp(ElfShdr *sh, uint64 startva, char *p)
 	sh->size = n;
 }
 
+extern int nelfsym;
+
 void
-elfdynhash(int nsym)
+elfdynhash(void)
 {
 	Sym *s, *sy;
 	int i, h, nbucket, b;
 	uchar *pc;
 	uint32 hc, g;
 	uint32 *chain, *buckets;
+	int nsym;
+	char *name;
+	
+	if(!iself)
+		return;
 
+	nsym = nelfsym;
 	s = lookup(".hash", 0);
-	s->type = SELFDATA;	// TODO: rodata
+	s->type = SELFDATA;
 	s->reachable = 1;
 
 	i = nsym;
@@ -331,17 +359,24 @@ elfdynhash(int nsym)
 	}
 
 	chain = malloc(nsym * sizeof(uint32));
-	memset(chain, 0, nsym * sizeof(uint32));
 	buckets = malloc(nbucket * sizeof(uint32));
+	if(chain == nil || buckets == nil) {
+		cursym = nil;
+		diag("out of memory");
+		errorexit();
+	}
+	memset(chain, 0, nsym * sizeof(uint32));
 	memset(buckets, 0, nbucket * sizeof(uint32));
-	i = 1;
 	for(h = 0; h<NHASH; h++) {
-		for(sy=hash[h]; sy!=S; sy=sy->link) {
-			if (!sy->reachable || (sy->type != STEXT && sy->type != SDATA && sy->type != SBSS) || sy->dynimpname == nil)
+		for(sy=hash[h]; sy!=S; sy=sy->hash) {
+			if (sy->dynid <= 0)
 				continue;
 
 			hc = 0;
-			for(pc = (uchar*)sy->dynimpname; *pc; pc++) {
+			name = sy->dynimpname;
+			if(name == nil)
+				name = sy->name;
+			for(pc = (uchar*)name; *pc; pc++) {
 				hc = (hc<<4) + *pc;
 				g = hc & 0xf0000000;
 				hc ^= g >> 24;
@@ -349,9 +384,8 @@ elfdynhash(int nsym)
 			}
 
 			b = hc % nbucket;
-			chain[i] = buckets[b];
-			buckets[b] = i;
-			i++;
+			chain[sy->dynid] = buckets[b];
+			buckets[b] = sy->dynid;
 		}
 	}
 
@@ -364,4 +398,64 @@ elfdynhash(int nsym)
 
 	free(chain);
 	free(buckets);
+
+	elfwritedynent(lookup(".dynamic", 0), DT_NULL, 0);
+}
+
+ElfPhdr*
+elfphload(Segment *seg)
+{
+	ElfPhdr *ph;
+	
+	ph = newElfPhdr();
+	ph->type = PT_LOAD;
+	if(seg->rwx & 4)
+		ph->flags |= PF_R;
+	if(seg->rwx & 2)
+		ph->flags |= PF_W;
+	if(seg->rwx & 1)
+		ph->flags |= PF_X;
+	ph->vaddr = seg->vaddr;
+	ph->paddr = seg->vaddr;
+	ph->memsz = seg->len;
+	ph->off = seg->fileoff;
+	ph->filesz = seg->filelen;
+	ph->align = INITRND;
+	
+	return ph;
+}
+
+ElfShdr*
+elfshbits(Section *sect)
+{
+	int i, off;
+	ElfShdr *sh;
+	
+	for(i=0; i<nelfstr; i++) {
+		if(strcmp(sect->name, elfstr[i].s) == 0) {
+			off = elfstr[i].off;
+			goto found;
+		}
+	}
+	diag("cannot find elf name %s", sect->name);
+	errorexit();
+	return nil;
+
+found:
+	sh = newElfShdr(off);
+	if(sect->vaddr < sect->seg->vaddr + sect->seg->filelen)
+		sh->type = SHT_PROGBITS;
+	else
+		sh->type = SHT_NOBITS;
+	sh->flags = SHF_ALLOC;
+	if(sect->rwx & 1)
+		sh->flags |= SHF_EXECINSTR;
+	if(sect->rwx & 2)
+		sh->flags |= SHF_WRITE;
+	sh->addr = sect->vaddr;
+	sh->addralign = PtrSize;
+	sh->size = sect->len;
+	sh->off = sect->seg->fileoff + sect->vaddr - sect->seg->vaddr;
+	
+	return sh;
 }

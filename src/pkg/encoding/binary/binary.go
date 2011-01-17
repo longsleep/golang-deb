@@ -29,8 +29,11 @@ type ByteOrder interface {
 // allowing, e.g., order == binary.LittleEndian.
 type unused byte
 
-var LittleEndian ByteOrder = littleEndian(0)
-var BigEndian ByteOrder = bigEndian(0)
+// LittleEndian is the little-endian implementation of ByteOrder.
+var LittleEndian littleEndian
+
+// BigEndian is the big-endian implementation of ByteOrder.
+var BigEndian bigEndian
 
 type littleEndian unused
 
@@ -115,11 +118,11 @@ func (bigEndian) GoString() string { return "binary.BigEndian" }
 // Read reads structured binary data from r into data.
 // Data must be a pointer to a fixed-size value or a slice
 // of fixed-size values.
-// A fixed-size value is either a fixed-size integer
-// (int8, uint8, int16, uint16, ...) or an array or struct
-// containing only fixed-size values.  Bytes read from
-// r are decoded using the specified byte order and written
-// to successive fields of the data.
+// A fixed-size value is either a fixed-size arithmetic
+// type (int8, uint8, int16, float32, complex64, ...)
+// or an array or struct containing only fixed-size values.
+// Bytes read from r are decoded using the specified byte order
+// and written to successive fields of the data.
 func Read(r io.Reader, order ByteOrder, data interface{}) os.Error {
 	var v reflect.Value
 	switch d := reflect.NewValue(data).(type) {
@@ -145,11 +148,11 @@ func Read(r io.Reader, order ByteOrder, data interface{}) os.Error {
 // Write writes the binary representation of data into w.
 // Data must be a fixed-size value or a pointer to
 // a fixed-size value.
-// A fixed-size value is either a fixed-size integer
-// (int8, uint8, int16, uint16, ...) or an array or struct
-// containing only fixed-size values.  Bytes written to
-// w are encoded using the specified byte order and read
-// from successive fields of the data.
+// A fixed-size value is either a fixed-size arithmetic
+// type (int8, uint8, int16, float32, complex64, ...)
+// or an array or struct containing only fixed-size values.
+// Bytes written to w are encoded using the specified byte order
+// and read from successive fields of the data.
 func Write(w io.Writer, order ByteOrder, data interface{}) os.Error {
 	v := reflect.Indirect(reflect.NewValue(data))
 	size := TotalSize(v)
@@ -194,7 +197,11 @@ func sizeof(v reflect.Type) int {
 		}
 		return sum
 
-	case *reflect.UintType, *reflect.IntType, *reflect.FloatType:
+	case *reflect.UintType, *reflect.IntType, *reflect.FloatType, *reflect.ComplexType:
+		switch t := t.Kind(); t {
+		case reflect.Int, reflect.Uint, reflect.Uintptr, reflect.Float, reflect.Complex:
+			return -1
+		}
 		return int(v.Size())
 	}
 	return -1
@@ -320,6 +327,20 @@ func (d *decoder) value(v reflect.Value) {
 		case reflect.Float64:
 			v.Set(math.Float64frombits(d.uint64()))
 		}
+
+	case *reflect.ComplexValue:
+		switch v.Type().Kind() {
+		case reflect.Complex64:
+			v.Set(cmplx(
+				float64(math.Float32frombits(d.uint32())),
+				float64(math.Float32frombits(d.uint32())),
+			))
+		case reflect.Complex128:
+			v.Set(cmplx(
+				math.Float64frombits(d.uint64()),
+				math.Float64frombits(d.uint64()),
+			))
+		}
 	}
 }
 
@@ -371,6 +392,18 @@ func (e *encoder) value(v reflect.Value) {
 			e.uint32(math.Float32bits(float32(v.Get())))
 		case reflect.Float64:
 			e.uint64(math.Float64bits(v.Get()))
+		}
+
+	case *reflect.ComplexValue:
+		switch v.Type().Kind() {
+		case reflect.Complex64:
+			x := v.Get()
+			e.uint32(math.Float32bits(float32(real(x))))
+			e.uint32(math.Float32bits(float32(imag(x))))
+		case reflect.Complex128:
+			x := v.Get()
+			e.uint64(math.Float64bits(real(x)))
+			e.uint64(math.Float64bits(imag(x)))
 		}
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"syscall"
 )
 
 type Error interface {
@@ -45,6 +44,30 @@ var (
 	c64, d64, e64 complex64 = 0+0i, 0+0i, 1+1i
 	c128, d128, e128 complex128 = 0+0i, 0+0i, 1+1i
 )
+
+// Fool gccgo into thinking that these variables can change.
+func NotCalled() {
+	i++; j++; k++
+	i8++; j8++; k8++
+	i16++; j16++; k16++
+	i32++; j32++; k32++
+	i64++; j64++; k64++
+
+	u++; v++; w++
+	u8++; v8++; w8++
+	u16++; v16++; w16++
+	u32++; v32++; w32++
+	u64++; v64++; w64++
+	up++; vp++; wp++
+
+	f += 1; g += 1; h += 1
+	f32 += 1; g32 += 1; h32 += 1
+	f64 += 1; g64 += 1; h64 += 1
+
+	c += 1+1i; d += 1+1i; e += 1+1i
+	c64 += 1+1i; d64 += 1+1i; e64 += 1+1i
+	c128 += 1+1i; d128 += 1+1i; e128 += 1+1i
+}
 
 var tmp interface{}
 
@@ -137,8 +160,9 @@ func alike(a, b float64) bool {
 }
 
 func main() {
+	bad := false
 	for _, t := range errorTests {
-		if t.err != "" && syscall.OS == "nacl" {
+		if t.err != "" {
 			continue
 		}
 		err := error(t.fn)
@@ -146,11 +170,23 @@ func main() {
 		case t.err == "" && err == "":
 			// fine
 		case t.err != "" && err == "":
+			if !bad {
+				bad = true
+				fmt.Printf("BUG\n")
+			}
 			fmt.Printf("%s: expected %q; got no error\n", t.name, t.err)
 		case t.err == "" && err != "":
+			if !bad {
+				bad = true
+				fmt.Printf("BUG\n")
+			}
 			fmt.Printf("%s: expected no error; got %q\n", t.name, err)
 		case t.err != "" && err != "":
 			if strings.Index(err, t.err) < 0 {
+				if !bad {
+					bad = true
+					fmt.Printf("BUG\n")
+				}
 				fmt.Printf("%s: expected %q; got %q\n", t.name, t.err, err)
 				continue
 			}
@@ -161,6 +197,10 @@ func main() {
 	for _, t := range floatTests {
 		x := t.f/t.g
 		if !alike(x, t.out) {
+			if !bad {
+				bad = true
+				fmt.Printf("BUG\n")
+			}
 			fmt.Printf("%v/%v: expected %g error; got %g\n", t.f, t.g, t.out, x)
 		}
 	}

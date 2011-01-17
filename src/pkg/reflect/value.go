@@ -141,7 +141,7 @@ type FloatValue struct {
 
 // Get returns the underlying int value.
 func (v *FloatValue) Get() float64 {
-	switch v.typ.(*FloatType).Kind() {
+	switch v.typ.Kind() {
 	case Float:
 		return float64(*(*float)(v.addr))
 	case Float32:
@@ -157,7 +157,7 @@ func (v *FloatValue) Set(x float64) {
 	if !v.canSet {
 		panic(cannotSet)
 	}
-	switch v.typ.(*FloatType).Kind() {
+	switch v.typ.Kind() {
 	default:
 		panic("reflect: invalid float kind")
 	case Float:
@@ -190,7 +190,7 @@ type ComplexValue struct {
 
 // Get returns the underlying complex value.
 func (v *ComplexValue) Get() complex128 {
-	switch v.typ.(*ComplexType).Kind() {
+	switch v.typ.Kind() {
 	case Complex:
 		return complex128(*(*complex)(v.addr))
 	case Complex64:
@@ -206,7 +206,7 @@ func (v *ComplexValue) Set(x complex128) {
 	if !v.canSet {
 		panic(cannotSet)
 	}
-	switch v.typ.(*ComplexType).Kind() {
+	switch v.typ.Kind() {
 	default:
 		panic("reflect: invalid complex kind")
 	case Complex:
@@ -228,7 +228,7 @@ type IntValue struct {
 
 // Get returns the underlying int value.
 func (v *IntValue) Get() int64 {
-	switch v.typ.(*IntType).Kind() {
+	switch v.typ.Kind() {
 	case Int:
 		return int64(*(*int)(v.addr))
 	case Int8:
@@ -248,7 +248,7 @@ func (v *IntValue) Set(x int64) {
 	if !v.canSet {
 		panic(cannotSet)
 	}
-	switch v.typ.(*IntType).Kind() {
+	switch v.typ.Kind() {
 	default:
 		panic("reflect: invalid int kind")
 	case Int:
@@ -306,7 +306,7 @@ type UintValue struct {
 
 // Get returns the underlying uuint value.
 func (v *UintValue) Get() uint64 {
-	switch v.typ.(*UintType).Kind() {
+	switch v.typ.Kind() {
 	case Uint:
 		return uint64(*(*uint)(v.addr))
 	case Uint8:
@@ -328,7 +328,7 @@ func (v *UintValue) Set(x uint64) {
 	if !v.canSet {
 		panic(cannotSet)
 	}
-	switch v.typ.(*UintType).Kind() {
+	switch v.typ.Kind() {
 	default:
 		panic("reflect: invalid uint kind")
 	case Uint:
@@ -400,11 +400,57 @@ type ArrayOrSliceValue interface {
 	addr() addr
 }
 
-// ArrayCopy copies the contents of src into dst until either
+// grow grows the slice s so that it can hold extra more values, allocating
+// more capacity if needed. It also returns the old and new slice lengths.
+func grow(s *SliceValue, extra int) (*SliceValue, int, int) {
+	i0 := s.Len()
+	i1 := i0 + extra
+	if i1 < i0 {
+		panic("append: slice overflow")
+	}
+	m := s.Cap()
+	if i1 <= m {
+		return s.Slice(0, i1), i0, i1
+	}
+	if m == 0 {
+		m = extra
+	} else {
+		for m < i1 {
+			if i0 < 1024 {
+				m += m
+			} else {
+				m += m / 4
+			}
+		}
+	}
+	t := MakeSlice(s.Type().(*SliceType), i1, m)
+	Copy(t, s)
+	return t, i0, i1
+}
+
+// Append appends the values x to a slice s and returns the resulting slice.
+// Each x must have the same type as s' element type.
+func Append(s *SliceValue, x ...Value) *SliceValue {
+	s, i0, i1 := grow(s, len(x))
+	for i, j := i0, 0; i < i1; i, j = i+1, j+1 {
+		s.Elem(i).SetValue(x[j])
+	}
+	return s
+}
+
+// AppendSlice appends a slice t to a slice s and returns the resulting slice.
+// The slices s and t must have the same element type.
+func AppendSlice(s, t *SliceValue) *SliceValue {
+	s, i0, i1 := grow(s, t.Len())
+	Copy(s.Slice(i0, i1), t)
+	return s
+}
+
+// Copy copies the contents of src into dst until either
 // dst has been filled or src has been exhausted.
 // It returns the number of elements copied.
 // The arrays dst and src must have the same element type.
-func ArrayCopy(dst, src ArrayOrSliceValue) int {
+func Copy(dst, src ArrayOrSliceValue) int {
 	// TODO: This will have to move into the runtime
 	// once the real gc goes in.
 	de := dst.Type().(ArrayOrSliceType).Elem()
@@ -439,7 +485,7 @@ func (v *ArrayValue) Set(x *ArrayValue) {
 		panic(cannotSet)
 	}
 	typesMustMatch(v.typ, x.typ)
-	ArrayCopy(v, x)
+	Copy(v, x)
 }
 
 // Set sets v to the value x.
@@ -730,8 +776,6 @@ type tiny struct {
 // Call calls the function fv with input parameters in.
 // It returns the function's output parameters as Values.
 func (fv *FuncValue) Call(in []Value) []Value {
-	var structAlign = Typeof((*tiny)(nil)).(*PtrType).Elem().Size()
-
 	t := fv.Type().(*FuncType)
 	nin := len(in)
 	if fv.first != nil && !fv.isInterface {
@@ -757,7 +801,7 @@ func (fv *FuncValue) Call(in []Value) []Value {
 		size = (size + a - 1) &^ (a - 1)
 		size += tv.Size()
 	}
-	size = (size + structAlign - 1) &^ (structAlign - 1)
+	size = (size + ptrSize - 1) &^ (ptrSize - 1)
 	for i := 0; i < nout; i++ {
 		tv := t.Out(i)
 		a := uintptr(tv.Align())
@@ -767,9 +811,9 @@ func (fv *FuncValue) Call(in []Value) []Value {
 
 	// size must be > 0 in order for &args[0] to be valid.
 	// the argument copying is going to round it up to
-	// a multiple of 8 anyway, so make it 8 to begin with.
-	if size < 8 {
-		size = 8
+	// a multiple of ptrSize anyway, so make it ptrSize to begin with.
+	if size < ptrSize {
+		size = ptrSize
 	}
 
 	// round to pointer size
@@ -811,7 +855,7 @@ func (fv *FuncValue) Call(in []Value) []Value {
 		memmove(addr(ptr+off), v.getAddr(), n)
 		off += n
 	}
-	off = (off + structAlign - 1) &^ (structAlign - 1)
+	off = (off + ptrSize - 1) &^ (ptrSize - 1)
 
 	// Call
 	call(*(**byte)(fv.addr), (*byte)(addr(ptr)), uint32(size))
@@ -843,10 +887,16 @@ type InterfaceValue struct {
 	value "interface"
 }
 
-// No Get because v.Interface() is available.
-
 // IsNil returns whether v is a nil interface value.
 func (v *InterfaceValue) IsNil() bool { return v.Interface() == nil }
+
+// No single uinptr Get because v.Interface() is available.
+
+// Get returns the two words that represent an interface in the runtime.
+// Those words are useful only when playing unsafe games.
+func (v *InterfaceValue) Get() [2]uintptr {
+	return *(*[2]uintptr)(v.addr)
+}
 
 // Elem returns the concrete value stored in the interface value v.
 func (v *InterfaceValue) Elem() Value { return NewValue(v.Interface()) }
@@ -1058,7 +1108,12 @@ func (v *PtrValue) SetValue(x Value) {
 }
 
 // PointTo changes v to point to x.
+// If x is a nil Value, PointTo sets v to nil.
 func (v *PtrValue) PointTo(x Value) {
+	if x == nil {
+		*(**uintptr)(v.addr) = nil
+		return
+	}
 	if !x.CanSet() {
 		panic("cannot set x; cannot point to x")
 	}

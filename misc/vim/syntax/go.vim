@@ -85,8 +85,8 @@ syn match       goType              /\<func\>/
 syn match       goDeclaration       /^func\>/
 
 " Predefined functions and values
-syn keyword     goBuiltins          cap close closed cmplx copy imag len make
-syn keyword     goBuiltins          new panic panicln print println real
+syn keyword     goBuiltins          append cap close closed cmplx copy imag len
+syn keyword     goBuiltins          make new panic print println real recover
 syn keyword     goConstants         iota true false nil
 
 hi def link     goBuiltins          Keyword
@@ -95,8 +95,8 @@ hi def link     goConstants         Keyword
 " Comments; their contents
 syn keyword     goTodo              contained TODO FIXME XXX BUG
 syn cluster     goCommentGroup      contains=goTodo
-syn region      goComment           start="/\*" end="\*/" contains=@goCommentGroup
-syn region      goComment           start="//" end="$" contains=@goCommentGroup
+syn region      goComment           start="/\*" end="\*/" contains=@goCommentGroup,@Spell
+syn region      goComment           start="//" end="$" contains=@goCommentGroup,@Spell
 
 hi def link     goComment           Comment
 hi def link     goTodo              Todo
@@ -136,7 +136,7 @@ syn region      goBlock             start="{" end="}" transparent fold
 syn region      goParen             start='(' end=')' transparent
 
 " Integers
-syn match       goDecimalInt        "\<\d\+\>"
+syn match       goDecimalInt        "\<\d\+\([Ee]\d\+\)\?\>"
 syn match       goHexadecimalInt    "\<0x\x\+\>"
 syn match       goOctalInt          "\<0\o\+\>"
 syn match       goOctalError        "\<0\o*[89]\d*\>"

@@ -40,7 +40,7 @@ swit1(C1 *q, int nc, int32 def, Node *n)
 	if(nc < 5) {
 		for(i=0; i<nc; i++) {
 			if(debug['W'])
-				print("case = %.8lux\n", q->val);
+				print("case = %.8ux\n", q->val);
 			gopcode(OEQ, n->type, n, nodconst(q->val));
 			patch(p, q->label);
 			q++;
@@ -52,7 +52,7 @@ swit1(C1 *q, int nc, int32 def, Node *n)
 	i = nc / 2;
 	r = q+i;
 	if(debug['W'])
-		print("case > %.8lux\n", r->val);
+		print("case > %.8ux\n", r->val);
 	gopcode(OGT, n->type, n, nodconst(r->val));
 	sp = p;
 	gbranch(OGOTO);
@@ -61,7 +61,7 @@ swit1(C1 *q, int nc, int32 def, Node *n)
 	swit1(q, i, def, n);
 
 	if(debug['W'])
-		print("case < %.8lux\n", r->val);
+		print("case < %.8ux\n", r->val);
 	patch(sp, pc);
 	swit1(r+1, nc-i-1, def, n);
 }
@@ -501,7 +501,7 @@ zaddr(Biobuf *b, Adr *a, int s)
 }
 
 int32
-align(int32 i, Type *t, int op)
+align(int32 i, Type *t, int op, int32 *maxalign)
 {
 	int32 o;
 	Type *v;
@@ -515,7 +515,9 @@ align(int32 i, Type *t, int op)
 		break;
 
 	case Asu2:	/* padding at end of a struct */
-		w = SZ_LONG;
+		w = *maxalign;
+		if(w < 1)
+			w = 1;
 		if(packflg)
 			w = packflg;
 		break;
@@ -523,10 +525,16 @@ align(int32 i, Type *t, int op)
 	case Ael1:	/* initial align of struct element */
 		for(v=t; v->etype==TARRAY; v=v->link)
 			;
-		w = ewidth[v->etype];
-		if(w <= 0 || w >= SZ_LONG)
-			w = SZ_LONG;
-		if(packflg)
+		if(v->etype == TSTRUCT || v->etype == TUNION)
+			w = v->align;
+		else {
+			w = ewidth[v->etype];
+			if(w == 8)
+				w = 4;
+		}
+		if(w < 1 || w > SZ_LONG)
+			fatal(Z, "align");
+		if(packflg) 
 			w = packflg;
 		break;
 
@@ -536,8 +544,8 @@ align(int32 i, Type *t, int op)
 
 	case Aarg0:	/* initial passbyptr argument in arg list */
 		if(typesuv[t->etype]) {
-			o = align(o, types[TIND], Aarg1);
-			o = align(o, types[TIND], Aarg2);
+			o = align(o, types[TIND], Aarg1, nil);
+			o = align(o, types[TIND], Aarg2, nil);
 		}
 		break;
 
@@ -558,13 +566,15 @@ align(int32 i, Type *t, int op)
 		break;
 
 	case Aaut3:	/* total align of automatic */
-		o = align(o, t, Ael1);
-		o = align(o, t, Ael2);
+		o = align(o, t, Ael1, nil);
+		o = align(o, t, Ael2, nil);
 		break;
 	}
 	o = xround(o, w);
+	if(maxalign && *maxalign < w)
+		*maxalign = w;
 	if(debug['A'])
-		print("align %s %ld %T = %ld\n", bnames[op], i, t, o);
+		print("align %s %d %T = %d\n", bnames[op], i, t, o);
 	return o;
 }
 

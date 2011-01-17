@@ -7,10 +7,10 @@ package rsa
 import (
 	"big"
 	"bytes"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
-	"os"
 	"io"
 	"testing"
 	"testing/quick"
@@ -31,19 +31,19 @@ type DecryptPKCS1v15Test struct {
 
 // These test vectors were generated with `openssl rsautl -pkcs -encrypt`
 var decryptPKCS1v15Tests = []DecryptPKCS1v15Test{
-	DecryptPKCS1v15Test{
+	{
 		"gIcUIoVkD6ATMBk/u/nlCZCCWRKdkfjCgFdo35VpRXLduiKXhNz1XupLLzTXAybEq15juc+EgY5o0DHv/nt3yg==",
 		"x",
 	},
-	DecryptPKCS1v15Test{
+	{
 		"Y7TOCSqofGhkRb+jaVRLzK8xw2cSo1IVES19utzv6hwvx+M8kFsoWQm5DzBeJCZTCVDPkTpavUuEbgp8hnUGDw==",
 		"testing.",
 	},
-	DecryptPKCS1v15Test{
+	{
 		"arReP9DJtEVyV2Dg3dDp4c/PSk1O6lxkoJ8HcFupoRorBZG+7+1fDAwT1olNddFnQMjmkb8vxwmNMoTAT/BFjQ==",
 		"testing.\n",
 	},
-	DecryptPKCS1v15Test{
+	{
 		"WtaBXIoGC54+vH0NH0CHHE+dRDOsMc/6BrfFu2lEqcKL9+uDuWaf+Xj9mrbQCjjZcpQuX733zyok/jsnqe/Ftw==",
 		"01234567890123456789012345678901234567890123456789012",
 	},
@@ -63,10 +63,7 @@ func TestDecryptPKCS1v15(t *testing.T) {
 }
 
 func TestEncryptPKCS1v15(t *testing.T) {
-	urandom, err := os.Open("/dev/urandom", os.O_RDONLY, 0)
-	if err != nil {
-		t.Errorf("Failed to open /dev/urandom")
-	}
+	random := rand.Reader
 	k := (rsaPrivateKey.N.BitLen() + 7) / 8
 
 	tryEncryptDecrypt := func(in []byte, blind bool) bool {
@@ -74,7 +71,7 @@ func TestEncryptPKCS1v15(t *testing.T) {
 			in = in[0 : k-11]
 		}
 
-		ciphertext, err := EncryptPKCS1v15(urandom, &rsaPrivateKey.PublicKey, in)
+		ciphertext, err := EncryptPKCS1v15(random, &rsaPrivateKey.PublicKey, in)
 		if err != nil {
 			t.Errorf("error encrypting: %s", err)
 			return false
@@ -84,7 +81,7 @@ func TestEncryptPKCS1v15(t *testing.T) {
 		if !blind {
 			rand = nil
 		} else {
-			rand = urandom
+			rand = random
 		}
 		plaintext, err := DecryptPKCS1v15(rand, rsaPrivateKey, ciphertext)
 		if err != nil {
@@ -104,19 +101,19 @@ func TestEncryptPKCS1v15(t *testing.T) {
 
 // These test vectors were generated with `openssl rsautl -pkcs -encrypt`
 var decryptPKCS1v15SessionKeyTests = []DecryptPKCS1v15Test{
-	DecryptPKCS1v15Test{
+	{
 		"e6ukkae6Gykq0fKzYwULpZehX+UPXYzMoB5mHQUDEiclRbOTqas4Y0E6nwns1BBpdvEJcilhl5zsox/6DtGsYg==",
 		"1234",
 	},
-	DecryptPKCS1v15Test{
+	{
 		"Dtis4uk/q/LQGGqGk97P59K03hkCIVFMEFZRgVWOAAhxgYpCRG0MX2adptt92l67IqMki6iVQyyt0TtX3IdtEw==",
 		"FAIL",
 	},
-	DecryptPKCS1v15Test{
+	{
 		"LIyFyCYCptPxrvTxpol8F3M7ZivlMsf53zs0vHRAv+rDIh2YsHS69ePMoPMe3TkOMZ3NupiL3takPxIs1sK+dw==",
 		"abcd",
 	},
-	DecryptPKCS1v15Test{
+	{
 		"bafnobel46bKy76JzqU/RIVOH0uAYvzUtauKmIidKgM0sMlvobYVAVQPeUQ/oTGjbIZ1v/6Gyi5AO4DtHruGdw==",
 		"FAIL",
 	},
@@ -137,13 +134,10 @@ func TestEncryptPKCS1v15SessionKey(t *testing.T) {
 }
 
 func TestNonZeroRandomBytes(t *testing.T) {
-	urandom, err := os.Open("/dev/urandom", os.O_RDONLY, 0)
-	if err != nil {
-		t.Errorf("Failed to open /dev/urandom")
-	}
+	random := rand.Reader
 
 	b := make([]byte, 512)
-	err = nonZeroRandomBytes(b, urandom)
+	err := nonZeroRandomBytes(b, random)
 	if err != nil {
 		t.Errorf("returned error: %s", err)
 	}
@@ -162,7 +156,7 @@ type signPKCS1v15Test struct {
 // These vectors have been tested with
 //   `openssl rsautl -verify -inkey pk -in signature | hexdump -C`
 var signPKCS1v15Tests = []signPKCS1v15Test{
-	signPKCS1v15Test{"Test.\n", "a4f3fa6ea93bcdd0c57be020c1193ecbfd6f200a3d95c409769b029578fa0e336ad9a347600e40d3ae823b8c7e6bad88cc07c1d54c3a1523cbbb6d58efc362ae"},
+	{"Test.\n", "a4f3fa6ea93bcdd0c57be020c1193ecbfd6f200a3d95c409769b029578fa0e336ad9a347600e40d3ae823b8c7e6bad88cc07c1d54c3a1523cbbb6d58efc362ae"},
 }
 
 func TestSignPKCS1v15(t *testing.T) {

@@ -418,7 +418,7 @@ void
 agen(Node *n, Node *res)
 {
 	Node *nl, *nr;
-	Node n1, n2, n3, tmp, n4;
+	Node n1, n2, n3, tmp, n4, n5;
 	Prog *p1;
 	uint32 w;
 	uint64 v;
@@ -477,8 +477,10 @@ agen(Node *n, Node *res)
 				regalloc(&n1, nr->type, N);
 				cgen(nr, &n1);
 			}
-			regalloc(&n3, types[tptr], res);
-			agen(nl, &n3);
+			if(!isconst(nl, CTSTR)) {
+				regalloc(&n3, types[tptr], res);
+				agen(nl, &n3);
+			}
 			goto index;
 		}
 		tempname(&tmp, nr->type);
@@ -486,8 +488,10 @@ agen(Node *n, Node *res)
 		nr = &tmp;
 
 	irad:
-		regalloc(&n3, types[tptr], res);
-		agen(nl, &n3);
+		if(!isconst(nl, CTSTR)) {
+			regalloc(&n3, types[tptr], res);
+			agen(nl, &n3);
+		}
 		if(!isconst(nr, CTINT)) {
 			regalloc(&n1, nr->type, N);
 			cgen(nr, &n1);
@@ -501,7 +505,7 @@ agen(Node *n, Node *res)
 
 		// explicit check for nil if array is large enough
 		// that we might derive too big a pointer.
-		if(!isslice(nl->type) && nl->type->width >= unmappedzero) {
+		if(isfixedarray(nl->type) && nl->type->width >= unmappedzero) {
 			regalloc(&n4, types[tptr], &n3);
 			gmove(&n3, &n4);
 			n4.op = OINDREG;
@@ -516,15 +520,16 @@ agen(Node *n, Node *res)
 
 		// constant index
 		if(isconst(nr, CTINT)) {
+			if(isconst(nl, CTSTR))
+				fatal("constant string constant index");	// front end should handle
 			v = mpgetfix(nr->val.u.xval);
-			if(isslice(nl->type)) {
-
+			if(isslice(nl->type) || nl->type->etype == TSTRING) {
 				if(!debug['B'] && !n->etype) {
 					n1 = n3;
 					n1.op = OINDREG;
 					n1.type = types[tptr];
 					n1.xoffset = Array_nel;
-					nodconst(&n2, types[TUINT64], v);
+					nodconst(&n2, types[TUINT32], v);
 					gins(optoas(OCMP, types[TUINT32]), &n1, &n2);
 					p1 = gbranch(optoas(OGT, types[TUINT32]), T);
 					ginscall(panicindex, 0);
@@ -536,18 +541,9 @@ agen(Node *n, Node *res)
 				n1.type = types[tptr];
 				n1.xoffset = Array_array;
 				gmove(&n1, &n3);
-			} else
-			if(!debug['B'] && !n->etype) {
-				if(v < 0)
-					yyerror("out of bounds on array");
-				else
-				if(v >= nl->type->bound)
-					yyerror("out of bounds on array");
 			}
 
-			nodconst(&n2, types[tptr], v*w);
-			gins(optoas(OADD, types[tptr]), &n2, &n3);
-
+			ginscon(optoas(OADD, types[tptr]), v*w, &n3);
 			gmove(&n3, res);
 			regfree(&n3);
 			break;
@@ -564,20 +560,43 @@ agen(Node *n, Node *res)
 
 		if(!debug['B'] && !n->etype) {
 			// check bounds
-			if(isslice(nl->type)) {
+			n5.op = OXXX;
+			t = types[TUINT32];
+			if(is64(nr->type))
+				t = types[TUINT64];
+			if(isconst(nl, CTSTR)) {
+				nodconst(&n1, t, nl->val.u.sval->len);
+			} else if(isslice(nl->type) || nl->type->etype == TSTRING) {
 				n1 = n3;
 				n1.op = OINDREG;
-				n1.type = types[tptr];
+				n1.type = types[TUINT32];
 				n1.xoffset = Array_nel;
-			} else
-				nodconst(&n1, types[TUINT64], nl->type->bound);
-			gins(optoas(OCMP, types[TUINT32]), &n2, &n1);
-			p1 = gbranch(optoas(OLT, types[TUINT32]), T);
+				if(is64(nr->type)) {
+					regalloc(&n5, t, N);
+					gmove(&n1, &n5);
+					n1 = n5;
+				}
+			} else {
+				nodconst(&n1, t, nl->type->bound);
+			}
+			gins(optoas(OCMP, t), &n2, &n1);
+			p1 = gbranch(optoas(OLT, t), T);
+			if(n5.op != OXXX)
+				regfree(&n5);
 			ginscall(panicindex, 0);
 			patch(p1, pc);
 		}
 
-		if(isslice(nl->type)) {
+		if(isconst(nl, CTSTR)) {
+			regalloc(&n3, types[tptr], res);
+			p1 = gins(ALEAQ, N, &n3);
+			datastring(nl->val.u.sval->s, nl->val.u.sval->len, &p1->from);
+			p1->from.scale = 1;
+			p1->from.index = n2.val.u.reg;
+			goto indexdone;
+		}
+
+		if(isslice(nl->type) || nl->type->etype == TSTRING) {
 			n1 = n3;
 			n1.op = OINDREG;
 			n1.type = types[tptr];
@@ -591,12 +610,12 @@ agen(Node *n, Node *res)
 			p1->from.index = p1->from.type;
 			p1->from.type = p1->to.type + D_INDIR;
 		} else {
-			nodconst(&n1, t, w);
-			gins(optoas(OMUL, t), &n1, &n2);
+			ginscon(optoas(OMUL, t), w, &n2);
 			gins(optoas(OADD, types[tptr]), &n2, &n3);
 			gmove(&n3, res);
 		}
 
+	indexdone:
 		gmove(&n3, res);
 		regfree(&n2);
 		regfree(&n3);
@@ -616,10 +635,8 @@ agen(Node *n, Node *res)
 			fatal("agen: bad ONAME class %#x", n->class);
 		}
 		cgen(n->heapaddr, res);
-		if(n->xoffset != 0) {
-			nodconst(&n1, types[TINT64], n->xoffset);
-			gins(optoas(OADD, types[tptr]), &n1, res);
-		}
+		if(n->xoffset != 0)
+			ginscon(optoas(OADD, types[tptr]), n->xoffset, res);
 		break;
 
 	case OIND:
@@ -628,10 +645,8 @@ agen(Node *n, Node *res)
 
 	case ODOT:
 		agen(nl, res);
-		if(n->xoffset != 0) {
-			nodconst(&n1, types[TINT64], n->xoffset);
-			gins(optoas(OADD, types[tptr]), &n1, res);
-		}
+		if(n->xoffset != 0)
+			ginscon(optoas(OADD, types[tptr]), n->xoffset, res);
 		break;
 
 	case ODOTPTR:
@@ -648,8 +663,7 @@ agen(Node *n, Node *res)
 				gins(ATESTB, nodintconst(0), &n1);
 				regfree(&n1);
 			}
-			nodconst(&n1, types[TINT64], n->xoffset);
-			gins(optoas(OADD, types[tptr]), &n1, res);
+			ginscon(optoas(OADD, types[tptr]), n->xoffset, res);
 		}
 		break;
 	}
@@ -693,6 +707,9 @@ bgen(Node *n, int true, Prog *to)
 
 	if(n == N)
 		n = nodbool(1);
+
+	if(n->ninit != nil)
+		genlist(n->ninit);
 
 	nl = n->left;
 	nr = n->right;
@@ -1006,6 +1023,10 @@ sgen(Node *n, Node *ns, int32 w)
 	if(w < 0)
 		fatal("sgen copy %d", w);
 
+	if(w == 16)
+		if(componentgen(n, ns))
+			return;
+
 	// offset on the stack
 	osrc = stkof(n);
 	odst = stkof(ns);
@@ -1098,4 +1119,164 @@ sgen(Node *n, Node *ns, int32 w)
 	restx(&nodl, &oldl);
 	restx(&nodr, &oldr);
 	restx(&cx, &oldcx);
+}
+
+static int
+cadable(Node *n)
+{
+	if(!n->addable) {
+		// dont know how it happens,
+		// but it does
+		return 0;
+	}
+
+	switch(n->op) {
+	case ONAME:
+		return 1;
+	}
+	return 0;
+}
+
+/*
+ * copy a structure component by component
+ * return 1 if can do, 0 if cant.
+ * nr is N for copy zero
+ */
+int
+componentgen(Node *nr, Node *nl)
+{
+	Node nodl, nodr;
+	int freel, freer;
+
+	freel = 0;
+	freer = 0;
+
+	switch(nl->type->etype) {
+	default:
+		goto no;
+
+	case TARRAY:
+		if(!isslice(nl->type))
+			goto no;
+	case TSTRING:
+	case TINTER:
+		break;
+	}
+
+	nodl = *nl;
+	if(!cadable(nl)) {
+		if(nr == N || !cadable(nr))
+			goto no;
+		igen(nl, &nodl, N);
+		freel = 1;
+	}
+
+	if(nr != N) {
+		nodr = *nr;
+		if(!cadable(nr)) {
+			igen(nr, &nodr, N);
+			freer = 1;
+		}
+	}
+
+	switch(nl->type->etype) {
+	case TARRAY:
+		if(!isslice(nl->type))
+			goto no;
+
+		nodl.xoffset += Array_array;
+		nodl.type = ptrto(nl->type->type);
+
+		if(nr != N) {
+			nodr.xoffset += Array_array;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		nodl.xoffset += Array_nel-Array_array;
+		nodl.type = types[TUINT32];
+
+		if(nr != N) {
+			nodr.xoffset += Array_nel-Array_array;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		nodl.xoffset += Array_cap-Array_nel;
+		nodl.type = types[TUINT32];
+
+		if(nr != N) {
+			nodr.xoffset += Array_cap-Array_nel;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		goto yes;
+
+	case TSTRING:
+		nodl.xoffset += Array_array;
+		nodl.type = ptrto(types[TUINT8]);
+
+		if(nr != N) {
+			nodr.xoffset += Array_array;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		nodl.xoffset += Array_nel-Array_array;
+		nodl.type = types[TUINT32];
+
+		if(nr != N) {
+			nodr.xoffset += Array_nel-Array_array;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		goto yes;
+
+	case TINTER:
+		nodl.xoffset += Array_array;
+		nodl.type = ptrto(types[TUINT8]);
+
+		if(nr != N) {
+			nodr.xoffset += Array_array;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		nodl.xoffset += Array_nel-Array_array;
+		nodl.type = ptrto(types[TUINT8]);
+
+		if(nr != N) {
+			nodr.xoffset += Array_nel-Array_array;
+			nodr.type = nodl.type;
+		} else
+			nodconst(&nodr, nodl.type, 0);
+		gmove(&nodr, &nodl);
+
+		goto yes;
+
+	case TSTRUCT:
+		goto no;
+	}
+
+no:
+	if(freer)
+		regfree(&nodr);
+	if(freel)
+		regfree(&nodl);
+	return 0;
+
+yes:
+	if(freer)
+		regfree(&nodr);
+	if(freel)
+		regfree(&nodl);
+	return 1;
 }

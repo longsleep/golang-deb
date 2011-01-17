@@ -19,13 +19,13 @@ const OS = "linux"
  * Wrapped
  */
 
-//sys	open(path string, mode int, perm int) (fd int, errno int)
-func Open(path string, mode int, perm int) (fd int, errno int) {
+//sys	open(path string, mode int, perm uint32) (fd int, errno int)
+func Open(path string, mode int, perm uint32) (fd int, errno int) {
 	return open(path, mode|O_LARGEFILE, perm)
 }
 
-//sys	openat(dirfd int, path string, flags int, mode int) (fd int, errno int)
-func Openat(dirfd int, path string, flags int, mode int) (fd int, errno int) {
+//sys	openat(dirfd int, path string, flags int, mode uint32) (fd int, errno int)
+func Openat(dirfd int, path string, flags int, mode uint32) (fd int, errno int) {
 	return openat(dirfd, path, flags|O_LARGEFILE, mode)
 }
 
@@ -261,8 +261,47 @@ func (sa *SockaddrUnix) sockaddr() (uintptr, _Socklen, int) {
 	return uintptr(unsafe.Pointer(&sa.raw)), 1 + _Socklen(n) + 1, 0
 }
 
+type SockaddrLinklayer struct {
+	Protocol uint16
+	Ifindex  int
+	Hatype   uint16
+	Pkttype  uint8
+	Halen    uint8
+	Addr     [8]byte
+	raw      RawSockaddrLinklayer
+}
+
+func (sa *SockaddrLinklayer) sockaddr() (uintptr, _Socklen, int) {
+	if sa.Ifindex < 0 || sa.Ifindex > 0x7fffffff {
+		return 0, 0, EINVAL
+	}
+	sa.raw.Family = AF_PACKET
+	sa.raw.Protocol = sa.Protocol
+	sa.raw.Ifindex = int32(sa.Ifindex)
+	sa.raw.Hatype = sa.Hatype
+	sa.raw.Pkttype = sa.Pkttype
+	sa.raw.Halen = sa.Halen
+	for i := 0; i < len(sa.Addr); i++ {
+		sa.raw.Addr[i] = sa.Addr[i]
+	}
+	return uintptr(unsafe.Pointer(&sa.raw)), SizeofSockaddrLinklayer, 0
+}
+
 func anyToSockaddr(rsa *RawSockaddrAny) (Sockaddr, int) {
 	switch rsa.Addr.Family {
+	case AF_PACKET:
+		pp := (*RawSockaddrLinklayer)(unsafe.Pointer(rsa))
+		sa := new(SockaddrLinklayer)
+		sa.Protocol = pp.Protocol
+		sa.Ifindex = int(pp.Ifindex)
+		sa.Hatype = pp.Hatype
+		sa.Pkttype = pp.Pkttype
+		sa.Halen = pp.Halen
+		for i := 0; i < len(sa.Addr); i++ {
+			sa.Addr[i] = pp.Addr[i]
+		}
+		return sa, 0
+
 	case AF_UNIX:
 		pp := (*RawSockaddrUnix)(unsafe.Pointer(rsa))
 		sa := new(SockaddrUnix)
@@ -284,8 +323,8 @@ func anyToSockaddr(rsa *RawSockaddrAny) (Sockaddr, int) {
 		for n < len(pp.Path) && pp.Path[n] != 0 {
 			n++
 		}
-		bytes := (*[len(pp.Path)]byte)(unsafe.Pointer(&pp.Path[0]))
-		sa.Name = string(bytes[0:n])
+		bytes := (*[10000]byte)(unsafe.Pointer(&pp.Path[0]))[0:n]
+		sa.Name = string(bytes)
 		return sa, 0
 
 	case AF_INET:
@@ -369,7 +408,7 @@ func Socket(domain, typ, proto int) (fd, errno int) {
 }
 
 func Socketpair(domain, typ, proto int) (fd [2]int, errno int) {
-	fd, errno = socketpair(domain, typ, proto)
+	errno = socketpair(domain, typ, proto, &fd)
 	return
 }
 
@@ -406,6 +445,72 @@ func Sendto(fd int, p []byte, flags int, to Sockaddr) (errno int) {
 		return err
 	}
 	return sendto(fd, p, flags, ptr, n)
+}
+
+func Recvmsg(fd int, p, oob []byte, from Sockaddr, flags int) (n, oobn int, recvflags int, errno int) {
+	var msg Msghdr
+	var rsa RawSockaddrAny
+	msg.Name = (*byte)(unsafe.Pointer(&rsa))
+	msg.Namelen = uint32(SizeofSockaddrAny)
+	var iov Iovec
+	if len(p) > 0 {
+		iov.Base = (*byte)(unsafe.Pointer(&p[0]))
+		iov.SetLen(len(p))
+	}
+	var dummy byte
+	if len(oob) > 0 {
+		// receive at least one normal byte
+		if len(p) == 0 {
+			iov.Base = &dummy
+			iov.SetLen(1)
+		}
+		msg.Control = (*byte)(unsafe.Pointer(&oob[0]))
+		msg.SetControllen(len(oob))
+	}
+	msg.Iov = &iov
+	msg.Iovlen = 1
+	if n, errno = recvmsg(fd, &msg, flags); errno != 0 {
+		return
+	}
+	oobn = int(msg.Controllen)
+	recvflags = int(msg.Flags)
+	return
+}
+
+func Sendmsg(fd int, p, oob []byte, to Sockaddr, flags int) (errno int) {
+	var ptr uintptr
+	var nsock _Socklen
+	if to != nil {
+		var err int
+		ptr, nsock, err = to.sockaddr()
+		if err != 0 {
+			return err
+		}
+	}
+	var msg Msghdr
+	msg.Name = (*byte)(unsafe.Pointer(ptr))
+	msg.Namelen = uint32(nsock)
+	var iov Iovec
+	if len(p) > 0 {
+		iov.Base = (*byte)(unsafe.Pointer(&p[0]))
+		iov.SetLen(len(p))
+	}
+	var dummy byte
+	if len(oob) > 0 {
+		// send at least one normal byte
+		if len(p) == 0 {
+			iov.Base = &dummy
+			iov.SetLen(1)
+		}
+		msg.Control = (*byte)(unsafe.Pointer(&oob[0]))
+		msg.SetControllen(len(oob))
+	}
+	msg.Iov = &iov
+	msg.Iovlen = 1
+	if errno = sendmsg(fd, &msg, flags); errno != 0 {
+		return
+	}
+	return
 }
 
 // BindToDevice binds the socket associated with fd to device.
@@ -553,38 +658,35 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 
 // Sendto
 // Recvfrom
-// Sendmsg
-// Recvmsg
 // Socketpair
 // Getsockopt
 
 /*
  * Direct access
  */
-//sys	Access(path string, mode int) (errno int)
+//sys	Access(path string, mode uint32) (errno int)
 //sys	Acct(path string) (errno int)
 //sys	Adjtimex(buf *Timex) (state int, errno int)
 //sys	Chdir(path string) (errno int)
-//sys	Chmod(path string, mode int) (errno int)
+//sys	Chmod(path string, mode uint32) (errno int)
 //sys	Chroot(path string) (errno int)
 //sys	Close(fd int) (errno int)
-//sys	Creat(path string, mode int) (fd int, errno int)
+//sys	Creat(path string, mode uint32) (fd int, errno int)
 //sys	Dup(oldfd int) (fd int, errno int)
 //sys	Dup2(oldfd int, newfd int) (fd int, errno int)
 //sys	EpollCreate(size int) (fd int, errno int)
 //sys	EpollCtl(epfd int, op int, fd int, event *EpollEvent) (errno int)
 //sys	EpollWait(epfd int, events []EpollEvent, msec int) (n int, errno int)
 //sys	Exit(code int) = SYS_EXIT_GROUP
-//sys	Faccessat(dirfd int, path string, mode int, flags int) (errno int)
-//sys	Fallocate(fd int, mode int, off int64, len int64) (errno int)
+//sys	Faccessat(dirfd int, path string, mode uint32, flags int) (errno int)
+//sys	Fallocate(fd int, mode uint32, off int64, len int64) (errno int)
 //sys	Fchdir(fd int) (errno int)
-//sys	Fchmod(fd int, mode int) (errno int)
-//sys	Fchmodat(dirfd int, path string, mode int, flags int) (errno int)
+//sys	Fchmod(fd int, mode uint32) (errno int)
+//sys	Fchmodat(dirfd int, path string, mode uint32, flags int) (errno int)
 //sys	Fchownat(dirfd int, path string, uid int, gid int, flags int) (errno int)
 //sys	fcntl(fd int, cmd int, arg int) (val int, errno int)
 //sys	Fdatasync(fd int) (errno int)
 //sys	Fsync(fd int) (errno int)
-//sys	Ftruncate(fd int, length int64) (errno int)
 //sys	Getdents(fd int, buf []byte) (n int, errno int) = SYS_GETDENTS64
 //sys	Getpgid(pid int) (pgid int, errno int)
 //sys	Getpgrp() (pid int)
@@ -593,19 +695,20 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 //sys	Getrlimit(resource int, rlim *Rlimit) (errno int)
 //sys	Getrusage(who int, rusage *Rusage) (errno int)
 //sys	Gettid() (tid int)
-//sys	Gettimeofday(tv *Timeval) (errno int)
+//sys   InotifyAddWatch(fd int, pathname string, mask uint32) (watchdesc int, errno int)
+//sys   InotifyInit() (fd int, errno int)
+//sys   InotifyInit1(flags int) (fd int, errno int)
+//sys   InotifyRmWatch(fd int, watchdesc uint32) (success int, errno int)
 //sys	Kill(pid int, sig int) (errno int)
 //sys	Klogctl(typ int, buf []byte) (n int, errno int) = SYS_SYSLOG
 //sys	Link(oldpath string, newpath string) (errno int)
-//sys	Mkdir(path string, mode int) (errno int)
-//sys	Mkdirat(dirfd int, path string, mode int) (errno int)
-//sys	Mknod(path string, mode int, dev int) (errno int)
-//sys	Mknodat(dirfd int, path string, mode int, dev int) (errno int)
+//sys	Mkdir(path string, mode uint32) (errno int)
+//sys	Mkdirat(dirfd int, path string, mode uint32) (errno int)
+//sys	Mknod(path string, mode uint32, dev int) (errno int)
+//sys	Mknodat(dirfd int, path string, mode uint32, dev int) (errno int)
 //sys	Nanosleep(time *Timespec, leftover *Timespec) (errno int)
 //sys	Pause() (errno int)
 //sys	PivotRoot(newroot string, putold string) (errno int) = SYS_PIVOT_ROOT
-//sys	Pread(fd int, p []byte, offset int64) (n int, errno int) = SYS_PREAD64
-//sys	Pwrite(fd int, p []byte, offset int64) (n int, errno int) = SYS_PWRITE64
 //sys	Read(fd int, p []byte) (n int, errno int)
 //sys	Readlink(path string, buf []byte) (n int, errno int)
 //sys	Rename(oldpath string, newpath string) (errno int)
@@ -618,15 +721,12 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 //sys	Setsid() (pid int, errno int)
 //sys	Settimeofday(tv *Timeval) (errno int)
 //sys	Setuid(uid int) (errno int)
-//sys	Splice(rfd int, roff *int64, wfd int, woff *int64, len int, flags int) (n int64, errno int)
 //sys	Symlink(oldpath string, newpath string) (errno int)
 //sys	Sync()
 //sys	Sysinfo(info *Sysinfo_t) (errno int)
 //sys	Tee(rfd int, wfd int, len int, flags int) (n int64, errno int)
 //sys	Tgkill(tgid int, tid int, sig int) (errno int)
-//sys	Time(t *Time_t) (tt Time_t, errno int)
 //sys	Times(tms *Tms) (ticks uintptr, errno int)
-//sys	Truncate(path string, length int64) (errno int)
 //sys	Umask(mask int) (oldmask int)
 //sys	Uname(buf *Utsname) (errno int)
 //sys	Unlink(path string) (errno int)
@@ -677,9 +777,6 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 // Getpmsg
 // Getpriority
 // Getxattr
-// InotifyAddWatch
-// InotifyInit
-// InotifyRmWatch
 // IoCancel
 // IoDestroy
 // IoGetevents

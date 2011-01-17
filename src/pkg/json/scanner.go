@@ -155,18 +155,7 @@ func (s *scanner) eof() int {
 
 // pushParseState pushes a new parse state p onto the parse stack.
 func (s *scanner) pushParseState(p int) {
-	n := len(s.parseState)
-	if n >= cap(s.parseState) {
-		if n == 0 {
-			s.parseState = make([]int, 0, 16)
-		} else {
-			ps := make([]int, n, 2*n)
-			copy(ps, s.parseState)
-			s.parseState = ps
-		}
-	}
-	s.parseState = s.parseState[0 : n+1]
-	s.parseState[n] = p
+	s.parseState = append(s.parseState, p)
 }
 
 // popParseState pops a parse state (already obtained) off the stack
@@ -251,6 +240,8 @@ func stateBeginStringOrEmpty(s *scanner, c int) int {
 		return scanSkipSpace
 	}
 	if c == '}' {
+		n := len(s.parseState)
+		s.parseState[n-1] = parseObjectValue
 		return stateEndValue(s, c)
 	}
 	return stateBeginString(s, c)
@@ -288,10 +279,6 @@ func stateEndValue(s *scanner, c int) int {
 			s.parseState[n-1] = parseObjectValue
 			s.step = stateBeginValue
 			return scanObjectKey
-		}
-		if c == '}' {
-			s.popParseState()
-			return scanEndObject
 		}
 		return s.error(c, "after object key")
 	case parseObjectValue:

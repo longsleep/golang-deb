@@ -2,10 +2,11 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-include ../../Make.$(GOARCH)
+include ../../Make.inc
 
 TARG=sort
 GOFILES=\
+	search.go\
 	sort.go\
 
 include ../../Make.pkg
