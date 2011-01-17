@@ -24,9 +24,8 @@ override_dh_auto_clean:
 	#cd src/pkg && $(GOBIN)/gomake exp/ogle.clean
 	rm -f src/pkg/Make.deps
 	rm -f test/pass.out test/run.out test/times.out
-	rm -f debian/env.sh
 
-override_dh_auto_build: debian/build.stamp debian/env.sh
+override_dh_auto_build: debian/build.stamp
 
 override_dh_auto_test:
 	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
@@ -45,7 +44,6 @@ override_dh_auto_install:
 	mkdir -p $(DESTDIR)$(libexecdir)/src/pkg/runtime
 	install -m644 src/pkg/runtime/cgocall.h $(DESTDIR)$(libexecdir)/src/pkg/runtime/
 	install -m644 src/pkg/runtime/runtime.h $(DESTDIR)$(libexecdir)/src/pkg/runtime/
-	install -m644 debian/env.sh $(DESTDIR)$(libexecdir)/env.sh
 	: web apps
 	mkdir -p $(DESTDIR)$(libexecdir)/lib
 	cp -a lib/codereview $(DESTDIR)$(libexecdir)/lib/
@@ -56,23 +54,6 @@ override_dh_auto_install:
 	cp -a doc $(DESTDIR)/usr/share/doc/$(PACKAGE)/html
 	dh_link /usr/share/doc/$(PACKAGE)/html $(libexecdir)/doc
 	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
-	: wrappers
-	mkdir -p $(DESTDIR)/usr/bin
-	for i in $(GOBIN)/*; \
-	do \
-		f=$$(basename "$$i") && \
-		wrapper=$(DESTDIR)/usr/bin/$$f && \
-		echo '#!/bin/sh' >$$wrapper+ && \
-		echo '. $(libexecdir)/env.sh' >>$$wrapper+ && \
-		echo 'exec $(libexecdir)/bin/'$$f' "$$@"' >>$$wrapper+ && \
-		chmod 755 $$wrapper+ && \
-		if ! cmp -s $$wrapper+ $$wrapper; \
-		then \
-			mv $$wrapper+ $$wrapper; \
-		else \
-			rm $$wrapper+; \
-		fi; \
-	done
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xhgpatch -Xbin/cgo -Xebnflint -Xgofmt
@@ -82,27 +63,6 @@ debian/build.stamp:
 	mkdir -p $(GOBIN)
 	cd src && bash ./make.bash
 	>debian/build.stamp
-
-debian/env.sh:
-	>$@+
-	echo '# runtime parameters for Go' >>$@+
-	if test "$$GOARM"; \
-	then \
-		echo 'export GOROOT GOOS GOARCH GOARM GOBIN' >>$@+ && \
-		echo ": \$${GOARM=$$GOARM}" >>$@+; \
-	else \
-		echo 'export GOROOT GOOS GOARCH GOBIN' >>$@+; \
-	fi
-	echo ': $${GOROOT=$(libexecdir)}' >>$@+
-	echo ': $${GOOS=$(GOOS)}' >>$@+
-	echo ': $${GOARCH=$(GOARCH)}' >>$@+
-	echo ': $${GOBIN=$(libexecdir)/bin}' >>$@+
-	if ! cmp -s $@ $@+; \
-	then \
-		mv $@+ $@; \
-	else \
-		rm $@+; \
-	fi
 
 opt_no_act =
 no_check = ! :
