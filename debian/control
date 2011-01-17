@@ -1,13 +1,13 @@
-Source: google-go
+Source: golang
 Section: devel
 Priority: optional
 Maintainer: Ivan Wong <ivanwyc@gmail.com>
 Build-Depends: debhelper (>= 7.4.10), bison, ed, awk, perl
-Standards-Version: 3.8.4
+Standards-Version: 3.9.1
 Homepage: http://golang.org/
 
 Package: google-go
-Architecture: any
+Architecture: i386 amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
 Description: Google's Go programming language compiler
  This is the compiler for Google's Go programming language:
