@@ -98,8 +98,10 @@ endif
 
 ifeq ($(DEB_HOST_ARCH_CPU), i386)
     GOARCH := 386
+    GOHOSTARCH := 386
 else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOARCH := amd64
+    GOHOSTARCH := amd64
 else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), arm armeb armel))
     GOARCH := arm
     GOARM := 5
