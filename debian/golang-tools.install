@@ -1,0 +1,5 @@
+usr/bin/godoc
+usr/bin/gofmt
+usr/bin/goinstall
+usr/bin/gotry
+usr/bin/govet

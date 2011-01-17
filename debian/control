@@ -6,28 +6,65 @@ Build-Depends: debhelper (>= 7.4.10), bison, ed, awk, perl
 Standards-Version: 3.9.1
 Homepage: http://golang.org/
 
-Package: google-go
+Package: golang-go
 Architecture: i386 amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
-Description: Google's Go programming language compiler
- This is the compiler for Google's Go programming language:
-  - The compilers produce fast code fast. Typical builds take
-    a fraction of a second yet the resulting programs run
-    nearly as quickly as comparable C or C++ code.
-  - Go is type safe and memory safe. Go has pointers but no
-    pointer arithmetic. For random access, use slices, which
-    know their limits.
-  - Go promotes writing systems and servers as sets of
-    lightweight communicating processes, called goroutines,
-    with strong support from the language. Run thousands of
-    goroutines if you want—and say good-bye to stack overflows.
-  - Go has fast builds, clean syntax, garbage collection,
-    methods for any type, and run-time reflection. It feels
-    like a dynamic language but has the speed and safety of
-    a static language. It's a joy to use.
+Recommends: golang-tools
+Provides: go-compiler
+Description: Go programming language compiler
+ This package provides compiler and linker for the Go programming
+ language.  This is the Google's Go implementation of the tool chain.
+ .
+ The Go programming language is an open source project to make
+ programmers more productive. Go is expressive, concise, clean, and
+ efficient.  Its concurrency mechanisms make it easy to write programs
+ that get the most out of multicore and networked machines, while its
+ novel type system enables flexible and modular program construction.
+ Go compiles quickly to machine code yet has the convenience of
+ garbage collection and the power of run-time reflection.  It's a
+ fast, statically typed, compiled language that feels like a
+ dynamically typed, interpreted language.
 
 Package: golang-doc
 Architecture: all
-Depends: ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Documentation for Google's Go programming language
- Dummy description for now
+ This package provides the documentation for the Go programming
+ language.
+ .
+ The Go programming language is an open source project to make
+ programmers more productive. Go is expressive, concise, clean, and
+ efficient.  Its concurrency mechanisms make it easy to write programs
+ that get the most out of multicore and networked machines, while its
+ novel type system enables flexible and modular program construction.
+ Go compiles quickly to machine code yet has the convenience of
+ garbage collection and the power of run-time reflection.  It's a
+ fast, statically typed, compiled language that feels like a
+ dynamically typed, interpreted language.
+ .
+ After installing golang-tools package, you can view a nicely
+ formatted documentation by running godoc --http=:6060 and then
+ visiting http://localhost:6060/doc/install.html.
+ .
+ TODO: Pregenerate HTML documentation to /usr/share/doc/golang-doc/html
+
+Package: golang-tools
+Architecture: i386 amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Tools for Google's Go programming language
+ This package provides various tools for the Go programming language:
+  * godoc - extracts and generates documentation for Go programs
+  * gofmt - formats Go programs
+  * goinstall - automatic package installation
+  * gotry - evaluate expressions on the command line
+  * govet - simple checking of Go source code
+ .
+ The Go programming language is an open source project to make
+ programmers more productive. Go is expressive, concise, clean, and
+ efficient.  Its concurrency mechanisms make it easy to write programs
+ that get the most out of multicore and networked machines, while its
+ novel type system enables flexible and modular program construction.
+ Go compiles quickly to machine code yet has the convenience of
+ garbage collection and the power of run-time reflection.  It's a
+ fast, statically typed, compiled language that feels like a
+ dynamically typed, interpreted language.
