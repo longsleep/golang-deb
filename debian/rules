@@ -21,7 +21,7 @@ override_dh_auto_clean:
 	mv debian/gomake+ $(GOBIN)/gomake
 	cd src && bash ./clean.bash
 	: NEEDSWORK: update src/pkg/Makefile.
-	cd src/pkg && $(GOBIN)/gomake exp/ogle.clean
+	#cd src/pkg && $(GOBIN)/gomake exp/ogle.clean
 	rm -f src/pkg/Make.deps
 	rm -f test/pass.out test/run.out test/times.out
 	rm -f debian/env.sh
