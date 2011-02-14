@@ -1,6 +1,7 @@
-golang (2011.01.12-1~1.gbpf3a97d) UNRELEASED; urgency=low
+golang (2011.02.01.1-1) unstable; urgency=low
 
-  ** SNAPSHOT build @f3a97d6cb4a9429edfcd59f3d37a4324f44265a6 **
+  [ Ivan Wong ]
+  * Initial release (Closes: #574371)
 
   [ Jonathan Nieder ]
   * Fill out copyright file
@@ -19,11 +20,15 @@ golang (2011.01.12-1~1.gbpf3a97d) UNRELEASED; urgency=low
   [ Ondřej Surý ]
   * Add patch to allow IPv4 on IPv6 sockets (Courtesy of Florian Weimer)
   * Use GOROOT_FINAL and change GOBIN to /usr/bin
+  * Get rid of env.sh and wrappers
+  * Add support for building in i386 pbuilder on amd64 architecture
+  * Rename source package to golang to match upstream repository name
+  * Add golang-doc package
+  * Split package into compiler, docs and tools
+  * Don't install quietgcc and hgpatch
+  * Don't generate fake gomake
+  * Update golang-doc package
+  * More moves from google-go to golang, export GOHOSTARCH and GOHOSTOS
+  * Disable checks
 
  -- Ondřej Surý <ondrej@debian.org>  Mon, 17 Jan 2011 13:11:29 +0100
-
-google-go (2010.07.01-1) unstable; urgency=low
-
-  * Initial release (Closes: #574371)
-
- -- Ivan Wong <ivanwyc@gmail.com>  Sun, 04 Jul 2010 18:05:36 +0800
