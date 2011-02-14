@@ -39,4 +39,4 @@ golang (2011.02.01.1-1) unstable; urgency=low
   * Install all 6,8,5 variants of commands
   * Install golang-* symlinks for 6,8,5* commands
 
- -- Ondřej Surý <ondrej@debian.org>  Mon, 14 Feb 2011 16:30:28 +0100
+ -- Ondřej Surý <ondrej@debian.org>  Mon, 14 Feb 2011 16:45:50 +0100
