@@ -38,5 +38,9 @@ golang (2011.02.01.1-1) unstable; urgency=low
   * Add more lintian overrides for Go binaries
   * Install all 6,8,5 variants of commands
   * Install golang-* symlinks for 6,8,5* commands
+  * Don't strip govet as well
+  * Remove ${shlibs:Depends} where it doesn't belong
+  * Move more html files to golang-doc package
+  * Remove codereview directory - some python code to deal with mercurial
 
- -- Ondřej Surý <ondrej@debian.org>  Mon, 14 Feb 2011 16:45:50 +0100
+ -- Ondřej Surý <ondrej@debian.org>  Mon, 14 Feb 2011 17:42:39 +0100
