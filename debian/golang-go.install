@@ -14,3 +14,4 @@ debian/tmp/usr/bin/?c
 debian/tmp/usr/bin/?a
 debian/tmp/usr/bin/?nm
 debian/tmp/usr/bin/?g
+debian/tmp/usr/bin/golang-*
