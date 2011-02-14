@@ -47,7 +47,7 @@ override_dh_auto_install:
 	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
 
 override_dh_install:
-	dh_install --list-missing
+	dh_install --fail-missing
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt
