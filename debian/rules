@@ -4,7 +4,7 @@
 
 PACKAGE = golang
 
-DESTDIR := $(CURDIR)/debian/tmp
+DESTDIR := $(CURDIR)/debian/golang-go
 libexecdir := /usr/lib/golang
 bindir := /usr/bin
 
@@ -45,6 +45,9 @@ override_dh_auto_install:
 	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
 	# remove hgpatch and quietgcc from installation
 	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
+
+override_dh_install:
+	dh_install --list-missing
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt
