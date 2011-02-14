@@ -1,1 +1,2 @@
 doc/* usr/share/doc/golang-doc/html/
+debian/tmp/usr/lib/golang/lib/godoc usr/share/doc/golang-doc
