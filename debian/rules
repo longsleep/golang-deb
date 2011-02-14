@@ -4,7 +4,7 @@
 
 PACKAGE = golang
 
-DESTDIR := $(CURDIR)/debian/golang-go
+DESTDIR := $(CURDIR)/debian/tmp
 libexecdir := /usr/lib/golang
 bindir := /usr/bin
 
