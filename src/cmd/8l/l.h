@@ -190,7 +190,6 @@ enum
 	SSUB = 1<<8,	/* sub-symbol, linked from parent via ->sub list */
 
 	NHASH		= 10007,
-	NHUNK		= 100000,
 	MINSIZ		= 4,
 	STRINGSZ	= 200,
 	MINLC		= 1,
@@ -316,6 +315,7 @@ EXTERN	int	maxop;
 EXTERN	int	nerrors;
 EXTERN	char*	noname;
 EXTERN	int32	pc;
+EXTERN	char*	interpreter;
 EXTERN	char*	rpath;
 EXTERN	int32	spsize;
 EXTERN	Sym*	symlist;

@@ -48,6 +48,7 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case ODOTMETH:
 	case ODOTTYPE:
 	case ODOTTYPE2:
+	case OXDOT:
 	case OARRAYBYTESTR:
 	case OCAP:
 	case OCLOSE:
@@ -365,8 +366,8 @@ exprfmt(Fmt *f, Node *n, int prec)
 		fmtprint(f, ")");
 		break;
 
-	case OCMPLX:
-		fmtprint(f, "cmplx(");
+	case OCOMPLEX:
+		fmtprint(f, "complex(");
 		exprfmt(f, n->left, 0);
 		fmtprint(f, ", ");
 		exprfmt(f, n->right, 0);

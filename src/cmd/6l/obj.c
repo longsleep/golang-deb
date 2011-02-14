@@ -36,6 +36,7 @@
 #include	"../ld/elf.h"
 #include	"../ld/macho.h"
 #include	"../ld/dwarf.h"
+#include	"../ld/pe.h"
 #include	<ar.h>
 
 char	*noname		= "<none>";
@@ -57,7 +58,7 @@ char*	paramspace	= "FP";
 void
 usage(void)
 {
-	fprint(2, "usage: 6l [-options] [-E entry] [-H head] [-L dir] [-T text] [-R rnd] [-r path] [-o out] main.6\n");
+	fprint(2, "usage: 6l [-options] [-E entry] [-H head] [-I interpreter] [-L dir] [-T text] [-R rnd] [-r path] [-o out] main.6\n");
 	exits("usage");
 }
 
@@ -94,6 +95,9 @@ main(int argc, char *argv[])
 		break;
 	case 'H':
 		HEADTYPE = atolwhex(EARGF(usage()));
+		break;
+	case 'I':
+		interpreter = EARGF(usage());
 		break;
 	case 'L':
 		Lflag(EARGF(usage()));
@@ -132,6 +136,9 @@ main(int argc, char *argv[])
 		else
 		if(strcmp(goos, "freebsd") == 0)
 			HEADTYPE = 9;
+		else
+		if(strcmp(goos, "windows") == 0)
+			HEADTYPE = 10;
 		else
 			print("goos is not known: %s\n", goos);
 	}
@@ -200,6 +207,16 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
+	case 10: /* PE executable */
+		peinit();
+		HEADR = PEFILEHEADR;
+		if(INITTEXT == -1)
+			INITTEXT = PEBASE+PESECTHEADR;
+		if(INITDAT == -1)
+			INITDAT = 0;
+		if(INITRND == -1)
+			INITRND = PESECTALIGN;
+		break;
 	}
 	if(INITDAT != 0 && INITRND != 0)
 		print("warning: -D0x%llux is ignored because of -R0x%ux\n",
@@ -245,6 +262,8 @@ main(int argc, char *argv[])
 		else
 			doprof2();
 	span();
+	if(HEADTYPE == 10)
+		dope();
 	addexport();
 	textaddress();
 	pclntab();

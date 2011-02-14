@@ -166,7 +166,7 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 		}
 		size = ra.length
 		code = StatusPartialContent
-		w.SetHeader("Content-Range", fmt.Sprintf("%d-%d/%d", ra.start, ra.start+ra.length, d.Size))
+		w.SetHeader("Content-Range", fmt.Sprintf("bytes %d-%d/%d", ra.start, ra.start+ra.length-1, d.Size))
 	}
 
 	w.SetHeader("Accept-Ranges", "bytes")
@@ -174,7 +174,9 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 
 	w.WriteHeader(code)
 
-	io.Copyn(w, f, size)
+	if r.Method != "HEAD" {
+		io.Copyn(w, f, size)
+	}
 }
 
 // ServeFile replies to the request with the contents of the named file or directory.

@@ -10,6 +10,7 @@
 #include "l.h"
 #include "../ld/lib.h"
 #include "../ld/pe.h"
+#include "../ld/dwarf.h"
 
 // DOS stub that prints out
 // "This program cannot be run in DOS mode."
@@ -33,6 +34,9 @@ static char dosstub[] =
 	0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+static char symnames[256]; 
+static int  nextsymoff;
+
 int32 PESECTHEADR;
 int32 PEFILEHEADR;
 
@@ -43,26 +47,33 @@ static int nextfileoff;
 
 static IMAGE_FILE_HEADER fh;
 static IMAGE_OPTIONAL_HEADER oh;
+static PE64_IMAGE_OPTIONAL_HEADER oh64;
 static IMAGE_SECTION_HEADER sh[16];
+static IMAGE_DATA_DIRECTORY* dd;
+
+#define	set(n, v)	(pe64 ? (oh64.n = v) : (oh.n = v))
+#define	put(v)		(pe64 ? vputl(v) : lputl(v))
 
 typedef struct Imp Imp;
 struct Imp {
 	Sym* s;
-	long va;
-	long vb;
+	uvlong off;
 	Imp* next;
 };
 
 typedef struct Dll Dll;
 struct Dll {
 	char* name;
-	int count;
+	uvlong nameoff;
+	uvlong thunkoff;
 	Imp* ms;
 	Dll* next;
 };
 
 static Dll* dr;
-static int ndll, nimp, nsize;
+
+static Sym *dexport[1024];
+static int nexport;
 
 static IMAGE_SECTION_HEADER*
 addpesection(char *name, int sectsize, int filesize, Segment *s)
@@ -99,17 +110,23 @@ addpesection(char *name, int sectsize, int filesize, Segment *s)
 void
 peinit(void)
 {
+	int32 l;
+
 	switch(thechar) {
 	// 64-bit architectures
 	case '6':
 		pe64 = 1;
+		l = sizeof(oh64);
+		dd = oh64.DataDirectory;
 		break;
 	// 32-bit architectures
 	default:
+		l = sizeof(oh);
+		dd = oh.DataDirectory;
 		break;
 	}
-
-	PEFILEHEADR = rnd(sizeof(dosstub)+sizeof(fh)+sizeof(oh)+sizeof(sh), PEFILEALIGN);
+	
+	PEFILEHEADR = rnd(sizeof(dosstub)+sizeof(fh)+l+sizeof(sh), PEFILEALIGN);
 	PESECTHEADR = rnd(PEFILEHEADR, PESECTALIGN);
 	nextsectoff = PESECTHEADR;
 	nextfileoff = PEFILEHEADR;
@@ -118,27 +135,34 @@ peinit(void)
 static void
 pewrite(void)
 {
-	int i, j;
-
 	seek(cout, 0, 0);
 	ewrite(cout, dosstub, sizeof dosstub);
 	strnput("PE", 4);
-
-	for (i=0; i<sizeof(fh); i++)
-		cput(((char*)&fh)[i]);
-	for (i=0; i<sizeof(oh); i++)
-		cput(((char*)&oh)[i]);
-	for (i=0; i<nsect; i++)
-		for (j=0; j<sizeof(sh[i]); j++)
-			cput(((char*)&sh[i])[j]);
+	cflush();
+	// TODO: This code should not assume that the
+	// memory representation is little-endian or
+	// that the structs are packed identically to
+	// their file representation.
+	ewrite(cout, &fh, sizeof fh);
+	if(pe64)
+		ewrite(cout, &oh64, sizeof oh64);
+	else
+		ewrite(cout, &oh, sizeof oh);
+	ewrite(cout, &sh, nsect * sizeof sh[0]);
 }
 
 static void
 strput(char *s)
 {
-	while(*s)
+	int n;
+
+	for(n=0; *s; n++)
 		cput(*s++);
 	cput('\0');
+	n++;
+	// string must be padded to even size
+	if(n%2)
+		cput('\0');
 }
 
 static Dll* 
@@ -146,49 +170,32 @@ initdynimport(void)
 {
 	Imp *m;
 	Dll *d;
-	Sym *s;
+	Sym *s, *dynamic;
 	int i;
-	Sym *dynamic;
 
 	dr = nil;
-	ndll = 0;
-	nimp = 0;
-	nsize = 0;
 	
 	for(i=0; i<NHASH; i++)
 	for(s = hash[i]; s != S; s = s->hash) {
-		if(!s->reachable || !s->dynimpname)
+		if(!s->reachable || !s->dynimpname || s->dynexport)
 			continue;
-		nimp++;
 		for(d = dr; d != nil; d = d->next) {
 			if(strcmp(d->name,s->dynimplib) == 0) {
 				m = mal(sizeof *m);
-				m->s = s;
-				m->next = d->ms;
-				d->ms = m;
-				d->count++;
-				nsize += strlen(s->dynimpname)+2+1;
 				break;
 			}
 		}
 		if(d == nil) {
 			d = mal(sizeof *d);
 			d->name = s->dynimplib;
-			d->count = 1;
 			d->next = dr;
 			dr = d;
 			m = mal(sizeof *m);
-			m->s = s;
-			m->next = 0;
-			d->ms = m;
-			ndll++;
-			nsize += strlen(s->dynimpname)+2+1;
-			nsize += strlen(s->dynimplib)+1;
 		}
+		m->s = s;
+		m->next = d->ms;
+		d->ms = m;
 	}
-	
-	nsize += 20*ndll + 20;
-	nsize += 4*nimp + 4*ndll;
 	
 	dynamic = lookup(".windynamic", 0);
 	dynamic->reachable = 1;
@@ -199,9 +206,9 @@ initdynimport(void)
 			m->s->sub = dynamic->sub;
 			dynamic->sub = m->s;
 			m->s->value = dynamic->size;
-			dynamic->size += 4;
+			dynamic->size += PtrSize;
 		}
-		dynamic->size += 4;
+		dynamic->size += PtrSize;
 	}
 		
 	return dr;
@@ -211,90 +218,245 @@ static void
 addimports(vlong fileoff, IMAGE_SECTION_HEADER *datsect)
 {
 	IMAGE_SECTION_HEADER *isect;
-	uint32 va;
-	int noff, aoff, o, last_fn, last_name_off, iat_off;
+	uvlong n, oftbase, ftbase;
 	Imp *m;
 	Dll *d;
 	Sym* dynamic;
 	
-	isect = addpesection(".idata", nsize, nsize, 0);
+	dynamic = lookup(".windynamic", 0);
+
+	// skip import descriptor table (will write it later)
+	n = 0;
+	for(d = dr; d != nil; d = d->next)
+		n++;
+	seek(cout, fileoff + sizeof(IMAGE_IMPORT_DESCRIPTOR) * (n + 1), 0);
+
+	// write dll names
+	for(d = dr; d != nil; d = d->next) {
+		d->nameoff = cpos() - fileoff;
+		strput(d->name);
+	}
+
+	// write function names
+	for(d = dr; d != nil; d = d->next) {
+		for(m = d->ms; m != nil; m = m->next) {
+			m->off = nextsectoff + cpos() - fileoff;
+			wputl(0); // hint
+			strput(m->s->dynimpname);
+		}
+	}
+	
+	// write OriginalFirstThunks
+	oftbase = cpos() - fileoff;
+	n = cpos();
+	for(d = dr; d != nil; d = d->next) {
+		d->thunkoff = cpos() - n;
+		for(m = d->ms; m != nil; m = m->next)
+			put(m->off);
+		put(0);
+	}
+
+	// add pe section and pad it at the end
+	n = cpos() - fileoff;
+	isect = addpesection(".idata", n, n, 0);
 	isect->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|
 		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
-	va = isect->VirtualAddress;
-	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = va;
-	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = isect->VirtualSize;
+	strnput("", isect->SizeOfRawData - n);
+	cflush();
 
-	seek(cout, fileoff, 0);
-
-	dynamic = lookup(".windynamic", 0);
-	iat_off = dynamic->value - PEBASE; // FirstThunk allocated in .data
-	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress = iat_off;
-	oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size = dynamic->size;
-
-	noff = va + 20*ndll + 20;
-	aoff = noff + 4*nimp + 4*ndll;
-	last_fn = 0;
-	last_name_off = aoff;
+	// write FirstThunks (allocated in .data section)
+	ftbase = dynamic->value - datsect->VirtualAddress - PEBASE;
+	seek(cout, datsect->PointerToRawData + ftbase, 0);
 	for(d = dr; d != nil; d = d->next) {
-		lputl(noff);
+		for(m = d->ms; m != nil; m = m->next)
+			put(m->off);
+		put(0);
+	}
+	cflush();
+	
+	// finally write import descriptor table
+	seek(cout, fileoff, 0);
+	for(d = dr; d != nil; d = d->next) {
+		lputl(isect->VirtualAddress + oftbase + d->thunkoff);
 		lputl(0);
 		lputl(0);
-		lputl(last_name_off);
-		lputl(iat_off);
-		last_fn = d->count;
-		noff += 4*last_fn + 4;
-		aoff += 4*last_fn + 4;
-		iat_off += 4*last_fn + 4;
-		last_name_off += strlen(d->name)+1;
+		lputl(isect->VirtualAddress + d->nameoff);
+		lputl(datsect->VirtualAddress + ftbase + d->thunkoff);
 	}
 	lputl(0); //end
 	lputl(0);
 	lputl(0);
 	lputl(0);
 	lputl(0);
+	cflush();
 	
-	// put OriginalFirstThunk
-	o = last_name_off;
-	for(d = dr; d != nil; d = d->next) {
-		for(m = d->ms; m != nil; m = m->next) {
-			lputl(o);
-			o += 2 + strlen(m->s->dynimpname) + 1;
+	// update data directory
+	dd[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = isect->VirtualAddress;
+	dd[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = isect->VirtualSize;
+	dd[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress = dynamic->value - PEBASE;
+	dd[IMAGE_DIRECTORY_ENTRY_IAT].Size = dynamic->size;
+
+	seek(cout, 0, 2);
+}
+
+static int
+scmp(const void *p1, const void *p2)
+{
+	Sym *s1, *s2;
+
+	s1 = *(Sym**)p1;
+	s2 = *(Sym**)p2;
+	return strcmp(s1->dynimpname, s2->dynimpname);
+}
+
+static void
+initdynexport(void)
+{
+	int i;
+	Sym *s;
+	
+	nexport = 0;
+	for(i=0; i<NHASH; i++)
+	for(s = hash[i]; s != S; s = s->hash) {
+		if(!s->reachable || !s->dynimpname || !s->dynexport)
+			continue;
+		if(nexport+1 > sizeof(dexport)/sizeof(dexport[0])) {
+			diag("pe dynexport table is full");
+			errorexit();
 		}
-		lputl(0);
-	}
-	// put names
-	for(d = dr; d != nil; d = d->next) {
-		strput(d->name);
-	}
-	// put hint+name
-	for(d = dr; d != nil; d = d->next) {
-		for(m = d->ms; m != nil; m = m->next) {
-			wputl(0);
-			strput(m->s->dynimpname);
-		}
+		
+		dexport[nexport] = s;
+		nexport++;
 	}
 	
-	strnput("", isect->SizeOfRawData - nsize);
+	qsort(dexport, nexport, sizeof dexport[0], scmp);
+}
+
+void
+addexports(vlong fileoff)
+{
+	IMAGE_SECTION_HEADER *sect;
+	IMAGE_EXPORT_DIRECTORY e;
+	int size, i, va, va_name, va_addr, va_na, v;
+
+	size = sizeof e + 10*nexport + strlen(outfile) + 1;
+	for(i=0; i<nexport; i++)
+		size += strlen(dexport[i]->dynimpname) + 1;
+	
+	if (nexport == 0)
+		return;
+		
+	sect = addpesection(".edata", size, size, 0);
+	sect->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|IMAGE_SCN_MEM_READ;
+	va = sect->VirtualAddress;
+	dd[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress = va;
+	dd[IMAGE_DIRECTORY_ENTRY_EXPORT].Size = sect->VirtualSize;
+
+	seek(cout, fileoff, 0);
+	va_name = va + sizeof e + nexport*4;
+	va_addr = va + sizeof e;
+	va_na = va + sizeof e + nexport*8;
+
+	e.Characteristics = 0;
+	e.MajorVersion = 0;
+	e.MinorVersion = 0;
+	e.NumberOfFunctions = nexport;
+	e.NumberOfNames = nexport;
+	e.Name = va + sizeof e + nexport*10; // Program names.
+	e.Base = 1;
+	e.AddressOfFunctions = va_addr;
+	e.AddressOfNames = va_name;
+	e.AddressOfNameOrdinals = va_na;
+	// put IMAGE_EXPORT_DIRECTORY
+	for (i=0; i<sizeof(e); i++)
+		cput(((char*)&e)[i]);
+	// put EXPORT Address Table
+	for(i=0; i<nexport; i++)
+		lputl(dexport[i]->value - PEBASE);		
+	// put EXPORT Name Pointer Table
+	v = e.Name + strlen(outfile)+1;
+	for(i=0; i<nexport; i++) {
+		lputl(v);
+		v += strlen(dexport[i]->dynimpname)+1;
+	}
+	// put EXPORT Ordinal Table
+	for(i=0; i<nexport; i++)
+		wputl(i);
+	// put Names
+	strnput(outfile, strlen(outfile)+1);
+	for(i=0; i<nexport; i++)
+		strnput(dexport[i]->dynimpname, strlen(dexport[i]->dynimpname)+1);
+	strnput("", sect->SizeOfRawData - size);
 	cflush();
 
-	// put FirstThunk
-	o = last_name_off;
-	seek(cout, datsect->PointerToRawData + dynamic->value - PEBASE - datsect->VirtualAddress, 0);
-	for(d = dr; d != nil; d = d->next) {
-		for(m = d->ms; m != nil; m = m->next) {
-			lputl(o);
-			o += 2 + strlen(m->s->dynimpname) + 1;
-		}
-		lputl(0);
-	}
-	cflush();
 	seek(cout, 0, 2);
 }
 
 void
 dope(void)
 {
+	Sym *rel;
+
+	/* relocation table */
+	rel = lookup(".rel", 0);
+	rel->reachable = 1;
+	rel->type = SELFDATA;
+
 	initdynimport();
+	initdynexport();
+}
+
+/*
+ * For more than 8 characters section names, name contains a slash (/) that is 
+ * followed by an ASCII representation of a decimal number that is an offset into 
+ * the string table. 
+ * reference: pecoff_v8.docx Page 24.
+ * <http://www.microsoft.com/whdc/system/platform/firmware/PECOFFdwn.mspx>
+ */
+IMAGE_SECTION_HEADER*
+newPEDWARFSection(char *name, vlong size)
+{
+	IMAGE_SECTION_HEADER *h;
+	char s[8];
+
+	if(nextsymoff+strlen(name)+1 > sizeof(symnames)) {
+		diag("pe string table is full");
+		errorexit();
+	}
+
+	strcpy(&symnames[nextsymoff], name);
+	sprint(s, "/%d\0", nextsymoff+4);
+	nextsymoff += strlen(name);
+	symnames[nextsymoff] = 0;
+	nextsymoff ++;
+	h = addpesection(s, size, size, 0);
+	h->Characteristics = IMAGE_SCN_MEM_READ|
+		IMAGE_SCN_MEM_DISCARDABLE;
+
+	return h;
+}
+
+static void
+addsymtable(void)
+{
+	IMAGE_SECTION_HEADER *h;
+	int i, size;
+	
+	if(nextsymoff == 0)
+		return;
+	
+	size  = nextsymoff + 4;
+	h = addpesection(".symtab", size, size, 0);
+	h->Characteristics = IMAGE_SCN_MEM_READ|
+		IMAGE_SCN_MEM_DISCARDABLE;
+	fh.PointerToSymbolTable = cpos();
+	fh.NumberOfSymbols = 0;
+	// put symbol string table
+	lputl(size);
+	for (i=0; i<nextsymoff; i++)
+		cput(symnames[i]);
+	strnput("", h->SizeOfRawData - size);
+	cflush();
 }
 
 void
@@ -324,42 +486,51 @@ asmbpe(void)
 		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
 
 	addimports(nextfileoff, d);
+	
+	addexports(nextfileoff);
+	
+	if(!debug['s'])
+		dwarfaddpeheaders();
 
+	addsymtable();
+		
 	fh.NumberOfSections = nsect;
 	fh.TimeDateStamp = time(0);
-	fh.SizeOfOptionalHeader = sizeof(oh);
 	fh.Characteristics = IMAGE_FILE_RELOCS_STRIPPED|
 		IMAGE_FILE_EXECUTABLE_IMAGE|IMAGE_FILE_DEBUG_STRIPPED;
-	if(thechar == '8')
+	if (pe64) {
+		fh.SizeOfOptionalHeader = sizeof(oh64);
+		set(Magic, 0x20b);	// PE32+
+	} else {
+		fh.SizeOfOptionalHeader = sizeof(oh);
 		fh.Characteristics |= IMAGE_FILE_32BIT_MACHINE;
-
-	oh.Magic = 0x10b;	// PE32
-	oh.MajorLinkerVersion = 1;
-	oh.MinorLinkerVersion = 0;
-	oh.SizeOfCode = t->SizeOfRawData;
-	oh.SizeOfInitializedData = d->SizeOfRawData;
-	oh.SizeOfUninitializedData = 0;
-	oh.AddressOfEntryPoint = entryvalue()-PEBASE;
-	oh.BaseOfCode = t->VirtualAddress;
-	oh.BaseOfData = d->VirtualAddress;
-
-	oh.ImageBase = PEBASE;
-	oh.SectionAlignment = PESECTALIGN;
-	oh.FileAlignment = PEFILEALIGN;
-	oh.MajorOperatingSystemVersion = 4;
-	oh.MinorOperatingSystemVersion = 0;
-	oh.MajorImageVersion = 1;
-	oh.MinorImageVersion = 0;
-	oh.MajorSubsystemVersion = 4;
-	oh.MinorSubsystemVersion = 0;
-	oh.SizeOfImage = nextsectoff;
-	oh.SizeOfHeaders = PEFILEHEADR;
-	oh.Subsystem = 3;	// WINDOWS_CUI
-	oh.SizeOfStackReserve = 0x00200000;
-	oh.SizeOfStackCommit = 0x00001000;
-	oh.SizeOfHeapReserve = 0x00100000;
-	oh.SizeOfHeapCommit = 0x00001000;
-	oh.NumberOfRvaAndSizes = 16;
+		set(Magic, 0x10b);	// PE32
+		oh.BaseOfData = d->VirtualAddress;
+	}
+	set(MajorLinkerVersion, 1);
+	set(MinorLinkerVersion, 0);
+	set(SizeOfCode, t->SizeOfRawData);
+	set(SizeOfInitializedData, d->SizeOfRawData);
+	set(SizeOfUninitializedData, 0);
+	set(AddressOfEntryPoint, entryvalue()-PEBASE);
+	set(BaseOfCode, t->VirtualAddress);
+	set(ImageBase, PEBASE);
+	set(SectionAlignment, PESECTALIGN);
+	set(FileAlignment, PEFILEALIGN);
+	set(MajorOperatingSystemVersion, 4);
+	set(MinorOperatingSystemVersion, 0);
+	set(MajorImageVersion, 1);
+	set(MinorImageVersion, 0);
+	set(MajorSubsystemVersion, 4);
+	set(MinorSubsystemVersion, 0);
+	set(SizeOfImage, nextsectoff);
+	set(SizeOfHeaders, PEFILEHEADR);
+	set(Subsystem, 3);	// WINDOWS_CUI
+	set(SizeOfStackReserve, 0x00200000);
+	set(SizeOfStackCommit, 0x00001000);
+	set(SizeOfHeapReserve, 0x00100000);
+	set(SizeOfHeapCommit, 0x00001000);
+	set(NumberOfRvaAndSizes, 16);
 
 	pewrite();
 }

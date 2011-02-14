@@ -253,12 +253,15 @@ func (sa *SockaddrUnix) sockaddr() (uintptr, _Socklen, int) {
 	for i := 0; i < n; i++ {
 		sa.raw.Path[i] = int8(name[i])
 	}
+	// length is family (uint16), name, NUL.
+	sl := 2 + _Socklen(n) + 1
 	if sa.raw.Path[0] == '@' {
 		sa.raw.Path[0] = 0
+		// Don't count trailing NUL for abstract address.
+		sl--
 	}
 
-	// length is family, name, NUL.
-	return uintptr(unsafe.Pointer(&sa.raw)), 1 + _Socklen(n) + 1, 0
+	return uintptr(unsafe.Pointer(&sa.raw)), sl, 0
 }
 
 type SockaddrLinklayer struct {
@@ -447,7 +450,7 @@ func Sendto(fd int, p []byte, flags int, to Sockaddr) (errno int) {
 	return sendto(fd, p, flags, ptr, n)
 }
 
-func Recvmsg(fd int, p, oob []byte, from Sockaddr, flags int) (n, oobn int, recvflags int, errno int) {
+func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from Sockaddr, errno int) {
 	var msg Msghdr
 	var rsa RawSockaddrAny
 	msg.Name = (*byte)(unsafe.Pointer(&rsa))
@@ -474,6 +477,10 @@ func Recvmsg(fd int, p, oob []byte, from Sockaddr, flags int) (n, oobn int, recv
 	}
 	oobn = int(msg.Controllen)
 	recvflags = int(msg.Flags)
+	// source address is only specified if the socket is unconnected
+	if rsa.Addr.Family != 0 {
+		from, errno = anyToSockaddr(&rsa)
+	}
 	return
 }
 

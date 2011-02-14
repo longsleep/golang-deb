@@ -10,6 +10,10 @@ ifeq ($(GOARCH),arm)
 ENABLED:=0
 endif
 
+ifeq ($(DISABLE_CGO),1)
+ENABLED:=0
+endif
+
 TARG=runtime/cgo
 
 GOFILES=\
@@ -30,7 +34,11 @@ OFILES=\
 	_cgo_import.$O\
 	$(CGO_OFILES)\
 
+ifeq ($(GOOS),windows)
+CGO_LDFLAGS=-lm -mthreads
+else
 CGO_LDFLAGS=-lpthread
+endif
 
 ifeq ($(GOOS),freebsd)
 OFILES+=\
@@ -48,7 +56,6 @@ _cgo_defun.c:
 
 _cgo_main.c:
 	echo 'int main() { return 0; }' >$@
-	echo 'void *crosscall2;' >>$@
 endif
 
 $(GOARCH).o: $(GOARCH).S

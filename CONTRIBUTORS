@@ -51,10 +51,11 @@ Arvindh Rajesh Tamilmani <art@a-30.net>
 Austin Clements <aclements@csail.mit.edu>
 Balazs Lecz <leczb@google.com>
 Ben Eitzen <eitzenb@golang.org>
+Ben Lynn <benlynn@gmail.com>
 Ben Olive <sionide21@gmail.com>
 Benny Siegert <bsiegert@gmail.com>
 Bill Neubauer <wcn@golang.org> <wcn@google.com>
-Brad Fitzpatrick <brad@danga.com> <bradfitz@gmail.com>
+Brad Fitzpatrick <bradfitz@golang.org> <bradfitz@gmail.com>
 Brendan O'Dea <bod@golang.org>
 Caine Tighe <arctanofyourface@gmail.com>
 Cary Hull <chull@google.com>
@@ -63,6 +64,7 @@ Chris Jones <chris@cjones.org> <chris.jones.yar@gmail.com>
 Chris Lennert <calennert@gmail.com>
 Christian Himpel <chressie@googlemail.com> <chressie@gmail.com>
 Christopher Wedgwood <cw@f00f.org>
+Clement Skau <clementskau@gmail.com>
 Conrad Meyer <cemeyer@cs.washington.edu>
 Corey Thomasson <cthom.lists@gmail.com>
 Dan Sinclair <dan.sinclair@gmail.com>
@@ -70,6 +72,7 @@ Daniel Fleischman <danielfleischman@gmail.com>
 Daniel Nadasi <dnadasi@google.com>
 Berengar Lehr <Berengar.Lehr@gmx.de>
 Daniel Theophanes <kardianos@gmail.com>
+David Anderson <danderson@google.com>
 David G. Andersen <dave.andersen@gmail.com>
 David Symonds <dsymonds@golang.org>
 David Titarenco <david.titarenco@gmail.com>
@@ -102,9 +105,12 @@ James Whitehead <jnwhiteh@gmail.com>
 Jamie Gennis <jgennis@google.com>
 Jan H. Hosang <jan.hosang@gmail.com>
 Jan Mercl <befelemepeseveze@gmail.com>
+Jeff R. Allen <jra@nella.org> <jeff.allen@gmail.com>
 Jim McGrath <jimmc2@gmail.com>
 Joe Poirier <jdpoirier@gmail.com>
 Jonathan Wills <runningwild@gmail.com>
+Jos Visser <josv@google.com>
+Jose Luis Vázquez González <josvazg@gmail.com>
 Josh Goebel <dreamer3@gmail.com>
 Jukka-Pekka Kekkonen <karatepekka@gmail.com>
 Kai Backman <kaib@golang.org>
@@ -115,7 +121,7 @@ Ken Thompson <ken@golang.org>
 Kevin Ballard <kevin@sb.org>
 Kirklin McDonald <kirklin.mcdonald@gmail.com>
 Kyle Consalus <consalus@gmail.com>
-Kyle Lemons <kyle@kylelemons.net>
+Kyle Lemons <kyle@kylelemons.net> <etherealflaim@gmail.com>
 Larry Hosken <lahosken@golang.org>
 Lorenzo Stoakes <lstoakes@gmail.com>
 Luuk van Dijk <lvd@golang.org> <lvd@google.com>
@@ -127,6 +133,7 @@ Maxim Ushakov <ushakov@google.com>
 Micah Stetson <micah.stetson@gmail.com>
 Michael Elkins <michael.elkins@gmail.com>
 Michael Hoisie <hoisie@gmail.com>
+Miek Gieben <miek@miek.nl> <remigius.gieben@gmail.com>
 Mikio Hara <mikioh.mikioh@gmail.com>
 Mikkel Krautz <mikkel@krautz.dk> <krautz@gmail.com>
 Moriyoshi Koizumi <mozo@mozo.jp>
@@ -143,6 +150,7 @@ Peter Mundy <go.peter.90@gmail.com>
 Péter Szabó <pts@google.com>
 Peter Williams <pwil3058@gmail.com>
 Phil Pennock <pdp@golang.org>
+Pieter Droogendijk <pieter@binky.org.uk>
 Raif S. Naffah <go@naffah-raif.name>
 Risto Jaakko Saarelma <rsaarelm@gmail.com>
 Rob Pike <r@golang.org>

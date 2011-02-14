@@ -93,9 +93,10 @@ static void fixlbrace(int);
 %type	<type>	hidden_type_func
 %type	<type>	hidden_type_recv_chan hidden_type_non_recv_chan
 
+%left		LCOMM	/* outside the usual hierarchy; here for good error messages */
+
 %left		LOROR
 %left		LANDAND
-%left		LCOMM
 %left		LEQ LNE LLE LGE LLT LGT
 %left		'+' '-' '|' '^'
 %left		'*' '/' '%' '&' LLSH LRSH LANDNOT
@@ -421,11 +422,18 @@ simple_stmt:
 |	expr_list LCOLAS expr_list
 	{
 		if($3->n->op == OTYPESW) {
+			Node *n;
+			
+			n = N;
 			if($3->next != nil)
 				yyerror("expr.(type) must be alone in list");
-			else if($1->next != nil)
+			if($1->next != nil)
 				yyerror("argument count mismatch: %d = %d", count($1), 1);
-			$$ = nod(OTYPESW, $1->n, $3->n->right);
+			else if($1->n->op != ONAME && $1->n->op != OTYPE && $1->n->op != ONONAME)
+				yyerror("invalid variable name %#N in type switch", $1->n);
+			else
+				n = $1->n;
+			$$ = nod(OTYPESW, n, $3->n->right);
 			break;
 		}
 		$$ = colas($1, $3);
@@ -764,6 +772,7 @@ expr:
 	{
 		$$ = nod(ORSH, $1, $3);
 	}
+	/* not an expression anymore, but left in so we can give a good error */
 |	expr LCOMM expr
 	{
 		$$ = nod(OSEND, $1, $3);

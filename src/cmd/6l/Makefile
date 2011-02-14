@@ -16,12 +16,14 @@ OFILES=\
 	go.$O\
 	ldelf.$O\
 	ldmacho.$O\
+	ldpe.$O\
 	lib.$O\
 	list.$O\
 	macho.$O\
 	obj.$O\
 	optab.$O\
 	pass.$O\
+	pe.$O\
 	prof.$O\
 	span.$O\
 	symtab.$O\
@@ -33,6 +35,7 @@ HFILES=\
 	../ld/elf.h\
 	../ld/macho.h\
 	../ld/dwarf.h\
+	../ld/pe.h\
 
 include ../../Make.ccmd
 

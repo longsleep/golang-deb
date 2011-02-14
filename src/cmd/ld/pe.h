@@ -72,6 +72,20 @@ typedef struct {
 	uint32 FirstThunk;
 } IMAGE_IMPORT_DESCRIPTOR;
 
+typedef struct _IMAGE_EXPORT_DIRECTORY {
+	uint32 Characteristics;
+	uint32 TimeDateStamp;
+	uint16 MajorVersion;
+	uint16 MinorVersion;
+	uint32 Name;
+	uint32 Base;
+	uint32 NumberOfFunctions;
+	uint32 NumberOfNames;
+	uint32 AddressOfFunctions;
+	uint32 AddressOfNames;
+	uint32 AddressOfNameOrdinals;
+} IMAGE_EXPORT_DIRECTORY;
+
 #define PEBASE		0x00400000
 // SectionAlignment must be greater than or equal to FileAlignment.
 // The default is the page size for the architecture.
@@ -99,6 +113,7 @@ enum {
 	IMAGE_SCN_MEM_EXECUTE = 0x20000000,
 	IMAGE_SCN_MEM_READ = 0x40000000,
 	IMAGE_SCN_MEM_WRITE = 0x80000000,
+	IMAGE_SCN_MEM_DISCARDABLE = 0x2000000,
 
 	IMAGE_DIRECTORY_ENTRY_EXPORT = 0,
 	IMAGE_DIRECTORY_ENTRY_IMPORT = 1,
@@ -122,3 +137,38 @@ void peinit(void);
 void asmbpe(void);
 void dope(void);
 
+IMAGE_SECTION_HEADER* newPEDWARFSection(char *name, vlong size);
+
+// X64
+typedef struct {
+	uint16 Magic;
+	uint8  MajorLinkerVersion;
+	uint8  MinorLinkerVersion;
+	uint32 SizeOfCode;
+	uint32 SizeOfInitializedData;
+	uint32 SizeOfUninitializedData;
+	uint32 AddressOfEntryPoint;
+	uint32 BaseOfCode;
+	uint64 ImageBase;
+	uint32 SectionAlignment;
+	uint32 FileAlignment;
+	uint16 MajorOperatingSystemVersion;
+	uint16 MinorOperatingSystemVersion;
+	uint16 MajorImageVersion;
+	uint16 MinorImageVersion;
+	uint16 MajorSubsystemVersion;
+	uint16 MinorSubsystemVersion;
+	uint32 Win32VersionValue;
+	uint32 SizeOfImage;
+	uint32 SizeOfHeaders;
+	uint32 CheckSum;
+	uint16 Subsystem;
+	uint16 DllCharacteristics;
+	uint64 SizeOfStackReserve;
+	uint64 SizeOfStackCommit;
+	uint64 SizeOfHeapReserve;
+	uint64 SizeOfHeapCommit;
+	uint32 LoaderFlags;
+	uint32 NumberOfRvaAndSizes;
+	IMAGE_DATA_DIRECTORY DataDirectory[16];
+} PE64_IMAGE_OPTIONAL_HEADER;

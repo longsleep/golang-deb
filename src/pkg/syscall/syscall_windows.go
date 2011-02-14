@@ -44,7 +44,7 @@ func main() {
 	if err != 0 {
 		abort("GetProcAddress", err)
 	}
-	r, _, _ := syscall.Syscall(uintptr(proc), 0, 0, 0)
+	r, _, _ := syscall.Syscall(uintptr(proc), 0, 0, 0, 0)
 	print_version(uint32(r))
 }
 
@@ -72,9 +72,11 @@ func StringToUTF16Ptr(s string) *uint16 { return &StringToUTF16(s)[0] }
 
 // dll helpers
 
-// implemented in ../pkg/runtime/windows/syscall.cgo
-func Syscall9(trap, a1, a2, a3, a4, a5, a6, a7, a8, a9 uintptr) (r1, r2, lasterr uintptr)
-func Syscall12(trap, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 uintptr) (r1, r2, lasterr uintptr)
+// implemented in ../runtime/windows/syscall.cgo
+func Syscall(trap, nargs, a1, a2, a3 uintptr) (r1, r2, err uintptr)
+func Syscall6(trap, nargs, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, err uintptr)
+func Syscall9(trap, nargs, a1, a2, a3, a4, a5, a6, a7, a8, a9 uintptr) (r1, r2, err uintptr)
+func Syscall12(trap, nargs, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 uintptr) (r1, r2, err uintptr)
 func loadlibraryex(filename uintptr) (handle uint32)
 func getprocaddress(handle uint32, procname uintptr) (proc uintptr)
 
@@ -93,6 +95,12 @@ func getSysProcAddr(m uint32, pname string) uintptr {
 	}
 	return p
 }
+
+// Converts a Go function to a function pointer conforming
+// to the stdcall calling convention.  This is useful when
+// interoperating with Windows code requiring callbacks.
+// Implemented in ../runtime/windows/syscall.cgo
+func NewCallback(fn interface{}) uintptr
 
 // windows api calls
 
@@ -126,6 +134,7 @@ func getSysProcAddr(m uint32, pname string) uintptr {
 //sys	GetTimeZoneInformation(tzi *Timezoneinformation) (rc uint32, errno int) [failretval==0xffffffff]
 //sys	CreateIoCompletionPort(filehandle int32, cphandle int32, key uint32, threadcnt uint32) (handle int32, errno int)
 //sys	GetQueuedCompletionStatus(cphandle int32, qty *uint32, key *uint32, overlapped **Overlapped, timeout uint32) (ok bool, errno int)
+//sys	CancelIo(s uint32) (ok bool, errno int)
 //sys	CreateProcess(appName *int16, commandLine *uint16, procSecurity *int16, threadSecurity *int16, inheritHandles bool, creationFlags uint32, env *uint16, currentDir *uint16, startupInfo *StartupInfo, outProcInfo *ProcessInformation)  (ok bool, errno int) = CreateProcessW
 //sys	GetStartupInfo(startupInfo *StartupInfo)  (ok bool, errno int) = GetStartupInfoW
 //sys	GetCurrentProcess() (pseudoHandle int32, errno int)
@@ -708,6 +717,7 @@ const (
 	PTRACE_TRACEME = 1 + iota
 	WNOHANG
 	WSTOPPED
+	WUNTRACED
 	SYS_CLOSE
 	SYS_WRITE
 	SYS_EXIT

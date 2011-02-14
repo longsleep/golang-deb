@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"debug/elf"
 	"debug/macho"
+	"debug/pe"
 	"fmt"
 	"go/ast"
 	"go/printer"
@@ -32,9 +33,17 @@ func (p *Package) writeDefs() {
 	fc := creat("_cgo_defun.c")
 	fm := creat("_cgo_main.c")
 
+	fflg := creat("_cgo_flags")
+	for k, v := range p.CgoFlags {
+		fmt.Fprintf(fflg, "_CGO_%s=%s\n", k, v)
+	}
+	fflg.Close()
+
 	// Write C main file for using gcc to resolve imports.
 	fmt.Fprintf(fm, "int main() { return 0; }\n")
-	fmt.Fprintf(fm, "int crosscall2;\n\n")
+	fmt.Fprintf(fm, "void crosscall2(void(*fn)(void*, int), void *a, int c) { }\n")
+	fmt.Fprintf(fm, "void _cgo_allocate(void *a, int c) { }\n")
+	fmt.Fprintf(fm, "void _cgo_panic(void *a, int c) { }\n")
 
 	// Write second Go output: definitions of _C_xxx.
 	// In a separate file so that the import of "unsafe" does not
@@ -101,12 +110,14 @@ func dynimport(obj string) (syms, imports []string) {
 		ImportedSymbols() ([]string, os.Error)
 	}
 	var isMacho bool
-	var err1, err2 os.Error
+	var err1, err2, err3 os.Error
 	if f, err1 = elf.Open(obj); err1 != nil {
-		if f, err2 = macho.Open(obj); err2 != nil {
-			fatal("cannot parse %s as ELF (%v) or Mach-O (%v)", obj, err1, err2)
+		if f, err2 = pe.Open(obj); err2 != nil {
+			if f, err3 = macho.Open(obj); err3 != nil {
+				fatal("cannot parse %s as ELF (%v) or PE (%v) or Mach-O (%v)", obj, err1, err2, err3)
+			}
+			isMacho = true
 		}
-		isMacho = true
 	}
 
 	var err os.Error

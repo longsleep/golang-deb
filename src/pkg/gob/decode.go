@@ -30,15 +30,17 @@ type decodeState struct {
 	dec *Decoder
 	// The buffer is stored with an extra indirection because it may be replaced
 	// if we load a type during decode (when reading an interface value).
-	b        **bytes.Buffer
+	b        *bytes.Buffer
 	fieldnum int // the last field number read.
 	buf      []byte
 }
 
-func newDecodeState(dec *Decoder, b **bytes.Buffer) *decodeState {
+// We pass the bytes.Buffer separately for easier testing of the infrastructure
+// without requiring a full Decoder.
+func newDecodeState(dec *Decoder, buf *bytes.Buffer) *decodeState {
 	d := new(decodeState)
 	d.dec = dec
-	d.b = b
+	d.b = buf
 	d.buf = make([]byte, uint64Size)
 	return d
 }
@@ -49,14 +51,15 @@ func overflow(name string) os.ErrorString {
 
 // decodeUintReader reads an encoded unsigned integer from an io.Reader.
 // Used only by the Decoder to read the message length.
-func decodeUintReader(r io.Reader, buf []byte) (x uint64, err os.Error) {
-	_, err = r.Read(buf[0:1])
+func decodeUintReader(r io.Reader, buf []byte) (x uint64, width int, err os.Error) {
+	width = 1
+	_, err = r.Read(buf[0:width])
 	if err != nil {
 		return
 	}
 	b := buf[0]
 	if b <= 0x7f {
-		return uint64(b), nil
+		return uint64(b), width, nil
 	}
 	nb := -int(int8(b))
 	if nb > uint64Size {
@@ -75,6 +78,7 @@ func decodeUintReader(r io.Reader, buf []byte) (x uint64, err os.Error) {
 	for i := 0; i < n; i++ {
 		x <<= 8
 		x |= uint64(buf[i])
+		width++
 	}
 	return
 }
@@ -333,7 +337,7 @@ func decComplex64(i *decInstr, state *decodeState, p unsafe.Pointer) {
 		p = *(*unsafe.Pointer)(p)
 	}
 	storeFloat32(i, state, p)
-	storeFloat32(i, state, unsafe.Pointer(uintptr(p)+uintptr(unsafe.Sizeof(float(0)))))
+	storeFloat32(i, state, unsafe.Pointer(uintptr(p)+uintptr(unsafe.Sizeof(float32(0)))))
 }
 
 func decComplex128(i *decInstr, state *decodeState, p unsafe.Pointer) {
@@ -345,7 +349,7 @@ func decComplex128(i *decInstr, state *decodeState, p unsafe.Pointer) {
 	}
 	real := floatFromBits(uint64(state.decodeUint()))
 	imag := floatFromBits(uint64(state.decodeUint()))
-	*(*complex128)(p) = cmplx(real, imag)
+	*(*complex128)(p) = complex(real, imag)
 }
 
 // uint8 arrays are encoded as an unsigned count followed by the raw bytes.
@@ -405,10 +409,10 @@ func allocate(rtyp reflect.Type, p uintptr, indir int) uintptr {
 	return *(*uintptr)(up)
 }
 
-func (dec *Decoder) decodeSingle(engine *decEngine, rtyp reflect.Type, b **bytes.Buffer, p uintptr, indir int) (err os.Error) {
+func (dec *Decoder) decodeSingle(engine *decEngine, rtyp reflect.Type, p uintptr, indir int) (err os.Error) {
 	defer catchError(&err)
 	p = allocate(rtyp, p, indir)
-	state := newDecodeState(dec, b)
+	state := newDecodeState(dec, &dec.buf)
 	state.fieldnum = singletonField
 	basep := p
 	delta := int(state.decodeUint())
@@ -424,10 +428,10 @@ func (dec *Decoder) decodeSingle(engine *decEngine, rtyp reflect.Type, b **bytes
 	return nil
 }
 
-func (dec *Decoder) decodeStruct(engine *decEngine, rtyp *reflect.StructType, b **bytes.Buffer, p uintptr, indir int) (err os.Error) {
+func (dec *Decoder) decodeStruct(engine *decEngine, rtyp *reflect.StructType, p uintptr, indir int) (err os.Error) {
 	defer catchError(&err)
 	p = allocate(rtyp, p, indir)
-	state := newDecodeState(dec, b)
+	state := newDecodeState(dec, &dec.buf)
 	state.fieldnum = -1
 	basep := p
 	for state.b.Len() > 0 {
@@ -454,9 +458,9 @@ func (dec *Decoder) decodeStruct(engine *decEngine, rtyp *reflect.StructType, b 
 	return nil
 }
 
-func (dec *Decoder) ignoreStruct(engine *decEngine, b **bytes.Buffer) (err os.Error) {
+func (dec *Decoder) ignoreStruct(engine *decEngine) (err os.Error) {
 	defer catchError(&err)
-	state := newDecodeState(dec, b)
+	state := newDecodeState(dec, &dec.buf)
 	state.fieldnum = -1
 	for state.b.Len() > 0 {
 		delta := int(state.decodeUint())
@@ -612,9 +616,17 @@ func (dec *Decoder) decodeInterface(ityp *reflect.InterfaceType, state *decodeSt
 	if !ok {
 		errorf("gob: name not registered for interface: %q", name)
 	}
+	// Read the type id of the concrete value.
+	concreteId := dec.decodeTypeSequence(true)
+	if concreteId < 0 {
+		error(dec.err)
+	}
+	// Byte count of value is next; we don't care what it is (it's there
+	// in case we want to ignore the value by skipping it completely).
+	state.decodeUint()
 	// Read the concrete value.
 	value := reflect.MakeZero(typ)
-	dec.decodeValueFromBuffer(value, false, true)
+	dec.decodeValue(concreteId, value)
 	if dec.err != nil {
 		error(dec.err)
 	}
@@ -637,10 +649,12 @@ func (dec *Decoder) ignoreInterface(state *decodeState) {
 	if err != nil {
 		error(err)
 	}
-	dec.decodeValueFromBuffer(nil, true, true)
-	if dec.err != nil {
-		error(err)
+	id := dec.decodeTypeSequence(true)
+	if id < 0 {
+		error(dec.err)
 	}
+	// At this point, the decoder buffer contains the value. Just toss it.
+	state.b.Reset()
 }
 
 // Index by Go types.
@@ -731,7 +745,7 @@ func (dec *Decoder) decOpFor(wireId typeId, rt reflect.Type, name string) (decOp
 			}
 			op = func(i *decInstr, state *decodeState, p unsafe.Pointer) {
 				// indirect through enginePtr to delay evaluation for recursive structs
-				err = dec.decodeStruct(*enginePtr, t, state.b, uintptr(p), i.indir)
+				err = dec.decodeStruct(*enginePtr, t, uintptr(p), i.indir)
 				if err != nil {
 					error(err)
 				}
@@ -796,7 +810,7 @@ func (dec *Decoder) decIgnoreOpFor(wireId typeId) decOp {
 			}
 			op = func(i *decInstr, state *decodeState, p unsafe.Pointer) {
 				// indirect through enginePtr to delay evaluation for recursive structs
-				state.dec.ignoreStruct(*enginePtr, state.b)
+				state.dec.ignoreStruct(*enginePtr)
 			}
 		}
 	}
@@ -905,7 +919,11 @@ func (dec *Decoder) compileDec(remoteId typeId, rt reflect.Type) (engine *decEng
 	if t, ok := builtinIdToType[remoteId]; ok {
 		wireStruct, _ = t.(*structType)
 	} else {
-		wireStruct = dec.wireType[remoteId].StructT
+		wire := dec.wireType[remoteId]
+		if wire == nil {
+			error(errBadType)
+		}
+		wireStruct = wire.StructT
 	}
 	if wireStruct == nil {
 		errorf("gob: type mismatch in decoder: want struct type %s; got non-struct", rt.String())
@@ -974,7 +992,7 @@ func (dec *Decoder) getIgnoreEnginePtr(wireId typeId) (enginePtr **decEngine, er
 	return
 }
 
-func (dec *Decoder) decode(wireId typeId, val reflect.Value) os.Error {
+func (dec *Decoder) decodeValue(wireId typeId, val reflect.Value) os.Error {
 	// Dereference down to the underlying struct type.
 	rt, indir := indirect(val.Type())
 	enginePtr, err := dec.getDecEnginePtr(wireId, rt)
@@ -987,26 +1005,12 @@ func (dec *Decoder) decode(wireId typeId, val reflect.Value) os.Error {
 			name := rt.Name()
 			return os.ErrorString("gob: type mismatch: no fields matched compiling decoder for " + name)
 		}
-		return dec.decodeStruct(engine, st, dec.state.b, uintptr(val.Addr()), indir)
+		return dec.decodeStruct(engine, st, uintptr(val.Addr()), indir)
 	}
-	return dec.decodeSingle(engine, rt, dec.state.b, uintptr(val.Addr()), indir)
+	return dec.decodeSingle(engine, rt, uintptr(val.Addr()), indir)
 }
 
 func init() {
-	var fop, cop decOp
-	switch reflect.Typeof(float(0)).Bits() {
-	case 32:
-		fop = decFloat32
-		cop = decComplex64
-	case 64:
-		fop = decFloat64
-		cop = decComplex128
-	default:
-		panic("gob: unknown size of float")
-	}
-	decOpMap[reflect.Float] = fop
-	decOpMap[reflect.Complex] = cop
-
 	var iop, uop decOp
 	switch reflect.Typeof(int(0)).Bits() {
 	case 32:

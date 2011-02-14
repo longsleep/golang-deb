@@ -38,8 +38,15 @@ static void xfol(Prog*, Prog**);
 // see ../../pkg/runtime/proc.c:/StackGuard
 enum
 {
+#ifdef __WINDOWS__
+	// use larger stacks to compensate for larger stack guard,
+	// needed for exception handling.
+	StackSmall = 256,
+	StackBig = 8192,
+#else
 	StackSmall = 128,
 	StackBig = 4096,
+#endif
 };
 
 Prog*
@@ -510,7 +517,7 @@ dostkoff(void)
 			p->to.type = D_DX;
 			/* 160 comes from 3 calls (3*8) 4 safes (4*8) and 104 guard */
 			p->from.type = D_CONST;
-			if(autoffset+160 > 4096)
+			if(autoffset+160+cursym->text->to.offset2 > 4096)
 				p->from.offset = (autoffset+160) & ~7LL;
 
 			p = appendp(p);	// save arg size in AX

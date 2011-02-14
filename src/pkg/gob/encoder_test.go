@@ -33,7 +33,7 @@ type ET3 struct {
 // Like ET1 but with a different type for a field
 type ET4 struct {
 	A    int
-	Et2  float
+	Et2  float64
 	Next int
 }
 
@@ -189,13 +189,13 @@ func TestPtrTypeToType(t *testing.T) {
 
 func TestTypeToPtrPtrPtrPtrType(t *testing.T) {
 	type Type2 struct {
-		A ****float
+		A ****float64
 	}
 	t2 := Type2{}
-	t2.A = new(***float)
-	*t2.A = new(**float)
-	**t2.A = new(*float)
-	***t2.A = new(float)
+	t2.A = new(***float64)
+	*t2.A = new(**float64)
+	**t2.A = new(*float64)
+	***t2.A = new(float64)
 	****t2.A = 27.4
 	t2pppp := new(***Type2)
 	if err := encAndDec(t2, t2pppp); err != nil {
@@ -220,7 +220,7 @@ func TestSlice(t *testing.T) {
 func TestValueError(t *testing.T) {
 	// Encode a *T, decode a T
 	type Type4 struct {
-		a int
+		A int
 	}
 	t4p := &Type4{3}
 	var t4 Type4 // note: not a pointer.
@@ -254,13 +254,13 @@ func TestDefaultsInArray(t *testing.T) {
 		B []bool
 		I []int
 		S []string
-		F []float
+		F []float64
 	}
 	t7 := Type7{
 		[]bool{false, false, true},
 		[]int{0, 0, 1},
 		[]string{"hi", "", "there"},
-		[]float{0, 0, 1},
+		[]float64{0, 0, 1},
 	}
 	var t7p Type7
 	if err := encAndDec(t7, &t7p); err != nil {
@@ -381,5 +381,48 @@ func TestInterfaceIndirect(t *testing.T) {
 	err = NewDecoder(b).Decode(&r)
 	if err != nil {
 		t.Fatal("decode error:", err)
+	}
+}
+
+// Another bug from golang-nuts, involving nested interfaces.
+type Bug0Outer struct {
+	Bug0Field interface{}
+}
+
+type Bug0Inner struct {
+	A int
+}
+
+func TestNestedInterfaces(t *testing.T) {
+	var buf bytes.Buffer
+	e := NewEncoder(&buf)
+	d := NewDecoder(&buf)
+	Register(new(Bug0Outer))
+	Register(new(Bug0Inner))
+	f := &Bug0Outer{&Bug0Outer{&Bug0Inner{7}}}
+	var v interface{} = f
+	err := e.Encode(&v)
+	if err != nil {
+		t.Fatal("Encode:", err)
+	}
+	err = d.Decode(&v)
+	if err != nil {
+		t.Fatal("Decode:", err)
+	}
+	// Make sure it decoded correctly.
+	outer1, ok := v.(*Bug0Outer)
+	if !ok {
+		t.Fatalf("v not Bug0Outer: %T", v)
+	}
+	outer2, ok := outer1.Bug0Field.(*Bug0Outer)
+	if !ok {
+		t.Fatalf("v.Bug0Field not Bug0Outer: %T", outer1.Bug0Field)
+	}
+	inner, ok := outer2.Bug0Field.(*Bug0Inner)
+	if !ok {
+		t.Fatalf("v.Bug0Field.Bug0Field not Bug0Inner: %T", outer2.Bug0Field)
+	}
+	if inner.A != 7 {
+		t.Fatalf("final value %d; expected %d", inner.A, 7)
 	}
 }

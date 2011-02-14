@@ -330,23 +330,23 @@ noops(void)
 						p->from.reg = 1;
 						p->reg = 2;
 					}
-	
+
 					// MOVW.LO		$autosize, R1
 					p = appendp(p);
 					p->as = AMOVW;
 					p->scond = C_SCOND_LO;
 					p->from.type = D_CONST;
-					p->from.offset = 0;
+					/* 160 comes from 3 calls (3*8) 4 safes (4*8) and 104 guard */
+					p->from.offset = autosize+160;
 					p->to.type = D_REG;
 					p->to.reg = 1;
 	
-					// MOVW.LO		$args +4, R2
-					// also need to store the extra 4 bytes.
+					// MOVW.LO		$args, R2
 					p = appendp(p);
 					p->as = AMOVW;
 					p->scond = C_SCOND_LO;
 					p->from.type = D_CONST;
-					p->from.offset = ((cursym->text->to.offset2 + 3) & ~3) + 4;
+					p->from.offset = (cursym->text->to.offset2 + 3) & ~3;
 					p->to.type = D_REG;
 					p->to.reg = 2;
 	
@@ -391,12 +391,12 @@ noops(void)
 					p->to.type = D_REG;
 					p->to.reg = 1;
 	
-					// MOVW		$args +4, R2
+					// MOVW		$args, R2
 					// also need to store the extra 4 bytes.
 					p = appendp(p);
 					p->as = AMOVW;
 					p->from.type = D_CONST;
-					p->from.offset = ((cursym->text->to.offset2 + 3) & ~3) + 4;
+					p->from.offset = (cursym->text->to.offset2 + 3) & ~3;
 					p->to.type = D_REG;
 					p->to.reg = 2;
 	
