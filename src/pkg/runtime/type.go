@@ -51,10 +51,8 @@ const (
 	kindUint32
 	kindUint64
 	kindUintptr
-	kindFloat
 	kindFloat32
 	kindFloat64
-	kindComplex
 	kindComplex64
 	kindComplex128
 	kindArray
@@ -72,7 +70,7 @@ const (
 )
 
 // Method on non-interface type
-type method struct {
+type _method struct { // underscore is to avoid collision with C
 	name    *string        // name of method
 	pkgPath *string        // nil for exported Names; otherwise import path
 	mtyp    *Type          // method type (without receiver)
@@ -86,9 +84,9 @@ type method struct {
 // Using a pointer to this struct reduces the overall size required
 // to describe an unnamed type with no methods.
 type uncommonType struct {
-	name    *string  // name of type
-	pkgPath *string  // import path; nil for built-in types like int, string
-	methods []method // methods associated with type
+	name    *string   // name of type
+	pkgPath *string   // import path; nil for built-in types like int, string
+	methods []_method // methods associated with type
 }
 
 // BoolType represents a boolean type.
@@ -153,7 +151,7 @@ type FuncType struct {
 }
 
 // Method on interface type
-type imethod struct {
+type _imethod struct { // underscore is to avoid collision with C
 	name    *string // name of method
 	pkgPath *string // nil for exported Names; otherwise import path
 	typ     *Type   // .(*FuncType) underneath
@@ -162,7 +160,7 @@ type imethod struct {
 // InterfaceType represents an interface type.
 type InterfaceType struct {
 	commonType
-	methods []imethod // sorted by hash
+	methods []_imethod // sorted by hash
 }
 
 // MapType represents a map type.

@@ -103,6 +103,12 @@ if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
 fi
 ) || exit $?
 
+(xcd ../doc/codelab/wiki
+if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
+	gomake test
+fi
+) || exit $?
+
 for i in ../misc/dashboard/builder ../misc/goplay
 do
 	(xcd $i

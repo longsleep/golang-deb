@@ -35,6 +35,7 @@
 #include	"../ld/elf.h"
 #include	"../ld/dwarf.h"
 #include	"../ld/macho.h"
+#include	"../ld/pe.h"
 
 #define	Dbufslop	100
 
@@ -205,15 +206,16 @@ adddynrel(Sym *s, Reloc *r)
 	case 256 + R_X86_64_GOTPCREL:
 		if(targ->dynimpname == nil || targ->dynexport) {
 			// have symbol
-			// turn MOVQ of GOT entry into LEAQ of symbol itself
-			if(r->off < 2 || s->p[r->off-2] != 0x8b) {
-				diag("unexpected GOT_LOAD reloc for non-dynamic symbol %s", targ->name);
+			if(r->off >= 2 && s->p[r->off-2] == 0x8b) {
+				// turn MOVQ of GOT entry into LEAQ of symbol itself
+				s->p[r->off-2] = 0x8d;
+				r->type = D_PCREL;
+				r->add += 4;
 				return;
 			}
-			s->p[r->off-2] = 0x8d;
-			r->type = D_PCREL;
-			r->add += 4;
-			return;
+			// fall back to using GOT and hope for the best (CMOV*)
+			// TODO: just needs relocation, no need to put in .dynsym
+			targ->dynimpname = targ->name;
 		}
 		addgotsym(targ);
 		r->type = D_PCREL;
@@ -782,6 +784,8 @@ asmb(void)
 		if(!debug['d'])
 			elftextsh += 10;
 		break;
+	case 10:
+		break;
 	}
 
 	symsize = 0;
@@ -807,6 +811,10 @@ asmb(void)
 			symo = rnd(HEADR+segtext.len, INITRND)+segdata.filelen;
 			symo = rnd(symo, INITRND);
 			break;
+		case 10:
+			symo = rnd(HEADR+segtext.filelen, PEFILEALIGN)+segdata.filelen;
+			symo = rnd(symo, PEFILEALIGN);
+			break;
 		}
 		/*
 		 * the symbol information is stored as
@@ -829,7 +837,7 @@ asmb(void)
 		lputl(symsize);
 		lputl(lcsize);
 		cflush();
-		if(!debug['s']) {
+		if(HEADTYPE != 10 && !debug['s']) {
 			elfsymo = symo+8+symsize+lcsize;
 			seek(cout, elfsymo, 0);
 			asmelfsym64();
@@ -907,14 +915,17 @@ asmb(void)
 			sh->type = SHT_PROGBITS;
 			sh->flags = SHF_ALLOC;
 			sh->addralign = 1;
-			switch(HEADTYPE) {
-			case 7:
-				elfinterp(sh, startva, linuxdynld);
-				break;
-			case 9:
-				elfinterp(sh, startva, freebsddynld);
-				break;
+			if(interpreter == nil) {
+				switch(HEADTYPE) {
+				case 7:
+					interpreter = linuxdynld;
+					break;
+				case 9:
+					interpreter = freebsddynld;
+					break;
+				}
 			}
+			elfinterp(sh, startva, interpreter);
 
 			ph = newElfPhdr();
 			ph->type = PT_INTERP;
@@ -1090,6 +1101,9 @@ asmb(void)
 		if(a+elfwriteinterp() > ELFRESERVE)
 			diag("ELFRESERVE too small: %d > %d", a, ELFRESERVE);
 		break;
+	case 10:
+		asmbpe();
+		break;
 	}
 	cflush();
 }
@@ -1143,6 +1157,7 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 			case SDATA:
 			case SELFDATA:
 			case SMACHOGOT:
+			case SWINDOWS:
 				if(!s->reachable)
 					continue;
 				put(s, s->name, 'D', symaddr(s), s->size, s->version, s->gotype);

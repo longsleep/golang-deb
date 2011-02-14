@@ -183,6 +183,7 @@ enum
 	SRODATA,
 	SDATA,
 	SMACHOGOT,
+	SWINDOWS,
 	SBSS,
 
 	SXREF,
@@ -196,7 +197,6 @@ enum
 	SSUB	= 1<<8,
 
 	NHASH		= 10007,
-	NHUNK		= 100000,
 	MINSIZ		= 8,
 	STRINGSZ	= 200,
 	MINLC		= 1,
@@ -352,6 +352,7 @@ EXTERN	int	nerrors;
 EXTERN	char*	noname;
 EXTERN	char*	outfile;
 EXTERN	vlong	pc;
+EXTERN	char*	interpreter;
 EXTERN	char*	rpath;
 EXTERN	int32	spsize;
 EXTERN	Sym*	symlist;

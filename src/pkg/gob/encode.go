@@ -223,15 +223,6 @@ func floatBits(f float64) uint64 {
 	return v
 }
 
-func encFloat(i *encInstr, state *encoderState, p unsafe.Pointer) {
-	f := *(*float)(p)
-	if f != 0 || state.sendZero {
-		v := floatBits(float64(f))
-		state.update(i)
-		state.encodeUint(v)
-	}
-}
-
 func encFloat32(i *encInstr, state *encoderState, p unsafe.Pointer) {
 	f := *(*float32)(p)
 	if f != 0 || state.sendZero {
@@ -251,17 +242,6 @@ func encFloat64(i *encInstr, state *encoderState, p unsafe.Pointer) {
 }
 
 // Complex numbers are just a pair of floating-point numbers, real part first.
-func encComplex(i *encInstr, state *encoderState, p unsafe.Pointer) {
-	c := *(*complex)(p)
-	if c != 0+0i || state.sendZero {
-		rpart := floatBits(float64(real(c)))
-		ipart := floatBits(float64(imag(c)))
-		state.update(i)
-		state.encodeUint(rpart)
-		state.encodeUint(ipart)
-	}
-}
-
 func encComplex64(i *encInstr, state *encoderState, p unsafe.Pointer) {
 	c := *(*complex64)(p)
 	if c != 0+0i || state.sendZero {
@@ -282,9 +262,6 @@ func encComplex128(i *encInstr, state *encoderState, p unsafe.Pointer) {
 		state.encodeUint(rpart)
 		state.encodeUint(ipart)
 	}
-}
-
-func encNoOp(i *encInstr, state *encoderState, p unsafe.Pointer) {
 }
 
 // Byte arrays are encoded as an unsigned count followed by the raw bytes.
@@ -418,17 +395,21 @@ func (enc *Encoder) encodeInterface(b *bytes.Buffer, iv *reflect.InterfaceValue)
 	if err != nil {
 		error(err)
 	}
-	// Send (and maybe first define) the type id.
-	enc.sendTypeDescriptor(typ)
-	// Encode the value into a new buffer.
+	// Define the type id if necessary.
+	enc.sendTypeDescriptor(enc.writer(), state, typ)
+	// Send the type id.
+	enc.sendTypeId(state, typ)
+	// Encode the value into a new buffer.  Any nested type definitions
+	// should be written to b, before the encoded value.
+	enc.pushWriter(b)
 	data := new(bytes.Buffer)
 	err = enc.encode(data, iv.Elem())
 	if err != nil {
 		error(err)
 	}
-	state.encodeUint(uint64(data.Len()))
-	_, err = state.b.Write(data.Bytes())
-	if err != nil {
+	enc.popWriter()
+	enc.writeMessage(b, data)
+	if enc.err != nil {
 		error(err)
 	}
 }
@@ -446,10 +427,8 @@ var encOpMap = []encOp{
 	reflect.Uint32:     encUint32,
 	reflect.Uint64:     encUint64,
 	reflect.Uintptr:    encUintptr,
-	reflect.Float:      encFloat,
 	reflect.Float32:    encFloat32,
 	reflect.Float64:    encFloat64,
-	reflect.Complex:    encComplex,
 	reflect.Complex64:  encComplex64,
 	reflect.Complex128: encComplex128,
 	reflect.String:     encString,
@@ -538,16 +517,18 @@ func (enc *Encoder) compileEnc(rt reflect.Type) *encEngine {
 	srt, isStruct := rt.(*reflect.StructType)
 	engine := new(encEngine)
 	if isStruct {
-		engine.instr = make([]encInstr, srt.NumField()+1) // +1 for terminator
-		for fieldnum := 0; fieldnum < srt.NumField(); fieldnum++ {
-			f := srt.Field(fieldnum)
-			op, indir := enc.encOpFor(f.Type)
+		for fieldNum := 0; fieldNum < srt.NumField(); fieldNum++ {
+			f := srt.Field(fieldNum)
 			if !isExported(f.Name) {
-				op = encNoOp
+				continue
 			}
-			engine.instr[fieldnum] = encInstr{op, fieldnum, indir, uintptr(f.Offset)}
+			op, indir := enc.encOpFor(f.Type)
+			engine.instr = append(engine.instr, encInstr{op, fieldNum, indir, uintptr(f.Offset)})
 		}
-		engine.instr[srt.NumField()] = encInstr{encStructTerminator, 0, 0, 0}
+		if srt.NumField() > 0 && len(engine.instr) == 0 {
+			errorf("type %s has no exported fields", rt)
+		}
+		engine.instr = append(engine.instr, encInstr{encStructTerminator, 0, 0, 0})
 	} else {
 		engine.instr = make([]encInstr, 1)
 		op, indir := enc.encOpFor(rt)

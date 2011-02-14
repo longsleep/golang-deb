@@ -303,15 +303,11 @@ func (r *readRune) ReadRune() (rune int, size int, err os.Error) {
 }
 
 
-// A leaky bucket of reusable ss structures.
-var ssFree = make(chan *ss, 100)
+var ssFree = newCache(func() interface{} { return new(ss) })
 
-// Allocate a new ss struct.  Probably can grab the previous one from ssFree.
+// Allocate a new ss struct or grab a cached one.
 func newScanState(r io.Reader, nlIsSpace bool) *ss {
-	s, ok := <-ssFree
-	if !ok {
-		s = new(ss)
-	}
+	s := ssFree.get().(*ss)
 	if rr, ok := r.(readRuner); ok {
 		s.rr = rr
 	} else {
@@ -333,7 +329,7 @@ func (s *ss) free() {
 	}
 	s.buf.Reset()
 	s.rr = nil
-	_ = ssFree <- s
+	ssFree.put(s)
 }
 
 // skipSpace skips spaces and maybe newlines.
@@ -640,7 +636,7 @@ func (s *ss) scanComplex(verb int, n int) complex128 {
 	sreal, simag := s.complexTokens()
 	real := s.convertFloat(sreal, n/2)
 	imag := s.convertFloat(simag, n/2)
-	return cmplx(real, imag)
+	return complex(real, imag)
 }
 
 // convertString returns the string represented by the next input characters.
@@ -772,8 +768,6 @@ func (s *ss) scanOne(verb int, field interface{}) {
 	switch v := field.(type) {
 	case *bool:
 		*v = s.scanBool(verb)
-	case *complex:
-		*v = complex(s.scanComplex(verb, int(complexBits)))
 	case *complex64:
 		*v = complex64(s.scanComplex(verb, 64))
 	case *complex128:
@@ -802,11 +796,6 @@ func (s *ss) scanOne(verb int, field interface{}) {
 		*v = uintptr(s.scanUint(verb, uintptrBits))
 	// Floats are tricky because you want to scan in the precision of the result, not
 	// scan in high precision and convert, in order to preserve the correct error condition.
-	case *float:
-		if s.okVerb(verb, floatVerbs, "float") {
-			s.skipSpace(false)
-			*v = float(s.convertFloat(s.floatToken(), int(floatBits)))
-		}
 	case *float32:
 		if s.okVerb(verb, floatVerbs, "float32") {
 			s.skipSpace(false)

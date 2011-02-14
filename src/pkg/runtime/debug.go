@@ -39,6 +39,7 @@ type MemStatsType struct {
 	Sys        uint64 // bytes obtained from system (should be sum of XxxSys below)
 	Lookups    uint64 // number of pointer lookups
 	Mallocs    uint64 // number of mallocs
+	Frees      uint64 // number of frees
 
 	// Main allocation heap statistics.
 	HeapAlloc   uint64 // bytes allocated and still in use
@@ -56,15 +57,15 @@ type MemStatsType struct {
 	MSpanSys    uint64
 	MCacheInuse uint64 // mcache structures
 	MCacheSys   uint64
-	MHeapMapSys uint64 // heap map
 	BuckHashSys uint64 // profiling bucket hash table
 
 	// Garbage collector statistics.
-	NextGC   uint64
-	PauseNs  uint64
-	NumGC    uint32
-	EnableGC bool
-	DebugGC  bool
+	NextGC       uint64
+	PauseTotalNs uint64
+	PauseNs      [256]uint64 // most recent GC pause times
+	NumGC        uint32
+	EnableGC     bool
+	DebugGC      bool
 
 	// Per-size allocation statistics.
 	// Not locked during update; approximate.

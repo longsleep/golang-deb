@@ -20,6 +20,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"runtime"
 )
 
 // A Package collects information about the package we're going to write.
@@ -28,6 +29,7 @@ type Package struct {
 	PackagePath string
 	PtrSize     int64
 	GccOptions  []string
+	CgoFlags    map[string]string // #cgo flags (CFLAGS, LDFLAGS)
 	Written     map[string]bool
 	Name        map[string]*Name    // accumulated Name from Files
 	Typedef     map[string]ast.Expr // accumulated Typedef from Files
@@ -97,7 +99,8 @@ type FuncType struct {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, "usage: cgo [compiler options] file.go ...\n")
+	fmt.Fprint(os.Stderr, "usage: cgo -- [compiler options] file.go ...\n")
+	flag.PrintDefaults()
 	os.Exit(2)
 }
 
@@ -127,6 +130,13 @@ func main() {
 		// specialized knowledge gcc has about where to look for imported
 		// symbols and which ones to use.
 		syms, imports := dynimport(*dynobj)
+		if runtime.GOOS == "windows" {
+			for _, sym := range syms {
+				ss := strings.Split(sym, ":", -1)
+				fmt.Printf("#pragma dynimport %s %s %q\n", ss[0], ss[0], strings.ToLower(ss[1]))
+			}
+			return
+		}
 		for _, sym := range syms {
 			fmt.Printf("#pragma dynimport %s %s %q\n", sym, sym, "")
 		}
@@ -152,7 +162,12 @@ func main() {
 	if i == len(args) {
 		usage()
 	}
-	gccOptions, goFiles := args[0:i], args[i:]
+
+	// Copy it to a new slice so it can grow.
+	gccOptions := make([]string, i)
+	copy(gccOptions, args[0:i])
+
+	goFiles := args[i:]
 
 	arch := os.Getenv("GOARCH")
 	if arch == "" {
@@ -171,6 +186,7 @@ func main() {
 	p := &Package{
 		PtrSize:    ptrSize,
 		GccOptions: gccOptions,
+		CgoFlags:   make(map[string]string),
 		Written:    make(map[string]bool),
 	}
 
@@ -190,11 +206,17 @@ func main() {
 	}
 	cPrefix = fmt.Sprintf("_%x", h.Sum()[0:6])
 
-	for _, input := range goFiles {
+	fs := make([]*File, len(goFiles))
+	for i, input := range goFiles {
+		// Parse flags for all files before translating due to CFLAGS.
 		f := new(File)
-		// Reset f.Preamble so that we don't end up with conflicting headers / defines
-		f.Preamble = ""
 		f.ReadGo(input)
+		p.ParseFlags(f, input)
+		fs[i] = f
+	}
+
+	for i, input := range goFiles {
+		f := fs[i]
 		p.Translate(f)
 		for _, cref := range f.Ref {
 			switch cref.Context {

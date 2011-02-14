@@ -19,6 +19,7 @@
 #include	"../ld/dwarf_defs.h"
 #include	"../ld/elf.h"
 #include	"../ld/macho.h"
+#include	"../ld/pe.h"
 
 /*
  * Offsets and sizes of the debug_* sections in the cout file.
@@ -453,19 +454,6 @@ getattr(DWDie *die, uint8 attr)
 	return nil;
 }
 
-static void
-delattr(DWDie *die, uint8 attr)
-{
-	DWAttr **a;
-
-	a = &die->attr;
-	while (*a != nil)
-		if ((*a)->atr == attr)
-			*a = (*a)->link;
-		else
-			a = &((*a)->link);
-}
-
 // Every DIE has at least a DW_AT_name attribute (but it will only be
 // written out if it is listed in the abbrev).	If its parent is
 // keeping an index, the new DIE will be inserted there.
@@ -768,10 +756,8 @@ enum {
 	KindUint32,
 	KindUint64,
 	KindUintptr,
-	KindFloat,
 	KindFloat32,
 	KindFloat64,
-	KindComplex,
 	KindComplex64,
 	KindComplex128,
 	KindArray,
@@ -797,6 +783,17 @@ decode_reloc(Sym *s, int32 off)
 		if (s->r[i].off == off)
 			return s->r + i;
 	return nil;
+}
+
+static Sym*
+decode_reloc_sym(Sym *s, int32 off)
+{
+	Reloc *r;
+
+	r = decode_reloc(s,off);
+	if (r == nil)
+		return nil;
+	return r->sym;
 }
 
 static uvlong
@@ -852,7 +849,7 @@ decodetype_size(Sym *s)
 static Sym*
 decodetype_arrayelem(Sym *s)
 {
-	return decode_reloc(s, 5*PtrSize + 8)->sym;	// 0x1c / 0x30
+	return decode_reloc_sym(s, 5*PtrSize + 8);	// 0x1c / 0x30
 }
 
 static vlong
@@ -865,26 +862,26 @@ decodetype_arraylen(Sym *s)
 static Sym*
 decodetype_ptrelem(Sym *s)
 {
-	return decode_reloc(s, 5*PtrSize + 8)->sym;	// 0x1c / 0x30
+	return decode_reloc_sym(s, 5*PtrSize + 8);	// 0x1c / 0x30
 }
 
 // Type.MapType.key, elem
 static Sym*
 decodetype_mapkey(Sym *s)
 {
-	return decode_reloc(s, 5*PtrSize + 8)->sym;	// 0x1c / 0x30
+	return decode_reloc_sym(s, 5*PtrSize + 8);	// 0x1c / 0x30
 }
 static Sym*
 decodetype_mapvalue(Sym *s)
 {
-	return decode_reloc(s, 6*PtrSize + 8)->sym;	// 0x20 / 0x38
+	return decode_reloc_sym(s, 6*PtrSize + 8);	// 0x20 / 0x38
 }
 
 // Type.ChanType.elem
 static Sym*
 decodetype_chanelem(Sym *s)
 {
-	return decode_reloc(s, 5*PtrSize + 8)->sym;	// 0x1c / 0x30
+	return decode_reloc_sym(s, 5*PtrSize + 8);	// 0x1c / 0x30
 }
 
 // Type.FuncType.dotdotdot
@@ -913,7 +910,9 @@ decodetype_funcintype(Sym *s, int i)
 	Reloc *r;
 
 	r = decode_reloc(s, 6*PtrSize + 8);
-	return decode_reloc(r->sym, r->add + i * PtrSize)->sym;
+	if (r == nil)
+		return nil;
+	return decode_reloc_sym(r->sym, r->add + i * PtrSize);
 }
 
 static Sym*
@@ -922,7 +921,9 @@ decodetype_funcouttype(Sym *s, int i)
 	Reloc *r;
 
 	r = decode_reloc(s, 7*PtrSize + 16);
-	return decode_reloc(r->sym, r->add + i * PtrSize)->sym;
+	if (r == nil)
+		return nil;
+	return decode_reloc_sym(r->sym, r->add + i * PtrSize);
 }
 
 // Type.StructType.fields.Slice::len
@@ -936,21 +937,20 @@ decodetype_structfieldcount(Sym *s)
 static char*
 decodetype_structfieldname(Sym *s, int i)
 {
-	Reloc* r;
-
-	r = decode_reloc(s, 6*PtrSize + 0x10 + i*5*PtrSize);   // go.string."foo"  0x28 / 0x40
-	if (r == nil)				// embedded structs have a nil name.
+	// go.string."foo"  0x28 / 0x40
+	s = decode_reloc_sym(s, 6*PtrSize + 0x10 + i*5*PtrSize);
+	if (s == nil)			// embedded structs have a nil name.
 		return nil;
-	r = decode_reloc(r->sym, 0);		// string."foo"
-	if (r == nil)				// shouldn't happen.
+	s = decode_reloc_sym(s, 0);	// string."foo"
+	if (s == nil)			// shouldn't happen.
 		return nil;
-	return (char*)r->sym->p;		// the c-string
+	return (char*)s->p;		// the c-string
 }
 
 static Sym*
 decodetype_structfieldtype(Sym *s, int i)
 {
-	return decode_reloc(s, 8*PtrSize + 0x10 + i*5*PtrSize)->sym;	 //   0x30 / 0x50
+	return decode_reloc_sym(s, 8*PtrSize + 0x10 + i*5*PtrSize);	//   0x30 / 0x50
 }
 
 static vlong
@@ -977,6 +977,20 @@ enum {
 
 static DWDie* defptrto(DWDie *dwtype);	// below
 
+// Lookup predefined types
+static Sym*
+lookup_or_diag(char *n)
+{
+	Sym *s;
+
+	s = lookup(n, 0);
+	if (s->size == 0) {
+		diag("dwarf: missing type: %s", n);
+		errorexit();
+	}
+	return s;
+}
+
 // Define gotype, for composite ones recurse into constituents.
 static DWDie*
 defgotype(Sym *gotype)
@@ -995,7 +1009,7 @@ defgotype(Sym *gotype)
 		diag("Type name doesn't start with \".type\": %s", gotype->name);
 		return find_or_diag(&dwtypes, "<unspecified>");
 	}
-	name = gotype->name + 5;  // Altenatively decode from Type.string
+	name = gotype->name + 5;  // could also decode from Type.string
 
 	die = find(&dwtypes, name);
 	if (die != nil)
@@ -1049,7 +1063,6 @@ defgotype(Sym *gotype)
 		newattr(die, DW_AT_byte_size, DW_CLS_CONSTANT, bytesize, 0);
 		break;
 
-	case KindFloat:
 	case KindFloat32:
 	case KindFloat64:
 		die = newdie(&dwtypes, DW_ABRV_BASETYPE, name);
@@ -1057,7 +1070,6 @@ defgotype(Sym *gotype)
 		newattr(die, DW_AT_byte_size, DW_CLS_CONSTANT, bytesize, 0);
 		break;
 
-	case KindComplex:
 	case KindComplex64:
 	case KindComplex128:
 		die = newdie(&dwtypes, DW_ABRV_BASETYPE, name);
@@ -1107,9 +1119,9 @@ defgotype(Sym *gotype)
 		newattr(die, DW_AT_byte_size, DW_CLS_CONSTANT, bytesize, 0);
 		nfields = decodetype_ifacemethodcount(gotype);
 		if (nfields == 0)
-			s = lookup("type.runtime.eface", 0);
+			s = lookup_or_diag("type.runtime.eface");
 		else
-			s = lookup("type.runtime.iface", 0);
+			s = lookup_or_diag("type.runtime.iface");
 		newrefattr(die, DW_AT_type, defgotype(s));
 		break;
 
@@ -1226,7 +1238,7 @@ synthesizestringtypes(DWDie* die)
 {
 	DWDie *prototype;
 
-	prototype = defgotype(lookup("type.runtime.string_", 0));
+	prototype = defgotype(lookup_or_diag("type.runtime._string"));
 	if (prototype == nil)
 		return;
 
@@ -1242,7 +1254,7 @@ synthesizeslicetypes(DWDie *die)
 {
 	DWDie *prototype, *elem;
 
-	prototype = defgotype(lookup("type.runtime.slice",0));
+	prototype = defgotype(lookup_or_diag("type.runtime.slice"));
 	if (prototype == nil)
 		return;
 
@@ -1281,22 +1293,22 @@ synthesizemaptypes(DWDie *die)
 {
 
 	DWDie *hash, *hash_subtable, *hash_entry,
-		*dwh, *dwhs, *dwhe, *keytype, *valtype, *fld;
+		*dwh, *dwhs, *dwhe, *dwhash, *keytype, *valtype, *fld;
 	int hashsize, keysize, valsize, datsize, valsize_in_hash, datavo;
 	DWAttr *a;
 
-	hash		= defgotype(lookup("type.runtime.hash",0));
-	hash_subtable	= defgotype(lookup("type.runtime.hash_subtable",0));
-	hash_entry	= defgotype(lookup("type.runtime.hash_entry",0));
+	hash		= defgotype(lookup_or_diag("type.runtime.hmap"));
+	hash_subtable	= defgotype(lookup_or_diag("type.runtime.hash_subtable"));
+	hash_entry	= defgotype(lookup_or_diag("type.runtime.hash_entry"));
 
 	if (hash == nil || hash_subtable == nil || hash_entry == nil)
 		return;
 
-	dwh = (DWDie*)getattr(find_or_diag(hash_entry, "hash"), DW_AT_type)->data;
-	if (dwh == nil)
+	dwhash = (DWDie*)getattr(find_or_diag(hash_entry, "hash"), DW_AT_type)->data;
+	if (dwhash == nil)
 		return;
 
-	hashsize = getattr(dwh, DW_AT_byte_size)->value;
+	hashsize = getattr(dwhash, DW_AT_byte_size)->value;
 
 	for (; die != nil; die = die->link) {
 		if (die->abbrev != DW_ABRV_MAPTYPE)
@@ -1328,13 +1340,19 @@ synthesizemaptypes(DWDie *die)
 			mkinternaltypename("hash_entry",
 				getattr(keytype, DW_AT_name)->data,
 				getattr(valtype, DW_AT_name)->data));
-		copychildren(dwhe, hash_entry);
-		substitutetype(dwhe, "key", keytype);
+
+		fld = newdie(dwhe, DW_ABRV_STRUCTFIELD, "hash");
+		newrefattr(fld, DW_AT_type, dwhash);
+		newmemberoffsetattr(fld, 0);
+
+		fld = newdie(dwhe, DW_ABRV_STRUCTFIELD, "key");
+		newrefattr(fld, DW_AT_type, keytype);
+		newmemberoffsetattr(fld, hashsize);
+
+		fld = newdie(dwhe, DW_ABRV_STRUCTFIELD, "val");
 		if (valsize > MaxValsize)
 			valtype = defptrto(valtype);
-		substitutetype(dwhe, "val", valtype);
-		fld = find_or_diag(dwhe, "val");
-		delattr(fld, DW_AT_data_member_location);
+		newrefattr(fld, DW_AT_type, valtype);
 		newmemberoffsetattr(fld, hashsize + datavo);
 		newattr(dwhe, DW_AT_byte_size, DW_CLS_CONSTANT, hashsize + datsize, NULL);
 
@@ -1371,10 +1389,10 @@ synthesizechantypes(DWDie *die)
 	DWAttr *a;
 	int elemsize, linksize, sudogsize;
 
-	sudog = defgotype(lookup("type.runtime.sudoG",0));
-	waitq = defgotype(lookup("type.runtime.waitQ",0));
-	link  = defgotype(lookup("type.runtime.link",0));
-	hchan = defgotype(lookup("type.runtime.hChan",0));
+	sudog = defgotype(lookup_or_diag("type.runtime.sudog"));
+	waitq = defgotype(lookup_or_diag("type.runtime.waitq"));
+	link  = defgotype(lookup_or_diag("type.runtime.link"));
+	hchan = defgotype(lookup_or_diag("type.runtime.hchan"));
 	if (sudog == nil || waitq == nil || link == nil || hchan == nil)
 		return;
 
@@ -2281,6 +2299,13 @@ writegdbscript(void)
 	return sectionstart;
 }
 
+static void
+align(vlong size)
+{
+	if((thechar == '6' || thechar == '8') && HEADTYPE == 10) // Only Windows PE need section align.
+		strnput("", rnd(size, PEFILEALIGN) - size);
+}
+
 /*
  * This is the main entry point for generating dwarf.  After emitting
  * the mandatory debug_abbrev section, it calls writelines() to set up
@@ -2313,15 +2338,18 @@ dwarfemitdebugsections(void)
 	newattr(die, DW_AT_byte_size, DW_CLS_CONSTANT, PtrSize, 0);
 
 	// Needed by the prettyprinter code for interface inspection.
-	defgotype(lookup("type.runtime.commonType",0));
-	defgotype(lookup("type.runtime.InterfaceType",0));
-	defgotype(lookup("type.runtime.itab",0));
+	defgotype(lookup_or_diag("type.runtime.commonType"));
+	defgotype(lookup_or_diag("type.runtime.InterfaceType"));
+	defgotype(lookup_or_diag("type.runtime.itab"));
 
 	genasmsym(defdwsymb);
 
 	writeabbrev();
+	align(abbrevsize);
 	writelines();
+	align(linesize);
 	writeframes();
+	align(framesize);
 
 	synthesizestringtypes(dwtypes.child);
 	synthesizeslicetypes(dwtypes.child);
@@ -2354,16 +2382,23 @@ dwarfemitdebugsections(void)
 		}
 	}
 	infosize = infoe - infoo;
+	align(infosize);
 
 	pubnameso  = writepub(ispubname);
-	pubtypeso  = writepub(ispubtype);
-	arangeso   = writearanges();
-	gdbscripto = writegdbscript();
+	pubnamessize  = cpos() - pubnameso;
+	align(pubnamessize);
 
-	pubnamessize  = pubtypeso - pubnameso;
-	pubtypessize  = arangeso - pubtypeso;
-	arangessize   = gdbscripto - arangeso;
+	pubtypeso  = writepub(ispubtype);
+	pubtypessize  = cpos() - pubtypeso;
+	align(pubtypessize);
+
+	arangeso   = writearanges();
+	arangessize   = cpos() - arangeso;
+	align(arangessize);
+
+	gdbscripto = writegdbscript();
 	gdbscriptsize = cpos() - gdbscripto;
+	align(gdbscriptsize);
 }
 
 /*
@@ -2544,4 +2579,25 @@ dwarfaddmachoheaders(void)
 		msect->size = gdbscriptsize;
 		ms->filesize += msect->size;
 	}
+}
+
+/*
+ * Windows PE
+ */
+void
+dwarfaddpeheaders(void)
+{
+	dwarfemitdebugsections();
+	newPEDWARFSection(".debug_abbrev", abbrevsize);
+	newPEDWARFSection(".debug_line", linesize);
+	newPEDWARFSection(".debug_frame", framesize);
+	newPEDWARFSection(".debug_info", infosize);
+	if (pubnamessize > 0)
+		newPEDWARFSection(".debug_pubnames", pubnamessize);
+	if (pubtypessize > 0)
+		newPEDWARFSection(".debug_pubtypes", pubtypessize);
+	if (arangessize > 0)
+		newPEDWARFSection(".debug_aranges", arangessize);
+	if (gdbscriptsize > 0)
+		newPEDWARFSection(".debug_gdb_scripts", gdbscriptsize);
 }

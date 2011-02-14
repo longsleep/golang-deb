@@ -28,11 +28,13 @@ DIRS=\
 	container/list\
 	container/ring\
 	container/vector\
+	crypto\
 	crypto/aes\
 	crypto/block\
 	crypto/blowfish\
 	crypto/cast5\
 	crypto/cipher\
+	crypto/dsa\
 	crypto/elliptic\
 	crypto/hmac\
 	crypto/md4\
@@ -58,6 +60,7 @@ DIRS=\
 	debug/proc\
 	ebnf\
 	encoding/ascii85\
+	encoding/base32\
 	encoding/base64\
 	encoding/binary\
 	encoding/git85\
@@ -113,6 +116,7 @@ DIRS=\
 	rpc/jsonrpc\
 	runtime\
 	runtime/cgo\
+	runtime/debug\
 	runtime/pprof\
 	scanner\
 	smtp\
@@ -150,11 +154,8 @@ DIRS+=\
 
 endif
 
-ifeq ($(GOOS),windows)
-DIRS:=$(filter-out runtime/cgo,$(DIRS))
-endif
-
 NOTEST=\
+	crypto\
 	debug/proc\
 	exp/draw/x11\
 	go/ast\

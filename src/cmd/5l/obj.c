@@ -61,7 +61,7 @@ linkername[] =
 void
 usage(void)
 {
-	fprint(2, "usage: 5l [-E entry] [-H head] [-L dir] [-T text] [-D data] [-R rnd] [-r path] [-o out] main.5\n");
+	fprint(2, "usage: 5l [-E entry] [-H head] [-I interpreter] [-L dir] [-T text] [-D data] [-R rnd] [-r path] [-o out] main.5\n");
 	errorexit();
 }
 
@@ -69,6 +69,7 @@ void
 main(int argc, char *argv[])
 {
 	int c, i;
+	char *p;
 
 	Binit(&bso, 1, OWRITE);
 	cout = -1;
@@ -80,6 +81,10 @@ main(int argc, char *argv[])
 	INITDAT = -1;
 	INITRND = -1;
 	INITENTRY = 0;
+	
+	p = getenv("GOARM");
+	if(p != nil && strcmp(p, "5") == 0)
+		debug['F'] = 1;
 
 	ARGBEGIN {
 	default:
@@ -94,6 +99,9 @@ main(int argc, char *argv[])
 		break;
 	case 'E':
 		INITENTRY = EARGF(usage());
+		break;
+	case 'I':
+		interpreter = EARGF(usage());
 		break;
 	case 'L':
 		Lflag(EARGF(usage()));

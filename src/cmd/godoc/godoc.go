@@ -25,7 +25,6 @@ import (
 	"strings"
 	"template"
 	"time"
-	"utf8"
 )
 
 
@@ -56,7 +55,7 @@ var (
 	// TODO(gri) consider the invariant that goroot always end in '/'
 	goroot      = flag.String("goroot", runtime.GOROOT(), "Go root directory")
 	testDir     = flag.String("testdir", "", "Go root subdirectory - for testing only (faster startups)")
-	path        = flag.String("path", "", "additional package directories (colon-separated)")
+	pkgPath     = flag.String("path", "", "additional package directories (colon-separated)")
 	filter      = flag.String("filter", "", "filter file containing permitted package directory paths")
 	filterMin   = flag.Int("filter_minutes", 0, "filter file update interval in minutes; disabled if <= 0")
 	filterDelay delayTime // actual filter update interval in minutes; usually filterDelay == filterMin, but filterDelay may back off exponentially
@@ -64,7 +63,7 @@ var (
 	// layout control
 	tabwidth       = flag.Int("tabwidth", 4, "tab width")
 	showTimestamps = flag.Bool("timestamps", true, "show timestamps with directory listings")
-	fulltextIndex  = flag.Bool("fulltext", false, "build full text index for regular expression queries")
+	maxResults     = flag.Int("maxresults", 10000, "maximum number of full text search results shown")
 
 	// file system mapping
 	fsMap      Mapping // user-defined mapping
@@ -80,7 +79,7 @@ var (
 
 
 func initHandlers() {
-	fsMap.Init(*path)
+	fsMap.Init(*pkgPath)
 	fileServer = http.FileServer(*goroot, "")
 	cmdHandler = httpHandler{"/cmd/", pathutil.Join(*goroot, "src/cmd"), false}
 	pkgHandler = httpHandler{"/pkg/", pathutil.Join(*goroot, "src/pkg"), true}
@@ -626,11 +625,11 @@ func readTemplate(name string) *template.Template {
 	path := pathutil.Join(*goroot, "lib/godoc/"+name)
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
-		log.Exitf("ReadFile %s: %v", path, err)
+		log.Fatalf("ReadFile %s: %v", path, err)
 	}
 	t, err := template.Parse(string(data), fmap)
 	if err != nil {
-		log.Exitf("%s: %v", name, err)
+		log.Fatalf("%s: %v", name, err)
 	}
 	return t
 }
@@ -765,53 +764,6 @@ func redirect(w http.ResponseWriter, r *http.Request) (redirected bool) {
 		redirected = true
 	}
 	return
-}
-
-
-// TODO(gri): Should have a mapping from extension to handler, eventually.
-
-// textExt[x] is true if the extension x indicates a text file, and false otherwise.
-var textExt = map[string]bool{
-	".css": false, // must be served raw
-	".js":  false, // must be served raw
-}
-
-
-func isTextFile(path string) bool {
-	// if the extension is known, use it for decision making
-	if isText, found := textExt[pathutil.Ext(path)]; found {
-		return isText
-	}
-
-	// the extension is not known; read an initial chunk of
-	// file and check if it looks like correct UTF-8; if it
-	// does, it's probably a text file
-	f, err := os.Open(path, os.O_RDONLY, 0)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	var buf [1024]byte
-	n, err := f.Read(buf[0:])
-	if err != nil {
-		return false
-	}
-
-	s := string(buf[0:n])
-	n -= utf8.UTFMax // make sure there's enough bytes for a complete unicode char
-	for i, c := range s {
-		if i > n {
-			break
-		}
-		if c == 0xFFFD || c < ' ' && c != '\n' && c != '\t' {
-			// decoding error or control character - not a text file
-			return false
-		}
-	}
-
-	// likely a text file
-	return true
 }
 
 
@@ -1159,41 +1111,47 @@ type SearchResult struct {
 func lookup(query string) (result SearchResult) {
 	result.Query = query
 
-	// determine identifier lookup string and full text regexp
-	lookupStr := ""
-	lookupRx, err := regexp.Compile(query)
-	if err != nil {
-		result.Alert = "Error in query regular expression: " + err.String()
-		return
-	}
-	if prefix, complete := lookupRx.LiteralPrefix(); complete {
-		// otherwise we lookup "" (with no result) because
-		// identifier lookup doesn't support regexp search
-		lookupStr = prefix
-	}
-
-	if index, timestamp := searchIndex.get(); index != nil {
-		// identifier search
+	index, timestamp := searchIndex.get()
+	if index != nil {
 		index := index.(*Index)
-		result.Hit, result.Alt, err = index.Lookup(lookupStr)
-		if err != nil && !*fulltextIndex {
-			// ignore the error if there is full text search
-			// since it accepts that query regular expression
+
+		// identifier search
+		var err os.Error
+		result.Hit, result.Alt, err = index.Lookup(query)
+		if err != nil && *maxResults <= 0 {
+			// ignore the error if full text search is enabled
+			// since the query may be a valid regular expression
 			result.Alert = "Error in query string: " + err.String()
 			return
 		}
 
-		// textual search
-		// TODO(gri) should max be a flag?
-		const max = 10000 // show at most this many fulltext results
-		result.Found, result.Textual = index.LookupRegexp(lookupRx, max+1)
-		result.Complete = result.Found <= max
-
-		// is the result accurate?
-		if _, ts := fsModified.get(); timestamp < ts {
-			result.Alert = "Indexing in progress: result may be inaccurate"
+		// full text search
+		if *maxResults > 0 && query != "" {
+			rx, err := regexp.Compile(query)
+			if err != nil {
+				result.Alert = "Error in query regular expression: " + err.String()
+				return
+			}
+			// If we get maxResults+1 results we know that there are more than
+			// maxResults results and thus the result may be incomplete (to be
+			// precise, we should remove one result from the result set, but
+			// nobody is going to count the results on the result page).
+			result.Found, result.Textual = index.LookupRegexp(rx, *maxResults+1)
+			result.Complete = result.Found <= *maxResults
+			if !result.Complete {
+				result.Found-- // since we looked for maxResults+1
+			}
 		}
 	}
+
+	// is the result accurate?
+	if _, ts := fsModified.get(); timestamp < ts {
+		// The index is older than the latest file system change
+		// under godoc's observation. Indexing may be in progress
+		// or start shortly (see indexer()).
+		result.Alert = "Indexing in progress: result may be inaccurate"
+	}
+
 	return
 }
 
@@ -1278,7 +1236,7 @@ func indexer() {
 				log.Printf("updating index...")
 			}
 			start := time.Nanoseconds()
-			index := NewIndex(fsDirnames(), *fulltextIndex)
+			index := NewIndex(fsDirnames(), *maxResults > 0)
 			stop := time.Nanoseconds()
 			searchIndex.set(index)
 			if *verbose {

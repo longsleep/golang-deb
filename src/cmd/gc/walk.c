@@ -269,9 +269,15 @@ walkdef(Node *n)
 		}
 		t = n->type;
 		if(t != T) {
-			convlit(&e, t);
-			if(!okforconst[t->etype])
+			if(!okforconst[t->etype]) {
 				yyerror("invalid constant type %T", t);
+				goto ret;
+			}
+			if(!isideal(e->type) && !eqtype(t, e->type)) {
+				yyerror("cannot use %+N as type %T in const initializer", e, t);
+				goto ret;
+			}
+			convlit(&e, t);
 		}
 		n->val = e->val;
 		n->type = e->type;
@@ -397,7 +403,7 @@ walkstmt(Node **np)
 	case OAS:
 	case OAS2:
 	case OAS2DOTTYPE:
-	case OAS2RECV:
+	case OAS2RECVCLOSED:
 	case OAS2FUNC:
 	case OAS2MAPW:
 	case OAS2MAPR:
@@ -664,7 +670,7 @@ walkexpr(Node **np, NodeList **init)
 	case OGE:
 	case OGT:
 	case OADD:
-	case OCMPLX:
+	case OCOMPLEX:
 		walkexpr(&n->left, init);
 		walkexpr(&n->right, init);
 		goto ret;
@@ -816,14 +822,14 @@ walkexpr(Node **np, NodeList **init)
 		n = liststmt(concat(concat(list1(r), ll), lpost));
 		goto ret;
 
-	case OAS2RECV:
-		// a,b = <-c
+	case OAS2RECVCLOSED:
+		// a = <-c; b = closed(c) but atomic
 		*init = concat(*init, n->ninit);
 		n->ninit = nil;
 		r = n->rlist->n;
 		walkexprlistsafe(n->list, init);
 		walkexpr(&r->left, init);
-		fn = chanfn("chanrecv2", 2, r->left->type);
+		fn = chanfn("chanrecv3", 2, r->left->type);
 		r = mkcall1(fn, getoutargx(fn->type), init, r->left);
 		n->rlist->n = r;
 		n->op = OAS2FUNC;
@@ -1399,10 +1405,6 @@ walkexpr(Node **np, NodeList **init)
 
 	case OSEND:
 		n = mkcall1(chanfn("chansend1", 2, n->left->type), T, init, n->left, n->right);
-		goto ret;
-
-	case OSENDNB:
-		n = mkcall1(chanfn("chansend2", 2, n->left->type), n->type, init, n->left, n->right);
 		goto ret;
 
 	case OCLOSURE:

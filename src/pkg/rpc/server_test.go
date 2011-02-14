@@ -72,7 +72,7 @@ func (t *Arith) Error(args *Args, reply *Reply) os.Error {
 func listenTCP() (net.Listener, string) {
 	l, e := net.Listen("tcp", "127.0.0.1:0") // any available address
 	if e != nil {
-		log.Exitf("net.Listen tcp :0: %v", e)
+		log.Fatalf("net.Listen tcp :0: %v", e)
 	}
 	return l, l.Addr().String()
 }
@@ -364,14 +364,12 @@ func TestSendDeadlock(t *testing.T) {
 		testSendDeadlock(client)
 		done <- true
 	}()
-	for i := 0; i < 50; i++ {
-		time.Sleep(100 * 1e6)
-		_, ok := <-done
-		if ok {
-			return
-		}
+	select {
+	case <-done:
+		return
+	case <-time.After(5e9):
+		t.Fatal("deadlock")
 	}
-	t.Fatal("deadlock")
 }
 
 func testSendDeadlock(client *Client) {

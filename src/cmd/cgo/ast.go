@@ -35,6 +35,10 @@ func parse(name string, flags uint) *ast.File {
 	return ast1
 }
 
+func sourceLine(n ast.Node) int {
+	return fset.Position(n.Pos()).Line
+}
+
 // ReadGo populates f with information learned from reading the
 // Go source file with the given file name.  It gathers the C preamble
 // attached to the import "C" comment, a list of references to C.xxx,
@@ -69,10 +73,13 @@ func (f *File) ReadGo(name string) {
 			if s.Name != nil {
 				error(s.Path.Pos(), `cannot rename import "C"`)
 			}
-			if s.Doc != nil {
-				f.Preamble += doc.CommentText(s.Doc) + "\n"
-			} else if len(d.Specs) == 1 && d.Doc != nil {
-				f.Preamble += doc.CommentText(d.Doc) + "\n"
+			cg := s.Doc
+			if cg == nil && len(d.Specs) == 1 {
+				cg = d.Doc
+			}
+			if cg != nil {
+				f.Preamble += fmt.Sprintf("#line %d %q\n", sourceLine(cg), name)
+				f.Preamble += doc.CommentText(cg) + "\n"
 			}
 		}
 	}
@@ -298,6 +305,9 @@ func (f *File) walk(x interface{}, context string, visit func(*File, interface{}
 		f.walk(n.Stmt, "stmt", visit)
 	case *ast.ExprStmt:
 		f.walk(&n.X, "expr", visit)
+	case *ast.SendStmt:
+		f.walk(&n.Chan, "expr", visit)
+		f.walk(&n.Value, "expr", visit)
 	case *ast.IncDecStmt:
 		f.walk(&n.X, "expr", visit)
 	case *ast.AssignStmt:
@@ -336,8 +346,7 @@ func (f *File) walk(x interface{}, context string, visit func(*File, interface{}
 		f.walk(n.Assign, "stmt", visit)
 		f.walk(n.Body, "stmt", visit)
 	case *ast.CommClause:
-		f.walk(n.Lhs, "expr", visit)
-		f.walk(n.Rhs, "expr", visit)
+		f.walk(n.Comm, "stmt", visit)
 		f.walk(n.Body, "stmt", visit)
 	case *ast.SelectStmt:
 		f.walk(n.Body, "stmt", visit)

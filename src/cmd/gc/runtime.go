@@ -92,17 +92,20 @@ func mapiter2(hiter *any) (key any, val any)
 // *byte is really *runtime.Type
 func makechan(elem *byte, hint int64) (hchan chan any)
 func chanrecv1(hchan <-chan any) (elem any)
-func chanrecv2(hchan <-chan any) (elem any, pres bool)
+func chanrecv3(hchan <-chan any) (elem any, closed bool)
 func chansend1(hchan chan<- any, elem any)
-func chansend2(hchan chan<- any, elem any) (pres bool)
 func closechan(hchan any)
 func closedchan(hchan any) bool
+
+func selectnbsend(hchan chan<- any, elem any) bool
+func selectnbrecv(elem *any, hchan <-chan any) bool
 
 func newselect(size int) (sel *byte)
 func selectsend(sel *byte, hchan chan<- any, elem any) (selected bool)
 func selectrecv(sel *byte, hchan <-chan any, elem *any) (selected bool)
 func selectdefault(sel *byte) (selected bool)
 func selectgo(sel *byte)
+func block()
 
 func makeslice(typ *byte, nel int64, cap int64) (ary []any)
 func sliceslice1(old []any, lb uint64, width uint64) (ary []any)

@@ -35,16 +35,29 @@ includes_Linux='
 '
 
 includes_Darwin='
-#define __DARWIN_UNIX03 0
+#define _DARWIN_C_SOURCE
 #define KERNEL
 #define _DARWIN_USE_64_BIT_INODE
+#include <sys/cdefs.h>
 #include <sys/wait.h>
 #include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/sockio.h>
+#include <net/if.h>
+#include <netinet/ip.h>
+#include <netinet/ip_mroute.h>
 '
 
 includes_FreeBSD='
 #include <sys/wait.h>
 #include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/sockio.h>
+#include <net/route.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/ip_mroute.h>
 '
 
 includes='

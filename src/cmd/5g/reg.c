@@ -83,7 +83,7 @@ setoutvar(void)
 		n = nodarg(t, 1);
 		a = zprog.from;
 		naddr(n, &a, 0);
-		bit = mkvar(R, &a, 0);
+		bit = mkvar(R, &a);
 		for(z=0; z<BITS; z++)
 			ovar.b[z] |= bit.b[z];
 		t = structnext(&save);
@@ -137,14 +137,13 @@ regopt(Prog *firstp)
 	uint32 vreg;
 	Bits bit;
 
-return; // disabled for the moment
 	if(first == 0) {
 		fmtinstall('Q', Qconv);
 	}
 	first++;
 
 	if(debug['K']) {
-		if(first != 20)
+		if(first != 13)
 			return;
 //		debug['R'] = 2;
 //		debug['P'] = 2;
@@ -166,7 +165,7 @@ return; // disabled for the moment
 	firstr = R;
 	lastr = R;
 	nvar = 0;
-	regbits = 0;
+	regbits = RtoB(REGSP)|RtoB(REGLINK)|RtoB(REGPC);
 	for(z=0; z<BITS; z++) {
 		externs.b[z] = 0;
 		params.b[z] = 0;
@@ -221,14 +220,14 @@ return; // disabled for the moment
 		/*
 		 * left side always read
 		 */
-		bit = mkvar(r, &p->from, p->as==AMOVW);
+		bit = mkvar(r, &p->from);
 		for(z=0; z<BITS; z++)
 			r->use1.b[z] |= bit.b[z];
 
 		/*
 		 * right side depends on opcode
 		 */
-		bit = mkvar(r, &p->to, 0);
+		bit = mkvar(r, &p->to);
 		if(bany(&bit))
 		switch(p->as) {
 		default:
@@ -254,8 +253,7 @@ return; // disabled for the moment
 		 * funny
 		 */
 		case ABL:
-			for(z=0; z<BITS; z++)
-				addrs.b[z] |= bit.b[z];
+			setaddrs(bit);
 			break;
 		}
 
@@ -272,6 +270,18 @@ return; // disabled for the moment
 	}
 	if(firstr == R)
 		return;
+
+	for(i=0; i<nvar; i++) {
+		Var *v = var+i;
+		if(v->addr) {
+			bit = blsh(i);
+			for(z=0; z<BITS; z++)
+				addrs.b[z] |= bit.b[z];
+		}
+
+//		print("bit=%2d addr=%d et=%-6E w=%-2d s=%S + %lld\n",
+//			i, v->addr, v->etype, v->width, v->sym, v->offset);
+	}
 
 	/*
 	 * pass 2
@@ -298,6 +308,7 @@ return; // disabled for the moment
 	if(debug['R']) {
 		p = firstr->prog;
 		print("\n%L %D\n", p->lineno, &p->from);
+		print("	addr = %Q\n", addrs);
 	}
 
 	/*
@@ -361,6 +372,7 @@ loop2:
 					r->refahead.b[z] | r->calahead.b[z] |
 					r->refbehind.b[z] | r->calbehind.b[z] |
 					r->use1.b[z] | r->use2.b[z];
+				bit.b[z] &= ~addrs.b[z];
 			}
 
 			if(bany(&bit)) {
@@ -486,18 +498,61 @@ brk:
 	 * last pass
 	 * eliminate nops
 	 * free aux structures
+	 * adjust the stack pointer
+	 *	MOVW.W 	R1,-12(R13)			<<- start
+	 *	MOVW   	R0,R1
+	 *	MOVW   	R1,8(R13)
+	 *	MOVW   	$0,R1
+	 *	MOVW   	R1,4(R13)
+	 *	BL     	,runtime.newproc+0(SB)
+	 *	MOVW   	&ft+-32(SP),R7			<<- adjust
+	 *	MOVW   	&j+-40(SP),R6			<<- adjust
+	 *	MOVW   	autotmp_0003+-24(SP),R5		<<- adjust
+	 *	MOVW   	$12(R13),R13			<<- finish
 	 */
+	vreg = 0;
 	for(p = firstp; p != P; p = p->link) {
 		while(p->link != P && p->link->as == ANOP)
 			p->link = p->link->link;
 		if(p->to.type == D_BRANCH)
 			while(p->to.branch != P && p->to.branch->as == ANOP)
 				p->to.branch = p->to.branch->link;
+		if(p->as == AMOVW && p->to.reg == 13) {
+			if(p->scond & C_WBIT) {
+				vreg = -p->to.offset;		// in adjust region
+//				print("%P adjusting %d\n", p, vreg);
+				continue;
+			}
+			if(p->from.type == D_CONST && p->to.type == D_REG) {
+				if(p->from.offset != vreg)
+					print("in and out different\n");
+//				print("%P finish %d\n", p, vreg);
+				vreg = 0;	// done adjust region
+				continue;
+			}
+
+//			print("%P %d %d from type\n", p, p->from.type, D_CONST);
+//			print("%P %d %d to type\n\n", p, p->to.type, D_REG);
+		}
+
+		if(p->as == AMOVW && vreg != 0) {
+			if(p->from.sym != S)
+			if(p->from.name == D_AUTO || p->from.name == D_PARAM) {
+				p->from.offset += vreg;
+//				print("%P adjusting from %d %d\n", p, vreg, p->from.type);
+			}
+			if(p->to.sym != S)
+			if(p->to.name == D_AUTO || p->to.name == D_PARAM) {
+				p->to.offset += vreg;
+//				print("%P adjusting to %d %d\n", p, vreg, p->from.type);
+			}
+		}
 	}
 	if(r1 != R) {
 		r1->link = freer;
 		freer = firstr;
 	}
+
 }
 
 void
@@ -557,23 +612,30 @@ addmove(Reg *r, int bn, int rn, int f)
 	if(a->etype == TARRAY || a->sym == S)
 		a->type = D_CONST;
 
+	if(v->addr)
+		fatal("addmove: shouldnt be doing this %A\n", a);
+
 	switch(v->etype) {
 	default:
 		print("What is this %E\n", v->etype);
 
+	case TINT8:
+		p1->as = AMOVB;
+		break;
+	case TBOOL:
+	case TUINT8:
+		p1->as = AMOVBU;
+		break;
+	case TINT16:
+		p1->as = AMOVH;
+		break;
+	case TUINT16:
+		p1->as = AMOVHU;
+		break;
 	case TINT32:
 	case TUINT32:
 	case TPTR32:
-	case TBOOL:
 		p1->as = AMOVW;
-		break;
-	case TINT8:
-	case TUINT8:
-		p1->as = AMOVB;
-		break;
-	case TINT16:
-	case TUINT16:
-		p1->as = AMOVH;
 		break;
 	case TFLOAT32:
 		p1->as = AMOVF;
@@ -598,7 +660,7 @@ addmove(Reg *r, int bn, int rn, int f)
 			a->type = D_FREG;
 			a->reg = rn-NREG;
 		}
-		if(v->etype == TUINT8)
+		if(v->etype == TUINT8 || v->etype == TBOOL)
 			p1->as = AMOVBU;
 		if(v->etype == TUINT16)
 			p1->as = AMOVHU;
@@ -622,7 +684,7 @@ overlap(int32 o1, int w1, int32 o2, int w2)
 }
 
 Bits
-mkvar(Reg *r, Adr *a, int docon)
+mkvar(Reg *r, Adr *a)
 {
 	Var *v;
 	int i, t, n, et, z, w, flag;
@@ -634,29 +696,33 @@ mkvar(Reg *r, Adr *a, int docon)
 	t = a->type;
 	n = D_NONE;
 
+	flag = 0;
+//	if(a->pun)
+//		flag = 1;
+
 	switch(t) {
 	default:
 		print("type %d %d %D\n", t, a->name, a);
 		goto none;
 
-	case D_CONST:
-		if(a->reg != NREG)
-			r->regu |= RtoB(a->reg);
-		// fallthrough
-
 	case D_NONE:
 	case D_FCONST:
 	case D_BRANCH:
-		goto none;
+		break;
+
+	case D_CONST:
+		flag = 1;
+		goto onereg;
 
 	case D_REGREG:
 		if(a->offset != NREG)
 			r->regu |= RtoB(a->offset);
-		// fallthrough
+		goto onereg;
 
 	case D_REG:
 	case D_SHIFT:
 	case D_OREG:
+	onereg:
 		if(a->reg != NREG)
 			r->regu |= RtoB(a->reg);
 		break;
@@ -678,10 +744,6 @@ mkvar(Reg *r, Adr *a, int docon)
 		n = a->name;
 		break;
 	}
-
-	flag = 0;
-//	if(a->pun)
-//		flag = 1;
 
 	s = a->sym;
 	if(s == S)
@@ -737,7 +799,6 @@ mkvar(Reg *r, Adr *a, int docon)
 	if(debug['R'])
 		print("bit=%2d et=%E pun=%d %D\n", i, et, flag, a);
 
-out:
 	bit = blsh(i);
 	if(n == D_EXTERN || n == D_STATIC)
 		for(z=0; z<BITS; z++)
@@ -745,22 +806,6 @@ out:
 	if(n == D_PARAM)
 		for(z=0; z<BITS; z++)
 			params.b[z] |= bit.b[z];
-
-//	if(t == D_CONST) {
-//		if(s == S) {
-//			for(z=0; z<BITS; z++)
-//				consts.b[z] |= bit.b[z];
-//			return bit;
-//		}
-//		if(et != TARRAY)
-//			for(z=0; z<BITS; z++)
-//				addrs.b[z] |= bit.b[z];
-//		for(z=0; z<BITS; z++)
-//			params.b[z] |= bit.b[z];
-//		return bit;
-//	}
-//	if(t != D_OREG)
-//		goto none;
 
 	return bit;
 
@@ -1021,7 +1066,6 @@ allreg(uint32 b, Rgn *r)
 
 	case TFLOAT32:
 	case TFLOAT64:
-	case TFLOAT:
 		i = BtoF(~b);
 		if(i && r->cost >= 0) {
 			r->regno = i+NREG;
@@ -1195,6 +1239,7 @@ paint3(Reg *r, int bn, int32 rb, int rn)
 
 	if(LOAD(r) & ~(r->set.b[z] & ~(r->use1.b[z]|r->use2.b[z])) & bb)
 		addmove(r, bn, rn, 0);
+
 	for(;;) {
 		r->act.b[z] |= bb;
 		p = r->prog;
@@ -1242,6 +1287,9 @@ paint3(Reg *r, int bn, int32 rb, int rn)
 void
 addreg(Adr *a, int rn)
 {
+
+	if(a->type == D_CONST)
+		fatal("addreg: cant do this %D %d\n", a, rn);
 
 	a->sym = 0;
 	a->name = D_NONE;

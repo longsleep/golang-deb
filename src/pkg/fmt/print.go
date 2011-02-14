@@ -74,15 +74,42 @@ type pp struct {
 	fmt     fmt
 }
 
-// A leaky bucket of reusable pp structures.
-var ppFree = make(chan *pp, 100)
+// A cache holds a set of reusable objects.
+// The buffered channel holds the currently available objects.
+// If more are needed, the cache creates them by calling new.
+type cache struct {
+	saved chan interface{}
+	new   func() interface{}
+}
 
-// Allocate a new pp struct.  Probably can grab the previous one from ppFree.
-func newPrinter() *pp {
-	p, ok := <-ppFree
-	if !ok {
-		p = new(pp)
+func (c *cache) put(x interface{}) {
+	select {
+	case c.saved <- x:
+		// saved in cache
+	default:
+		// discard
 	}
+}
+
+func (c *cache) get() interface{} {
+	select {
+	case x := <-c.saved:
+		return x // reused from cache
+	default:
+		return c.new()
+	}
+	panic("not reached")
+}
+
+func newCache(f func() interface{}) *cache {
+	return &cache{make(chan interface{}, 100), f}
+}
+
+var ppFree = newCache(func() interface{} { return new(pp) })
+
+// Allocate a new pp struct or grab a cached one.
+func newPrinter() *pp {
+	p := ppFree.get().(*pp)
 	p.fmt.init(&p.buf)
 	return p
 }
@@ -94,7 +121,7 @@ func (p *pp) free() {
 		return
 	}
 	p.buf.Reset()
-	_ = ppFree <- p
+	ppFree.put(p)
 }
 
 func (p *pp) Width() (wid int, ok bool) { return p.fmt.wid, p.fmt.widPresent }
@@ -573,25 +600,11 @@ func (p *pp) printField(field interface{}, verb int, plus, goSyntax bool, depth 
 	case bool:
 		p.fmtBool(f, verb, field)
 		return false
-	case float:
-		if floatBits == 32 {
-			p.fmtFloat32(float32(f), verb, field)
-		} else {
-			p.fmtFloat64(float64(f), verb, field)
-		}
-		return false
 	case float32:
 		p.fmtFloat32(f, verb, field)
 		return false
 	case float64:
 		p.fmtFloat64(f, verb, field)
-		return false
-	case complex:
-		if complexBits == 64 {
-			p.fmtComplex64(complex64(f), verb, field)
-		} else {
-			p.fmtComplex128(complex128(f), verb, field)
-		}
 		return false
 	case complex64:
 		p.fmtComplex64(complex64(f), verb, field)
