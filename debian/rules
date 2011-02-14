@@ -52,7 +52,7 @@ override_dh_install:
 	dh_install --fail-missing
 
 override_dh_strip:
-	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt
+	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet
 
 debian/build.stamp:
 	rm -f debian/build.stamp
