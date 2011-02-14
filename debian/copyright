@@ -296,9 +296,9 @@ License: W3C
  http://www.w3.org/Consortium/Legal/copyright-software
 
 Files: debian/*
-Copyright: © 2010, Ivan Wong <ivanwyc@gmail.com>
-License: GPL
- See ‘/usr/share/common-licenses/GPL’.
+Copyright: © 2010, Ivan Wong <ivanwyc@gmail.com>, Ondřej Surý <ondrej@debian.org>
+License: GPL 3
+ See ‘/usr/share/common-licenses/GPL-3’.
 
 License: Go
  Copyright © 2009 The Go Authors. All rights reserved.
