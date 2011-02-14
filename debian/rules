@@ -45,6 +45,7 @@ override_dh_auto_install:
 	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
 	# remove hgpatch and quietgcc from installation
 	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
+	for cmd in a c g l nm l cov prof; do ln $(bindir)/$(GOPREFIX)$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
 
 override_dh_install:
 	dh_install --fail-missing
@@ -93,12 +94,15 @@ endif
 ifeq ($(DEB_HOST_ARCH_CPU), i386)
     GOARCH := 386
     GOHOSTARCH := 386
+    GOPREFIX := 8
 else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOARCH := amd64
     GOHOSTARCH := amd64
+    GOPREFIX := 6
 else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), arm armeb armel))
     GOARCH := arm
     GOARM := 5
+    GOPREFIX := 5
 else
     $(warning unrecognized instruction set $(DEB_HOST_ARCH_CPU)! continuing.)
     GOARCH := $(DEB_HOST_ARCH_CPU)
