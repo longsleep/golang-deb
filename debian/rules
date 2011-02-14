@@ -29,6 +29,8 @@ override_dh_auto_test:
 #	dh_compress -Xusr/share/doc/golang-doc/html
 
 override_dh_auto_install:
+	mkdir -p $(DESTDIR)$(bindir)
+	install -m755 $(CURDIR)$(bindir)/* $(DESTDIR)$(bindir)
 	mkdir -p $(DESTDIR)$(libexecdir)
 	: library
 	cp -a pkg $(DESTDIR)$(libexecdir)/
@@ -42,7 +44,7 @@ override_dh_auto_install:
 	cp -a lib/godoc $(DESTDIR)$(libexecdir)/lib/
 	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
 	# remove hgpatch and quietgcc from installation
-	# rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
+	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt
@@ -70,7 +72,7 @@ endif
 
 GOROOT := $(CURDIR)
 GOROOT_FINAL := $(libexecdir)
-GOBIN := $(DESTDIR)$(bindir)
+GOBIN := $(CURDIR)$(bindir)
 GOARM :=
 
 DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
