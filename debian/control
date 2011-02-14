@@ -27,7 +27,7 @@ Description: Go programming language compiler
 
 Package: golang-doc
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${misc:Depends}
 Section: doc
 Description: Documentation for Google's Go programming language
  This package provides the documentation for the Go programming
@@ -51,7 +51,7 @@ Description: Documentation for Google's Go programming language
 
 Package: golang-tools
 Architecture: i386 amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${misc:Depends}
 Description: Tools for Google's Go programming language
  This package provides various tools for the Go programming language:
   * godoc - extracts and generates documentation for Go programs
