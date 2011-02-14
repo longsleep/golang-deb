@@ -1,6 +1,15 @@
-golang-go binary: statically-linked-binary ./usr/bin/cgo
-golang-go binary: statically-linked-binary ./usr/bin/ebnflint
-golang-go binary: statically-linked-binary ./usr/bin/goinstall
-golang-go binary: statically-linked-binary ./usr/bin/goyacc
-golang-tools binary: statically-linked-binary ./usr/bin/godoc
-golang-tools binary: statically-linked-binary ./usr/bin/gofmt
+golang-go: statically-linked-binary ./usr/bin/cgo
+golang-go: statically-linked-binary ./usr/bin/ebnflint
+golang-go: statically-linked-binary ./usr/bin/goinstall
+golang-go: statically-linked-binary ./usr/bin/goyacc
+golang-go: unstripped-binary-or-object ./usr/bin/cgo
+golang-go: unstripped-binary-or-object ./usr/bin/ebnflint
+golang-go: unstripped-binary-or-object ./usr/bin/goyacc
+golang-tools: statically-linked-binary ./usr/bin/godoc
+golang-tools: unstripped-binary-or-object ./usr/bin/godoc
+golang-tools: statically-linked-binary ./usr/bin/gofmt
+golang-tools: unstripped-binary-or-object ./usr/bin/gofmt
+golang-tools: statically-linked-binary ./usr/bin/gofmt
+golang-tools: unstripped-binary-or-object ./usr/bin/goinstall
+golang-tools: statically-linked-binary ./usr/bin/goinstall
+golang-tools: statically-linked-binary ./usr/bin/govet
