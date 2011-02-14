@@ -46,7 +46,7 @@ override_dh_auto_install:
 	# remove hgpatch and quietgcc from installation
 	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
 	# remove codereview - some mercurial stuff in python
-	rm -rf $(DESTDIR)usr/lib/golang/lib/codereview
+	rm -rf $(DESTDIR)/usr/lib/golang/lib/codereview
 	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
 	for cmd in nm cov prof; do ln -s 6$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
 
