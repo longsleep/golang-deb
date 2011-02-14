@@ -42,7 +42,7 @@ override_dh_auto_install:
 	cp -a lib/godoc $(DESTDIR)$(libexecdir)/lib/
 	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
 	# remove hgpatch and quietgcc from installation
-	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
+	# rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt
