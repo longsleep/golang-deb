@@ -45,7 +45,7 @@ override_dh_auto_install:
 	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
 	# remove hgpatch and quietgcc from installation
 	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
-	for cmd in a c g l nm l cov prof; do ln $(bindir)/$(GOPREFIX)$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
+	for cmd in a c g l nm l cov prof; do ln -s $(GOPREFIX)$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
 
 override_dh_install:
 	dh_install --fail-missing
