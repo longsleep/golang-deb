@@ -18,6 +18,7 @@ golang (2011.02.01.1-1) unstable; urgency=low
   * debian: install favicon
 
   [ Ondřej Surý ]
+  * Make myself a maintainer
   * Add patch to allow IPv4 on IPv6 sockets (Courtesy of Florian Weimer)
   * Use GOROOT_FINAL and change GOBIN to /usr/bin
   * Get rid of env.sh and wrappers
@@ -28,7 +29,14 @@ golang (2011.02.01.1-1) unstable; urgency=low
   * Don't install quietgcc and hgpatch
   * Don't generate fake gomake
   * Update golang-doc package
-  * More moves from google-go to golang, export GOHOSTARCH and GOHOSTOS
-  * Disable checks
+  * Export GOHOSTARCH and GOHOSTOS
+  * Disable build time checks
+  * Fail on missed installed files
+  * Revert s{tmp{golang-go{ change in DESTDIR
+  * Relicence debian/ files from versionless GPL to GPL-3
+  * Move golang-doc to doc section
+  * Add more lintian overrides for Go binaries
+  * Install all 6,8,5 variants of commands
+  * Install golang-* symlinks for 6,8,5* commands
 
- -- Ondřej Surý <ondrej@debian.org>  Mon, 17 Jan 2011 13:11:29 +0100
+ -- Ondřej Surý <ondrej@debian.org>  Mon, 14 Feb 2011 16:30:28 +0100
