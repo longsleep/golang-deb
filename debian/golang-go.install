@@ -1,4 +1,6 @@
-debian/tmp/usr/lib/golang
+debian/tmp/usr/lib/golang/lib/codereview
+debian/tmp/usr/lib/golang/pkg
+debian/tmp/usr/lib/golang/src
 debian/tmp/usr/bin/godefs
 debian/tmp/usr/bin/gopack
 debian/tmp/usr/bin/gotest
