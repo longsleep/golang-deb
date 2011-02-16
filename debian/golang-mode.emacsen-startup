@@ -1,0 +1,7 @@
+;; -*-emacs-lisp-*-
+
+(let ((path "/usr/share/emacs/site-lisp/golang-mode"))
+  (when (file-exists-p path)
+    (add-to-list 'load-path path t)
+    (require 'go-mode-load)))
+
