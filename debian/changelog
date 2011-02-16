@@ -1,3 +1,19 @@
+golang (2011.02.15-1) unstable; urgency=low
+
+  [ Obey Arthur Liu ]
+  * Added pkg-google git repo to control file
+
+  [ Florian Weimer ]
+  * Build golang-mode package
+
+  [ Ondřej Surý ]
+  * Imported Upstream version 2011.02.15
+  * Don't compress godoc documentation
+  * Correctly use $GOROOT_FINAL in the build chain
+  * Remove RPATH/RUNPATH from go binaries
+
+ -- Ondřej Surý <ondrej@debian.org>  Fri, 18 Feb 2011 11:39:10 +0100
+
 golang (2011.02.01.1-1) unstable; urgency=low
 
   [ Ivan Wong ]
