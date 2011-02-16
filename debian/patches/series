@@ -1,1 +1,3 @@
 001-allow_IPv4_on_IPv6_sockets.patch
+002-use_GOROOT_FINAL_in_generated_binaries.patch
+003-set_correct_runpath.patch

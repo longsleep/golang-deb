@@ -1,0 +1,21 @@
+--- a/src/pkg/runtime/Makefile
++++ b/src/pkg/runtime/Makefile
+@@ -129,7 +129,7 @@ mkversion: mkversion.c
+ 	quietgcc -o $@ -I "$(GOROOT)/include" $< "$(GOROOT)/lib/lib9.a"
+ 
+ version.go: mkversion
+-	./mkversion >version.go
++	GOROOT=$(QUOTED_GOROOT_FINAL) ./mkversion >version.go
+ 
+ version_$(GOARCH).go:
+ 	(echo 'package runtime'; echo 'const theGoarch = "$(GOARCH)"') >$@
+--- a/src/Make.inc
++++ b/src/Make.inc
+@@ -82,6 +82,7 @@ export GOARCH GOOS GOHOSTARCH GOHOSTOS
+ nullstring :=
+ space := $(nullstring) # a space at the end
+ QUOTED_GOROOT:=$(subst $(space),\ ,$(GOROOT))
++QUOTED_GOROOT_FINAL:=$(subst $(space),\ ,$(GOROOT_FINAL))
+ 
+ # default GOBIN
+ ifndef GOBIN
