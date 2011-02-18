@@ -1,5 +1,5 @@
-debian/tmp/usr/bin/godoc
-debian/tmp/usr/bin/gofmt
-debian/tmp/usr/bin/goinstall
-debian/tmp/usr/bin/gotry
-debian/tmp/usr/bin/govet
+bin/godoc /usr/bin
+bin/gofmt /usr/bin
+bin/goinstall /usr/bin
+bin/gotry /usr/bin
+bin/govet /usr/bin

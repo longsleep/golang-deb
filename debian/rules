@@ -4,14 +4,14 @@
 
 PACKAGE = golang
 
-DESTDIR := $(CURDIR)/debian/tmp
 libexecdir := /usr/lib/golang
-bindir := /usr/bin
+datadir := /usr/share/golang
+bindir := /bin
 
 build clean install binary-arch binary-indep binary:
 	+dh --parallel $(opt_no_act) $@
 
-override_dh_auto_clean:
+override_dh_auto_clean: debian/golang-src.install
 	rm -f debian/*+
 	rm -f debian/build.stamp
 	: NEEDSWORK: update src/pkg/Makefile.
@@ -28,29 +28,11 @@ override_dh_auto_test:
 override_dh_compress:
 	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
 
-override_dh_auto_install:
-	mkdir -p $(DESTDIR)$(bindir)
-	install -m755 $(CURDIR)$(bindir)/* $(DESTDIR)$(bindir)
-	mkdir -p $(DESTDIR)$(libexecdir)
-	: library
-	cp -a pkg $(DESTDIR)$(libexecdir)/
-	: runtime
-	mkdir -p $(DESTDIR)$(libexecdir)/src/pkg/runtime
-	install -m644 src/pkg/runtime/cgocall.h $(DESTDIR)$(libexecdir)/src/pkg/runtime/
-	install -m644 src/pkg/runtime/runtime.h $(DESTDIR)$(libexecdir)/src/pkg/runtime/
-	: web apps
-	mkdir -p $(DESTDIR)$(libexecdir)/lib
-	cp -a lib/codereview $(DESTDIR)$(libexecdir)/lib/
-	cp -a lib/godoc $(DESTDIR)$(libexecdir)/lib/
-	install -m644 favicon.ico $(DESTDIR)$(libexecdir)/
-	# remove hgpatch and quietgcc from installation
-	rm $(DESTDIR)$(bindir)/hgpatch $(DESTDIR)$(bindir)/quietgcc
-	# remove codereview - some mercurial stuff in python
-	rm -rf $(DESTDIR)/usr/lib/golang/lib/codereview
-	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
-	for cmd in nm cov prof; do ln -s 6$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
+override_dh_auto_install: debian/golang-src.install
+	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
+	for cmd in nm cov prof; do ln -s 6$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
 	# remove RUNPATH from go binaries
-	for cmd in goyacc ebnflint godoc govet gofmt goinstall cgo; do chrpath -d $(DESTDIR)$(bindir)/$$cmd; done
+	for cmd in goyacc ebnflint godoc govet gofmt goinstall cgo; do chrpath -d $(CURDIR)$(bindir)/$$cmd; done
 
 override_dh_install:
 	dh_install --fail-missing
@@ -132,3 +114,12 @@ get-orig-source:
 			../../google-go_$$VERSION.orig.tar.gz; \
 	)
 	rm -fr debian-orig-source
+
+debian/golang-src.install:
+	# create golang-src.install list
+	( \
+		find src/cmd -name doc.go ; \
+		find src/pkg -name \*.go ; \
+	) | sed -e 's{\(.*/\).*$${\0 $(datadir)/\1{' > $(CURDIR)/debian/golang-src.install
+
+.PHONY: build clean install binary-arch binary-indep binary debian/golang-src.install

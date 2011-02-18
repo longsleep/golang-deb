@@ -1,18 +1,20 @@
-debian/tmp/usr/lib/golang/pkg
-debian/tmp/usr/lib/golang/src
-debian/tmp/usr/bin/godefs
-debian/tmp/usr/bin/gopack
-debian/tmp/usr/bin/gotest
-debian/tmp/usr/bin/cgo
-debian/tmp/usr/bin/goyacc
-debian/tmp/usr/bin/ebnflint
-debian/tmp/usr/bin/gopprof
-debian/tmp/usr/bin/gomake
-debian/tmp/usr/bin/?l
-debian/tmp/usr/bin/?cov
-debian/tmp/usr/bin/?prof
-debian/tmp/usr/bin/?c
-debian/tmp/usr/bin/?a
-debian/tmp/usr/bin/?nm
-debian/tmp/usr/bin/?g
-debian/tmp/usr/bin/golang-*
+pkg /usr/lib/golang/
+bin/godefs /usr/bin/
+bin/gopack /usr/bin/
+bin/gotest /usr/bin/
+bin/cgo /usr/bin/
+bin/goyacc /usr/bin/
+bin/ebnflint /usr/bin/
+bin/gopprof /usr/bin/
+bin/gomake /usr/bin/
+bin/?l /usr/bin/
+bin/?cov /usr/bin/
+bin/?prof /usr/bin/
+bin/?c /usr/bin/
+bin/?a /usr/bin/
+bin/?nm /usr/bin/
+bin/?g /usr/bin/
+bin/golang-* /usr/bin/
+src/Make.* /usr/share/golang/src/
+src/pkg/runtime/cgocall.h /usr/share/golang/src/pkg/runtime/
+src/pkg/runtime/runtime.h /usr/share/golang/src/pkg/runtime/
