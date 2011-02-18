@@ -74,7 +74,7 @@ Description: Tools for Google's Go programming language
 
 Package: golang-mode
 Architecture: all
-Depends: emacs23 | emacsen
+Depends: ${misc:Depends}, emacs23 | emacsen
 Suggests: golang-go
 Description: Go mode for GNU Emacs
  Provides a major mode for GNU Emacs to edit programs written in Google's
