@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"log"
 	"os"
+	"template"
 )
 
 var (
@@ -31,15 +32,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// create printer
-	p := &printer.Config{
-		Mode:     0,
-		Tabwidth: 8,
-		Styler:   nil,
-	}
-	if *html {
-		p.Mode = printer.GenHTML
-	}
 	// create filter
 	filter := func(name string) bool {
 		return name == *getName
@@ -48,8 +40,9 @@ func main() {
 	if !ast.FilterFile(file, filter) {
 		os.Exit(1)
 	}
-	b := new(bytes.Buffer)
-	p.Fprint(b, fs, file)
+	// print the AST
+	var b bytes.Buffer
+	printer.Fprint(&b, fs, file)
 	// drop package declaration
 	if !*showPkg {
 		for {
@@ -71,5 +64,9 @@ func main() {
 		}
 	}
 	// output
-	b.WriteTo(os.Stdout)
+	if *html {
+		template.HTMLEscape(os.Stdout, b.Bytes())
+	} else {
+		b.WriteTo(os.Stdout)
+	}
 }

@@ -1,5 +1,5 @@
 <!-- title The Go Programming Language Specification -->
-<!-- subtitle Version of February 1, 2011 -->
+<!-- subtitle Version of February 8, 2011 -->
 
 <!--
 TODO
@@ -104,12 +104,12 @@ The following terms are used to denote specific Unicode character classes:
 <pre class="ebnf">
 unicode_char   = /* an arbitrary Unicode code point */ .
 unicode_letter = /* a Unicode code point classified as "Letter" */ .
-unicode_digit  = /* a Unicode code point classified as "Digit" */ .
+unicode_digit  = /* a Unicode code point classified as "Decimal Digit" */ .
 </pre>
 
 <p>
-In <a href="http://www.unicode.org/versions/Unicode5.2.0/">The Unicode Standard 5.2</a>,
-Section 4.5 General Category-Normative
+In <a href="http://www.unicode.org/versions/Unicode6.0.0/">The Unicode Standard 6.0</a>,
+Section 4.5 "General Category"
 defines a set of character categories.  Go treats
 those characters in category Lu, Ll, Lt, Lm, or Lo as Unicode letters,
 and those in category Nd as Unicode digits.
@@ -610,6 +610,17 @@ type literals.
 </p>
 
 <p>
+The <i>static type</i> (or just <i>type</i>) of a variable is the
+type defined by its declaration.  Variables of interface type
+also have a distinct <i>dynamic type</i>, which
+is the actual type of the value stored in the variable at run-time.
+The dynamic type may vary during execution but is always
+<a href="#Assignability">assignable</a>
+to the static type of the interface variable.  For non-interface
+types, the dynamic type is always the static type.
+</p>
+
+<p>
 Each type <code>T</code> has an <i>underlying type</i>: If <code>T</code>
 is a predeclared type or a type literal, the corresponding underlying
 type is <code>T</code> itself. Otherwise, <code>T</code>'s underlying type
@@ -630,6 +641,7 @@ is <code>string</code>. The underlying type of <code>[]T1</code>, <code>T3</code
 and <code>T4</code> is <code>[]T1</code>.
 </p>
 
+<h3 id="Method_sets">Method sets</h3>
 <p>
 A type may have a <i>method set</i> associated with it
 (§<a href="#Interface_types">Interface types</a>, §<a href="#Method_declarations">Method declarations</a>).
@@ -641,16 +653,6 @@ is the set of all methods with receiver <code>*T</code> or <code>T</code>
 (that is, it also contains the method set of <code>T</code>).
 Any other type has an empty method set.
 In a method set, each method must have a unique name.
-</p>
-<p>
-The <i>static type</i> (or just <i>type</i>) of a variable is the
-type defined by its declaration.  Variables of interface type
-also have a distinct <i>dynamic type</i>, which
-is the actual type of the value stored in the variable at run-time.
-The dynamic type may vary during execution but is always
-<a href="#Assignability">assignable</a>
-to the static type of the interface variable.  For non-interface
-types, the dynamic type is always the static type.
 </p>
 
 
@@ -917,7 +919,8 @@ a type named <code>T</code>:
 </p>
 <ul>
 	<li>If <code>S</code> contains an anonymous field <code>T</code>, the
-	    method set of <code>S</code> includes the method set of <code>T</code>.
+	    <a href="#Method_sets">method set</a> of <code>S</code> includes the
+	    method set of <code>T</code>.
 	</li>
 
 	<li>If <code>S</code> contains an anonymous field <code>*T</code>, the
@@ -1016,7 +1019,7 @@ func(n int) func(p *T)
 <h3 id="Interface_types">Interface types</h3>
 
 <p>
-An interface type specifies a <a href="#Types">method set</a> called its <i>interface</i>.
+An interface type specifies a <a href="#Method_sets">method set</a> called its <i>interface</i>.
 A variable of interface type can store a value of any type with a method set
 that is any superset of the interface. Such a type is said to
 <i>implement the interface</i>.
@@ -1349,11 +1352,12 @@ by a value of type <code>T</code>.
 </ul>
 
 <p>
-If <code>T</code> is a struct type, either all fields of <code>T</code>
-must be <a href="#Exported_identifiers">exported</a>, or the assignment must be in
-the same package in which <code>T</code> is declared.
+If <code>T</code> is a struct type with non-<a href="#Exported_identifiers">exported</a>
+fields, the assignment must be in the same package in which <code>T</code> is declared,
+or <code>x</code> must be the receiver of a method call.
 In other words, a struct value can be assigned to a struct variable only if
-every field of the struct may be legally assigned individually by the program.
+every field of the struct may be legally assigned individually by the program,
+or if the assignment is initializing the receiver of a method of the struct type.
 </p>
 
 <p>
@@ -1677,7 +1681,7 @@ type Cipher interface {
 
 <p>
 The declared type does not inherit any <a href="#Method_declarations">methods</a>
-bound to the existing type, but the <a href="#Types">method set</a>
+bound to the existing type, but the <a href="#Method_sets">method set</a>
 of an interface type or of elements of a composite type remains unchanged:
 </p>
 
@@ -1689,6 +1693,10 @@ func (m *Mutex) Unlock()  { /* Unlock implementation */ }
 
 // NewMutex has the same composition as Mutex but its method set is empty.
 type NewMutex Mutex
+
+// The method set of the <a href="#Pointer_types">base type</a> of PtrMutex remains unchanged,
+// but the method set of PtrMutex is empty.
+type PtrMutex *Mutex
 
 // The method set of *PrintableMutex contains the methods
 // Lock and Unlock bound to its anonymous field Mutex.
@@ -2593,8 +2601,8 @@ if Join(Split(value, len(value)/2)) != value {
 </pre>
 
 <p>
-A method call <code>x.m()</code> is valid if the method set of
-(the type of) <code>x</code> contains <code>m</code> and the
+A method call <code>x.m()</code> is valid if the <a href="#Method_sets">method set</a>
+of (the type of) <code>x</code> contains <code>m</code> and the
 argument list can be assigned to the parameter list of <code>m</code>.
 If <code>x</code> is <a href="#Address_operators">addressable</a> and <code>&amp;x</code>'s method
 set contains <code>m</code>, <code>x.m()</code> is shorthand
@@ -2889,8 +2897,8 @@ Comparison operators compare two operands and yield a value of type <code>bool</
 <pre class="grammar">
 ==    equal
 !=    not equal
-<     less
-<=    less or equal
+&lt;     less
+&lt;=    less or equal
 >     greater
 >=    greater or equal
 </pre>
@@ -3057,7 +3065,7 @@ need to be presented regarding send, receive, select, and goroutines.</span>
 <h3 id="Method_expressions">Method expressions</h3>
 
 <p>
-If <code>M</code> is in the method set of type <code>T</code>,
+If <code>M</code> is in the <a href="#Method_sets">method set</a> of type <code>T</code>,
 <code>T.M</code> is a function that is callable as a regular function
 with the same arguments as <code>M</code> prefixed by an additional
 argument that is the receiver of the method.
@@ -4004,7 +4012,7 @@ the channel until the channel is closed; it does not produce the zero value sent
 before the channel is closed
 (§<a href="#Close_and_closed"><code>close</code> and <code>closed</code></a>).
 </li>
-</ol
+</ol>
 
 <p>
 The iteration values are assigned to the respective
@@ -4436,7 +4444,7 @@ At any time the following relationship holds:
 </p>
 
 <pre>
-0 <= len(s) <= cap(s)
+0 &lt;= len(s) &lt;= cap(s)
 </pre>
 
 <p>
@@ -4646,13 +4654,6 @@ func recover() interface{}
 </pre>
 
 <p>
-<span class="alert">TODO: Most of this text could move to the respective
-comments in <code>runtime.go</code> once the functions are implemented.
-They are here, at least for now, for reference and discussion.
-</span>
-</p>
-
-<p>
 When a function <code>F</code> calls <code>panic</code>, normal
 execution of <code>F</code> stops immediately.  Any functions whose
 execution was <a href="#Defer_statements">deferred</a> by the
@@ -4667,117 +4668,43 @@ the argument to <code>panic</code>.  This termination sequence is
 called <i>panicking</i>.
 </p>
 
+<pre>
+panic(42)
+panic("unreachable")
+panic(Error("cannot parse"))
+</pre>
+
 <p>
 The <code>recover</code> function allows a program to manage behavior
 of a panicking goroutine.  Executing a <code>recover</code> call
-inside a deferred function (but not any function called by it) stops
+<i>inside</i> a deferred function (but not any function called by it) stops
 the panicking sequence by restoring normal execution, and retrieves
 the error value passed to the call of <code>panic</code>.  If
 <code>recover</code> is called outside the deferred function it will
-not stop a panicking sequence.  In this case, and when the goroutine
-is not panicking, <code>recover</code> returns <code>nil</code>.
+not stop a panicking sequence.  In this case, or when the goroutine
+is not panicking, or if the argument supplied to <code>panic</code>
+was <code>nil</code>, <code>recover</code> returns <code>nil</code>.
 </p>
 
 <p>
-If the function defined here,
+The <code>protect</code> function in the example below invokes
+the function argument <code>g</code> and protects callers from
+run-time panics raised by <code>g</code>.
 </p>
 
 <pre>
-func f(hideErrors bool) {
+func protect(g func()) {
 	defer func() {
+		log.Println("done")  // Println executes normally even in there is a panic
 		if x := recover(); x != nil {
-			println("panicking with value", x)
-			if !hideErrors {
-				panic(x)  // go back to panicking
-			}
+			log.Printf("runtime panic: %v", x)
 		}
-		println("function returns normally") // executes only when hideErrors==true
-	}()
-	println("before")
-	p()
-	println("after")	// never executes
-}
-
-func p() {
-	panic(3)
+	}
+	log.Println("start")
+	g()
 }
 </pre>
 
-<p>
-is called with <code>hideErrors=true</code>, it prints
-</p>
-
-<pre>
-before
-panicking with value 3
-function returns normally
-</pre>
-
-<p>
-and resumes normal execution in the function that called <code>f</code>. Otherwise, it prints
-</p>
-
-<pre>
-before
-panicking with value 3
-</pre>
-
-<p>
-and, absent further <code>recover</code> calls, terminates the program.
-</p>
-
-<p>
-Since deferred functions run before assigning the return values to the caller
-of the deferring function, a deferred invocation of a function literal may modify the
-invoking function's return values in the event of a panic. This permits a function to protect its
-caller from panics that occur in functions it calls.
-</p>
-
-<pre>
-func IsPrintable(s string) (ok bool) {
-	ok = true
-	defer func() {
-		if recover() != nil {
-			println("input is not printable")
-			ok = false
-		}
-		// Panicking has stopped; execution will resume normally in caller.
-		// The return value will be true normally, false if a panic occurred.
-	}()
-	panicIfNotPrintable(s)	// will panic if validations fails.
-	return
-}
-</pre>
-
-<!---
-<p>
-A deferred function that calls <code>recover</code> will see the
-argument passed to <code>panic</code>.  However, functions called
-<i>from</i> the deferred function run normally, without behaving as
-though they are panicking.  This allows deferred code to run normally
-in case recovery is necessary and guarantees that functions that manage
-their own panics will not fail incorrectly.  The function
-</p>
-
-<pre>
-func g() {
-	s := ReadString()
-	defer func() {
-		if IsPrintable(s) {
-			println("finished processing", s)
-		} else {
-			println("finished processing unprintable string")
-		}
-	}()
-	Analyze(s)
-}
-</pre>
-
-<p>
-will not cause <code>IsPrintable</code> to print <code>"input is not printable"</code>
-due to a <code>panic</code> triggered by the call to <code>Analyze</code>.
-</p>
--->
 
 <h3 id="Bootstrapping">Bootstrapping</h3>
 
@@ -5064,8 +4991,12 @@ The importing of packages, by construction, guarantees that there can
 be no cyclic dependencies in initialization.
 </p>
 <p>
-A complete program, possibly created by linking multiple packages,
-must have one package called <code>main</code>, with a function
+A complete program is created by linking a single, unimported package
+called the <i>main package</i> with all the packages it imports, transitively.
+The main package must
+have package name <code>main</code> and
+declare a function <code>main</code> that takes no 
+arguments and returns no value.
 </p>
 
 <pre>
@@ -5073,20 +5004,12 @@ func main() { ... }
 </pre>
 
 <p>
-defined.
-The function <code>main.main()</code> takes no arguments and returns no value.
+Program execution begins by initializing the main package and then
+invoking the function <code>main</code>.
 </p>
 <p>
-Program execution begins by initializing the <code>main</code> package and then
-invoking <code>main.main()</code>.
-</p>
-<p>
-When <code>main.main()</code> returns, the program exits.  It does not wait for
-other (non-<code>main</code>) goroutines to complete.
-</p>
-<p>
-Implementation restriction: The compiler assumes package <code>main</code>
-is not imported by any other package.
+When the function <code>main</code> returns, the program exits.
+It does not wait for other (non-<code>main</code>) goroutines to complete.
 </p>
 
 <h2 id="Run_time_panics">Run-time panics</h2>
@@ -5133,8 +5056,8 @@ func Alignof(variable ArbitraryType) int
 func Offsetof(selector ArbitraryType) int
 func Sizeof(variable ArbitraryType) int
 
-func Reflect(val interface {}) (typ runtime.Type, addr uintptr)
-func Typeof(val interface {}) reflect.Type
+func Reflect(val interface{}) (typ runtime.Type, addr uintptr)
+func Typeof(val interface{}) (typ interface{})
 func Unreflect(typ runtime.Type, addr uintptr) interface{}
 </pre>
 

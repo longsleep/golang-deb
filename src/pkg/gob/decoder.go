@@ -153,9 +153,13 @@ func (dec *Decoder) decodeTypeSequence(isInterface bool) typeId {
 
 // Decode reads the next value from the connection and stores
 // it in the data represented by the empty interface value.
-// The value underlying e must be the correct type for the next
+// If e is nil, the value will be discarded. Otherwise,
+// the value underlying e must either be the correct type for the next
 // data item received, and must be a pointer.
 func (dec *Decoder) Decode(e interface{}) os.Error {
+	if e == nil {
+		return dec.DecodeValue(nil)
+	}
 	value := reflect.NewValue(e)
 	// If e represents a value as opposed to a pointer, the answer won't
 	// get back to the caller.  Make sure it's a pointer.
@@ -169,7 +173,8 @@ func (dec *Decoder) Decode(e interface{}) os.Error {
 // DecodeValue reads the next value from the connection and stores
 // it in the data represented by the reflection value.
 // The value must be the correct type for the next
-// data item received.
+// data item received, or it may be nil, which means the
+// value will be discarded.
 func (dec *Decoder) DecodeValue(value reflect.Value) os.Error {
 	// Make sure we're single-threaded through here.
 	dec.mutex.Lock()
@@ -178,7 +183,7 @@ func (dec *Decoder) DecodeValue(value reflect.Value) os.Error {
 	dec.buf.Reset() // In case data lingers from previous invocation.
 	dec.err = nil
 	id := dec.decodeTypeSequence(false)
-	if id >= 0 {
+	if dec.err == nil {
 		dec.err = dec.decodeValue(id, value)
 	}
 	return dec.err

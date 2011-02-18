@@ -274,7 +274,7 @@ func relativePath(path string) string {
 // ----------------------------------------------------------------------------
 // Tab conversion
 
-var spaces = []byte("                ") // 16 spaces seems like a good number
+var spaces = []byte("                                ") // 32 spaces seems like a good number
 
 const (
 	indenting = iota
@@ -291,25 +291,31 @@ type tconv struct {
 
 func (p *tconv) writeIndent() (err os.Error) {
 	i := p.indent
-	for i > len(spaces) {
+	for i >= len(spaces) {
 		i -= len(spaces)
 		if _, err = p.output.Write(spaces); err != nil {
 			return
 		}
 	}
-	_, err = p.output.Write(spaces[0:i])
+	// i < len(spaces)
+	if i > 0 {
+		_, err = p.output.Write(spaces[0:i])
+	}
 	return
 }
 
 
 func (p *tconv) Write(data []byte) (n int, err os.Error) {
+	if len(data) == 0 {
+		return
+	}
 	pos := 0 // valid if p.state == collecting
 	var b byte
 	for n, b = range data {
 		switch p.state {
 		case indenting:
 			switch b {
-			case '\t', '\v':
+			case '\t':
 				p.indent += *tabwidth
 			case '\n':
 				p.indent = 0
@@ -336,7 +342,7 @@ func (p *tconv) Write(data []byte) (n int, err os.Error) {
 		}
 	}
 	n = len(data)
-	if p.state == collecting {
+	if pos < n && p.state == collecting {
 		_, err = p.output.Write(data[pos:])
 	}
 	return
@@ -346,47 +352,51 @@ func (p *tconv) Write(data []byte) (n int, err os.Error) {
 // ----------------------------------------------------------------------------
 // Templates
 
-// Write an AST-node to w; optionally html-escaped.
-func writeNode(w io.Writer, fset *token.FileSet, node interface{}, html bool) {
-	mode := printer.TabIndent | printer.UseSpaces
-	if html {
-		mode |= printer.GenHTML
-	}
+// Write an AST node to w.
+func writeNode(w io.Writer, fset *token.FileSet, x interface{}) {
 	// convert trailing tabs into spaces using a tconv filter
 	// to ensure a good outcome in most browsers (there may still
 	// be tabs in comments and strings, but converting those into
 	// the right number of spaces is much harder)
-	(&printer.Config{mode, *tabwidth, nil}).Fprint(&tconv{output: w}, fset, node)
+	//
+	// TODO(gri) rethink printer flags - perhaps tconv can be eliminated
+	//           with an another printer mode (which is more efficiently
+	//           implemented in the printer than here with another layer)
+	mode := printer.TabIndent | printer.UseSpaces
+	(&printer.Config{mode, *tabwidth}).Fprint(&tconv{output: w}, fset, x)
 }
 
 
-// Write text to w; optionally html-escaped.
-func writeText(w io.Writer, text []byte, html bool) {
-	if html {
-		template.HTMLEscape(w, text)
-		return
-	}
-	w.Write(text)
-}
-
-
-// Write anything to w; optionally html-escaped.
-func writeAny(w io.Writer, fset *token.FileSet, html bool, x interface{}) {
+// Write anything to w.
+func writeAny(w io.Writer, fset *token.FileSet, x interface{}) {
 	switch v := x.(type) {
 	case []byte:
-		writeText(w, v, html)
+		w.Write(v)
 	case string:
-		writeText(w, []byte(v), html)
+		w.Write([]byte(v))
 	case ast.Decl, ast.Expr, ast.Stmt, *ast.File:
-		writeNode(w, fset, x, html)
+		writeNode(w, fset, x)
 	default:
-		if html {
-			var buf bytes.Buffer
-			fmt.Fprint(&buf, x)
-			writeText(w, buf.Bytes(), true)
-		} else {
-			fmt.Fprint(w, x)
-		}
+		fmt.Fprint(w, x)
+	}
+}
+
+
+// Write anything html-escaped to w.
+func writeAnyHTML(w io.Writer, fset *token.FileSet, x interface{}) {
+	switch v := x.(type) {
+	case []byte:
+		template.HTMLEscape(w, v)
+	case string:
+		template.HTMLEscape(w, []byte(v))
+	case ast.Decl, ast.Expr, ast.Stmt, *ast.File:
+		var buf bytes.Buffer
+		writeNode(&buf, fset, x)
+		FormatText(w, buf.Bytes(), -1, true, "", nil)
+	default:
+		var buf bytes.Buffer
+		fmt.Fprint(&buf, x)
+		template.HTMLEscape(w, buf.Bytes())
 	}
 }
 
@@ -401,24 +411,16 @@ func fileset(x []interface{}) *token.FileSet {
 }
 
 
-// Template formatter for "html" format.
-func htmlFmt(w io.Writer, format string, x ...interface{}) {
-	writeAny(w, fileset(x), true, x[0])
-}
-
-
 // Template formatter for "html-esc" format.
 func htmlEscFmt(w io.Writer, format string, x ...interface{}) {
-	var buf bytes.Buffer
-	writeAny(&buf, fileset(x), false, x[0])
-	template.HTMLEscape(w, buf.Bytes())
+	writeAnyHTML(w, fileset(x), x[0])
 }
 
 
 // Template formatter for "html-comment" format.
 func htmlCommentFmt(w io.Writer, format string, x ...interface{}) {
 	var buf bytes.Buffer
-	writeAny(&buf, fileset(x), false, x[0])
+	writeAny(&buf, fileset(x), x[0])
 	// TODO(gri) Provide list of words (e.g. function parameters)
 	//           to be emphasized by ToHTML.
 	doc.ToHTML(w, buf.Bytes(), nil) // does html-escaping
@@ -427,14 +429,14 @@ func htmlCommentFmt(w io.Writer, format string, x ...interface{}) {
 
 // Template formatter for "" (default) format.
 func textFmt(w io.Writer, format string, x ...interface{}) {
-	writeAny(w, fileset(x), false, x[0])
+	writeAny(w, fileset(x), x[0])
 }
 
 
 // Template formatter for "urlquery-esc" format.
 func urlQueryEscFmt(w io.Writer, format string, x ...interface{}) {
 	var buf bytes.Buffer
-	writeAny(&buf, fileset(x), false, x[0])
+	writeAny(&buf, fileset(x), x[0])
 	template.HTMLEscape(w, []byte(http.URLEscape(string(buf.Bytes()))))
 }
 
@@ -603,7 +605,6 @@ func numlinesFmt(w io.Writer, format string, x ...interface{}) {
 
 var fmap = template.FormatterMap{
 	"":             textFmt,
-	"html":         htmlFmt,
 	"html-esc":     htmlEscFmt,
 	"html-comment": htmlCommentFmt,
 	"urlquery-esc": urlQueryEscFmt,
@@ -683,7 +684,7 @@ func servePage(w http.ResponseWriter, title, subtitle, query string, content []b
 		content,
 	}
 
-	if err := godocHTML.Execute(&d, w); err != nil {
+	if err := godocHTML.Execute(w, &d); err != nil {
 		log.Printf("godocHTML.Execute: %s", err)
 	}
 }
@@ -751,7 +752,7 @@ func serveHTMLDoc(w http.ResponseWriter, r *http.Request, abspath, relpath strin
 
 func applyTemplate(t *template.Template, name string, data interface{}) []byte {
 	var buf bytes.Buffer
-	if err := t.Execute(data, &buf); err != nil {
+	if err := t.Execute(&buf, data); err != nil {
 		log.Printf("%s.Execute: %s", name, err)
 	}
 	return buf.Bytes()
@@ -775,8 +776,12 @@ func serveTextFile(w http.ResponseWriter, r *http.Request, abspath, relpath, tit
 		return
 	}
 
-	contents := FormatText(src, 1, pathutil.Ext(abspath) == ".go", r.FormValue("h"), rangeSelection(r.FormValue("s")))
-	servePage(w, title+" "+relpath, "", "", contents)
+	var buf bytes.Buffer
+	buf.WriteString("<pre>")
+	FormatText(&buf, src, 1, pathutil.Ext(abspath) == ".go", r.FormValue("h"), rangeSelection(r.FormValue("s")))
+	buf.WriteString("</pre>")
+
+	servePage(w, title+" "+relpath, "", "", buf.Bytes())
 }
 
 
@@ -888,6 +893,11 @@ type PageInfo struct {
 	DirTime int64           // directory time stamp in seconds since epoch
 	IsPkg   bool            // false if this is not documenting a real package
 	Err     os.Error        // directory read error or nil
+}
+
+
+func (info *PageInfo) IsEmpty() bool {
+	return info.Err != nil || info.PAst == nil && info.PDoc == nil && info.Dirs == nil
 }
 
 

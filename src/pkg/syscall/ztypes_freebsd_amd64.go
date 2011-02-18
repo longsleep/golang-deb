@@ -6,36 +6,43 @@ package syscall
 
 // Constants
 const (
-	sizeofPtr           = 0x8
-	sizeofShort         = 0x2
-	sizeofInt           = 0x4
-	sizeofLong          = 0x8
-	sizeofLongLong      = 0x8
-	O_CLOEXEC           = 0
-	S_IFMT              = 0xf000
-	S_IFIFO             = 0x1000
-	S_IFCHR             = 0x2000
-	S_IFDIR             = 0x4000
-	S_IFBLK             = 0x6000
-	S_IFREG             = 0x8000
-	S_IFLNK             = 0xa000
-	S_IFSOCK            = 0xc000
-	S_ISUID             = 0x800
-	S_ISGID             = 0x400
-	S_ISVTX             = 0x200
-	S_IRUSR             = 0x100
-	S_IWUSR             = 0x80
-	S_IXUSR             = 0x40
-	SizeofSockaddrInet4 = 0x10
-	SizeofSockaddrInet6 = 0x1c
-	SizeofSockaddrAny   = 0x6c
-	SizeofSockaddrUnix  = 0x6a
-	SizeofLinger        = 0x8
-	SizeofMsghdr        = 0x30
-	SizeofCmsghdr       = 0xc
-	PTRACE_TRACEME      = 0
-	PTRACE_CONT         = 0x7
-	PTRACE_KILL         = 0x8
+	sizeofPtr              = 0x8
+	sizeofShort            = 0x2
+	sizeofInt              = 0x4
+	sizeofLong             = 0x8
+	sizeofLongLong         = 0x8
+	O_CLOEXEC              = 0
+	S_IFMT                 = 0xf000
+	S_IFIFO                = 0x1000
+	S_IFCHR                = 0x2000
+	S_IFDIR                = 0x4000
+	S_IFBLK                = 0x6000
+	S_IFREG                = 0x8000
+	S_IFLNK                = 0xa000
+	S_IFSOCK               = 0xc000
+	S_ISUID                = 0x800
+	S_ISGID                = 0x400
+	S_ISVTX                = 0x200
+	S_IRUSR                = 0x100
+	S_IWUSR                = 0x80
+	S_IXUSR                = 0x40
+	SizeofSockaddrInet4    = 0x10
+	SizeofSockaddrInet6    = 0x1c
+	SizeofSockaddrAny      = 0x6c
+	SizeofSockaddrUnix     = 0x6a
+	SizeofSockaddrDatalink = 0x36
+	SizeofLinger           = 0x8
+	SizeofIpMreq           = 0x8
+	SizeofMsghdr           = 0x30
+	SizeofCmsghdr          = 0xc
+	PTRACE_TRACEME         = 0
+	PTRACE_CONT            = 0x7
+	PTRACE_KILL            = 0x8
+	SizeofIfMsghdr         = 0xa8
+	SizeofIfData           = 0x98
+	SizeofIfaMsghdr        = 0x14
+	SizeofRtMsghdr         = 0x98
+	SizeofRtMetrics        = 0x70
 )
 
 // Types
@@ -102,8 +109,8 @@ type Stat_t struct {
 	Gen           uint32
 	Lspare        int32
 	Birthtimespec Timespec
-	Pad0          uint8
-	Pad1          uint8
+	Pad_godefs_0  uint8
+	Pad_godefs_1  uint8
 }
 
 type Statfs_t struct {
@@ -132,13 +139,13 @@ type Statfs_t struct {
 }
 
 type Flock_t struct {
-	Start  int64
-	Len    int64
-	Pid    int32
-	Type   int16
-	Whence int16
-	Sysid  int32
-	Pad0   [4]byte
+	Start        int64
+	Len          int64
+	Pid          int32
+	Type         int16
+	Whence       int16
+	Sysid        int32
+	Pad_godefs_0 [4]byte
 }
 
 type Dirent struct {
@@ -172,6 +179,17 @@ type RawSockaddrUnix struct {
 	Path   [104]int8
 }
 
+type RawSockaddrDatalink struct {
+	Len    uint8
+	Family uint8
+	Index  uint16
+	Type   uint8
+	Nlen   uint8
+	Alen   uint8
+	Slen   uint8
+	Data   [46]int8
+}
+
 type RawSockaddr struct {
 	Len    uint8
 	Family uint8
@@ -195,16 +213,21 @@ type Iovec struct {
 	Len  uint64
 }
 
+type IpMreq struct {
+	Multiaddr [4]byte /* in_addr */
+	Interface [4]byte /* in_addr */
+}
+
 type Msghdr struct {
-	Name       *byte
-	Namelen    uint32
-	Pad0       [4]byte
-	Iov        *Iovec
-	Iovlen     int32
-	Pad1       [4]byte
-	Control    *byte
-	Controllen uint32
-	Flags      int32
+	Name         *byte
+	Namelen      uint32
+	Pad_godefs_0 [4]byte
+	Iov          *Iovec
+	Iovlen       int32
+	Pad_godefs_1 [4]byte
+	Control      *byte
+	Controllen   uint32
+	Flags        int32
 }
 
 type Cmsghdr struct {
@@ -224,4 +247,85 @@ type Kevent_t struct {
 
 type FdSet struct {
 	X__fds_bits [16]uint64
+}
+
+type IfMsghdr struct {
+	Msglen       uint16
+	Version      uint8
+	Type         uint8
+	Addrs        int32
+	Flags        int32
+	Index        uint16
+	Pad_godefs_0 [2]byte
+	Data         IfData
+}
+
+type IfData struct {
+	Type        uint8
+	Physical    uint8
+	Addrlen     uint8
+	Hdrlen      uint8
+	Link_state  uint8
+	Spare_char1 uint8
+	Spare_char2 uint8
+	Datalen     uint8
+	Mtu         uint64
+	Metric      uint64
+	Baudrate    uint64
+	Ipackets    uint64
+	Ierrors     uint64
+	Opackets    uint64
+	Oerrors     uint64
+	Collisions  uint64
+	Ibytes      uint64
+	Obytes      uint64
+	Imcasts     uint64
+	Omcasts     uint64
+	Iqdrops     uint64
+	Noproto     uint64
+	Hwassist    uint64
+	Epoch       int64
+	Lastchange  Timeval
+}
+
+type IfaMsghdr struct {
+	Msglen       uint16
+	Version      uint8
+	Type         uint8
+	Addrs        int32
+	Flags        int32
+	Index        uint16
+	Pad_godefs_0 [2]byte
+	Metric       int32
+}
+
+type RtMsghdr struct {
+	Msglen       uint16
+	Version      uint8
+	Type         uint8
+	Index        uint16
+	Pad_godefs_0 [2]byte
+	Flags        int32
+	Addrs        int32
+	Pid          int32
+	Seq          int32
+	Errno        int32
+	Fmask        int32
+	Inits        uint64
+	Rmx          RtMetrics
+}
+
+type RtMetrics struct {
+	Locks    uint64
+	Mtu      uint64
+	Hopcount uint64
+	Expire   uint64
+	Recvpipe uint64
+	Sendpipe uint64
+	Ssthresh uint64
+	Rtt      uint64
+	Rttvar   uint64
+	Pksent   uint64
+	Weight   uint64
+	Filler   [3]uint64
 }

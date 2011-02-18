@@ -405,7 +405,7 @@ void
 importfile(Val *f, int line)
 {
 	Biobuf *imp;
-	char *file;
+	char *file, *p, *q;
 	int32 c;
 	int len;
 	Strlit *path;
@@ -423,6 +423,15 @@ importfile(Val *f, int line)
 		errorexit();
 	}
 
+	// The package name main is no longer reserved,
+	// but we reserve the import path "main" to identify
+	// the main package, just as we reserve the import 
+	// path "math" to identify the standard math package.
+	if(strcmp(f->u.sval->s, "main") == 0) {
+		yyerror("cannot import \"main\"");
+		errorexit();
+	}
+
 	if(strcmp(f->u.sval->s, "unsafe") == 0) {
 		if(safemode) {
 			yyerror("cannot import package unsafe");
@@ -432,7 +441,7 @@ importfile(Val *f, int line)
 		cannedimports("unsafe.6", unsafeimport);
 		return;
 	}
-
+	
 	path = f->u.sval;
 	if(islocalname(path)) {
 		cleanbuf = mal(strlen(pathname) + strlen(path->s) + 2);
@@ -459,9 +468,24 @@ importfile(Val *f, int line)
 	len = strlen(namebuf);
 	if(len > 2 && namebuf[len-2] == '.' && namebuf[len-1] == 'a') {
 		if(!skiptopkgdef(imp)) {
-			yyerror("import not package file: %s", namebuf);
+			yyerror("import %s: not a package file", file);
 			errorexit();
 		}
+	}
+	
+	// check object header
+	p = Brdstr(imp, '\n', 1);
+	if(strcmp(p, "empty archive") != 0) {
+		if(strncmp(p, "go object ", 10) != 0) {
+			yyerror("import %s: not a go object file", file);
+			errorexit();
+		}
+		q = smprint("%s %s %s", getgoos(), thestring, getgoversion());
+		if(strcmp(p+10, q) != 0) {
+			yyerror("import %s: object is [%s] expected [%s]", file, p+10, q);
+			errorexit();
+		}
+		free(q);
 	}
 
 	// assume files move (get installed)
@@ -479,6 +503,7 @@ importfile(Val *f, int line)
 	curio.infile = file;
 	curio.nlsemi = 0;
 	typecheckok = 1;
+
 	for(;;) {
 		c = getc();
 		if(c == EOF)
