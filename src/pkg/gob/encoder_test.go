@@ -6,6 +6,7 @@ package gob
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -120,7 +121,7 @@ func corruptDataCheck(s string, err os.Error, t *testing.T) {
 	dec := NewDecoder(b)
 	err1 := dec.Decode(new(ET2))
 	if err1 != err {
-		t.Error("expected error", err, "got", err1)
+		t.Errorf("from %q expected error %s; got %s", s, err, err1)
 	}
 }
 
@@ -381,6 +382,75 @@ func TestInterfaceIndirect(t *testing.T) {
 	err = NewDecoder(b).Decode(&r)
 	if err != nil {
 		t.Fatal("decode error:", err)
+	}
+}
+
+// Now follow various tests that decode into things that can't represent the
+// encoded value, all of which should be legal.
+
+// Also, when the ignored object contains an interface value, it may define
+// types. Make sure that skipping the value still defines the types by using
+// the encoder/decoder pair to send a value afterwards.  If an interface
+// is sent, its type in the test is always NewType0, so this checks that the
+// encoder and decoder don't skew with respect to type definitions.
+
+type Struct0 struct {
+	I interface{}
+}
+
+type NewType0 struct {
+	S string
+}
+
+type ignoreTest struct {
+	in, out interface{}
+}
+
+var ignoreTests = []ignoreTest{
+	// Decode normal struct into an empty struct
+	{&struct{ A int }{23}, &struct{}{}},
+	// Decode normal struct into a nil.
+	{&struct{ A int }{23}, nil},
+	// Decode singleton string into a nil.
+	{"hello, world", nil},
+	// Decode singleton slice into a nil.
+	{[]int{1, 2, 3, 4}, nil},
+	// Decode struct containing an interface into a nil.
+	{&Struct0{&NewType0{"value0"}}, nil},
+	// Decode singleton slice of interfaces into a nil.
+	{[]interface{}{"hi", &NewType0{"value1"}, 23}, nil},
+}
+
+func TestDecodeIntoNothing(t *testing.T) {
+	Register(new(NewType0))
+	for i, test := range ignoreTests {
+		b := new(bytes.Buffer)
+		enc := NewEncoder(b)
+		err := enc.Encode(test.in)
+		if err != nil {
+			t.Errorf("%d: encode error %s:", i, err)
+			continue
+		}
+		dec := NewDecoder(b)
+		err = dec.Decode(test.out)
+		if err != nil {
+			t.Errorf("%d: decode error: %s", i, err)
+			continue
+		}
+		// Now see if the encoder and decoder are in a consistent state.
+		str := fmt.Sprintf("Value %d", i)
+		err = enc.Encode(&NewType0{str})
+		if err != nil {
+			t.Fatalf("%d: NewType0 encode error: %s", i, err)
+		}
+		ns := new(NewType0)
+		err = dec.Decode(ns)
+		if err != nil {
+			t.Fatalf("%d: NewType0 decode error: %s", i, err)
+		}
+		if ns.S != str {
+			t.Fatalf("%d: expected %q got %q", i, str, ns.S)
+		}
 	}
 }
 

@@ -113,20 +113,20 @@ dir:
 
 ifdef CGOFILES
 _cgo_run: $(CGOFILES)
-	@touch _cgo_run
 	CGOPKGPATH=$(dir) cgo -- $(CGO_CFLAGS) $(CGOFILES)
+	touch _cgo_run
 
 # _CGO_CFLAGS and _CGO_LDFLAGS are defined via the evaluation of _cgo_flags.
 # The include happens before the commands in the recipe run,
 # so it cannot be done in the same recipe that runs cgo.
-_cgo_flags: _cgo_run
+_load_cgo_flags: _cgo_run
 	$(eval include _cgo_flags)
 
 # Include any previous flags in case cgo files are up to date.
 -include _cgo_flags
 
 # Ugly but necessary - cgo writes these files too.
-_cgo_gotypes.go _cgo_export.c _cgo_export.h _cgo_main.c _cgo_defun.c: _cgo_flags
+_cgo_gotypes.go _cgo_export.c _cgo_export.h _cgo_main.c _cgo_defun.c: _load_cgo_flags
 	@true
 
 %.cgo1.go %.cgo2.c: _cgo_defun.c
@@ -167,7 +167,7 @@ _CGO_LDFLAGS_darwin=-dynamiclib -Wl,-undefined,dynamic_lookup
 _CGO_LDFLAGS_windows=-shared -lm -mthreads
 
 # Have to compile the runtime header.
-RUNTIME_CFLAGS=-I"$(pkgdir)"
+RUNTIME_CFLAGS=-I$(pkgdir)
 
 # Compile _cgo_defun.c with 6c; needs access to the runtime headers.
 _cgo_defun.$O: _cgo_defun.c

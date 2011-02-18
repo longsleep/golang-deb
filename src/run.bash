@@ -30,26 +30,17 @@ xcd() {
 	builtin cd "$GOROOT"/src/$1
 }
 
-maketest() {
-	for i
-	do
-		(
-			xcd $i
-			if $rebuild; then
-				gomake clean
-				time gomake
-				gomake install
-			fi
-			gomake test
-		) || exit $?
-	done
-}
+if $rebuild; then
+	(xcd pkg
+		gomake clean
+		time gomake
+		gomake install
+	) || exit $i
+fi
 
-maketest \
-	pkg \
-
-# all of these are subtly different
-# from what maketest does.
+(xcd pkg
+gomake test
+) || exit $?
 
 (xcd pkg/sync;
 if $rebuild; then
@@ -77,19 +68,17 @@ time gomake test
 ) || exit $?
 
 [ "$GOARCH" == arm ] ||
+[ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/stdio
-if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
-	gomake clean
-	./test.bash
-fi
+gomake clean
+./test.bash
 ) || exit $?
 
 [ "$GOARCH" == arm ] ||
+[ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/life
-if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
-	gomake clean
-	./test.bash
-fi
+gomake clean
+./test.bash
 ) || exit $?
 
 (xcd pkg/exp/ogle
@@ -97,16 +86,16 @@ gomake clean
 time gomake ogle
 ) || exit $?
 
+[ "$GOHOSTOS" == windows ] ||
 (xcd ../doc/progs
-if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
-	time ./run
-fi
+time ./run
 ) || exit $?
 
+[ "$GOHOSTOS" == windows ] ||
 (xcd ../doc/codelab/wiki
-if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
-	gomake test
-fi
+gomake clean
+gomake
+gomake test
 ) || exit $?
 
 for i in ../misc/dashboard/builder ../misc/goplay
@@ -118,15 +107,15 @@ do
 done
 
 [ "$GOARCH" == arm ] ||
+[ "$GOHOSTOS" == windows ] ||
 (xcd ../test/bench
-if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
-	./timing.sh -test
-fi
+./timing.sh -test
 ) || exit $?
 
+[ "$GOHOSTOS" == windows ] ||
 (xcd ../test
-if [[ $(uname | tr A-Z a-z | sed 's/mingw/windows/') != *windows* ]]; then
-	./run
-fi
+./run
 ) || exit $?
 
+echo
+echo ALL TESTS PASSED

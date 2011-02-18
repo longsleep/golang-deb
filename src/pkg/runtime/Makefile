@@ -26,7 +26,11 @@ GOFILES=\
 	softfloat64.go\
 	type.go\
 	version.go\
+	version_$(GOOS).go\
+	version_$(GOARCH).go\
 	runtime_defs.go\
+
+CLEANFILES+=version.go version_*.go
 
 OFILES_windows=\
 	syscall.$O\
@@ -107,7 +111,7 @@ include ../../Make.pkg
 
 $(pkgdir)/%.h: %.h
 	@test -d $(QUOTED_GOROOT)/pkg && mkdir -p $(pkgdir)
-	cp $< $@
+	cp $< "$@"
 
 clean: clean-local
 
@@ -127,8 +131,14 @@ mkversion: mkversion.c
 version.go: mkversion
 	./mkversion >version.go
 
+version_$(GOARCH).go:
+	(echo 'package runtime'; echo 'const theGoarch = "$(GOARCH)"') >$@
+
+version_$(GOOS).go:
+	(echo 'package runtime'; echo 'const theGoos = "$(GOOS)"') >$@
+
 %.c:	%.goc goc2c
-	./goc2c `pwd`/$< > $@.tmp
+	./goc2c "`pwd`/$<" > $@.tmp
 	mv -f $@.tmp $@
 
 %.$O:	$(GOARCH)/%.c

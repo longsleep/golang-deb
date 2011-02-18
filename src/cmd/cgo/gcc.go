@@ -19,6 +19,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -66,6 +67,8 @@ func cname(s string) string {
 func (p *Package) ParseFlags(f *File, srcfile string) {
 	linesIn := strings.Split(f.Preamble, "\n", -1)
 	linesOut := make([]string, 0, len(linesIn))
+
+NextLine:
 	for _, line := range linesIn {
 		l := strings.TrimSpace(line)
 		if len(l) < 5 || l[:4] != "#cgo" || !unicode.IsSpace(int(l[4])) {
@@ -79,11 +82,29 @@ func (p *Package) ParseFlags(f *File, srcfile string) {
 			fatal("%s: bad #cgo line: %s", srcfile, line)
 		}
 
-		k := fields[0]
-		v := strings.TrimSpace(fields[1])
+		var k string
+		kf := strings.Fields(fields[0])
+		switch len(kf) {
+		case 1:
+			k = kf[0]
+		case 2:
+			k = kf[1]
+			switch kf[0] {
+			case runtime.GOOS:
+			case runtime.GOARCH:
+			case runtime.GOOS + "/" + runtime.GOARCH:
+			default:
+				continue NextLine
+			}
+		default:
+			fatal("%s: bad #cgo option: %s", srcfile, fields[0])
+		}
+
 		if k != "CFLAGS" && k != "LDFLAGS" {
 			fatal("%s: unsupported #cgo option %s", srcfile, k)
 		}
+
+		v := strings.TrimSpace(fields[1])
 		args, err := splitQuoted(v)
 		if err != nil {
 			fatal("%s: bad #cgo option %s: %s", srcfile, k, err.String())
@@ -288,7 +309,7 @@ func (p *Package) guessKinds(f *File) []*Name {
 	var b bytes.Buffer
 	b.WriteString(builtinProlog)
 	b.WriteString(f.Preamble)
-	b.WriteString("void f(void) {\n")
+	b.WriteString("void __cgo__f__(void) {\n")
 	b.WriteString("#line 0 \"cgo-test\"\n")
 	for i, n := range toSniff {
 		fmt.Fprintf(&b, "%s; enum { _cgo_enum_%d = %s }; /* cgo-test:%d */\n", n.C, i, n.C, i)
@@ -753,6 +774,8 @@ var dwarfToName = map[string]string{
 	"double complex":         "complexdouble",
 }
 
+const signedDelta = 64
+
 // Type returns a *Type with the same memory layout as
 // dtype when used as the type of a variable or a struct field.
 func (c *typeConv) Type(dtype dwarf.Type) *Type {
@@ -818,7 +841,19 @@ func (c *typeConv) Type(dtype dwarf.Type) *Type {
 		t.Align = 1
 
 	case *dwarf.EnumType:
-		switch t.Size {
+		if t.Align = t.Size; t.Align >= c.ptrSize {
+			t.Align = c.ptrSize
+		}
+		t.C = "enum " + dt.EnumName
+		signed := 0
+		t.EnumValues = make(map[string]int64)
+		for _, ev := range dt.Val {
+			t.EnumValues[ev.Name] = ev.Val
+			if ev.Val < 0 {
+				signed = signedDelta
+			}
+		}
+		switch t.Size + int64(signed) {
 		default:
 			fatal("unexpected: %d-byte enum type - %s", t.Size, dtype)
 		case 1:
@@ -829,14 +864,14 @@ func (c *typeConv) Type(dtype dwarf.Type) *Type {
 			t.Go = c.uint32
 		case 8:
 			t.Go = c.uint64
-		}
-		if t.Align = t.Size; t.Align >= c.ptrSize {
-			t.Align = c.ptrSize
-		}
-		t.C = "enum " + dt.EnumName
-		t.EnumValues = make(map[string]int64)
-		for _, ev := range dt.Val {
-			t.EnumValues[ev.Name] = ev.Val
+		case 1 + signedDelta:
+			t.Go = c.int8
+		case 2 + signedDelta:
+			t.Go = c.int16
+		case 4 + signedDelta:
+			t.Go = c.int32
+		case 8 + signedDelta:
+			t.Go = c.int64
 		}
 
 	case *dwarf.FloatType:

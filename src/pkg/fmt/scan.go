@@ -7,6 +7,7 @@ package fmt
 import (
 	"bytes"
 	"io"
+	"math"
 	"os"
 	"reflect"
 	"strconv"
@@ -15,18 +16,11 @@ import (
 	"utf8"
 )
 
-// readRuner is the interface to something that can read runes.  If
-// the object provided to Scan does not satisfy this interface, the
-// object will be wrapped by a readRune object.
-type readRuner interface {
-	ReadRune() (rune int, size int, err os.Error)
-}
-
-// unreadRuner is the interface to something that can unread runes.
+// runeUnreader is the interface to something that can unread runes.
 // If the object provided to Scan does not satisfy this interface,
 // a local buffer will be used to back up the input, but its contents
 // will be lost when Scan returns.
-type unreadRuner interface {
+type runeUnreader interface {
 	UnreadRune() os.Error
 }
 
@@ -36,7 +30,7 @@ type unreadRuner interface {
 type ScanState interface {
 	// GetRune reads the next rune (Unicode code point) from the input.
 	GetRune() (rune int, err os.Error)
-	// UngetRune causes the next call to GetRune to return the rune.
+	// UngetRune causes the next call to GetRune to return the same rune.
 	UngetRune()
 	// Width returns the value of the width option and whether it has been set.
 	// The unit is Unicode code points.
@@ -137,15 +131,15 @@ const EOF = -1
 
 // ss is the internal implementation of ScanState.
 type ss struct {
-	rr         readRuner    // where to read input
-	buf        bytes.Buffer // token accumulator
-	nlIsSpace  bool         // whether newline counts as white space
-	peekRune   int          // one-rune lookahead
-	prevRune   int          // last rune returned by GetRune
-	atEOF      bool         // already read EOF
-	maxWid     int          // max width of field, in runes
-	widPresent bool         // width was specified
-	wid        int          // width consumed so far; used in accept()
+	rr         io.RuneReader // where to read input
+	buf        bytes.Buffer  // token accumulator
+	nlIsSpace  bool          // whether newline counts as white space
+	peekRune   int           // one-rune lookahead
+	prevRune   int           // last rune returned by GetRune
+	atEOF      bool          // already read EOF
+	maxWid     int           // max width of field, in runes
+	widPresent bool          // width was specified
+	wid        int           // width consumed so far; used in accept()
 }
 
 func (s *ss) GetRune() (rune int, err os.Error) {
@@ -215,7 +209,7 @@ func (s *ss) mustGetRune() (rune int) {
 
 
 func (s *ss) UngetRune() {
-	if u, ok := s.rr.(unreadRuner); ok {
+	if u, ok := s.rr.(runeUnreader); ok {
 		u.UnreadRune()
 	} else {
 		s.peekRune = s.prevRune
@@ -246,7 +240,7 @@ func (s *ss) Token() (tok string, err os.Error) {
 
 // readRune is a structure to enable reading UTF-8 encoded code points
 // from an io.Reader.  It is used if the Reader given to the scanner does
-// not already implement ReadRuner.
+// not already implement io.RuneReader.
 type readRune struct {
 	reader  io.Reader
 	buf     [utf8.UTFMax]byte // used only inside ReadRune
@@ -308,7 +302,7 @@ var ssFree = newCache(func() interface{} { return new(ss) })
 // Allocate a new ss struct or grab a cached one.
 func newScanState(r io.Reader, nlIsSpace bool) *ss {
 	s := ssFree.get().(*ss)
-	if rr, ok := r.(readRuner); ok {
+	if rr, ok := r.(io.RuneReader); ok {
 		s.rr = rr
 	} else {
 		s.rr = &readRune{reader: r}
@@ -394,19 +388,26 @@ func (s *ss) consume(ok string, accept bool) bool {
 	if rune == EOF {
 		return false
 	}
-	for i := 0; i < len(ok); i++ {
-		if int(ok[i]) == rune {
-			if accept {
-				s.buf.WriteRune(rune)
-				s.wid++
-			}
-			return true
+	if strings.IndexRune(ok, rune) >= 0 {
+		if accept {
+			s.buf.WriteRune(rune)
+			s.wid++
 		}
+		return true
 	}
 	if rune != EOF && accept {
 		s.UngetRune()
 	}
 	return false
+}
+
+// peek reports whether the next character is in the ok string, without consuming it.
+func (s *ss) peek(ok string) bool {
+	rune := s.getRune()
+	if rune != EOF {
+		s.UngetRune()
+	}
+	return strings.IndexRune(ok, rune) >= 0
 }
 
 // accept checks the next rune in the input.  If it's a byte (sic) in the string, it puts it in the
@@ -459,7 +460,7 @@ const (
 	hexadecimalDigits = "0123456789aAbBcCdDeEfF"
 	sign              = "+-"
 	period            = "."
-	exponent          = "eE"
+	exponent          = "eEp"
 )
 
 // getBase returns the numeric base represented by the verb and its digit string.
@@ -482,8 +483,8 @@ func (s *ss) getBase(verb int) (base int, digits string) {
 }
 
 // scanNumber returns the numerical string with specified digits starting here.
-func (s *ss) scanNumber(digits string) string {
-	if !s.accept(digits) {
+func (s *ss) scanNumber(digits string, haveDigits bool) string {
+	if !haveDigits && !s.accept(digits) {
 		s.errorString("expected integer")
 	}
 	for s.accept(digits) {
@@ -502,22 +503,44 @@ func (s *ss) scanRune(bitSize int) int64 {
 	return rune
 }
 
+// scanBasePrefix reports whether the integer begins with a 0 or 0x,
+// and returns the base, digit string, and whether a zero was found.
+// It is called only if the verb is %v.
+func (s *ss) scanBasePrefix() (base int, digits string, found bool) {
+	if !s.peek("0") {
+		return 10, decimalDigits, false
+	}
+	s.accept("0")
+	found = true // We've put a digit into the token buffer.
+	// Special cases for '0' && '0x'
+	base, digits = 8, octalDigits
+	if s.peek("xX") {
+		s.consume("xX", false)
+		base, digits = 16, hexadecimalDigits
+	}
+	return
+}
+
 // scanInt returns the value of the integer represented by the next
 // token, checking for overflow.  Any error is stored in s.err.
 func (s *ss) scanInt(verb int, bitSize int) int64 {
 	if verb == 'c' {
 		return s.scanRune(bitSize)
 	}
-	base, digits := s.getBase(verb)
 	s.skipSpace(false)
+	base, digits := s.getBase(verb)
+	haveDigits := false
 	if verb == 'U' {
 		if !s.consume("U", false) || !s.consume("+", false) {
 			s.errorString("bad unicode format ")
 		}
 	} else {
 		s.accept(sign) // If there's a sign, it will be left in the token buffer.
+		if verb == 'v' {
+			base, digits, haveDigits = s.scanBasePrefix()
+		}
 	}
-	tok := s.scanNumber(digits)
+	tok := s.scanNumber(digits, haveDigits)
 	i, err := strconv.Btoi64(tok, base)
 	if err != nil {
 		s.error(err)
@@ -536,14 +559,17 @@ func (s *ss) scanUint(verb int, bitSize int) uint64 {
 	if verb == 'c' {
 		return uint64(s.scanRune(bitSize))
 	}
-	base, digits := s.getBase(verb)
 	s.skipSpace(false)
+	base, digits := s.getBase(verb)
+	haveDigits := false
 	if verb == 'U' {
 		if !s.consume("U", false) || !s.consume("+", false) {
 			s.errorString("bad unicode format ")
 		}
+	} else if verb == 'v' {
+		base, digits, haveDigits = s.scanBasePrefix()
 	}
-	tok := s.scanNumber(digits)
+	tok := s.scanNumber(digits, haveDigits)
 	i, err := strconv.Btoui64(tok, base)
 	if err != nil {
 		s.error(err)
@@ -617,6 +643,27 @@ func (s *ss) complexTokens() (real, imag string) {
 
 // convertFloat converts the string to a float64value.
 func (s *ss) convertFloat(str string, n int) float64 {
+	if p := strings.Index(str, "p"); p >= 0 {
+		// Atof doesn't handle power-of-2 exponents,
+		// but they're easy to evaluate.
+		f, err := strconv.AtofN(str[:p], n)
+		if err != nil {
+			// Put full string into error.
+			if e, ok := err.(*strconv.NumError); ok {
+				e.Num = str
+			}
+			s.error(err)
+		}
+		n, err := strconv.Atoi(str[p+1:])
+		if err != nil {
+			// Put full string into error.
+			if e, ok := err.(*strconv.NumError); ok {
+				e.Num = str
+			}
+			s.error(err)
+		}
+		return math.Ldexp(f, n)
+	}
 	f, err := strconv.AtofN(str, n)
 	if err != nil {
 		s.error(err)
@@ -747,7 +794,7 @@ func (s *ss) hexString() string {
 	return s.buf.String()
 }
 
-const floatVerbs = "eEfFgGv"
+const floatVerbs = "beEfFgGv"
 
 // scanOne scans a single value, deriving the scanner from the type of the argument.
 func (s *ss) scanOne(verb int, field interface{}) {

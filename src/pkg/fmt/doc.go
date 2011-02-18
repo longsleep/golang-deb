@@ -16,6 +16,7 @@
 			when printing structs, the plus flag (%+v) adds field names
 		%#v	a Go-syntax representation of the value
 		%T	a Go-syntax representation of the type of the value
+		%%	a literal percent sign; consumes no value
 
 	Boolean:
 		%t	the word true or false
@@ -28,6 +29,8 @@
 		%X	base 16, with upper-case letters for A-F
 		%U	Unicode format: U+1234; same as "U+%x" with 4 digits default
 	Floating-point and complex constituents:
+		%b	decimalless scientific notation with exponent a power
+			of two, in the manner of strconv.Ftoa32, e.g. -123456p-78
 		%e	scientific notation, e.g. -1234.456e+78
 		%E	scientific notation, e.g. -1234.456E+78
 		%f	decimal point but no exponent, e.g. 123.456
@@ -135,6 +138,10 @@
 	%T is not implemented
 	%e %E %f %F %g %g are all equivalent and scan any floating point or complex value
 	%s and %v on strings scan a space-delimited token
+
+	The familiar base-setting prefixes 0 (octal) and 0x
+	(hexadecimal) are accepted when scanning integers without a
+	format or with the %v verb.
 
 	Width is interpreted in the input text (%5s means at most
 	five runes of input will be read to scan a string) but there

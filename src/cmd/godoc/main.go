@@ -83,20 +83,21 @@ func exec(rw http.ResponseWriter, args []string) (status int) {
 	if *verbose {
 		log.Printf("executing %v", args)
 	}
-	pid, err := os.ForkExec(bin, args, os.Environ(), *goroot, fds)
+	p, err := os.StartProcess(bin, args, os.Environ(), *goroot, fds)
 	defer r.Close()
 	w.Close()
 	if err != nil {
-		log.Printf("os.ForkExec(%q): %v", bin, err)
+		log.Printf("os.StartProcess(%q): %v", bin, err)
 		return 2
 	}
+	defer p.Release()
 
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
-	wait, err := os.Wait(pid, 0)
+	wait, err := p.Wait(0)
 	if err != nil {
 		os.Stderr.Write(buf.Bytes())
-		log.Printf("os.Wait(%d, 0): %v", pid, err)
+		log.Printf("os.Wait(%d, 0): %v", p.Pid, err)
 		return 2
 	}
 	status = wait.ExitStatus()
@@ -317,7 +318,7 @@ func main() {
 	}
 	relpath := path
 	abspath := path
-	if len(path) > 0 && path[0] != '/' {
+	if !pathutil.IsAbs(path) {
 		abspath = absolutePath(path, pkgHandler.fsRoot)
 	} else {
 		relpath = relativePath(path)
@@ -336,12 +337,17 @@ func main() {
 	//            if there are multiple packages in a directory.
 	info := pkgHandler.getPageInfo(abspath, relpath, "", mode)
 
-	if info.Err != nil || info.PAst == nil && info.PDoc == nil && info.Dirs == nil {
+	if info.IsEmpty() {
 		// try again, this time assume it's a command
-		if len(path) > 0 && path[0] != '/' {
+		if !pathutil.IsAbs(path) {
 			abspath = absolutePath(path, cmdHandler.fsRoot)
 		}
-		info = cmdHandler.getPageInfo(abspath, relpath, "", mode)
+		cmdInfo := cmdHandler.getPageInfo(abspath, relpath, "", mode)
+		// only use the cmdInfo if it actually contains a result
+		// (don't hide errors reported from looking up a package)
+		if !cmdInfo.IsEmpty() {
+			info = cmdInfo
+		}
 	}
 	if info.Err != nil {
 		log.Fatalf("%v", info.Err)
@@ -366,7 +372,11 @@ func main() {
 				if i > 0 {
 					fmt.Println()
 				}
-				writeAny(os.Stdout, info.FSet, *html, d)
+				if *html {
+					writeAnyHTML(os.Stdout, info.FSet, d)
+				} else {
+					writeAny(os.Stdout, info.FSet, d)
+				}
 				fmt.Println()
 			}
 			return
@@ -376,7 +386,7 @@ func main() {
 		}
 	}
 
-	if err := packageText.Execute(info, os.Stdout); err != nil {
+	if err := packageText.Execute(os.Stdout, info); err != nil {
 		log.Printf("packageText.Execute: %s", err)
 	}
 }
