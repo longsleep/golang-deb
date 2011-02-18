@@ -1,0 +1,22 @@
+--- a/src/cmd/goinstall/main.go
++++ b/src/cmd/goinstall/main.go
+@@ -38,7 +38,7 @@ var (
+ 	installedPkgs = make(map[string]bool)
+ 
+ 	allpkg            = flag.Bool("a", false, "install all previously installed packages")
+-	reportToDashboard = flag.Bool("dashboard", true, "report public packages at "+dashboardURL)
++	reportToDashboard = flag.Bool("dashboard", false, "report public packages at "+dashboardURL)
+ 	logPkgs           = flag.Bool("log", true, "log installed packages to $GOROOT/goinstall.log for use by -a")
+ 	update            = flag.Bool("u", false, "update already-downloaded packages")
+ 	clean             = flag.Bool("clean", false, "clean the package directory before installing")
+--- a/src/cmd/goinstall/doc.go
++++ b/src/cmd/goinstall/doc.go
+@@ -20,7 +20,7 @@ Usage:
+ Flags and default settings:
+         -a=false          install all previously installed packages
+         -d=false          install all package prerequisites (dangerous on Debian)
+-	-dashboard=true   tally public packages on godashboard.appspot.com
++	-dashboard=false  tally public packages on godashboard.appspot.com
+ 	-log=true         log installed packages to $GOROOT/goinstall.log for use by -a
+ 	-u=false          update already-downloaded packages
+ 	-v=false          verbose operation
