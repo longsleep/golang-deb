@@ -1,6 +1,14 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -43,6 +43,7 @@ var (
+@@ -21,6 +21,7 @@ import (
+ )
+ 
+ func usage() {
++	fmt.Fprintf(os.Stderr, "WARNING: Usage of goinstall is highly discouraged on Debian system. goinstall is not FHS friendly and it will possibly overwrite files from the package creating a highly unstable mess in /usr/lib/golang. You have been warned!\n"
+ 	fmt.Fprint(os.Stderr, "usage: goinstall importpath...\n")
+ 	fmt.Fprintf(os.Stderr, "\tgoinstall -a\n")
+ 	flag.PrintDefaults()
+@@ -43,6 +44,7 @@ var (
  	update            = flag.Bool("u", false, "update already-downloaded packages")
  	clean             = flag.Bool("clean", false, "clean the package directory before installing")
  	verbose           = flag.Bool("v", false, "verbose")
@@ -8,7 +16,7 @@
  )
  
  type status int // status for visited map
-@@ -189,7 +190,11 @@ func install(pkg, parent string) {
+@@ -189,7 +191,11 @@ func install(pkg, parent string) {
  	}
  	for _, p := range dirInfo.imports {
  		if p != "C" {
