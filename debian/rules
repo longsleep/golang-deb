@@ -25,8 +25,8 @@ override_dh_auto_test:
 	:
 #	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
 
-#override_dh_compress:
-#	dh_compress -Xusr/share/doc/golang-doc/html
+override_dh_compress:
+	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
 
 override_dh_auto_install:
 	mkdir -p $(DESTDIR)$(bindir)
