@@ -1,0 +1,9 @@
+ == Installation of additional packages with goinstall ==
+
+Debian's goinstall was modified to not install dependencies by
+default, because it tries to recompile system libraries, which fails.
+If you want to use goinstall you are probably better using golang-go
+installed in your home, because goinstall is not very FHS friendly
+now.
+
+ -- Ondřej Surý <ondrej@debian.org>, Fri, 18 Feb 2011 15:38:47 +0100
