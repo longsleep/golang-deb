@@ -49,6 +49,8 @@ override_dh_auto_install:
 	rm -rf $(DESTDIR)/usr/lib/golang/lib/codereview
 	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
 	for cmd in nm cov prof; do ln -s 6$$cmd $(DESTDIR)$(bindir)/golang-$$cmd; done
+	# remove RUNPATH from go binaries
+	for cmd in goyacc ebnflint godoc govet gofmt goinstall cgo; do chrpath -d $(DESTDIR)$(bindir)/$$cmd; done
 
 override_dh_install:
 	dh_install --fail-missing
