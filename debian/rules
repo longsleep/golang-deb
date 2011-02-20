@@ -12,6 +12,7 @@ build clean install binary-arch binary-indep binary:
 	+dh --parallel $(opt_no_act) $@
 
 override_dh_auto_clean: debian/golang-src.install
+	rm -rf bin
 	rm -f debian/*+
 	rm -f debian/build.stamp
 	: NEEDSWORK: update src/pkg/Makefile.
