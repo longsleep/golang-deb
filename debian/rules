@@ -45,7 +45,7 @@ override_dh_strip:
 debian/build.stamp:
 	rm -f debian/build.stamp
 	mkdir -p $(GOBIN)
-	cd src && bash ./make.bash
+	+cd src && bash ./make.bash
 	>debian/build.stamp
 
 opt_no_act =
