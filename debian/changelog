@@ -1,10 +1,16 @@
 golang (2011.02.15-2) unstable; urgency=low
 
+  [ Ondřej Surý ]
   * Add ${misc:Depends} to golang-mode to shutup lintian
   * Rehaul build system and add golang-src package with .go source files
   * goinstall: do not automatically install prerequisities
   * goinstall: don't report to dashboard by default
   * Add a README.Debian about local modifications to goinstall
+  * Add warning about local modifications also directly to goinstall command
+  
+  [ Florian Weimer ]
+  * Fix syntax error in 004-
+    dont_reinstall_dependencies_in_goinstall.patch
 
  -- Ondřej Surý <ondrej@debian.org>  Fri, 18 Feb 2011 16:02:09 +0100
 
