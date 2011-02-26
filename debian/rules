@@ -31,7 +31,6 @@ override_dh_compress:
 
 override_dh_auto_install:
 	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
-	for cmd in nm cov prof; do ln -s 6$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
 	# remove RUNPATH from go binaries
 	for cmd in goyacc ebnflint godoc govet gofmt goinstall cgo; do chrpath -d $(CURDIR)$(bindir)/$$cmd; done
 
@@ -40,6 +39,7 @@ override_dh_install:
 	for f in $$(find src/cmd -name doc.go ; find src/pkg -name \*.go); do \
 	  install -D -m 0644 $$f debian/golang-src/$(datadir)/$$f; \
 	done
+	make -f debian/native-symlinks.mk
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet
