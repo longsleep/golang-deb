@@ -2,3 +2,4 @@
 003-set_correct_runpath.patch
 004-dont_reinstall_dependencies_in_goinstall.patch
 005-goinstall_dont_call_home_by_default.patch
+emacs-mode-key-literal-indent

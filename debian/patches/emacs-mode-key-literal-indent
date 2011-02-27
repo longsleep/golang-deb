@@ -1,0 +1,21 @@
+Index: git/misc/emacs/go-mode.el
+===================================================================
+--- git.orig/misc/emacs/go-mode.el	2011-02-27 16:04:51.291009005 +0100
++++ git/misc/emacs/go-mode.el	2011-02-27 16:05:36.000000000 +0100
+@@ -7,7 +7,6 @@
+ ;;; To do:
+ 
+ ;; * Indentation is *almost* identical to gofmt
+-;; ** We think struct literal keys are labels and outdent them
+ ;; ** We disagree on the indentation of function literals in arguments
+ ;; ** There are bugs with the close brace of struct literals
+ ;; * Highlight identifiers according to their syntactic context: type,
+@@ -401,7 +400,7 @@
+                 (setq first nil))))
+ 
+           ;; case, default, and labels are outdented 1 level
+-          (when (looking-at "\\<case\\>\\|\\<default\\>\\|\\w+\\s *:\\(\\S.\\|$\\)")
++          (when (looking-at "\\<case\\>\\|\\<default\\>\\|\\w+[:space:]*:[:space:]**$")
+             (decf indent tab-width))
+ 
+           ;; Continuation lines are indented 1 level
