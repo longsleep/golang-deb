@@ -1,8 +1,8 @@
-golang-tools: statically-linked-binary ./usr/bin/godoc
-golang-tools: unstripped-binary-or-object ./usr/bin/godoc
-golang-tools: statically-linked-binary ./usr/bin/gofmt
-golang-tools: unstripped-binary-or-object ./usr/bin/gofmt
-golang-tools: statically-linked-binary ./usr/bin/goinstall
-golang-tools: unstripped-binary-or-object ./usr/bin/goinstall
-golang-tools: statically-linked-binary ./usr/bin/govet
-golang-tools: unstripped-binary-or-object ./usr/bin/govet
+golang-tools: statically-linked-binary usr/bin/godoc
+golang-tools: unstripped-binary-or-object usr/bin/godoc
+golang-tools: statically-linked-binary usr/bin/gofmt
+golang-tools: unstripped-binary-or-object usr/bin/gofmt
+golang-tools: statically-linked-binary usr/bin/goinstall
+golang-tools: unstripped-binary-or-object usr/bin/goinstall
+golang-tools: statically-linked-binary usr/bin/govet
+golang-tools: unstripped-binary-or-object usr/bin/govet

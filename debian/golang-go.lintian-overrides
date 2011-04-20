@@ -1,7 +1,6 @@
-golang-go: statically-linked-binary ./usr/bin/cgo
-golang-go: statically-linked-binary ./usr/bin/ebnflint
-golang-go: statically-linked-binary ./usr/bin/goinstall
-golang-go: statically-linked-binary ./usr/bin/goyacc
-golang-go: unstripped-binary-or-object ./usr/bin/cgo
-golang-go: unstripped-binary-or-object ./usr/bin/ebnflint
-golang-go: unstripped-binary-or-object ./usr/bin/goyacc
+golang-go: unstripped-binary-or-object usr/bin/cgo
+golang-go: statically-linked-binary usr/bin/cgo
+golang-go: unstripped-binary-or-object usr/bin/ebnflint
+golang-go: statically-linked-binary usr/bin/ebnflint
+golang-go: unstripped-binary-or-object usr/bin/goyacc
+golang-go: statically-linked-binary usr/bin/goyacc
