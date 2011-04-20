@@ -4,7 +4,7 @@
  )
  
  func usage() {
-+	fmt.Fprintf(os.Stderr, "WARNING: Usage of goinstall is highly discouraged on Debian system. goinstall is not FHS friendly and it will possibly overwrite files from the package creating a highly unstable mess in /usr/lib/golang. You have been warned!\n")
++	fmt.Fprintf(os.Stderr, "WARNING: Usage of goinstall is highly discouraged on Debian system. goinstall is not FHS friendly and it will possibly overwrite files from the package creating a highly unstable mess in /usr/lib/go. You have been warned!\n")
  	fmt.Fprint(os.Stderr, "usage: goinstall importpath...\n")
  	fmt.Fprintf(os.Stderr, "\tgoinstall -a\n")
  	flag.PrintDefaults()
@@ -37,7 +37,7 @@
  
 +WARNING: Usage of goinstall is highly discouraged on Debian system.
 +goinstall is not FHS friendly and it will possibly overwrite files
-+from the package creating a highly unstable mess in /usr/lib/golang.
++from the package creating a highly unstable mess in /usr/lib/go.
 +You have been warned!
 +
  Goinstall is an experiment in automatic package installation.

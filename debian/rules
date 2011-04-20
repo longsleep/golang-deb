@@ -4,8 +4,8 @@
 
 PACKAGE = golang
 
-libexecdir := /usr/lib/golang
-datadir := /usr/share/golang
+libexecdir := /usr/lib/go
+datadir := /usr/share/go
 bindir := /bin
 
 build clean install binary-arch binary-indep binary:
@@ -102,15 +102,14 @@ REV = release
 get-orig-source:
 	mkdir debian-orig-source
 	-set -e; cd debian-orig-source; \
-	hg clone -U -r"$(REV)" "$(REPO)" go; \
+	hg clone -r"$(REV)" "$(REPO)" go; \
 	( \
 		cd go; \
-		hg pull; \
 		VERSION=$$( \
 			hg identify -t -r"$(REV)" | \
 			perl -e '<> =~ /release\.(\d+)-(\d+)-(\d+)/; print "$$1.$$2.$$3"' \
 		); \
-		hg archive -ttgz -p"google-go-$$VERSION/" -r"$(REV)" -X'.hg*' \
+		hg archive -ttgz -p"google-go-$$VERSION/" -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' \
 			../../google-go_$$VERSION.orig.tar.gz; \
 	)
 	rm -fr debian-orig-source

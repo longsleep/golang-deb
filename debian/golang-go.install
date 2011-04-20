@@ -1,4 +1,4 @@
-pkg /usr/lib/golang/
+pkg /usr/lib/go/
 bin/godefs /usr/bin/
 bin/gopack /usr/bin/
 bin/gotest /usr/bin/
@@ -15,6 +15,6 @@ bin/?a /usr/bin/
 bin/?nm /usr/bin/
 bin/?g /usr/bin/
 bin/golang-* /usr/bin/
-src/Make.* /usr/share/golang/src/
-src/pkg/runtime/cgocall.h /usr/share/golang/src/pkg/runtime/
-src/pkg/runtime/runtime.h /usr/share/golang/src/pkg/runtime/
+src/Make.* /usr/share/go/src/
+src/pkg/runtime/cgocall.h /usr/share/go/src/pkg/runtime/
+src/pkg/runtime/runtime.h /usr/share/go/src/pkg/runtime/
