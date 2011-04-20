@@ -303,7 +303,7 @@ func TestScalarEncInstructions(t *testing.T) {
 	}
 }
 
-func execDec(typ string, instr *decInstr, state *decodeState, t *testing.T, p unsafe.Pointer) {
+func execDec(typ string, instr *decInstr, state *decoderState, t *testing.T, p unsafe.Pointer) {
 	defer testError(t)
 	v := int(state.decodeUint())
 	if v+state.fieldnum != 6 {
@@ -313,7 +313,7 @@ func execDec(typ string, instr *decInstr, state *decodeState, t *testing.T, p un
 	state.fieldnum = 6
 }
 
-func newDecodeStateFromData(data []byte) *decodeState {
+func newDecodeStateFromData(data []byte) *decoderState {
 	b := bytes.NewBuffer(data)
 	state := newDecodeState(nil, b)
 	state.fieldnum = -1
@@ -342,7 +342,7 @@ func TestScalarDecInstructions(t *testing.T) {
 		var data struct {
 			a int
 		}
-		instr := &decInstr{decOpMap[reflect.Int], 6, 0, 0, ovfl}
+		instr := &decInstr{decOpTable[reflect.Int], 6, 0, 0, ovfl}
 		state := newDecodeStateFromData(signedResult)
 		execDec("int", instr, state, t, unsafe.Pointer(&data))
 		if data.a != 17 {
@@ -355,7 +355,7 @@ func TestScalarDecInstructions(t *testing.T) {
 		var data struct {
 			a uint
 		}
-		instr := &decInstr{decOpMap[reflect.Uint], 6, 0, 0, ovfl}
+		instr := &decInstr{decOpTable[reflect.Uint], 6, 0, 0, ovfl}
 		state := newDecodeStateFromData(unsignedResult)
 		execDec("uint", instr, state, t, unsafe.Pointer(&data))
 		if data.a != 17 {
@@ -446,7 +446,7 @@ func TestScalarDecInstructions(t *testing.T) {
 		var data struct {
 			a uintptr
 		}
-		instr := &decInstr{decOpMap[reflect.Uintptr], 6, 0, 0, ovfl}
+		instr := &decInstr{decOpTable[reflect.Uintptr], 6, 0, 0, ovfl}
 		state := newDecodeStateFromData(unsignedResult)
 		execDec("uintptr", instr, state, t, unsafe.Pointer(&data))
 		if data.a != 17 {
@@ -511,7 +511,7 @@ func TestScalarDecInstructions(t *testing.T) {
 		var data struct {
 			a complex64
 		}
-		instr := &decInstr{decOpMap[reflect.Complex64], 6, 0, 0, ovfl}
+		instr := &decInstr{decOpTable[reflect.Complex64], 6, 0, 0, ovfl}
 		state := newDecodeStateFromData(complexResult)
 		execDec("complex", instr, state, t, unsafe.Pointer(&data))
 		if data.a != 17+19i {
@@ -524,7 +524,7 @@ func TestScalarDecInstructions(t *testing.T) {
 		var data struct {
 			a complex128
 		}
-		instr := &decInstr{decOpMap[reflect.Complex128], 6, 0, 0, ovfl}
+		instr := &decInstr{decOpTable[reflect.Complex128], 6, 0, 0, ovfl}
 		state := newDecodeStateFromData(complexResult)
 		execDec("complex", instr, state, t, unsafe.Pointer(&data))
 		if data.a != 17+19i {
@@ -973,18 +973,32 @@ func TestIgnoredFields(t *testing.T) {
 	}
 }
 
-type Bad0 struct {
-	ch chan int
-	c  float64
+
+func TestBadRecursiveType(t *testing.T) {
+	type Rec ***Rec
+	var rec Rec
+	b := new(bytes.Buffer)
+	err := NewEncoder(b).Encode(&rec)
+	if err == nil {
+		t.Error("expected error; got none")
+	} else if strings.Index(err.String(), "recursive") < 0 {
+		t.Error("expected recursive type error; got", err)
+	}
+	// Can't test decode easily because we can't encode one, so we can't pass one to a Decoder.
 }
 
-var nilEncoder *Encoder
+type Bad0 struct {
+	CH chan int
+	C  float64
+}
+
 
 func TestInvalidField(t *testing.T) {
 	var bad0 Bad0
-	bad0.ch = make(chan int)
+	bad0.CH = make(chan int)
 	b := new(bytes.Buffer)
-	err := nilEncoder.encode(b, reflect.NewValue(&bad0))
+	var nilEncoder *Encoder
+	err := nilEncoder.encode(b, reflect.NewValue(&bad0), userType(reflect.Typeof(&bad0)))
 	if err == nil {
 		t.Error("expected error; got none")
 	} else if strings.Index(err.String(), "type") < 0 {

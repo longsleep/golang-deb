@@ -508,6 +508,71 @@ Regarding operator overloading, it seems more a convenience than an absolute
 requirement.  Again, things are simpler without it.
 </p>
 
+<h3 id="implements_interface">
+Why doesn't Go have "implements" declarations?</h3>
+
+<p>
+A Go type satisfies an interface by implementing the methods of that interface,
+nothing more.  This property allows interfaces to be defined and used without
+having to modify existing code.  It enables a kind of "duck typing" that
+promotes separation of concerns and improves code re-use, and makes it easier
+to build on patterns that emerge as the code develops.
+The semantics of interfaces is one of the main reasons for Go's nimble,
+lightweight feel.
+</p>
+
+<p>
+See the <a href="#inheritance">question on type inheritance</a> for more detail.
+</p>
+
+<h3 id="guarantee_satisfies_interface">
+How can I guarantee my type satisfies an interface?</h3>
+
+<p>
+You can ask the compiler to check that the type <code>T</code> implements the
+interface <code>I</code> by attempting an assignment:
+</p>
+
+<pre>
+type T struct{}
+var _ I = T{}
+</pre>
+
+<p>
+If <code>T</code> doesn't implement <code>I</code>, the mistake will be caught
+at compile time.
+</p>
+
+<p>
+If you wish the users of an interface to explicitly declare that they implement
+it, you can add a method with a descriptive name to the interface's method set.
+For example:
+</p>
+
+<pre>
+type Fooer interface {
+	Foo()
+	ImplementsFooer()
+}
+</pre>
+
+<p>
+A type must then implement the <code>ImplementsFooer</code> method to be a
+<code>Fooer</code>, clearly documenting the fact.
+</p>
+
+<pre>
+type Bar struct{}
+func (b Bar) ImplementsFooer() {}
+func (b Bar) Foo() {}
+</pre>
+
+<p>
+Most code doesn't make use of such constraints, since they limit the utility of 
+the interface idea. Sometimes, though, they're necessary to resolve ambiguities
+among similar interfaces.
+</p>
+
 
 <h2 id="values">Values</h2>
 
@@ -677,6 +742,28 @@ floating-point numbers.
 The default size of a floating-point constant is <code>float64</code>.
 </p>
 
+<h3 id="stack_or_heap">
+How do I know whether a variable is allocated on the heap or the stack?</h3>
+
+<p>
+From a correctness standpoint, you don't need to know.
+Each variable in Go exists as long as there are references to it.
+The storage location chosen by the implementation is irrelevant to the
+semantics of the language.
+
+<p>
+The storage location does have an effect on writing efficient programs.
+When possible, the Go compilers will allocate variables that are
+local to a function in that function's stack frame.  However, if the
+compiler cannot prove that the variable is not referenced after the
+function returns, then the compiler must allocate the variable on the
+garbage-collected heap to avoid dangling pointer errors.
+
+<p>
+In the current compilers, the analysis is crude: if a variable has its address
+taken, that variable is allocated on the heap. We are working to improve this
+analysis so that more data is kept on the stack. 
+
 <h2 id="Concurrency">Concurrency</h2>
 
 <h3 id="What_operations_are_atomic_What_about_mutexes">
@@ -708,7 +795,7 @@ Why doesn't my multi-goroutine program use multiple CPUs?</h3>
 
 <p>
 Under the gc compilers you must set <code>GOMAXPROCS</code> to allow the
-runtime to utilise more than one OS thread. Under <code>gccgo</code> an OS
+run-time support to utilise more than one OS thread. Under <code>gccgo</code> an OS
 thread will be created for each goroutine, and <code>GOMAXPROCS</code> is
 effectively equal to the number of running goroutines.  
 </p>
@@ -716,7 +803,7 @@ effectively equal to the number of running goroutines.
 <p>
 Programs that perform concurrent computation should benefit from an increase in
 <code>GOMAXPROCS</code>. (See the <a
-href="http://golang.org/pkg/runtime/#GOMAXPROCS">runtime package
+href="http://golang.org/pkg/runtime/#GOMAXPROCS"><code>runtime</code> package's
 documentation</a>.)
 </p>
 
@@ -737,8 +824,8 @@ penalty involved in sending data between threads.
 </p>
 
 <p>
-The Go runtime's scheduler is not as good as it needs to be. In future, it
-should recognise such cases and optimize its use of OS threads. For now,
+Go's goroutine scheduler is not as good as it needs to be. In future, it
+should recognize such cases and optimize its use of OS threads. For now,
 <code>GOMAXPROCS</code> should be set on a per-application basis.
 </p>
 
@@ -920,19 +1007,34 @@ parser are already available in <a href="/pkg/go/"><code>/pkg/go</code></a>.)
 We also considered using LLVM for <code>6g</code> but we felt it was too large and
 slow to meet our performance goals.
 
-<h3 id="How_is_the_runtime_implemented">
-How is the runtime implemented?</h3>
+<h3 id="How_is_the_run_time_support_implemented">
+How is the run-time support implemented?</h3>
 
 <p>
-Again due to bootstrapping issues, the runtime is mostly in C (with a
+Again due to bootstrapping issues, the run-time code is mostly in C (with a
 tiny bit of assembler) although Go is capable of implementing most of
-it now. <code>Gccgo</code>'s runtime uses <code>glibc</code>.
+it now. <code>Gccgo</code>'s run-time support uses <code>glibc</code>.
 <code>Gc</code> uses a custom library, to keep the footprint under
 control; it is
 compiled with a version of the Plan 9 C compiler that supports
 segmented stacks for goroutines.
 Work is underway to provide the same stack management in
 <code>gccgo</code>.
+
+<h3 id="Why_is_my_trivial_program_such_a_large_binary">
+Why is my trivial program such a large binary?</h3>
+
+<p>
+The gc tool chain (<code>5l</code>, <code>6l</code>, and <code>8l</code>) only
+generate statically linked binaries.  All Go binaries therefore include the Go
+run-time, along with the run-time type information necessary to support dynamic
+type checks, reflection, and even panic-time stack traces.
+
+<p>
+A trivial C "hello, world" program compiled and linked statically using gcc
+on Linux is around 750 kB.  An equivalent Go program is around 1.8 MB, but
+that includes more powerful run-time support.  We believe that with some effort
+the size of Go binaries can be reduced.
 
 <h2 id="Performance">Performance</h2>
 

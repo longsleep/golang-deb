@@ -6,6 +6,7 @@ package fmt_test
 
 import (
 	"bufio"
+	"bytes"
 	. "fmt"
 	"io"
 	"math"
@@ -87,21 +88,7 @@ type FloatTest struct {
 type Xs string
 
 func (x *Xs) Scan(state ScanState, verb int) os.Error {
-	var tok string
-	var c int
-	var err os.Error
-	wid, present := state.Width()
-	if !present {
-		tok, err = state.Token()
-	} else {
-		for i := 0; i < wid; i++ {
-			c, err = state.GetRune()
-			if err != nil {
-				break
-			}
-			tok += string(c)
-		}
-	}
+	tok, err := state.Token()
 	if err != nil {
 		return err
 	}
@@ -113,6 +100,26 @@ func (x *Xs) Scan(state ScanState, verb int) os.Error {
 }
 
 var xVal Xs
+
+// IntString accepts an integer followed immediately by a string.
+// It tests the embedding of a scan within a scan.
+type IntString struct {
+	i int
+	s string
+}
+
+func (s *IntString) Scan(state ScanState, verb int) os.Error {
+	if _, err := Fscan(state, &s.i); err != nil {
+		return err
+	}
+
+	if _, err := Fscan(state, &s.s); err != nil {
+		return err
+	}
+	return nil
+}
+
+var intStringVal IntString
 
 // myStringReader implements Read but not ReadRune, allowing us to test our readRune wrapper
 // type that creates something that can read runes given only Read().
@@ -200,8 +207,9 @@ var scanTests = []ScanTest{
 	{"114\n", &renamedStringVal, renamedString("114")},
 	{"115\n", &renamedBytesVal, renamedBytes([]byte("115"))},
 
-	// Custom scanner.
+	// Custom scanners.
 	{"  vvv ", &xVal, Xs("vvv")},
+	{" 1234hello", &intStringVal, IntString{1234, "hello"}},
 
 	// Fixed bugs
 	{"2147483648\n", &int64Val, int64(2147483648)}, // was: integer overflow
@@ -308,6 +316,7 @@ var f float64
 var s, t string
 var c complex128
 var x, y Xs
+var z IntString
 
 var multiTests = []ScanfMultiTest{
 	{"", "", nil, nil, ""},
@@ -321,8 +330,9 @@ var multiTests = []ScanfMultiTest{
 	{"%d%s", "123abc", args(&i, &s), args(123, "abc"), ""},
 	{"%c%c%c", "2\u50c2X", args(&i, &j, &k), args('2', '\u50c2', 'X'), ""},
 
-	// Custom scanner.
+	// Custom scanners.
 	{"%2e%f", "eefffff", args(&x, &y), args(Xs("ee"), Xs("fffff")), ""},
+	{"%4v%s", "12abcd", args(&z, &s), args(IntString{12, "ab"}, "cd"), ""},
 
 	// Errors
 	{"%t", "23 18", args(&i), nil, "bad verb"},
@@ -345,7 +355,11 @@ func testScan(name string, t *testing.T, scan func(r io.Reader, a ...interface{}
 		}
 		n, err := scan(r, test.in)
 		if err != nil {
-			t.Errorf("%s got error scanning %q: %s", name, test.text, err)
+			m := ""
+			if n > 0 {
+				m = Sprintf(" (%d fields ok)", n)
+			}
+			t.Errorf("%s got error scanning %q: %s%s", name, test.text, err, m)
 			continue
 		}
 		if n != 1 {
@@ -462,20 +476,10 @@ func verifyInf(str string, t *testing.T) {
 	}
 }
 
-
 func TestInf(t *testing.T) {
 	for _, s := range []string{"inf", "+inf", "-inf", "INF", "-INF", "+INF", "Inf", "-Inf", "+Inf"} {
 		verifyInf(s, t)
 	}
-}
-
-// TODO: there's no conversion from []T to ...T, but we can fake it.  These
-// functions do the faking.  We index the table by the length of the param list.
-var fscanf = []func(io.Reader, string, []interface{}) (int, os.Error){
-	0: func(r io.Reader, f string, i []interface{}) (int, os.Error) { return Fscanf(r, f) },
-	1: func(r io.Reader, f string, i []interface{}) (int, os.Error) { return Fscanf(r, f, i[0]) },
-	2: func(r io.Reader, f string, i []interface{}) (int, os.Error) { return Fscanf(r, f, i[0], i[1]) },
-	3: func(r io.Reader, f string, i []interface{}) (int, os.Error) { return Fscanf(r, f, i[0], i[1], i[2]) },
 }
 
 func testScanfMulti(name string, t *testing.T) {
@@ -487,7 +491,7 @@ func testScanfMulti(name string, t *testing.T) {
 		} else {
 			r = newReader(test.text)
 		}
-		n, err := fscanf[len(test.in)](r, test.format, test.in)
+		n, err := Fscanf(r, test.format, test.in...)
 		if err != nil {
 			if test.err == "" {
 				t.Errorf("got error scanning (%q, %q): %q", test.format, test.text, err)
@@ -671,5 +675,180 @@ func TestUnreadRuneWithBufio(t *testing.T) {
 	}
 	if a != "αb" {
 		t.Errorf("expected αb; got %q", a)
+	}
+}
+
+type TwoLines string
+
+// Attempt to read two lines into the object.  Scanln should prevent this
+// because it stops at newline; Scan and Scanf should be fine.
+func (t *TwoLines) Scan(state ScanState, verb int) os.Error {
+	chars := make([]int, 0, 100)
+	for nlCount := 0; nlCount < 2; {
+		c, _, err := state.ReadRune()
+		if err != nil {
+			return err
+		}
+		chars = append(chars, c)
+		if c == '\n' {
+			nlCount++
+		}
+	}
+	*t = TwoLines(string(chars))
+	return nil
+}
+
+func TestMultiLine(t *testing.T) {
+	input := "abc\ndef\n"
+	// Sscan should work
+	var tscan TwoLines
+	n, err := Sscan(input, &tscan)
+	if n != 1 {
+		t.Errorf("Sscan: expected 1 item; got %d", n)
+	}
+	if err != nil {
+		t.Errorf("Sscan: expected no error; got %s", err)
+	}
+	if string(tscan) != input {
+		t.Errorf("Sscan: expected %q; got %q", input, tscan)
+	}
+	// Sscanf should work
+	var tscanf TwoLines
+	n, err = Sscanf(input, "%s", &tscanf)
+	if n != 1 {
+		t.Errorf("Sscanf: expected 1 item; got %d", n)
+	}
+	if err != nil {
+		t.Errorf("Sscanf: expected no error; got %s", err)
+	}
+	if string(tscanf) != input {
+		t.Errorf("Sscanf: expected %q; got %q", input, tscanf)
+	}
+	// Sscanln should not work
+	var tscanln TwoLines
+	n, err = Sscanln(input, &tscanln)
+	if n != 0 {
+		t.Errorf("Sscanln: expected 0 items; got %d: %q", n, tscanln)
+	}
+	if err == nil {
+		t.Error("Sscanln: expected error; got none")
+	} else if err != io.ErrUnexpectedEOF {
+		t.Errorf("Sscanln: expected io.ErrUnexpectedEOF (ha!); got %s", err)
+	}
+}
+
+// RecursiveInt accepts an string matching %d.%d.%d....
+// and parses it into a linked list.
+// It allows us to benchmark recursive descent style scanners.
+type RecursiveInt struct {
+	i    int
+	next *RecursiveInt
+}
+
+func (r *RecursiveInt) Scan(state ScanState, verb int) (err os.Error) {
+	_, err = Fscan(state, &r.i)
+	if err != nil {
+		return
+	}
+	next := new(RecursiveInt)
+	_, err = Fscanf(state, ".%v", next)
+	if err != nil {
+		if err == os.ErrorString("input does not match format") || err == io.ErrUnexpectedEOF {
+			err = nil
+		}
+		return
+	}
+	r.next = next
+	return
+}
+
+// Perform the same scanning task as RecursiveInt.Scan
+// but without recurring through scanner, so we can compare
+// performance more directly.
+func scanInts(r *RecursiveInt, b *bytes.Buffer) (err os.Error) {
+	r.next = nil
+	_, err = Fscan(b, &r.i)
+	if err != nil {
+		return
+	}
+	var c int
+	c, _, err = b.ReadRune()
+	if err != nil {
+		if err == os.EOF {
+			err = nil
+		}
+		return
+	}
+	if c != '.' {
+		return
+	}
+	next := new(RecursiveInt)
+	err = scanInts(next, b)
+	if err == nil {
+		r.next = next
+	}
+	return
+}
+
+func makeInts(n int) []byte {
+	var buf bytes.Buffer
+	Fprintf(&buf, "1")
+	for i := 1; i < n; i++ {
+		Fprintf(&buf, ".%d", i+1)
+	}
+	return buf.Bytes()
+}
+
+func TestScanInts(t *testing.T) {
+	testScanInts(t, scanInts)
+	testScanInts(t, func(r *RecursiveInt, b *bytes.Buffer) (err os.Error) {
+		_, err = Fscan(b, r)
+		return
+	})
+}
+
+const intCount = 1000
+
+func testScanInts(t *testing.T, scan func(*RecursiveInt, *bytes.Buffer) os.Error) {
+	r := new(RecursiveInt)
+	ints := makeInts(intCount)
+	buf := bytes.NewBuffer(ints)
+	err := scan(r, buf)
+	if err != nil {
+		t.Error("unexpected error", err)
+	}
+	i := 1
+	for ; r != nil; r = r.next {
+		if r.i != i {
+			t.Fatal("bad scan: expected %d got %d", i, r.i)
+		}
+		i++
+	}
+	if i-1 != intCount {
+		t.Fatal("bad scan count: expected %d got %d", intCount, i-1)
+	}
+}
+
+func BenchmarkScanInts(b *testing.B) {
+	b.ResetTimer()
+	ints := makeInts(intCount)
+	var r RecursiveInt
+	for i := b.N - 1; i >= 0; i-- {
+		buf := bytes.NewBuffer(ints)
+		b.StartTimer()
+		scanInts(&r, buf)
+		b.StopTimer()
+	}
+}
+
+func BenchmarkScanRecursiveInt(b *testing.B) {
+	b.ResetTimer()
+	ints := makeInts(intCount)
+	var r RecursiveInt
+	for i := b.N - 1; i >= 0; i-- {
+		buf := bytes.NewBuffer(ints)
+		b.StartTimer()
+		Fscan(buf, &r)
+		b.StopTimer()
 	}
 }

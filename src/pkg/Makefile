@@ -21,8 +21,10 @@ DIRS=\
 	bufio\
 	bytes\
 	cmath\
+	compress/bzip2\
 	compress/flate\
 	compress/gzip\
+	compress/lzw \
 	compress/zlib\
 	container/heap\
 	container/list\
@@ -40,6 +42,11 @@ DIRS=\
 	crypto/md4\
 	crypto/md5\
 	crypto/ocsp\
+	crypto/openpgp\
+	crypto/openpgp/armor\
+	crypto/openpgp/error\
+	crypto/openpgp/packet\
+	crypto/openpgp/s2k\
 	crypto/rand\
 	crypto/rc4\
 	crypto/ripemd160\
@@ -89,7 +96,9 @@ DIRS=\
 	hash/crc64\
 	html\
 	http\
+	http/cgi\
 	http/pprof\
+	http/httptest\
 	image\
 	image/jpeg\
 	image/png\
@@ -109,6 +118,7 @@ DIRS=\
 	os/signal\
 	patch\
 	path\
+	path/filepath\
 	rand\
 	reflect\
 	regexp\
@@ -124,6 +134,7 @@ DIRS=\
 	strconv\
 	strings\
 	sync\
+	sync/atomic\
 	syscall\
 	syslog\
 	tabwriter\
@@ -156,6 +167,7 @@ endif
 
 NOTEST=\
 	crypto\
+	crypto/openpgp/error\
 	debug/proc\
 	exp/draw/x11\
 	go/ast\
@@ -163,7 +175,7 @@ NOTEST=\
 	go/token\
 	hash\
 	http/pprof\
-	image\
+	http/httptest\
 	image/jpeg\
 	net/dict\
 	rand\
@@ -211,19 +223,19 @@ test.dirs: $(addsuffix .test, $(TEST))
 bench.dirs: $(addsuffix .bench, $(BENCH))
 
 %.clean:
-	+cd $* && $(MAKE) clean
+	+$(MAKE) -C $* clean
 
 %.install:
-	+cd $* && $(MAKE) install
+	+$(MAKE) -C $* install
 
 %.nuke:
-	+cd $* && $(MAKE) nuke
+	+$(MAKE) -C $* nuke
 
 %.test:
-	+cd $* && $(MAKE) test
+	+$(MAKE) -C $* test
 
 %.bench:
-	+cd $* && $(MAKE) bench
+	+$(MAKE) -C $* bench	
 
 clean: clean.dirs
 

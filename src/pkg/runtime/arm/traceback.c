@@ -9,6 +9,10 @@ void runtime·deferproc(void);
 void runtime·newproc(void);
 void runtime·newstack(void);
 void runtime·morestack(void);
+void _div(void);
+void _mod(void);
+void _divu(void);
+void _modu(void);
 
 static int32
 gentraceback(byte *pc0, byte *sp, byte *lr0, G *g, int32 skip, uintptr *pcbuf, int32 max)
@@ -113,7 +117,7 @@ gentraceback(byte *pc0, byte *sp, byte *lr0, G *g, int32 skip, uintptr *pcbuf, i
 			// Print during crash.
 			//	main+0xf /home/rsc/go/src/runtime/x.go:23
 			//		main(0x1, 0x2, 0x3)
-			runtime·printf("%S", f->name);
+			runtime·printf("[%p] %S", fp, f->name);
 			if(pc > f->entry)
 				runtime·printf("+%p", (uintptr)(pc - f->entry));
 			tracepc = pc;	// back up to CALL instruction for funcline.
@@ -145,12 +149,43 @@ gentraceback(byte *pc0, byte *sp, byte *lr0, G *g, int32 skip, uintptr *pcbuf, i
 			continue;
 		}
 		
+		if(pcbuf == nil && f->entry == (uintptr)runtime·lessstack && g == m->g0) {
+			runtime·printf("----- lessstack called from goroutine %d -----\n", m->curg->goid);
+			g = m->curg;
+			stk = (Stktop*)g->stackbase;
+			sp = stk->gobuf.sp;
+			pc = (uintptr)stk->gobuf.pc;
+			fp = nil;
+			lr = 0;
+			continue;
+		}	
+		
 		// Unwind to next frame.
 		pc = lr;
 		lr = 0;
 		sp = fp;
 		fp = nil;
+		
+		// If this was div or divu or mod or modu, the caller had
+		// an extra 8 bytes on its stack.  Adjust sp.
+		if(f->entry == (uintptr)_div || f->entry == (uintptr)_divu || f->entry == (uintptr)_mod || f->entry == (uintptr)_modu)
+			sp += 8;
+		
+		// If this was deferproc or newproc, the caller had an extra 12.
+		if(f->entry == (uintptr)runtime·deferproc || f->entry == (uintptr)runtime·newproc)
+			sp += 12;
 	}
+	
+	if(pcbuf == nil && (pc = g->gopc) != 0 && (f = runtime·findfunc(pc)) != nil) {
+		runtime·printf("----- goroutine created by -----\n%S", f->name);
+		if(pc > f->entry)
+			runtime·printf("+%p", (uintptr)(pc - f->entry));
+		tracepc = pc;	// back up to CALL instruction for funcline.
+		if(n > 0 && pc > f->entry)
+			tracepc -= sizeof(uintptr);
+		runtime·printf(" %S:%d\n", f->src, runtime·funcline(f, tracepc));
+	}
+
 	return n;		
 }
 

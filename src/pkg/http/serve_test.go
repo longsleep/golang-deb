@@ -4,16 +4,18 @@
 
 // End-to-end serving tests
 
-package http
+package http_test
 
 import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io"
+	. "http"
+	"http/httptest"
 	"io/ioutil"
 	"os"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -169,13 +171,10 @@ func TestHostHandlers(t *testing.T) {
 	for _, h := range handlers {
 		Handle(h.pattern, stringHandler(h.msg))
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0") // any port
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	go Serve(l, nil)
-	conn, err := net.Dial("tcp", "", l.Addr().String())
+	ts := httptest.NewServer(nil)
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", "", ts.Listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,51 +196,11 @@ func TestHostHandlers(t *testing.T) {
 			t.Errorf("reading response: %v", err)
 			continue
 		}
-		s := r.Header["Result"]
+		s := r.Header.Get("Result")
 		if s != vt.expected {
 			t.Errorf("Get(%q) = %q, want %q", vt.url, s, vt.expected)
 		}
 	}
-}
-
-type responseWriterMethodCall struct {
-	method                 string
-	headerKey, headerValue string // if method == "SetHeader"
-	bytesWritten           []byte // if method == "Write"
-	responseCode           int    // if method == "WriteHeader"
-}
-
-type recordingResponseWriter struct {
-	log []*responseWriterMethodCall
-}
-
-func (rw *recordingResponseWriter) RemoteAddr() string {
-	return "1.2.3.4"
-}
-
-func (rw *recordingResponseWriter) UsingTLS() bool {
-	return false
-}
-
-func (rw *recordingResponseWriter) SetHeader(k, v string) {
-	rw.log = append(rw.log, &responseWriterMethodCall{method: "SetHeader", headerKey: k, headerValue: v})
-}
-
-func (rw *recordingResponseWriter) Write(buf []byte) (int, os.Error) {
-	rw.log = append(rw.log, &responseWriterMethodCall{method: "Write", bytesWritten: buf})
-	return len(buf), nil
-}
-
-func (rw *recordingResponseWriter) WriteHeader(code int) {
-	rw.log = append(rw.log, &responseWriterMethodCall{method: "WriteHeader", responseCode: code})
-}
-
-func (rw *recordingResponseWriter) Flush() {
-	rw.log = append(rw.log, &responseWriterMethodCall{method: "Flush"})
-}
-
-func (rw *recordingResponseWriter) Hijack() (io.ReadWriteCloser, *bufio.ReadWriter, os.Error) {
-	panic("Not supported")
 }
 
 // Tests for http://code.google.com/p/go/issues/detail?id=900
@@ -253,35 +212,17 @@ func TestMuxRedirectLeadingSlashes(t *testing.T) {
 			t.Errorf("%s", err)
 		}
 		mux := NewServeMux()
-		resp := new(recordingResponseWriter)
-		resp.log = make([]*responseWriterMethodCall, 0)
+		resp := httptest.NewRecorder()
 
 		mux.ServeHTTP(resp, req)
 
-		dumpLog := func() {
-			t.Logf("For path %q:", path)
-			for _, call := range resp.log {
-				t.Logf("Got call: %s, header=%s, value=%s, buf=%q, code=%d", call.method,
-					call.headerKey, call.headerValue, call.bytesWritten, call.responseCode)
-			}
-		}
-
-		if len(resp.log) != 2 {
-			dumpLog()
-			t.Errorf("expected 2 calls to response writer; got %d", len(resp.log))
+		if loc, expected := resp.Header.Get("Location"), "/foo.txt"; loc != expected {
+			t.Errorf("Expected Location header set to %q; got %q", expected, loc)
 			return
 		}
 
-		if resp.log[0].method != "SetHeader" ||
-			resp.log[0].headerKey != "Location" || resp.log[0].headerValue != "/foo.txt" {
-			dumpLog()
-			t.Errorf("Expected SetHeader of Location to /foo.txt")
-			return
-		}
-
-		if resp.log[1].method != "WriteHeader" || resp.log[1].responseCode != StatusMovedPermanently {
-			dumpLog()
-			t.Errorf("Expected WriteHeader of StatusMovedPermanently")
+		if code, expected := resp.Code, StatusMovedPermanently; code != expected {
+			t.Errorf("Expected response code of StatusMovedPermanently; got %d", code)
 			return
 		}
 	}
@@ -348,4 +289,79 @@ func TestServerTimeouts(t *testing.T) {
 	}
 
 	l.Close()
+}
+
+// TestIdentityResponse verifies that a handler can unset 
+func TestIdentityResponse(t *testing.T) {
+	handler := HandlerFunc(func(rw ResponseWriter, req *Request) {
+		rw.SetHeader("Content-Length", "3")
+		rw.SetHeader("Transfer-Encoding", req.FormValue("te"))
+		switch {
+		case req.FormValue("overwrite") == "1":
+			_, err := rw.Write([]byte("foo TOO LONG"))
+			if err != ErrContentLength {
+				t.Errorf("expected ErrContentLength; got %v", err)
+			}
+		case req.FormValue("underwrite") == "1":
+			rw.SetHeader("Content-Length", "500")
+			rw.Write([]byte("too short"))
+		default:
+			rw.Write([]byte("foo"))
+		}
+	})
+
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	// Note: this relies on the assumption (which is true) that
+	// Get sends HTTP/1.1 or greater requests.  Otherwise the
+	// server wouldn't have the choice to send back chunked
+	// responses.
+	for _, te := range []string{"", "identity"} {
+		url := ts.URL + "/?te=" + te
+		res, _, err := Get(url)
+		if err != nil {
+			t.Fatalf("error with Get of %s: %v", url, err)
+		}
+		if cl, expected := res.ContentLength, int64(3); cl != expected {
+			t.Errorf("for %s expected res.ContentLength of %d; got %d", url, expected, cl)
+		}
+		if cl, expected := res.Header.Get("Content-Length"), "3"; cl != expected {
+			t.Errorf("for %s expected Content-Length header of %q; got %q", url, expected, cl)
+		}
+		if tl, expected := len(res.TransferEncoding), 0; tl != expected {
+			t.Errorf("for %s expected len(res.TransferEncoding) of %d; got %d (%v)",
+				url, expected, tl, res.TransferEncoding)
+		}
+	}
+
+	// Verify that ErrContentLength is returned
+	url := ts.URL + "/?overwrite=1"
+	_, _, err := Get(url)
+	if err != nil {
+		t.Fatalf("error with Get of %s: %v", url, err)
+	}
+
+	// Verify that the connection is closed when the declared Content-Length
+	// is larger than what the handler wrote.
+	conn, err := net.Dial("tcp", "", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("error dialing: %v", err)
+	}
+	_, err = conn.Write([]byte("GET /?underwrite=1 HTTP/1.1\r\nHost: foo\r\n\r\n"))
+	if err != nil {
+		t.Fatalf("error writing: %v", err)
+	}
+	// The next ReadAll will hang for a failing test, so use a Timer instead
+	// to fail more traditionally
+	timer := time.AfterFunc(2e9, func() {
+		t.Fatalf("Timeout expired in ReadAll.")
+	})
+	defer timer.Stop()
+	got, _ := ioutil.ReadAll(conn)
+	expectedSuffix := "\r\n\r\ntoo short"
+	if !strings.HasSuffix(string(got), expectedSuffix) {
+		t.Fatalf("Expected output to end with %q; got response body %q",
+			expectedSuffix, string(got))
+	}
 }

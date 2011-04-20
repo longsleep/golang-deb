@@ -104,6 +104,7 @@ enum
 	Gmoribund,
 	Gdead,
 	Grecovery,
+	Gstackalloc,
 };
 enum
 {
@@ -196,10 +197,12 @@ struct	G
 	bool	ispanic;
 	M*	m;		// for debuggers, but offset not hard-coded
 	M*	lockedm;
+	M*	idlem;
 	int32	sig;
 	uintptr	sigcode0;
 	uintptr	sigcode1;
 	uintptr	sigpc;
+	uintptr	gopc;	// pc of go statement that created this goroutine
 };
 struct	M
 {
@@ -224,6 +227,7 @@ struct	M
 	int32	locks;
 	int32	nomemprof;
 	int32	waitnextg;
+	int32	dying;
 	Note	havenextg;
 	G*	nextg;
 	M*	alllink;	// on allm
@@ -231,6 +235,7 @@ struct	M
 	uint32	machport;	// Return address for Mach IPC (OS X)
 	MCache	*mcache;
 	G*	lockedg;
+	G*	idleg;
 	uint32	freglo[16];	// D[i] lsb and F[i]
 	uint32	freghi[16];	// D[i] msb and F[i+16]
 	uint32	fflag;		// floating point compare flags
@@ -358,7 +363,7 @@ G*	runtime·allg;
 M*	runtime·allm;
 int32	runtime·goidgen;
 extern	int32	runtime·gomaxprocs;
-extern	int32	runtime·panicking;
+extern	uint32	runtime·panicking;
 extern	int32	runtime·gcwaiting;		// gc is waiting to run
 int8*	runtime·goos;
 extern	bool	runtime·iscgo;
@@ -448,13 +453,14 @@ void	runtime·entersyscall(void);
 void	runtime·exitsyscall(void);
 void	runtime·startcgocallback(G*);
 void	runtime·endcgocallback(G*);
-G*	runtime·newproc1(byte*, byte*, int32, int32);
+G*	runtime·newproc1(byte*, byte*, int32, int32, void*);
 void	runtime·siginit(void);
 bool	runtime·sigsend(int32 sig);
 void	runtime·gettime(int64*, int32*);
 int32	runtime·callers(int32, uintptr*, int32);
 int64	runtime·nanotime(void);
 void	runtime·dopanic(int32);
+void	runtime·startpanic(void);
 
 #pragma	varargck	argpos	runtime·printf	1
 #pragma	varargck	type	"d"	int32
@@ -590,83 +596,17 @@ int32	runtime·chancap(Hchan*);
 
 void	runtime·ifaceE2I(struct InterfaceType*, Eface, Iface*);
 
-/*
- * Stack layout parameters.
- * Known to linkers.
- *
- * The per-goroutine g->stackguard is set to point
- * StackGuard bytes above the bottom of the stack.
- * Each function compares its stack pointer against
- * g->stackguard to check for overflow.  To cut one
- * instruction from the check sequence for functions
- * with tiny frames, the stack is allowed to protrude
- * StackSmall bytes below the stack guard.  Functions
- * with large frames don't bother with the check and
- * always call morestack.  The sequences are
- * (for amd64, others are similar):
- *
- * 	guard = g->stackguard
- * 	frame = function's stack frame size
- * 	argsize = size of function arguments (call + return)
- *
- * 	stack frame size <= StackSmall:
- * 		CMPQ guard, SP
- * 		JHI 3(PC)
- * 		MOVQ m->morearg, $(argsize << 32)
- * 		CALL morestack(SB)
- *
- * 	stack frame size > StackSmall but < StackBig
- * 		LEAQ (frame-StackSmall)(SP), R0
- * 		CMPQ guard, R0
- * 		JHI 3(PC)
- * 		MOVQ m->morearg, $(argsize << 32)
- * 		CALL morestack(SB)
- *
- * 	stack frame size >= StackBig:
- * 		MOVQ m->morearg, $((argsize << 32) | frame)
- * 		CALL morestack(SB)
- *
- * The bottom StackGuard - StackSmall bytes are important:
- * there has to be enough room to execute functions that
- * refuse to check for stack overflow, either because they
- * need to be adjacent to the actual caller's frame (deferproc)
- * or because they handle the imminent stack overflow (morestack).
- *
- * For example, deferproc might call malloc, which does one
- * of the above checks (without allocating a full frame),
- * which might trigger a call to morestack.  This sequence
- * needs to fit in the bottom section of the stack.  On amd64,
- * morestack's frame is 40 bytes, and deferproc's frame is 56 bytes.
- * That fits well within the StackGuard - StackSmall = 128 bytes
- * at the bottom.  There may be other sequences lurking or yet to
- * be written that require more stack.  Morestack checks to make
- * sure the stack has not completely overflowed and should catch
- * such sequences.
- */
 enum
 {
+	// StackSystem is a number of additional bytes to add
+	// to each stack below the usual guard area for OS-specific
+	// purposes like signal handling.
+	// TODO(rsc): This is only for Windows.  Can't Windows use
+	// a separate exception stack like every other operating system?
 #ifdef __WINDOWS__
-	// need enough room in guard area for exception handler.
-	// use larger stacks to compensate for larger stack guard.
-	StackSmall = 256,
-	StackGuard = 2048,
-	StackBig   = 8192,
-	StackExtra = StackGuard,
+	StackSystem = 2048,
 #else
-	// byte offset of stack guard (g->stackguard) above bottom of stack.
-	StackGuard = 256,
-
-	// checked frames are allowed to protrude below the guard by
-	// this many bytes.  this saves an instruction in the checking
-	// sequence when the stack frame is tiny.
-	StackSmall = 128,
-
-	// extra space in the frame (beyond the function for which
-	// the frame is allocated) is assumed not to be much bigger
-	// than this amount.  it may not be used efficiently if it is.
-	StackBig = 4096,
-
-	// extra room over frame size when allocating a stack.
-	StackExtra = 1024,
+	StackSystem = 0,
 #endif
 };
+

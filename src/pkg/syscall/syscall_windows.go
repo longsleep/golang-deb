@@ -154,6 +154,7 @@ func NewCallback(fn interface{}) uintptr
 //sys	SetEnvironmentVariable(name *uint16, value *uint16) (errno int) = kernel32.SetEnvironmentVariableW
 //sys	SetFileTime(handle int32, ctime *Filetime, atime *Filetime, wtime *Filetime) (errno int)
 //sys	GetFileAttributes(name *uint16) (attrs uint32, errno int) [failretval==INVALID_FILE_ATTRIBUTES] = kernel32.GetFileAttributesW
+//sys	SetFileAttributes(name *uint16, attrs uint32) (errno int) = kernel32.SetFileAttributesW
 //sys	GetCommandLine() (cmd *uint16) = kernel32.GetCommandLineW
 //sys	CommandLineToArgv(cmd *uint16, argc *int32) (argv *[8192]*[8192]uint16, errno int) [failretval==nil] = shell32.CommandLineToArgvW
 //sys	LocalFree(hmem uint32) (handle uint32, errno int) [failretval!=0]
@@ -470,6 +471,23 @@ func Fsync(fd int) (errno int) {
 	return FlushFileBuffers(int32(fd))
 }
 
+func Chmod(path string, mode uint32) (errno int) {
+	if mode == 0 {
+		return EINVAL
+	}
+	p := StringToUTF16Ptr(path)
+	attrs, e := GetFileAttributes(p)
+	if e != 0 {
+		return e
+	}
+	if mode&S_IWRITE != 0 {
+		attrs &^= FILE_ATTRIBUTE_READONLY
+	} else {
+		attrs |= FILE_ATTRIBUTE_READONLY
+	}
+	return SetFileAttributes(p, attrs)
+}
+
 // net api calls
 
 //sys	WSAStartup(verreq uint32, data *WSAData) (sockerrno int) = wsock32.WSAStartup
@@ -635,26 +653,6 @@ func Shutdown(fd, how int) (errno int) {
 	return int(shutdown(int32(fd), int32(how)))
 }
 
-func AcceptIOCP(iocpfd, fd int, o *Overlapped) (attrs *byte, errno int) {
-	// Will ask for local and remote address only.
-	rsa := make([]RawSockaddrAny, 2)
-	attrs = (*byte)(unsafe.Pointer(&rsa[0]))
-	alen := uint32(unsafe.Sizeof(rsa[0]))
-	var done uint32
-	errno = AcceptEx(uint32(iocpfd), uint32(fd), attrs, 0, alen, alen, &done, o)
-	return
-}
-
-func GetAcceptIOCPSockaddrs(attrs *byte) (lsa, rsa Sockaddr) {
-	var lrsa, rrsa *RawSockaddrAny
-	var llen, rlen int32
-	alen := uint32(unsafe.Sizeof(*lrsa))
-	GetAcceptExSockaddrs(attrs, 0, alen, alen, &lrsa, &llen, &rrsa, &rlen)
-	lsa, _ = lrsa.Sockaddr()
-	rsa, _ = rrsa.Sockaddr()
-	return
-}
-
 func WSASendto(s uint32, bufs *WSABuf, bufcnt uint32, sent *uint32, flags uint32, to Sockaddr, overlapped *Overlapped, croutine *byte) (errno int) {
 	rsa, l, err := to.sockaddr()
 	if err != 0 {
@@ -702,8 +700,19 @@ type Linger struct {
 	Linger int32
 }
 
-func SetsockoptLinger(fd, level, opt int, l *Linger) (errno int) { return EWINDOWS }
-func BindToDevice(fd int, device string) (errno int)             { return EWINDOWS }
+const (
+	IP_ADD_MEMBERSHIP = iota
+	IP_DROP_MEMBERSHIP
+)
+
+type IpMreq struct {
+	Multiaddr [4]byte /* in_addr */
+	Interface [4]byte /* in_addr */
+}
+
+func SetsockoptLinger(fd, level, opt int, l *Linger) (errno int)    { return EWINDOWS }
+func SetsockoptIpMreq(fd, level, opt int, mreq *IpMreq) (errno int) { return EWINDOWS }
+func BindToDevice(fd int, device string) (errno int)                { return EWINDOWS }
 
 // TODO(brainman): fix all needed for os
 
@@ -718,11 +727,11 @@ func Fchdir(fd int) (errno int)                           { return EWINDOWS }
 func Link(oldpath, newpath string) (errno int)            { return EWINDOWS }
 func Symlink(path, link string) (errno int)               { return EWINDOWS }
 func Readlink(path string, buf []byte) (n int, errno int) { return 0, EWINDOWS }
-func Chmod(path string, mode uint32) (errno int)          { return EWINDOWS }
-func Fchmod(fd int, mode uint32) (errno int)              { return EWINDOWS }
-func Chown(path string, uid int, gid int) (errno int)     { return EWINDOWS }
-func Lchown(path string, uid int, gid int) (errno int)    { return EWINDOWS }
-func Fchown(fd int, uid int, gid int) (errno int)         { return EWINDOWS }
+
+func Fchmod(fd int, mode uint32) (errno int)           { return EWINDOWS }
+func Chown(path string, uid int, gid int) (errno int)  { return EWINDOWS }
+func Lchown(path string, uid int, gid int) (errno int) { return EWINDOWS }
+func Fchown(fd int, uid int, gid int) (errno int)      { return EWINDOWS }
 
 func Getuid() (uid int)                  { return -1 }
 func Geteuid() (euid int)                { return -1 }

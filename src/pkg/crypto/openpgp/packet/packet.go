@@ -261,13 +261,13 @@ func Read(r io.Reader) (p Packet, err os.Error) {
 	case packetTypePrivateKey, packetTypePrivateSubkey:
 		pk := new(PrivateKey)
 		if tag == packetTypePrivateSubkey {
-			pk.IsSubKey = true
+			pk.IsSubkey = true
 		}
 		p = pk
 	case packetTypePublicKey, packetTypePublicSubkey:
 		pk := new(PublicKey)
 		if tag == packetTypePublicSubkey {
-			pk.IsSubKey = true
+			pk.IsSubkey = true
 		}
 		p = pk
 	case packetTypeCompressed:
@@ -300,7 +300,7 @@ type SignatureType uint8
 
 const (
 	SigTypeBinary        SignatureType = 0
-	SigTypeText          SignatureType = 1
+	SigTypeText          = 1
 	SigTypeGenericCert   = 0x10
 	SigTypePersonaCert   = 0x11
 	SigTypeCasualCert    = 0x12

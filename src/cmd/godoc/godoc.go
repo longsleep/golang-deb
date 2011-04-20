@@ -18,7 +18,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	pathutil "path"
+	"path"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -81,8 +82,8 @@ var (
 func initHandlers() {
 	fsMap.Init(*pkgPath)
 	fileServer = http.FileServer(*goroot, "")
-	cmdHandler = httpHandler{"/cmd/", pathutil.Join(*goroot, "src/cmd"), false}
-	pkgHandler = httpHandler{"/pkg/", pathutil.Join(*goroot, "src/pkg"), true}
+	cmdHandler = httpHandler{"/cmd/", filepath.Join(*goroot, "src", "cmd"), false}
+	pkgHandler = httpHandler{"/pkg/", filepath.Join(*goroot, "src", "pkg"), true}
 }
 
 
@@ -91,12 +92,13 @@ func registerPublicHandlers(mux *http.ServeMux) {
 	mux.Handle(pkgHandler.pattern, &pkgHandler)
 	mux.HandleFunc("/doc/codewalk/", codewalk)
 	mux.HandleFunc("/search", search)
+	mux.Handle("/robots.txt", fileServer)
 	mux.HandleFunc("/", serveFile)
 }
 
 
 func initFSTree() {
-	fsTree.set(newDirectory(pathutil.Join(*goroot, *testDir), nil, -1))
+	fsTree.set(newDirectory(filepath.Join(*goroot, *testDir), nil, -1))
 	invalidateIndex()
 }
 
@@ -147,8 +149,13 @@ func readDirList(filename string) ([]string, os.Error) {
 	}
 	// create a sorted list of valid directory names
 	filter := func(path string) bool {
-		d, err := os.Lstat(path)
-		return err == nil && isPkgDir(d)
+		d, e := os.Lstat(path)
+		if e != nil && err == nil {
+			// remember first error and return it from readDirList
+			// so we have at least some information if things go bad
+			err = e
+		}
+		return e == nil && isPkgDir(d)
 	}
 	list := canonicalizePaths(strings.Split(string(contents), "\n", -1), filter)
 	// for each parent path, remove all it's children q
@@ -160,7 +167,7 @@ func readDirList(filename string) ([]string, os.Error) {
 			i++
 		}
 	}
-	return list[0:i], nil
+	return list[0:i], err
 }
 
 
@@ -207,9 +214,10 @@ func initDirTrees() {
 	if *filter != "" {
 		list, err := readDirList(*filter)
 		if err != nil {
-			log.Printf("%s", err)
-		} else if len(list) == 0 {
-			log.Printf("no directory paths in file %s", *filter)
+			log.Printf("readDirList(%s): %s", *filter, err)
+		}
+		if *verbose || len(list) == 0 {
+			log.Printf("found %d directory paths in file %s", len(list), *filter)
 		}
 		setPathFilter(list)
 	}
@@ -239,27 +247,30 @@ func initDirTrees() {
 // ----------------------------------------------------------------------------
 // Path mapping
 
-func absolutePath(path, defaultRoot string) string {
-	abspath := fsMap.ToAbsolute(path)
+// Absolute paths are file system paths (backslash-separated on Windows),
+// but relative paths are always slash-separated.
+
+func absolutePath(relpath, defaultRoot string) string {
+	abspath := fsMap.ToAbsolute(relpath)
 	if abspath == "" {
 		// no user-defined mapping found; use default mapping
-		abspath = pathutil.Join(defaultRoot, path)
+		abspath = filepath.Join(defaultRoot, filepath.FromSlash(relpath))
 	}
 	return abspath
 }
 
 
-func relativePath(path string) string {
-	relpath := fsMap.ToRelative(path)
+func relativeURL(abspath string) string {
+	relpath := fsMap.ToRelative(abspath)
 	if relpath == "" {
-		// prefix must end in '/'
+		// prefix must end in a path separator
 		prefix := *goroot
-		if len(prefix) > 0 && prefix[len(prefix)-1] != '/' {
-			prefix += "/"
+		if len(prefix) > 0 && prefix[len(prefix)-1] != filepath.Separator {
+			prefix += string(filepath.Separator)
 		}
-		if strings.HasPrefix(path, prefix) {
+		if strings.HasPrefix(abspath, prefix) {
 			// no user-defined mapping found; use default mapping
-			relpath = path[len(prefix):]
+			relpath = filepath.ToSlash(abspath[len(prefix):])
 		}
 	}
 	// Only if path is an invalid absolute path is relpath == ""
@@ -474,7 +485,7 @@ func urlFmt(w io.Writer, format string, x ...interface{}) {
 	}
 
 	// map path
-	relpath := relativePath(path)
+	relpath := relativeURL(path)
 
 	// convert to relative URLs so that they can also
 	// be used as relative file names in .txt templates
@@ -591,7 +602,7 @@ func dirslashFmt(w io.Writer, format string, x ...interface{}) {
 
 // Template formatter for "localname" format.
 func localnameFmt(w io.Writer, format string, x ...interface{}) {
-	_, localname := pathutil.Split(x[0].(string))
+	_, localname := filepath.Split(x[0].(string))
 	template.HTMLEscape(w, []byte(localname))
 }
 
@@ -623,7 +634,7 @@ var fmap = template.FormatterMap{
 
 
 func readTemplate(name string) *template.Template {
-	path := pathutil.Join(*goroot, "lib/godoc/"+name)
+	path := filepath.Join(*goroot, "lib", "godoc", name)
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		log.Fatalf("ReadFile %s: %v", path, err)
@@ -760,13 +771,12 @@ func applyTemplate(t *template.Template, name string, data interface{}) []byte {
 
 
 func redirect(w http.ResponseWriter, r *http.Request) (redirected bool) {
-	if canonical := pathutil.Clean(r.URL.Path) + "/"; r.URL.Path != canonical {
+	if canonical := path.Clean(r.URL.Path) + "/"; r.URL.Path != canonical {
 		http.Redirect(w, r, canonical, http.StatusMovedPermanently)
 		redirected = true
 	}
 	return
 }
-
 
 func serveTextFile(w http.ResponseWriter, r *http.Request, abspath, relpath, title string) {
 	src, err := ioutil.ReadFile(abspath)
@@ -778,7 +788,7 @@ func serveTextFile(w http.ResponseWriter, r *http.Request, abspath, relpath, tit
 
 	var buf bytes.Buffer
 	buf.WriteString("<pre>")
-	FormatText(&buf, src, 1, pathutil.Ext(abspath) == ".go", r.FormValue("h"), rangeSelection(r.FormValue("s")))
+	FormatText(&buf, src, 1, filepath.Ext(abspath) == ".go", r.FormValue("h"), rangeSelection(r.FormValue("s")))
 	buf.WriteString("</pre>")
 
 	servePage(w, title+" "+relpath, "", "", buf.Bytes())
@@ -815,7 +825,7 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 	// pick off special cases and hand the rest to the standard file server
 	switch r.URL.Path {
 	case "/":
-		serveHTMLDoc(w, r, pathutil.Join(*goroot, "doc/root.html"), "doc/root.html")
+		serveHTMLDoc(w, r, filepath.Join(*goroot, "doc", "root.html"), "doc/root.html")
 		return
 
 	case "/doc/root.html":
@@ -824,9 +834,9 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch pathutil.Ext(abspath) {
+	switch path.Ext(relpath) {
 	case ".html":
-		if strings.HasSuffix(abspath, "/index.html") {
+		if strings.HasSuffix(relpath, "/index.html") {
 			// We'll show index.html for the directory.
 			// Use the dir/ version as canonical instead of dir/index.html.
 			http.Redirect(w, r, r.URL.Path[0:len(r.URL.Path)-len("index.html")], http.StatusMovedPermanently)
@@ -851,8 +861,8 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 		if redirect(w, r) {
 			return
 		}
-		if index := abspath + "/index.html"; isTextFile(index) {
-			serveHTMLDoc(w, r, index, relativePath(index))
+		if index := filepath.Join(abspath, "index.html"); isTextFile(index) {
+			serveHTMLDoc(w, r, index, relativeURL(index))
 			return
 		}
 		serveDirectory(w, r, abspath, relpath)
@@ -948,13 +958,13 @@ func (h *httpHandler) getPageInfo(abspath, relpath, pkgname string, mode PageInf
 		// the package with dirname, and the 3rd choice is a package
 		// that is not called "main" if there is exactly one such
 		// package. Otherwise, don't select a package.
-		dirpath, dirname := pathutil.Split(abspath)
+		dirpath, dirname := filepath.Split(abspath)
 
 		// If the dirname is "go" we might be in a sub-directory for
 		// .go files - use the outer directory name instead for better
 		// results.
 		if dirname == "go" {
-			_, dirname = pathutil.Split(pathutil.Clean(dirpath))
+			_, dirname = filepath.Split(filepath.Clean(dirpath))
 		}
 
 		var choice3 *ast.Package
@@ -995,7 +1005,7 @@ func (h *httpHandler) getPageInfo(abspath, relpath, pkgname string, mode PageInf
 			ast.PackageExports(pkg)
 		}
 		if mode&genDoc != 0 {
-			pdoc = doc.NewPackageDoc(pkg, pathutil.Clean(relpath)) // no trailing '/' in importpath
+			pdoc = doc.NewPackageDoc(pkg, path.Clean(relpath)) // no trailing '/' in importpath
 		} else {
 			past = ast.MergePackageFiles(pkg, ast.FilterUnassociatedComments)
 		}
@@ -1081,13 +1091,13 @@ func (h *httpHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			title = "Package " + info.PDoc.PackageName
 		case info.PDoc.PackageName == fakePkgName:
 			// assume that the directory name is the command name
-			_, pkgname := pathutil.Split(pathutil.Clean(relpath))
+			_, pkgname := path.Split(path.Clean(relpath))
 			title = "Command " + pkgname
 		default:
 			title = "Command " + info.PDoc.PackageName
 		}
 	default:
-		title = "Directory " + relativePath(info.Dirname)
+		title = "Directory " + relativeURL(info.Dirname)
 		if *showTimestamps {
 			subtitle = "Last update: " + time.SecondsToLocalTime(info.DirTime).String()
 		}

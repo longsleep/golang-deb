@@ -28,6 +28,7 @@ const (
 	ERROR_PROC_NOT_FOUND      = 127
 	ERROR_ENVVAR_NOT_FOUND    = 203
 	ERROR_DIRECTORY           = 267
+	ERROR_OPERATION_ABORTED   = 995
 	ERROR_IO_PENDING          = 997
 )
 
@@ -380,6 +381,7 @@ const (
 	S_ISGID    = 0x400
 	S_ISVTX    = 0x200
 	S_IRUSR    = 0x100
+	S_IWRITE   = 0x80
 	S_IWUSR    = 0x80
 	S_IXUSR    = 0x40
 )

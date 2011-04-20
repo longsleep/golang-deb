@@ -40,17 +40,29 @@
 #include	<ar.h>
 
 char	*noname		= "<none>";
-char	thechar		= '6';
 char*	thestring 	= "amd64";
 char*	paramspace	= "FP";
 
+Header headers[] = {
+   "plan9x32", Hplan9x32,
+   "plan9", Hplan9x64,
+   "elf", Helf,
+   "darwin", Hdarwin,
+   "linux", Hlinux,
+   "freebsd", Hfreebsd,
+   "windows", Hwindows,
+   "windowsgui", Hwindows,
+   0, 0
+};
+
 /*
- *	-H2 -T4136 -R4096		is plan9 64-bit format
- *	-H3 -T4128 -R4096		is plan9 32-bit format
- *	-H5 -T0x80110000 -R4096		is ELF32
- *	-H6 -Tx -Rx			is apple MH-exec
- *	-H7 -Tx -Rx			is linux elf-exec
- *      -H9 -Tx -Rx			is FreeBSD elf-exec
+ *	-Hplan9x32 -T4136 -R4096	is plan9 64-bit format
+ *	-Hplan9 -T4128 -R4096		is plan9 32-bit format
+ *	-Helf -T0x80110000 -R4096	is ELF32
+ *	-Hdarwin -Tx -Rx		is apple MH-exec
+ *	-Hlinux -Tx -Rx			is linux elf-exec
+ *	-Hfreebsd -Tx -Rx		is FreeBSD elf-exec
+ *	-Hwindows -Tx -Rx		is MS Windows PE32+
  *
  *	options used: 189BLQSWabcjlnpsvz
  */
@@ -94,7 +106,7 @@ main(int argc, char *argv[])
 		INITENTRY = EARGF(usage());
 		break;
 	case 'H':
-		HEADTYPE = atolwhex(EARGF(usage()));
+		HEADTYPE = headtype(EARGF(usage()));
 		break;
 	case 'I':
 		interpreter = EARGF(usage());
@@ -123,31 +135,15 @@ main(int argc, char *argv[])
 		usage();
 
 	libinit();
-	if(rpath == nil)
-		rpath = smprint("%s/pkg/%s_%s", goroot, goos, goarch);
 
-	if(HEADTYPE == -1) {
-		HEADTYPE = 2;
-		if(strcmp(goos, "linux") == 0)
-			HEADTYPE = 7;
-		else
-		if(strcmp(goos, "darwin") == 0)
-			HEADTYPE = 6;
-		else
-		if(strcmp(goos, "freebsd") == 0)
-			HEADTYPE = 9;
-		else
-		if(strcmp(goos, "windows") == 0)
-			HEADTYPE = 10;
-		else
-			print("goos is not known: %s\n", goos);
-	}
+	if(HEADTYPE == -1)
+		HEADTYPE = headtype(goos);
 
 	switch(HEADTYPE) {
 	default:
 		diag("unknown -H option");
 		errorexit();
-	case 2:	/* plan 9 */
+	case Hplan9x32:	/* plan 9 */
 		HEADR = 32L+8L;
 		if(INITTEXT == -1)
 			INITTEXT = 4096+HEADR;
@@ -156,7 +152,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case 3:	/* plan 9 */
+	case Hplan9x64:	/* plan 9 */
 		HEADR = 32L;
 		if(INITTEXT == -1)
 			INITTEXT = 4096+32;
@@ -165,7 +161,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case 5:	/* elf32 executable */
+	case Helf:	/* elf32 executable */
 		HEADR = rnd(52L+3*32L, 16);
 		if(INITTEXT == -1)
 			INITTEXT = 0x80110000L;
@@ -174,7 +170,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case 6:	/* apple MACH */
+	case Hdarwin:	/* apple MACH */
 		/*
 		 * OS X system constant - offset from 0(GS) to our TLS.
 		 * Explained in ../../libcgo/darwin_amd64.c.
@@ -189,8 +185,8 @@ main(int argc, char *argv[])
 		if(INITDAT == -1)
 			INITDAT = 0;
 		break;
-	case 7:	/* elf64 executable */
-	case 9: /* freebsd */
+	case Hlinux:	/* elf64 executable */
+	case Hfreebsd: /* freebsd */
 		/*
 		 * ELF uses TLS offset negative from FS.
 		 * Translate 0(FS) and 8(FS) into -16(FS) and -8(FS).
@@ -207,7 +203,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case 10: /* PE executable */
+	case Hwindows: /* PE executable */
 		peinit();
 		HEADR = PEFILEHEADR;
 		if(INITTEXT == -1)
@@ -252,9 +248,10 @@ main(int argc, char *argv[])
 	patch();
 	follow();
 	doelf();
-	if(HEADTYPE == 6)
+	if(HEADTYPE == Hdarwin)
 		domacho();
 	dostkoff();
+	dostkcheck();
 	paramspace = "SP";	/* (FP) now (SP) on output */
 	if(debug['p'])
 		if(debug['1'])
@@ -262,7 +259,7 @@ main(int argc, char *argv[])
 		else
 			doprof2();
 	span();
-	if(HEADTYPE == 10)
+	if(HEADTYPE == Hwindows)
 		dope();
 	addexport();
 	textaddress();
@@ -270,6 +267,7 @@ main(int argc, char *argv[])
 	symtab();
 	dodata();
 	address();
+	doweak();
 	reloc();
 	asmb();
 	undef();

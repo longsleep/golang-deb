@@ -32,15 +32,9 @@
 
 #include	"l.h"
 #include	"../ld/lib.h"
+#include "../../pkg/runtime/stack.h"
 
 static void xfol(Prog*, Prog**);
-
-// see ../../runtime/proc.c:/StackGuard
-enum
-{
-	StackSmall = 128,
-	StackBig = 4096,
-};
 
 Prog*
 brchain(Prog *p)
@@ -277,7 +271,7 @@ patch(void)
 	vexit = s->value;
 	for(cursym = textp; cursym != nil; cursym = cursym->next)
 	for(p = cursym->text; p != P; p = p->link) {
-		if(HEADTYPE == 10) { 
+		if(HEADTYPE == Hwindows) { 
 			// Windows
 			// Convert
 			//   op   n(GS), reg
@@ -289,7 +283,7 @@ patch(void)
 			// a different method is used to access them.
 			if(p->from.type == D_INDIR+D_GS
 			&& p->to.type >= D_AX && p->to.type <= D_DI 
-			&& p->from.offset != 0x58) {
+			&& p->from.offset <= 8) {
 				q = appendp(p);
 				q->from = p->from;
 				q->from.type = D_INDIR + p->to.type;
@@ -300,7 +294,7 @@ patch(void)
 				p->from.offset = 0x58;
 			}
 		}
-		if(HEADTYPE == 7 || HEADTYPE == 9) {
+		if(HEADTYPE == Hlinux || HEADTYPE == Hfreebsd) {
 			// ELF uses FS instead of GS.
 			if(p->from.type == D_INDIR+D_GS)
 				p->from.type = D_INDIR+D_FS;
@@ -428,13 +422,13 @@ dostkoff(void)
 		if(!(p->from.scale & NOSPLIT)) {
 			p = appendp(p);	// load g into CX
 			p->as = AMOVQ;
-			if(HEADTYPE == 7 || HEADTYPE == 9)	// ELF uses FS
+			if(HEADTYPE == Hlinux || HEADTYPE == Hfreebsd)	// ELF uses FS
 				p->from.type = D_INDIR+D_FS;
 			else
 				p->from.type = D_INDIR+D_GS;
 			p->from.offset = tlsoffset+0;
 			p->to.type = D_CX;
-			if(HEADTYPE == 10) { // Windows
+			if(HEADTYPE == Hwindows) {
 				// movq %gs:0x58, %rcx
 				// movq (%rcx), %rcx
 				p->as = AMOVQ;
@@ -723,16 +717,4 @@ atolwhex(char *s)
 	if(f)
 		n = -n;
 	return n;
-}
-
-void
-undef(void)
-{
-	int i;
-	Sym *s;
-
-	for(i=0; i<NHASH; i++)
-	for(s = hash[i]; s != S; s = s->hash)
-		if(s->type == SXREF)
-			diag("%s: not defined", s->name);
 }

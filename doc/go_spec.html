@@ -1,5 +1,5 @@
 <!-- title The Go Programming Language Specification -->
-<!-- subtitle Version of February 8, 2011 -->
+<!-- subtitle Version of March 3, 2011 -->
 
 <!--
 TODO
@@ -1227,9 +1227,11 @@ make(chan int, 100)
 
 <p>
 The capacity, in number of elements, sets the size of the buffer in the channel. If the
-capacity is greater than zero, the channel is asynchronous: provided the
-buffer is not full, sends can succeed without blocking. If the capacity is zero
-or absent, the communication succeeds only when both a sender and receiver are ready.
+capacity is greater than zero, the channel is asynchronous: communication operations 
+succeed without blocking if the buffer is not full (sends) or not empty (receives),
+and elements are received in the order they are sent.
+If the capacity is zero or absent, the communication succeeds only when both a sender and
+receiver are ready.
 </p>
 
 <p>
@@ -1429,8 +1431,8 @@ Go is lexically scoped using blocks:
 	<li>The scope of a predeclared identifier is the universe block.</li>
 
 	<li>The scope of an identifier denoting a constant, type, variable,
-	    or function declared at top level (outside any function) is the
-	    package block.</li>
+	    or function (but not method) declared at top level (outside any
+	    function) is the package block.</li>
 
 	<li>The scope of an imported package identifier is the file block
 	    of the file containing the import declaration.</li>
@@ -2265,7 +2267,7 @@ If there is not exactly one <code>f</code> with shallowest depth, the selector
 expression is illegal.
 </li>
 <li>
-For a variable <code>x</code> of type <code>I</code> or <code>*I</code>
+For a variable <code>x</code> of type <code>I</code>
 where <code>I</code> is an interface type,
 <code>x.f</code> denotes the actual method with name <code>f</code> of the value assigned
 to <code>x</code> if there is such a method.
@@ -2742,7 +2744,7 @@ and finally <code>||</code> (logical or):
 Precedence    Operator
     5             *  /  %  &lt;&lt;  &gt;&gt;  &amp;  &amp;^
     4             +  -  |  ^
-    3             ==  !=  &lt;  &lt;=  >  >=
+    3             ==  !=  &lt;  &lt;=  &gt;  &gt;=
     2             &amp;&amp;
     1             ||
 </pre>
@@ -2758,7 +2760,7 @@ For instance, <code>x / y * z</code> is the same as <code>(x / y) * z</code>.
 x &lt;= f()
 ^a &gt;&gt; b
 f() || g()
-x == y+1 &amp;&amp; &lt;-chan_ptr > 0
+x == y+1 &amp;&amp; &lt;-chan_ptr &gt; 0
 </pre>
 
 
@@ -3684,17 +3686,16 @@ complex, or string constant.
 "If" statements specify the conditional execution of two branches
 according to the value of a boolean expression.  If the expression
 evaluates to true, the "if" branch is executed, otherwise, if
-present, the "else" branch is executed.  A missing condition
-is equivalent to <code>true</code>.
+present, the "else" branch is executed.
 </p>
 
 <pre class="ebnf">
-IfStmt    = "if" [ SimpleStmt ";" ] [ Expression ] Block [ "else" Statement ] .
+IfStmt    = "if" [ SimpleStmt ";" ] Expression Block [ "else" Statement ] .
 </pre>
 
 <pre>
-if x > 0 {
-	return true;
+if x &gt; max {
+	x = max
 }
 </pre>
 
@@ -3706,7 +3707,7 @@ executes before the expression is evaluated.
 <pre>
 if x := f(); x &lt; y {
 	return x
-} else if x > z {
+} else if x &gt; z {
 	return z
 } else {
 	return y
@@ -4697,7 +4698,7 @@ func protect(g func()) {
 	defer func() {
 		log.Println("done")  // Println executes normally even in there is a panic
 		if x := recover(); x != nil {
-			log.Printf("runtime panic: %v", x)
+			log.Printf("run time panic: %v", x)
 		}
 	}
 	log.Println("start")
@@ -4794,7 +4795,7 @@ The PackageName is used in <a href="#Qualified_identifiers">qualified identifier
 to access the exported identifiers of the package within the importing source file.
 It is declared in the <a href="#Blocks">file block</a>.
 If the PackageName is omitted, it defaults to the identifier specified in the
-<a href="#Package_clauses">package clause</a> of the imported package.
+<a href="#Package_clause">package clause</a> of the imported package.
 If an explicit period (<code>.</code>) appears instead of a name, all the
 package's exported identifiers will be declared in the current file's
 file block and can be accessed without a qualifier.
@@ -5151,7 +5152,6 @@ The following minimal alignment properties are guaranteed:
 <h2 id="Implementation_differences"><span class="alert">Implementation differences - TODO</span></h2>
 <ul>
 	<li><span class="alert">Implementation does not honor the restriction on goto statements and targets (no intervening declarations).</span></li>
-	<li><span class="alert">Gccgo: The <code>append</code> built-in function is not yet implemented.</span></li>
 	<li><span class="alert">Gccgo: Method expressions are partially implemented.</span></li>
 	<li><span class="alert">Gccgo: allows only one init() function per source file.</span></li>
 </ul>
