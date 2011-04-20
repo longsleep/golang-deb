@@ -11,7 +11,7 @@ import (
 	"io"
 	"mime"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -104,7 +104,7 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 		}
 	}
 
-	if t, _ := time.Parse(TimeFormat, r.Header["If-Modified-Since"]); t != nil && d.Mtime_ns/1e9 <= t.Seconds() {
+	if t, _ := time.Parse(TimeFormat, r.Header.Get("If-Modified-Since")); t != nil && d.Mtime_ns/1e9 <= t.Seconds() {
 		w.WriteHeader(StatusNotModified)
 		return
 	}
@@ -112,7 +112,7 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 
 	// use contents of index.html for directory, if present
 	if d.IsDirectory() {
-		index := name + indexPage
+		index := name + filepath.FromSlash(indexPage)
 		ff, err := os.Open(index, os.O_RDONLY, 0)
 		if err == nil {
 			defer ff.Close()
@@ -135,7 +135,7 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 	code := StatusOK
 
 	// use extension to find content type.
-	ext := path.Ext(name)
+	ext := filepath.Ext(name)
 	if ctype := mime.TypeByExtension(ext); ctype != "" {
 		w.SetHeader("Content-Type", ctype)
 	} else {
@@ -153,7 +153,7 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 
 	// handle Content-Range header.
 	// TODO(adg): handle multiple ranges
-	ranges, err := parseRange(r.Header["Range"], size)
+	ranges, err := parseRange(r.Header.Get("Range"), size)
 	if err != nil || len(ranges) > 1 {
 		Error(w, err.String(), StatusRequestedRangeNotSatisfiable)
 		return
@@ -202,7 +202,7 @@ func (f *fileHandler) ServeHTTP(w ResponseWriter, r *Request) {
 		return
 	}
 	path = path[len(f.prefix):]
-	serveFile(w, r, f.root+"/"+path, true)
+	serveFile(w, r, filepath.Join(f.root, filepath.FromSlash(path)), true)
 }
 
 // httpRange specifies the byte range to be sent to the client.

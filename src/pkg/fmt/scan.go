@@ -28,23 +28,30 @@ type runeUnreader interface {
 // Scanners may do rune-at-a-time scanning or ask the ScanState
 // to discover the next space-delimited token.
 type ScanState interface {
-	// GetRune reads the next rune (Unicode code point) from the input.
-	GetRune() (rune int, err os.Error)
-	// UngetRune causes the next call to GetRune to return the same rune.
-	UngetRune()
-	// Width returns the value of the width option and whether it has been set.
-	// The unit is Unicode code points.
-	Width() (wid int, ok bool)
+	// ReadRune reads the next rune (Unicode code point) from the input.
+	// If invoked during Scanln, Fscanln, or Sscanln, ReadRune() will
+	// return EOF after returning the first '\n' or when reading beyond
+	// the specified width.
+	ReadRune() (rune int, size int, err os.Error)
+	// UnreadRune causes the next call to ReadRune to return the same rune.
+	UnreadRune() os.Error
 	// Token returns the next space-delimited token from the input. If
 	// a width has been specified, the returned token will be no longer
 	// than the width.
 	Token() (token string, err os.Error)
+	// Width returns the value of the width option and whether it has been set.
+	// The unit is Unicode code points.
+	Width() (wid int, ok bool)
+	// Because ReadRune is implemented by the interface, Read should never be
+	// called by the scanning routines and a valid implementation of
+	// ScanState may choose always to return an error from Read.
+	Read(buf []byte) (n int, err os.Error)
 }
 
 // Scanner is implemented by any value that has a Scan method, which scans
 // the input for the representation of a value and stores the result in the
 // receiver, which must be a pointer to be useful.  The Scan method is called
-// for any argument to Scan or Scanln that implements it.
+// for any argument to Scan, Scanf, or Scanln that implements it.
 type Scanner interface {
 	Scan(state ScanState, verb int) os.Error
 }
@@ -96,18 +103,18 @@ func Sscanf(str string, format string, a ...interface{}) (n int, err os.Error) {
 // returns the number of items successfully scanned.  If that is less
 // than the number of arguments, err will report why.
 func Fscan(r io.Reader, a ...interface{}) (n int, err os.Error) {
-	s := newScanState(r, true)
+	s, old := newScanState(r, true, false)
 	n, err = s.doScan(a)
-	s.free()
+	s.free(old)
 	return
 }
 
 // Fscanln is similar to Fscan, but stops scanning at a newline and
 // after the final item there must be a newline or EOF.
 func Fscanln(r io.Reader, a ...interface{}) (n int, err os.Error) {
-	s := newScanState(r, false)
+	s, old := newScanState(r, false, true)
 	n, err = s.doScan(a)
-	s.free()
+	s.free(old)
 	return
 }
 
@@ -115,9 +122,9 @@ func Fscanln(r io.Reader, a ...interface{}) (n int, err os.Error) {
 // values into successive arguments as determined by the format.  It
 // returns the number of items successfully parsed.
 func Fscanf(r io.Reader, format string, a ...interface{}) (n int, err os.Error) {
-	s := newScanState(r, false)
+	s, old := newScanState(r, false, false)
 	n, err = s.doScanf(format, a)
-	s.free()
+	s.free(old)
 	return
 }
 
@@ -131,53 +138,70 @@ const EOF = -1
 
 // ss is the internal implementation of ScanState.
 type ss struct {
-	rr         io.RuneReader // where to read input
-	buf        bytes.Buffer  // token accumulator
-	nlIsSpace  bool          // whether newline counts as white space
-	peekRune   int           // one-rune lookahead
-	prevRune   int           // last rune returned by GetRune
-	atEOF      bool          // already read EOF
-	maxWid     int           // max width of field, in runes
-	widPresent bool          // width was specified
-	wid        int           // width consumed so far; used in accept()
+	rr       io.RuneReader // where to read input
+	buf      bytes.Buffer  // token accumulator
+	peekRune int           // one-rune lookahead
+	prevRune int           // last rune returned by ReadRune
+	count    int           // runes consumed so far.
+	atEOF    bool          // already read EOF
+	ssave
 }
 
-func (s *ss) GetRune() (rune int, err os.Error) {
+// ssave holds the parts of ss that need to be
+// saved and restored on recursive scans.
+type ssave struct {
+	validSave  bool // is or was a part of an actual ss.
+	nlIsEnd    bool // whether newline terminates scan
+	nlIsSpace  bool // whether newline counts as white space
+	fieldLimit int  // max value of ss.count for this field; fieldLimit <= limit
+	limit      int  // max value of ss.count.
+	maxWid     int  // width of this field.
+}
+
+// The Read method is only in ScanState so that ScanState
+// satisfies io.Reader. It will never be called when used as
+// intended, so there is no need to make it actually work.
+func (s *ss) Read(buf []byte) (n int, err os.Error) {
+	return 0, os.ErrorString("ScanState's Read should not be called. Use ReadRune")
+}
+
+func (s *ss) ReadRune() (rune int, size int, err os.Error) {
 	if s.peekRune >= 0 {
+		s.count++
 		rune = s.peekRune
+		size = utf8.RuneLen(rune)
 		s.prevRune = rune
 		s.peekRune = -1
 		return
 	}
-	rune, _, err = s.rr.ReadRune()
+	if s.atEOF || s.nlIsEnd && s.prevRune == '\n' || s.count >= s.fieldLimit {
+		err = os.EOF
+		return
+	}
+
+	rune, size, err = s.rr.ReadRune()
 	if err == nil {
+		s.count++
 		s.prevRune = rune
+	} else if err == os.EOF {
+		s.atEOF = true
 	}
 	return
 }
 
 func (s *ss) Width() (wid int, ok bool) {
-	return s.maxWid, s.widPresent
+	if s.maxWid == hugeWid {
+		return 0, false
+	}
+	return s.maxWid, true
 }
 
 // The public method returns an error; this private one panics.
 // If getRune reaches EOF, the return value is EOF (-1).
 func (s *ss) getRune() (rune int) {
-	if s.atEOF {
-		return EOF
-	}
-	if s.peekRune >= 0 {
-		rune = s.peekRune
-		s.prevRune = rune
-		s.peekRune = -1
-		return
-	}
-	rune, _, err := s.rr.ReadRune()
-	if err == nil {
-		s.prevRune = rune
-	} else if err != nil {
+	rune, _, err := s.ReadRune()
+	if err != nil {
 		if err == os.EOF {
-			s.atEOF = true
 			return EOF
 		}
 		s.error(err)
@@ -185,35 +209,25 @@ func (s *ss) getRune() (rune int) {
 	return
 }
 
-// mustGetRune turns os.EOF into a panic(io.ErrUnexpectedEOF).
+// mustReadRune turns os.EOF into a panic(io.ErrUnexpectedEOF).
 // It is called in cases such as string scanning where an EOF is a
 // syntax error.
-func (s *ss) mustGetRune() (rune int) {
-	if s.atEOF {
+func (s *ss) mustReadRune() (rune int) {
+	rune = s.getRune()
+	if rune == EOF {
 		s.error(io.ErrUnexpectedEOF)
-	}
-	if s.peekRune >= 0 {
-		rune = s.peekRune
-		s.peekRune = -1
-		return
-	}
-	rune, _, err := s.rr.ReadRune()
-	if err != nil {
-		if err == os.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-		s.error(err)
 	}
 	return
 }
 
-
-func (s *ss) UngetRune() {
+func (s *ss) UnreadRune() os.Error {
 	if u, ok := s.rr.(runeUnreader); ok {
 		u.UnreadRune()
 	} else {
 		s.peekRune = s.prevRune
 	}
+	s.count--
+	return nil
 }
 
 func (s *ss) error(err os.Error) {
@@ -300,23 +314,43 @@ func (r *readRune) ReadRune() (rune int, size int, err os.Error) {
 var ssFree = newCache(func() interface{} { return new(ss) })
 
 // Allocate a new ss struct or grab a cached one.
-func newScanState(r io.Reader, nlIsSpace bool) *ss {
-	s := ssFree.get().(*ss)
+func newScanState(r io.Reader, nlIsSpace, nlIsEnd bool) (s *ss, old ssave) {
+	// If the reader is a *ss, then we've got a recursive
+	// call to Scan, so re-use the scan state.
+	s, ok := r.(*ss)
+	if ok {
+		old = s.ssave
+		s.limit = s.fieldLimit
+		s.nlIsEnd = nlIsEnd || s.nlIsEnd
+		s.nlIsSpace = nlIsSpace
+		return
+	}
+
+	s = ssFree.get().(*ss)
 	if rr, ok := r.(io.RuneReader); ok {
 		s.rr = rr
 	} else {
 		s.rr = &readRune{reader: r}
 	}
 	s.nlIsSpace = nlIsSpace
+	s.nlIsEnd = nlIsEnd
+	s.prevRune = -1
 	s.peekRune = -1
 	s.atEOF = false
-	s.maxWid = 0
-	s.widPresent = false
-	return s
+	s.limit = hugeWid
+	s.fieldLimit = hugeWid
+	s.maxWid = hugeWid
+	s.validSave = true
+	return
 }
 
 // Save used ss structs in ssFree; avoid an allocation per invocation.
-func (s *ss) free() {
+func (s *ss) free(old ssave) {
+	// If it was used recursively, just restore the old state.
+	if old.validSave {
+		s.ssave = old
+		return
+	}
 	// Don't hold on to ss structs with large buffers.
 	if cap(s.buf.Bytes()) > 1024 {
 		return
@@ -344,7 +378,7 @@ func (s *ss) skipSpace(stopAtNewline bool) {
 			return
 		}
 		if !unicode.IsSpace(rune) {
-			s.UngetRune()
+			s.UnreadRune()
 			break
 		}
 	}
@@ -356,13 +390,13 @@ func (s *ss) skipSpace(stopAtNewline bool) {
 func (s *ss) token() string {
 	s.skipSpace(false)
 	// read until white space or newline
-	for nrunes := 0; !s.widPresent || nrunes < s.maxWid; nrunes++ {
+	for {
 		rune := s.getRune()
 		if rune == EOF {
 			break
 		}
 		if unicode.IsSpace(rune) {
-			s.UngetRune()
+			s.UnreadRune()
 			break
 		}
 		s.buf.WriteRune(rune)
@@ -381,9 +415,6 @@ var boolError = os.ErrorString("syntax error scanning boolean")
 // consume reads the next rune in the input and reports whether it is in the ok string.
 // If accept is true, it puts the character into the input token.
 func (s *ss) consume(ok string, accept bool) bool {
-	if s.wid >= s.maxWid {
-		return false
-	}
 	rune := s.getRune()
 	if rune == EOF {
 		return false
@@ -391,12 +422,11 @@ func (s *ss) consume(ok string, accept bool) bool {
 	if strings.IndexRune(ok, rune) >= 0 {
 		if accept {
 			s.buf.WriteRune(rune)
-			s.wid++
 		}
 		return true
 	}
 	if rune != EOF && accept {
-		s.UngetRune()
+		s.UnreadRune()
 	}
 	return false
 }
@@ -405,7 +435,7 @@ func (s *ss) consume(ok string, accept bool) bool {
 func (s *ss) peek(ok string) bool {
 	rune := s.getRune()
 	if rune != EOF {
-		s.UngetRune()
+		s.UnreadRune()
 	}
 	return strings.IndexRune(ok, rune) >= 0
 }
@@ -433,7 +463,7 @@ func (s *ss) scanBool(verb int) bool {
 		return false
 	}
 	// Syntax-checking a boolean is annoying.  We're not fastidious about case.
-	switch s.mustGetRune() {
+	switch s.mustReadRune() {
 	case '0':
 		return false
 	case '1':
@@ -494,7 +524,7 @@ func (s *ss) scanNumber(digits string, haveDigits bool) string {
 
 // scanRune returns the next rune value in the input.
 func (s *ss) scanRune(bitSize int) int64 {
-	rune := int64(s.mustGetRune())
+	rune := int64(s.mustReadRune())
 	n := uint(bitSize)
 	x := (rune << (64 - n)) >> (64 - n)
 	if x != rune {
@@ -710,12 +740,12 @@ func (s *ss) convertString(verb int) (str string) {
 
 // quotedString returns the double- or back-quoted string represented by the next input characters.
 func (s *ss) quotedString() string {
-	quote := s.mustGetRune()
+	quote := s.mustReadRune()
 	switch quote {
 	case '`':
 		// Back-quoted: Anything goes until EOF or back quote.
 		for {
-			rune := s.mustGetRune()
+			rune := s.mustReadRune()
 			if rune == quote {
 				break
 			}
@@ -726,13 +756,13 @@ func (s *ss) quotedString() string {
 		// Double-quoted: Include the quotes and let strconv.Unquote do the backslash escapes.
 		s.buf.WriteRune(quote)
 		for {
-			rune := s.mustGetRune()
+			rune := s.mustReadRune()
 			s.buf.WriteRune(rune)
 			if rune == '\\' {
 				// In a legal backslash escape, no matter how long, only the character
 				// immediately after the escape can itself be a backslash or quote.
 				// Thus we only need to protect the first character after the backslash.
-				rune := s.mustGetRune()
+				rune := s.mustReadRune()
 				s.buf.WriteRune(rune)
 			} else if rune == '"' {
 				break
@@ -771,10 +801,10 @@ func (s *ss) hexByte() (b byte, ok bool) {
 		return
 	}
 	if unicode.IsSpace(rune1) {
-		s.UngetRune()
+		s.UnreadRune()
 		return
 	}
-	rune2 := s.mustGetRune()
+	rune2 := s.mustReadRune()
 	return byte(s.hexDigit(rune1)<<4 | s.hexDigit(rune2)), true
 }
 
@@ -796,6 +826,8 @@ func (s *ss) hexString() string {
 
 const floatVerbs = "beEfFgGv"
 
+const hugeWid = 1 << 30
+
 // scanOne scans a single value, deriving the scanner from the type of the argument.
 func (s *ss) scanOne(verb int, field interface{}) {
 	s.buf.Reset()
@@ -804,14 +836,13 @@ func (s *ss) scanOne(verb int, field interface{}) {
 	if v, ok := field.(Scanner); ok {
 		err = v.Scan(s, verb)
 		if err != nil {
+			if err == os.EOF {
+				err = io.ErrUnexpectedEOF
+			}
 			s.error(err)
 		}
 		return
 	}
-	if !s.widPresent {
-		s.maxWid = 1 << 30 // Huge
-	}
-	s.wid = 0
 	switch v := field.(type) {
 	case *bool:
 		*v = s.scanBool(verb)
@@ -912,7 +943,6 @@ func errorHandler(errp *os.Error) {
 }
 
 // doScan does the real work for scanning without a format string.
-// At the moment, it handles only pointers to basic types.
 func (s *ss) doScan(a []interface{}) (numProcessed int, err os.Error) {
 	defer errorHandler(&err)
 	for _, field := range a {
@@ -973,9 +1003,9 @@ func (s *ss) advance(format string) (i int) {
 			s.skipSpace(true)
 			continue
 		}
-		inputc := s.mustGetRune()
+		inputc := s.mustReadRune()
 		if fmtc != inputc {
-			s.UngetRune()
+			s.UnreadRune()
 			return -1
 		}
 		i += w
@@ -1007,7 +1037,15 @@ func (s *ss) doScanf(format string, a []interface{}) (numProcessed int, err os.E
 		i++ // % is one byte
 
 		// do we have 20 (width)?
-		s.maxWid, s.widPresent, i = parsenum(format, i, end)
+		var widPresent bool
+		s.maxWid, widPresent, i = parsenum(format, i, end)
+		if !widPresent {
+			s.maxWid = hugeWid
+		}
+		s.fieldLimit = s.limit
+		if f := s.count + s.maxWid; f < s.fieldLimit {
+			s.fieldLimit = f
+		}
 
 		c, w := utf8.DecodeRuneInString(format[i:])
 		i += w
@@ -1020,6 +1058,7 @@ func (s *ss) doScanf(format string, a []interface{}) (numProcessed int, err os.E
 
 		s.scanOne(c, field)
 		numProcessed++
+		s.fieldLimit = s.limit
 	}
 	if numProcessed < len(a) {
 		s.errorString("too many operands")

@@ -5,7 +5,9 @@
 #include "runtime.h"
 #include "malloc.h"
 
-// TODO(rsc): Why not just use mheap.Lock?
+// Lock to protect finalizer data structures.
+// Cannot reuse mheap.Lock because the finalizer
+// maintenance requires allocation.
 static Lock finlock;
 
 // Finalizer hash table.  Direct hash, linear scan, at most 3/4 full.
@@ -90,7 +92,6 @@ runtime·addfinalizer(void *p, void (*f)(void*), int32 nret)
 {
 	Fintab newtab;
 	int32 i;
-	uint32 *ref;
 	byte *base;
 	Finalizer *e;
 	

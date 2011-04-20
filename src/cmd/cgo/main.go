@@ -82,11 +82,17 @@ type ExpFunc struct {
 	ExpName string // name to use from C
 }
 
+// A TypeRepr contains the string representation of a type.
+type TypeRepr struct {
+	Repr       string
+	FormatArgs []interface{}
+}
+
 // A Type collects information about a type in both the C and Go worlds.
 type Type struct {
 	Size       int64
 	Align      int64
-	C          string
+	C          *TypeRepr
 	Go         ast.Expr
 	EnumValues map[string]int64
 }
@@ -214,6 +220,10 @@ func main() {
 		p.ParseFlags(f, input)
 		fs[i] = f
 	}
+
+	// make sure that _obj directory exists, so that we can write
+	// all the output files there.
+	os.Mkdir("_obj", 0777)
 
 	for i, input := range goFiles {
 		f := fs[i]

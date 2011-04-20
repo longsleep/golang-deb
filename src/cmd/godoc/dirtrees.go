@@ -12,8 +12,9 @@ import (
 	"go/parser"
 	"go/token"
 	"io/ioutil"
+	"log"
 	"os"
-	pathutil "path"
+	"path/filepath"
 	"strings"
 	"unicode"
 )
@@ -31,7 +32,7 @@ type Directory struct {
 func isGoFile(f *os.FileInfo) bool {
 	return f.IsRegular() &&
 		!strings.HasPrefix(f.Name, ".") && // ignore .files
-		pathutil.Ext(f.Name) == ".go"
+		filepath.Ext(f.Name) == ".go"
 }
 
 
@@ -100,7 +101,13 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 		return &Directory{depth, path, name, "", nil}
 	}
 
-	list, _ := ioutil.ReadDir(path) // ignore errors
+	list, err := ioutil.ReadDir(path)
+	if err != nil {
+		// newDirTree is called with a path that should be a package
+		// directory; errors here should not happen, but if they do,
+		// we want to know about them
+		log.Printf("ioutil.ReadDir(%s): %s", path, err)
+	}
 
 	// determine number of subdirectories and if there are package files
 	ndirs := 0
@@ -116,7 +123,7 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 			// though the directory doesn't contain any real package files - was bug)
 			if synopses[0] == "" {
 				// no "optimal" package synopsis yet; continue to collect synopses
-				file, err := parser.ParseFile(fset, pathutil.Join(path, d.Name), nil,
+				file, err := parser.ParseFile(fset, filepath.Join(path, d.Name), nil,
 					parser.ParseComments|parser.PackageClauseOnly)
 				if err == nil {
 					hasPkgFiles = true
@@ -149,7 +156,7 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 		i := 0
 		for _, d := range list {
 			if isPkgDir(d) {
-				dd := b.newDirTree(fset, pathutil.Join(path, d.Name), d.Name, depth+1)
+				dd := b.newDirTree(fset, filepath.Join(path, d.Name), d.Name, depth+1)
 				if dd != nil {
 					dirs[i] = dd
 					i++
@@ -188,8 +195,16 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 // (i.e., in this case the tree may contain directories w/o any package files).
 //
 func newDirectory(root string, pathFilter func(string) bool, maxDepth int) *Directory {
-	d, err := os.Lstat(root)
-	if err != nil || !isPkgDir(d) {
+	// The root could be a symbolic link so use os.Stat not os.Lstat.
+	d, err := os.Stat(root)
+	// If we fail here, report detailed error messages; otherwise
+	// is is hard to see why a directory tree was not built.
+	switch {
+	case err != nil:
+		log.Printf("newDirectory(%s): %s", root, err)
+		return nil
+	case !isPkgDir(d):
+		log.Printf("newDirectory(%s): not a package directory", root)
 		return nil
 	}
 	if maxDepth < 0 {

@@ -331,21 +331,21 @@ asmb(void)
 			Bprint(&bso, "%5.2f sym\n", cputime());
 		Bflush(&bso);
 		switch(HEADTYPE) {
-		case 0:
-		case 1:
-		case 4:
-		case 5:
+		case Hnoheader:
+		case Hrisc:
+		case Hixp1200:
+		case Hipaq:
 			debug['s'] = 1;
 			break;
-		case 2:
+		case Hplan9x32:
 			OFFSET = HEADR+textsize+segdata.filelen;
 			seek(cout, OFFSET, 0);
 			break;
-		case 3:
+		case Hnetbsd:
 			OFFSET += rnd(segdata.filelen, 4096);
 			seek(cout, OFFSET, 0);
 			break;
-		case 6:
+		case Hlinux:
 			OFFSET += segdata.filelen;
 			seek(cout, rnd(OFFSET, INITRND), 0);
 			break;
@@ -362,9 +362,9 @@ asmb(void)
 	OFFSET = 0;
 	seek(cout, OFFSET, 0);
 	switch(HEADTYPE) {
-	case 0:	/* no header */
+	case Hnoheader:	/* no header */
 		break;
-	case 1:	/* aif for risc os */
+	case Hrisc:	/* aif for risc os */
 		lputl(0xe1a00000);		/* NOP - decompress code */
 		lputl(0xe1a00000);		/* NOP - relocation code */
 		lputl(0xeb000000 + 12);		/* BL - zero init code */
@@ -394,7 +394,7 @@ asmb(void)
 			lputl(0xe1a00000);	/* NOP - zero init code */
 		lputl(0xe1a0f00e);		/* B (R14) - zero init return */
 		break;
-	case 2:	/* plan 9 */
+	case Hplan9x32:	/* plan 9 */
 		lput(0x647);			/* magic */
 		lput(textsize);			/* sizes */
 		lput(segdata.filelen);
@@ -404,7 +404,7 @@ asmb(void)
 		lput(0L);
 		lput(lcsize);
 		break;
-	case 3:	/* boot for NetBSD */
+	case Hnetbsd:	/* boot for NetBSD */
 		lput((143<<16)|0413);		/* magic */
 		lputl(rnd(HEADR+textsize, 4096));
 		lputl(rnd(segdata.filelen, 4096));
@@ -414,15 +414,15 @@ asmb(void)
 		lputl(0L);
 		lputl(0L);
 		break;
-	case 4: /* boot for IXP1200 */
+	case Hixp1200: /* boot for IXP1200 */
 		break;
-	case 5: /* boot for ipaq */
+	case Hipaq: /* boot for ipaq */
 		lputl(0xe3300000);		/* nop */
 		lputl(0xe3300000);		/* nop */
 		lputl(0xe3300000);		/* nop */
 		lputl(0xe3300000);		/* nop */
 		break;
-	case 6:
+	case Hlinux:
 		/* elf arm */
 		eh = getElfEhdr();
 		fo = HEADR;
@@ -1463,7 +1463,7 @@ if(debug['G']) print("%ux: %s: arm %d %d %d\n", (uint32)(p->pc), p->from.sym->na
 		aclass(&p->from);
 		if(instoffset != 0)
 			diag("offset must be zero in STREX");
-		o1 = (0x3<<23) | (0xf9<<4);
+		o1 = (0x18<<20) | (0xf90);
 		o1 |= p->from.reg << 16;
 		o1 |= p->reg << 0;
 		o1 |= p->to.reg << 12;
@@ -1552,6 +1552,25 @@ if(debug['G']) print("%ux: %s: arm %d %d %d\n", (uint32)(p->pc), p->from.sym->na
 	case 90:	/* tst reg  */
 		o1 = oprrr(ACMP+AEND, p->scond);
 		o1 |= p->from.reg<<16;
+		break;
+	case 91:	/* ldrexd oreg,reg */
+		aclass(&p->from);
+		if(instoffset != 0)
+			diag("offset must be zero in LDREX");
+		o1 = (0x1b<<20) | (0xf9f);
+		o1 |= p->from.reg << 16;
+		o1 |= p->to.reg << 12;
+		o1 |= (p->scond & C_SCOND) << 28;
+		break;
+	case 92:	/* strexd reg,oreg,reg */
+		aclass(&p->from);
+		if(instoffset != 0)
+			diag("offset must be zero in STREX");
+		o1 = (0x1a<<20) | (0xf90);
+		o1 |= p->from.reg << 16;
+		o1 |= p->reg << 0;
+		o1 |= p->to.reg << 12;
+		o1 |= (p->scond & C_SCOND) << 28;
 		break;
 	}
 	

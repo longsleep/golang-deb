@@ -500,6 +500,7 @@ asmbpe(void)
 		IMAGE_FILE_EXECUTABLE_IMAGE|IMAGE_FILE_DEBUG_STRIPPED;
 	if (pe64) {
 		fh.SizeOfOptionalHeader = sizeof(oh64);
+		fh.Characteristics |= IMAGE_FILE_LARGE_ADDRESS_AWARE;
 		set(Magic, 0x20b);	// PE32+
 	} else {
 		fh.SizeOfOptionalHeader = sizeof(oh);
@@ -525,8 +526,11 @@ asmbpe(void)
 	set(MinorSubsystemVersion, 0);
 	set(SizeOfImage, nextsectoff);
 	set(SizeOfHeaders, PEFILEHEADR);
-	set(Subsystem, 3);	// WINDOWS_CUI
-	set(SizeOfStackReserve, 0x00200000);
+	if(strcmp(headstring, "windowsgui") == 0)
+		set(Subsystem, IMAGE_SUBSYSTEM_WINDOWS_GUI);
+	else
+		set(Subsystem, IMAGE_SUBSYSTEM_WINDOWS_CUI);
+	set(SizeOfStackReserve, 0x0040000);
 	set(SizeOfStackCommit, 0x00001000);
 	set(SizeOfHeapReserve, 0x00100000);
 	set(SizeOfHeapCommit, 0x00001000);

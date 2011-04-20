@@ -495,17 +495,27 @@ runtime·selectnbrecv(byte *v, Hchan *c, bool ok)
 	runtime·chanrecv(c, v, &ok, nil);
 }	
 
+static void newselect(int32, Select**);
+
 // newselect(size uint32) (sel *byte);
 #pragma textflag 7
 void
 runtime·newselect(int32 size, ...)
 {
-	int32 n, o;
+	int32 o;
 	Select **selp;
-	Select *sel;
 
 	o = runtime·rnd(sizeof(size), Structrnd);
 	selp = (Select**)((byte*)&size + o);
+	newselect(size, selp);
+}
+
+static void
+newselect(int32 size, Select **selp)
+{
+	int32 n;
+	Select *sel;
+
 	n = 0;
 	if(size > 1)
 		n = size-1;
@@ -589,10 +599,18 @@ runtime·selectrecv(Select *sel, Hchan *c, ...)
 }
 
 
-// selectdefaul(sel *byte) (selected bool);
+static void selectdefault(Select*, void*);
+
+// selectdefault(sel *byte) (selected bool);
 #pragma textflag 7
 void
 runtime·selectdefault(Select *sel, ...)
+{
+	selectdefault(sel, runtime·getcallerpc(&sel));
+}
+
+static void
+selectdefault(Select *sel, void *callerpc)
 {
 	int32 i;
 	Scase *cas;
@@ -603,7 +621,7 @@ runtime·selectdefault(Select *sel, ...)
 	sel->ncase = i+1;
 	cas = runtime·mal(sizeof *cas);
 	sel->scase[i] = cas;
-	cas->pc = runtime·getcallerpc(&sel);
+	cas->pc = callerpc;
 	cas->chan = nil;
 
 	cas->so = runtime·rnd(sizeof(sel), Structrnd);
@@ -662,23 +680,32 @@ runtime·block(void)
 	runtime·gosched();
 }
 
+static void* selectgo(Select**);
+
 // selectgo(sel *byte);
 //
 // overwrites return pc on stack to signal which case of the select
 // to run, so cannot appear at the top of a split stack.
-// frame has 6 pointers and 4 int32 so 64 bytes max.
-// that's less than StackGuard-StackSmall, so okay.
 #pragma textflag 7
 void
 runtime·selectgo(Select *sel)
 {
+	runtime·setcallerpc(&sel, selectgo(&sel));
+}
+
+static void*
+selectgo(Select **selp)
+{
+	Select *sel;
 	uint32 o, i, j;
 	Scase *cas, *dfl;
 	Hchan *c;
 	SudoG *sg;
 	G *gp;
 	byte *as;
+	void *pc;
 
+	sel = *selp;
 	if(runtime·gcwaiting)
 		runtime·gosched();
 
@@ -889,16 +916,18 @@ retc:
 	selunlock(sel);
 
 	// return to pc corresponding to chosen case
-	runtime·setcallerpc(&sel, cas->pc);
-	as = (byte*)&sel + cas->so;
+	
+	pc = cas->pc;
+	as = (byte*)selp + cas->so;
 	freesel(sel);
 	*as = true;
-	return;
+	return pc;
 
 sclose:
 	// send on closed channel
 	selunlock(sel);
 	runtime·panicstring("send on closed channel");
+	return nil;  // not reached
 }
 
 // closechan(sel *byte);

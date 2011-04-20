@@ -7,6 +7,7 @@
 #include "defs.h"
 #include "malloc.h"
 #include "os.h"
+#include "stack.h"
 
 bool	runtime·iscgo;
 
@@ -63,7 +64,6 @@ struct Sched {
 	int32 mcount;	// number of ms that have been created
 	int32 mcpu;	// number of ms executing on cpu
 	int32 mcpumax;	// max number of ms allowed on cpu
-	int32 gomaxprocs;
 	int32 msyscall;	// number of ms in system calls
 
 	int32 predawn;	// running initialization, don't run new gs.
@@ -73,6 +73,7 @@ struct Sched {
 };
 
 Sched runtime·sched;
+int32 gomaxprocs;
 
 // Scheduling helpers.  Sched must be locked.
 static void gput(G*);	// put/get on ghead/gtail
@@ -116,13 +117,13 @@ runtime·schedinit(void)
 	// For debugging:
 	// Allocate internal symbol table representation now,
 	// so that we don't need to call malloc when we crash.
-	// findfunc(0);
+	// runtime·findfunc(0);
 
-	runtime·sched.gomaxprocs = 1;
+	runtime·gomaxprocs = 1;
 	p = runtime·getenv("GOMAXPROCS");
 	if(p != nil && (n = runtime·atoi(p)) != 0)
-		runtime·sched.gomaxprocs = n;
-	runtime·sched.mcpumax = runtime·sched.gomaxprocs;
+		runtime·gomaxprocs = n;
+	runtime·sched.mcpumax = runtime·gomaxprocs;
 	runtime·sched.mcount = 1;
 	runtime·sched.predawn = 1;
 
@@ -165,6 +166,18 @@ runtime·tracebackothers(G *me)
 	}
 }
 
+// Mark this g as m's idle goroutine.
+// This functionality might be used in environments where programs
+// are limited to a single thread, to simulate a select-driven
+// network server.  It is not exposed via the standard runtime API.
+void
+runtime·idlegoroutine(void)
+{
+	if(g->idlem != nil)
+		runtime·throw("g is already an idle goroutine");
+	g->idlem = m;
+}
+
 // Put on `g' queue.  Sched must be locked.
 static void
 gput(G *g)
@@ -174,6 +187,18 @@ gput(G *g)
 	// If g is wired, hand it off directly.
 	if(runtime·sched.mcpu < runtime·sched.mcpumax && (m = g->lockedm) != nil) {
 		mnextg(m, g);
+		return;
+	}
+	
+	// If g is the idle goroutine for an m, hand it off.
+	if(g->idlem != nil) {
+		if(g->idlem->idleg != nil) {
+			runtime·printf("m%d idle out of sync: g%d g%d\n",
+				g->idlem->id,
+				g->idlem->idleg->goid, g->goid);
+			runtime·throw("runtime: double idle");
+		}
+		g->idlem->idleg = g;
 		return;
 	}
 
@@ -198,6 +223,9 @@ gget(void)
 		if(runtime·sched.ghead == nil)
 			runtime·sched.gtail = nil;
 		runtime·sched.gwait--;
+	} else if(m->idleg != nil) {
+		g = m->idleg;
+		m->idleg = nil;
 	}
 	return g;
 }
@@ -252,8 +280,10 @@ readylocked(G *g)
 	}
 
 	// Mark runnable.
-	if(g->status == Grunnable || g->status == Grunning || g->status == Grecovery)
+	if(g->status == Grunnable || g->status == Grunning || g->status == Grecovery || g->status == Gstackalloc) {
+		runtime·printf("goroutine %d has status %d\n", g->goid, g->status);
 		runtime·throw("bad g->status in ready");
+	}
 	g->status = Grunnable;
 
 	gput(g);
@@ -376,7 +406,7 @@ runtime·starttheworld(void)
 {
 	runtime·lock(&runtime·sched);
 	runtime·gcwaiting = 0;
-	runtime·sched.mcpumax = runtime·sched.gomaxprocs;
+	runtime·sched.mcpumax = runtime·gomaxprocs;
 	matchmg();
 	runtime·unlock(&runtime·sched);
 }
@@ -491,6 +521,13 @@ scheduler(void)
 			runtime·free(d);
 			runtime·gogo(&gp->sched, 1);
 		}
+		
+		if(gp->status == Gstackalloc) {
+			// switched to scheduler stack to call stackalloc.
+			gp->param = runtime·stackalloc((uintptr)gp->param);
+			gp->status = Grunning;
+			runtime·gogo(&gp->sched, 1);
+		}
 
 		// Jumped here via runtime·gosave/gogo, so didn't
 		// execute lock(&runtime·sched) above.
@@ -508,6 +545,8 @@ scheduler(void)
 		switch(gp->status){
 		case Grunnable:
 		case Gdead:
+		case Grecovery:
+		case Gstackalloc:
 			// Shouldn't have been running!
 			runtime·throw("bad gp->status in sched");
 		case Grunning:
@@ -520,6 +559,7 @@ scheduler(void)
 				gp->lockedm = nil;
 				m->lockedg = nil;
 			}
+			gp->idlem = nil;
 			unwindstack(gp, nil);
 			gfput(gp);
 			if(--runtime·sched.gcount == 0)
@@ -701,7 +741,7 @@ runtime·oldstack(void)
 	goid = old.gobuf.g->goid;	// fault if g is bad, before gogo
 
 	if(old.free != 0)
-		runtime·stackfree(g1->stackguard - StackGuard, old.free);
+		runtime·stackfree(g1->stackguard - StackGuard - StackSystem, old.free);
 	g1->stackbase = old.stackbase;
 	g1->stackguard = old.stackguard;
 
@@ -739,14 +779,15 @@ runtime·newstack(void)
 		// the new Stktop* is necessary to unwind, but
 		// we don't need to create a new segment.
 		top = (Stktop*)(m->morebuf.sp - sizeof(*top));
-		stk = g1->stackguard - StackGuard;
+		stk = g1->stackguard - StackGuard - StackSystem;
 		free = 0;
 	} else {
 		// allocate new segment.
 		framesize += argsize;
-		if(framesize < StackBig)
-			framesize = StackBig;
 		framesize += StackExtra;	// room for more functions, Stktop.
+		if(framesize < StackMin)
+			framesize = StackMin;
+		framesize += StackSystem;
 		stk = runtime·stackalloc(framesize);
 		top = (Stktop*)(stk+framesize-sizeof(*top));
 		free = framesize;
@@ -767,7 +808,7 @@ runtime·newstack(void)
 	g1->ispanic = false;
 
 	g1->stackbase = (byte*)top;
-	g1->stackguard = stk + StackGuard;
+	g1->stackguard = stk + StackGuard + StackSystem;
 
 	sp = (byte*)top;
 	if(argsize > 0) {
@@ -793,18 +834,35 @@ runtime·newstack(void)
 G*
 runtime·malg(int32 stacksize)
 {
-	G *g;
+	G *newg;
 	byte *stk;
+	int32 oldstatus;
 
-	g = runtime·malloc(sizeof(G));
+	newg = runtime·malloc(sizeof(G));
 	if(stacksize >= 0) {
-		stk = runtime·stackalloc(stacksize + StackGuard);
-		g->stack0 = stk;
-		g->stackguard = stk + StackGuard;
-		g->stackbase = stk + StackGuard + stacksize - sizeof(Stktop);
-		runtime·memclr(g->stackbase, sizeof(Stktop));
+		if(g == m->g0) {
+			// running on scheduler stack already.
+			stk = runtime·stackalloc(StackSystem + stacksize);
+		} else {
+			// have to call stackalloc on scheduler stack.
+			oldstatus = g->status;
+			g->param = (void*)(StackSystem + stacksize);
+			g->status = Gstackalloc;
+			// next two lines are runtime·gosched without the check
+			// of m->locks.  we're almost certainly holding a lock,
+			// but this is not a real rescheduling so it's okay.
+			if(runtime·gosave(&g->sched) == 0)
+				runtime·gogo(&m->sched, 1);
+			stk = g->param;
+			g->param = nil;
+			g->status = oldstatus;
+		}
+		newg->stack0 = stk;
+		newg->stackguard = stk + StackSystem + StackGuard;
+		newg->stackbase = stk + StackSystem + stacksize - sizeof(Stktop);
+		runtime·memclr(newg->stackbase, sizeof(Stktop));
 	}
-	return g;
+	return newg;
 }
 
 /*
@@ -826,11 +884,11 @@ runtime·newproc(int32 siz, byte* fn, ...)
 		argp = (byte*)(&fn+2);  // skip caller's saved LR
 	else
 		argp = (byte*)(&fn+1);
-	runtime·newproc1(fn, argp, siz, 0);
+	runtime·newproc1(fn, argp, siz, 0, runtime·getcallerpc(&siz));
 }
 
 G*
-runtime·newproc1(byte *fn, byte *argp, int32 narg, int32 nret)
+runtime·newproc1(byte *fn, byte *argp, int32 narg, int32 nret, void *callerpc)
 {
 	byte *sp;
 	G *newg;
@@ -846,10 +904,10 @@ runtime·newproc1(byte *fn, byte *argp, int32 narg, int32 nret)
 
 	if((newg = gfget()) != nil){
 		newg->status = Gwaiting;
-		if(newg->stackguard - StackGuard != newg->stack0)
+		if(newg->stackguard - StackGuard - StackSystem != newg->stack0)
 			runtime·throw("invalid stack in newg");
 	} else {
-		newg = runtime·malg(StackBig);
+		newg = runtime·malg(StackMin);
 		newg->status = Gwaiting;
 		newg->alllink = runtime·allg;
 		runtime·allg = newg;
@@ -868,6 +926,7 @@ runtime·newproc1(byte *fn, byte *argp, int32 narg, int32 nret)
 	newg->sched.pc = (byte*)runtime·goexit;
 	newg->sched.g = newg;
 	newg->entry = fn;
+	newg->gopc = (uintptr)callerpc;
 
 	runtime·sched.gcount++;
 	runtime·goidgen++;
@@ -1019,6 +1078,7 @@ runtime·panic(Eface e)
 	}
 
 	// ran out of deferred calls - old-school panic now
+	runtime·startpanic();
 	printpanics(g->panic);
 	runtime·dopanic(0);
 }
@@ -1098,7 +1158,7 @@ nomatch:
 static void
 gfput(G *g)
 {
-	if(g->stackguard - StackGuard != g->stack0)
+	if(g->stackguard - StackGuard - StackSystem != g->stack0)
 		runtime·throw("invalid stack in gfput");
 	g->schedlink = runtime·sched.gfree;
 	runtime·sched.gfree = g;
@@ -1151,10 +1211,10 @@ runtime·gomaxprocsfunc(int32 n)
 	int32 ret;
 
 	runtime·lock(&runtime·sched);
-	ret = runtime·sched.gomaxprocs;
+	ret = runtime·gomaxprocs;
 	if (n <= 0)
 		n = ret;
-	runtime·sched.gomaxprocs = n;
+	runtime·gomaxprocs = n;
 	runtime·sched.mcpumax = n;
 	// handle fewer procs?
 	if(runtime·sched.mcpu > runtime·sched.mcpumax) {

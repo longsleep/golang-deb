@@ -120,7 +120,7 @@
 	An analogous set of functions scans formatted text to yield
 	values.  Scan, Scanf and Scanln read from os.Stdin; Fscan,
 	Fscanf and Fscanln read from a specified os.Reader; Sscan,
-	Sscanf and Sscanln read from an argument string.  Sscanln,
+	Sscanf and Sscanln read from an argument string.  Scanln,
 	Fscanln and Sscanln stop scanning at a newline and require that
 	the items be followed by one; Sscanf, Fscanf and Sscanf require
 	newlines in the input to match newlines in the format; the other
@@ -164,13 +164,15 @@
 	All arguments to be scanned must be either pointers to basic
 	types or implementations of the Scanner interface.
 
-	Note: Fscan etc. can read one character (rune) past the
-	input they return, which means that a loop calling a scan
-	routine may skip some of the input.  This is usually a
-	problem only when there is no space between input values.
-	However, if the reader provided to Fscan implements UnreadRune,
+	Note: Fscan etc. can read one character (rune) past the input
+	they return, which means that a loop calling a scan routine
+	may skip some of the input.  This is usually a problem only
+	when there is no space between input values.  If the reader
+	provided to Fscan implements ReadRune, that method will be used
+	to read characters.  If the reader also implements UnreadRune,
 	that method will be used to save the character and successive
-	calls will not lose data.  To attach an UnreadRune method
-	to a reader without that capability, use bufio.NewReader.
+	calls will not lose data.  To attach ReadRune and UnreadRune
+	methods to a reader without that capability, use
+	bufio.NewReader.
 */
 package fmt

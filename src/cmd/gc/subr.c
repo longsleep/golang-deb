@@ -203,7 +203,6 @@ fatal(char *fmt, ...)
 
 	flusherrors();
 
-*(int*)0=0;
 	print("%L: internal compiler error: ", lineno);
 	va_start(arg, fmt);
 	vfprint(1, fmt, arg);
@@ -1909,8 +1908,12 @@ assignop(Type *src, Type *dst, char **why)
 		return 0;
 	}
 	if(src->etype == TINTER && dst->etype != TBLANK) {
-		if(why != nil)
-			*why = ": need type assertion";
+		if(why != nil) {
+			if(isptrto(dst, TINTER))
+				*why = smprint(":\n\t%T is interface, not pointer to interface", src);
+			else	
+				*why = ": need type assertion";
+		}
 		return 0;
 	}
 
@@ -2265,7 +2268,7 @@ syslook(char *name, int copy)
 
 	s = pkglookup(name, runtimepkg);
 	if(s == S || s->def == N)
-		fatal("looksys: cant find runtime.%s", name);
+		fatal("syslook: can't find runtime.%s", name);
 
 	if(!copy)
 		return s->def;
