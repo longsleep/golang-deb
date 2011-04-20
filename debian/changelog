@@ -6,10 +6,10 @@ golang (2011.03.07.1-1) unstable; urgency=low
   * Update golang-src.install to new upstream
   * Remove 002-use_GOROOT_FINAL_in_generated_binaries.patch; merged
     upstream
-  * Update lintian-overrides
   * Make all .go files no-executable
+  * Update lintian-overrides to include both types of syntax
 
- -- Ondřej Surý <ondrej@debian.org>  Wed, 20 Apr 2011 17:07:34 +0200
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 20 Apr 2011 17:36:48 +0200
 
 golang (2011.02.15-2) unstable; urgency=low
 
