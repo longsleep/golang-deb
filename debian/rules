@@ -36,6 +36,7 @@ override_dh_auto_install: debian/golang-src.install
 
 override_dh_install:
 	dh_install --fail-missing
+	find $(CURDIR)/debian/golang-src/ -type f -name \*.go -exec chmod 644 {} \;
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet
