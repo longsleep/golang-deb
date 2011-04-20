@@ -260,31 +260,6 @@ Files: doc/htmlgen.go, doc/makehtml, doc/popups.js, doc/style.css,
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
-Files: doc/talks/go_talk-20091030.pdf
-Copyright: © 2009, The Go Authors.
-           page 12 is © 2009, Randall Munroe.
-License: CC-BY-3.0 from the Go Authors, CC-BY-NC-2.5 from Randall Munroe.
- Page 12 includes the comic from <http://xkcd.com/303/>.
- http://xkcd.com/license.html explains:
- .
- This image is licensed under a Creative Commons
- Attribution-NonCommercial 2.5 License
- <http://creativecommons.org/licenses/by-nc/2.5/>.
- .
- This means that you are free to copy and reuse any of my drawings
- (noncommercially) as long as you tell people where they're from.
- .
- That is, you don't need my permission to post these pictures on your
- website (and hotlinking with <img> is fine); just include a link back
- to this page. Or you can make Livejournal icons from them, but -- if
- possible -- put xkcd.com in the comment field. You can use them
- freely (with some kind of link) in not-for-profit publications, and
- I'm also okay with people reprinting occasional comics (with clear
- attribution) in publications like books, blogs, newsletters, and
- presentations. If you're not sure whether your use is noncommercial,
- feel free to email me <xkcd@xkcd.com> and ask (if you're not sure,
- it's probably okay).
-
 Files: doc/talks/slidy.*
 Origin: http://www.w3.org/Talks/Tools/Slidy/
 Copyright: © 2005 W3C (MIT, ERCIM, Keio), All Rights Reserved.
