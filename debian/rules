@@ -11,7 +11,7 @@ bindir := /bin
 build clean install binary-arch binary-indep binary:
 	+dh --parallel $(opt_no_act) $@
 
-override_dh_auto_clean: debian/golang-src.install
+override_dh_auto_clean:
 	rm -rf bin
 	rm -f debian/*+
 	rm -f debian/build.stamp
@@ -29,7 +29,7 @@ override_dh_auto_test:
 override_dh_compress:
 	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
 
-override_dh_auto_install: debian/golang-src.install
+override_dh_auto_install:
 	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
 	for cmd in nm cov prof; do ln -s 6$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
 	# remove RUNPATH from go binaries
@@ -37,7 +37,9 @@ override_dh_auto_install: debian/golang-src.install
 
 override_dh_install:
 	dh_install --fail-missing
-	find $(CURDIR)/debian/golang-src/ -type f -name \*.go -exec chmod 644 {} \;
+	for f in $$(find src/cmd -name doc.go ; find src/pkg -name \*.go); do \
+	  install -D -m 0644 $$f debian/golang-src/$(datadir)/$$f; \
+	done
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet
@@ -116,11 +118,4 @@ get-orig-source:
 	)
 	rm -fr debian-orig-source
 
-debian/golang-src.install:
-	# create golang-src.install list
-	( \
-		find src/cmd -name doc.go ; \
-		find src/pkg -name \*.go ; \
-	) | sed -e 's{\(.*/\).*$${\0 $(datadir)/\1{' > $(CURDIR)/debian/golang-src.install
-
-.PHONY: build clean install binary-arch binary-indep binary debian/golang-src.install
+.PHONY: build clean install binary-arch binary-indep binary
