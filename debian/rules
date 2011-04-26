@@ -95,12 +95,12 @@ ifeq ($(DEB_BUILD_ARCH_CPU), i386)
     GOHOSTARCH := 386
 else ifeq ($(DEB_BUILD_ARCH_CPU), amd64)
     GOHOSTARCH := amd64
-else ifeq ($(DEB_BUILD_ARCH_CPU), armel)
+else ifeq ($(DEB_BUILD_ARCH_CPU), arm)
     GOHOSTARCH := arm
 else ifeq ($(DEB_BUILD_ARCH_CPU), armhf)
     GOHOSTARCH := arm
 else
-    $(error unrecognized build host instruction set $(DEB_HOSTOA_ARCH_CPU)!)
+    $(error unrecognized build host instruction set $(DEB_HOST_ARCH_CPU)!)
 endif
 
 ifeq ($(DEB_HOST_ARCH_CPU), i386)
@@ -109,7 +109,7 @@ ifeq ($(DEB_HOST_ARCH_CPU), i386)
 else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOARCH := amd64
     GOPREFIX := 6
-else ifeq ($(DEB_HOST_ARCH_CPU), armel)
+else ifeq ($(DEB_HOST_ARCH_CPU), arm)
     GOARCH := arm
     GOARM := 5
     GOPREFIX := 5
