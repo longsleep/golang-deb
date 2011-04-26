@@ -1,3 +1,20 @@
+golang (2011.04.13-1) unstable; urgency=low
+
+  [ Florian Weimer ]
+  * Delete bin directory in clean target
+  * Enable parallel build
+  * golang-src: install source files directly
+  * Use proper symlink targets for architecture-independent toolchain
+    names
+  * Emacs mode: indent keys in struct literals properly
+
+  [ Ondřej Surý ]
+  * Imported Upstream weekly version 2011.04.13
+  * Update patches to new weekly release
+  * Add lintian-override for gotest binary
+
+ -- Ondřej Surý <ondrej@debian.org>  Tue, 26 Apr 2011 09:59:28 +0200
+
 golang (2011.03.07.1-1) unstable; urgency=low
 
   * Imported Upstream version 2011.03.07.1
