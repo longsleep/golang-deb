@@ -1,0 +1,89 @@
+--- a/src/libmach/Makefile
++++ b/src/libmach/Makefile
+@@ -49,15 +49,8 @@ OFILES=\
+ 	6obj.$O\
+ 	8obj.$O\
+ 
+-ifneq ($(GOHOSTOS),windows)
+ OFILES+=\
+-	$(shell uname | tr A-Z a-z).$O\
+-
+-else
+-OFILES+=\
+-	windows.$O\
+-
+-endif
++	$(GOOS).$O\
+ 
+ HFILES=../../include/mach.h elf.h macho.h obj.h
+ 
+--- a/src/cmd/cov/Makefile
++++ b/src/cmd/cov/Makefile
+@@ -23,11 +23,7 @@ LIB=\
+ NOINSTALL=1
+ include ../../Make.ccmd
+ 
+-ifeq ($(GOOS),windows)
+-NAME=windows
+-else
+-NAME=$(shell uname | tr A-Z a-z)
+-endif
++NAME=$(GOOS)
+ 
+ install: install-$(NAME)
+ install-linux: install-default
+--- a/src/cmd/prof/Makefile
++++ b/src/cmd/prof/Makefile
+@@ -19,11 +19,7 @@ LIB=\
+ NOINSTALL=1
+ include ../../Make.ccmd
+ 
+-ifeq ($(GOOS),windows)
+-NAME=windows
+-else
+-NAME=$(shell uname | tr A-Z a-z)
+-endif
++NAME=$(GOOS)
+ 
+ install: install-$(NAME) install-pprof
+ install-linux: install-default
+--- a/src/pkg/syscall/mkerrors.sh
++++ b/src/pkg/syscall/mkerrors.sh
+@@ -13,9 +13,7 @@ export LC_CTYPE=C
+ 
+ GCC=gcc
+ 
+-uname=$(uname)
+-
+-includes_Linux='
++includes_linux='
+ #define _LARGEFILE_SOURCE
+ #define _LARGEFILE64_SOURCE
+ #define _FILE_OFFSET_BITS 64
+@@ -36,7 +34,7 @@ includes_Linux='
+ #include <netpacket/packet.h>
+ '
+ 
+-includes_Darwin='
++includes_darwin='
+ #define _DARWIN_C_SOURCE
+ #define KERNEL
+ #define _DARWIN_USE_64_BIT_INODE
+@@ -54,7 +52,7 @@ includes_Darwin='
+ #include <netinet/ip_mroute.h>
+ '
+ 
+-includes_FreeBSD='
++includes_freebsd='
+ #include <sys/types.h>
+ #include <sys/event.h>
+ #include <sys/socket.h>
+@@ -97,7 +95,7 @@ done
+ 
+ # Write godefs input.
+ (
+-	indirect="includes_$(uname)"
++	indirect="includes_$(GOOS)"
+ 	echo "${!indirect} $includes"
+ 	echo
+ 	echo 'enum {'
