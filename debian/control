@@ -9,7 +9,7 @@ Standards-Version: 3.9.1
 Homepage: http://golang.org/
 
 Package: golang-go
-Architecture: i386 amd64
+Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
 Recommends: golang-tools
 Provides: go-compiler
@@ -28,7 +28,7 @@ Description: Go programming language compiler
  dynamically typed, interpreted language.
 
 Package: golang-src
-Architecture: i386 amd64
+Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}, golang-go
 Recommends: golang-tools
 Description: Go programming language compiler (.go source files)
@@ -70,7 +70,7 @@ Description: Documentation for Google's Go programming language
  TODO: Pregenerate HTML documentation to /usr/share/doc/golang-doc/html
 
 Package: golang-tools
-Architecture: i386 amd64
+Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: ${misc:Depends}
 Recommends: golang-src
 Description: Tools for Google's Go programming language

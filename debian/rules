@@ -90,9 +90,13 @@ else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOARCH := amd64
     GOHOSTARCH := amd64
     GOPREFIX := 6
-else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), arm armeb armel))
+else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), armel))
     GOARCH := arm
     GOARM := 5
+    GOPREFIX := 5
+else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), armhf))
+    GOARCH := arm
+    GOARM := 6
     GOPREFIX := 5
 else
     $(warning unrecognized instruction set $(DEB_HOST_ARCH_CPU)! continuing.)
