@@ -1978,11 +1978,16 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 
 	for(h=0; h<NHASH; h++) {
 		for(s=hash[h]; s!=S; s=s->hash) {
+			if(s->hide)
+				continue;
 			switch(s->type) {
 			case SCONST:
 			case SRODATA:
 			case SDATA:
 			case SELFDATA:
+			case STYPE:
+			case SSTRING:
+			case SGOSTRING:
 				if(!s->reachable)
 					continue;
 				put(s, s->name, 'D', s->value, s->size, s->version, s->gotype);

@@ -292,7 +292,7 @@ func rangeSelection(str string) Selection {
 		from, _ := strconv.Atoi(m[1])
 		to, _ := strconv.Atoi(m[2])
 		if from < to {
-			return makeSelection([][]int{[]int{from, to}})
+			return makeSelection([][]int{{from, to}})
 		}
 	}
 	return nil
@@ -309,7 +309,7 @@ func rangeSelection(str string) Selection {
 //
 var startTags = [][]byte{
 	/* 000 */ []byte(``),
-	/* 001 */ []byte(`<span class ="comment">`),
+	/* 001 */ []byte(`<span class="comment">`),
 	/* 010 */ []byte(`<span class="highlight">`),
 	/* 011 */ []byte(`<span class="highlight-comment">`),
 	/* 100 */ []byte(`<span class="selection">`),

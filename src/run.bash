@@ -39,7 +39,7 @@ if $rebuild; then
 fi
 
 (xcd pkg
-gomake test
+gomake testshort
 ) || exit $?
 
 (xcd pkg/sync;
@@ -47,16 +47,7 @@ if $rebuild; then
 	gomake clean;
 	time gomake
 fi
-GOMAXPROCS=10 gomake test
-) || exit $?
-
-[ "$GOARCH" == arm ] ||
-(xcd cmd/gofmt
-if $rebuild; then
-	gomake clean;
-	time gomake
-fi
-time gomake smoketest
+GOMAXPROCS=10 gomake testshort
 ) || exit $?
 
 (xcd cmd/ebnflint
@@ -75,10 +66,16 @@ gomake clean
 ) || exit $?
 
 [ "$GOARCH" == arm ] ||
-[ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/life
 gomake clean
 ./test.bash
+) || exit $?
+
+[ "$GOARCH" == arm ] ||
+[ "$GOHOSTOS" == windows ] ||
+(xcd ../misc/cgo/test
+gomake clean
+gotest
 ) || exit $?
 
 (xcd pkg/exp/ogle
@@ -91,6 +88,7 @@ time gomake ogle
 time ./run
 ) || exit $?
 
+[ "$GOARCH" == arm ] ||  # uses network, fails under QEMU
 (xcd ../doc/codelab/wiki
 gomake clean
 gomake
@@ -106,7 +104,6 @@ do
 done
 
 [ "$GOARCH" == arm ] ||
-[ "$GOHOSTOS" == windows ] ||
 (xcd ../test/bench
 ./timing.sh -test
 ) || exit $?

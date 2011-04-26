@@ -135,6 +135,7 @@ yyerror(char *fmt, ...)
 	int i;
 	static int lastsyntax;
 	va_list arg;
+	char buf[512], *p;
 
 	if(strncmp(fmt, "syntax error", 12) == 0) {
 		nsyntaxerrors++;
@@ -146,6 +147,16 @@ yyerror(char *fmt, ...)
 		if(lastsyntax == lexlineno)
 			return;
 		lastsyntax = lexlineno;
+		
+		if(strstr(fmt, "{ or {")) {
+			// The grammar has { and LBRACE but both show up as {.
+			// Rewrite syntax error referring to "{ or {" to say just "{".
+			strecpy(buf, buf+sizeof buf, fmt);
+			p = strstr(buf, "{ or {");
+			if(p)
+				memmove(p+1, p+6, strlen(p+6)+1);
+			fmt = buf;
+		}
 		
 		// look for parse state-specific errors in list (see go.errors).
 		for(i=0; i<nelem(yymsg); i++) {
@@ -834,7 +845,6 @@ goopnames[] =
 	[OCALL]	= "function call",
 	[OCAP]		= "cap",
 	[OCASE]		= "case",
-	[OCLOSED]	= "closed",
 	[OCLOSE]	= "close",
 	[OCOMPLEX]	= "complex",
 	[OCOM]		= "^",
@@ -1144,7 +1154,7 @@ Tpretty(Fmt *fp, Type *t)
 	&& t->sym != S
 	&& !(fp->flags&FmtLong)) {
 		s = t->sym;
-		if(t == types[t->etype])
+		if(t == types[t->etype] && t->etype != TUNSAFEPTR)
 			return fmtprint(fp, "%s", s->name);
 		if(exporting) {
 			if(fp->flags & FmtShort)
@@ -1304,6 +1314,11 @@ Tpretty(Fmt *fp, Type *t)
 		if(t->sym)
 			return fmtprint(fp, "undefined %S", t->sym);
 		return fmtprint(fp, "undefined");
+	
+	case TUNSAFEPTR:
+		if(exporting)
+			return fmtprint(fp, "\"unsafe\".Pointer");
+		return fmtprint(fp, "unsafe.Pointer");
 	}
 
 	// Don't know how to handle - fall back to detailed prints.
@@ -1345,6 +1360,9 @@ Tconv(Fmt *fp)
 			return 0;
 		}
 	}
+
+	if(sharp || exporting)
+		fatal("missing %E case during export", t->etype);
 
 	et = t->etype;
 	fmtprint(fp, "%E ", et);
@@ -1663,6 +1681,9 @@ isselect(Node *n)
 	s = pkglookup("selectrecv", runtimepkg);
 	if(s == n->sym)
 		return 1;
+	s = pkglookup("selectrecv2", runtimepkg);
+	if(s == n->sym)
+		return 1;
 	s = pkglookup("selectdefault", runtimepkg);
 	if(s == n->sym)
 		return 1;
@@ -1864,7 +1885,7 @@ assignop(Type *src, Type *dst, char **why)
 	if(why != nil)
 		*why = "";
 
-	if(safemode && (isptrto(src, TANY) || isptrto(dst, TANY))) {
+	if(safemode && src != T && src->etype == TUNSAFEPTR) {
 		yyerror("cannot use unsafe.Pointer");
 		errorexit();
 	}
@@ -1879,8 +1900,9 @@ assignop(Type *src, Type *dst, char **why)
 		return OCONVNOP;
 	
 	// 2. src and dst have identical underlying types
-	// and either src or dst is not a named type.
-	if(eqtype(src->orig, dst->orig) && (src->sym == S || dst->sym == S))
+	// and either src or dst is not a named type or
+	// both are interface types.
+	if(eqtype(src->orig, dst->orig) && (src->sym == S || dst->sym == S || src->etype == TINTER))
 		return OCONVNOP;
 
 	// 3. dst is an interface type and src implements dst.
@@ -2028,11 +2050,11 @@ convertop(Type *src, Type *dst, char **why)
 	}
 	
 	// 8. src is a pointer or uintptr and dst is unsafe.Pointer.
-	if((isptr[src->etype] || src->etype == TUINTPTR) && isptrto(dst, TANY))
+	if((isptr[src->etype] || src->etype == TUINTPTR) && dst->etype == TUNSAFEPTR)
 		return OCONVNOP;
 
 	// 9. src is unsafe.Pointer and dst is a pointer or uintptr.
-	if(isptrto(src, TANY) && (isptr[dst->etype] || dst->etype == TUINTPTR))
+	if(src->etype == TUNSAFEPTR && (isptr[dst->etype] || dst->etype == TUINTPTR))
 		return OCONVNOP;
 
 	return 0;
@@ -2043,13 +2065,16 @@ Node*
 assignconv(Node *n, Type *t, char *context)
 {
 	int op;
-	Node *r;
+	Node *r, *old;
 	char *why;
 	
 	if(n == N || n->type == T)
 		return n;
 
+	old = n;
+	old->diag++;  // silence errors about n; we'll issue one below
 	defaultlit(&n, t);
+	old->diag--;
 	if(t->etype == TBLANK)
 		return n;
 

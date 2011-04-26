@@ -124,9 +124,6 @@ main(int argc, char *argv[])
 	runtimepkg = mkpkg(strlit("runtime"));
 	runtimepkg->name = "runtime";
 
-	stringpkg = mkpkg(strlit("string"));
-	stringpkg->name = "string";
-
 	typepkg = mkpkg(strlit("type"));
 	typepkg->name = "type";
 
@@ -1555,7 +1552,6 @@ static	struct
 	"append",		LNAME,		Txxx,		OAPPEND,
 	"cap",		LNAME,		Txxx,		OCAP,
 	"close",	LNAME,		Txxx,		OCLOSE,
-	"closed",	LNAME,		Txxx,		OCLOSED,
 	"complex",	LNAME,		Txxx,		OCOMPLEX,
 	"copy",		LNAME,		Txxx,		OCOPY,
 	"imag",		LNAME,		Txxx,		OIMAG,

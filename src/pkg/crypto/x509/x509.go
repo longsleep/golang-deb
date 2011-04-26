@@ -54,20 +54,21 @@ func ParsePKCS1PrivateKey(der []byte) (key *rsa.PrivateKey, err os.Error) {
 		return
 	}
 
-	key = &rsa.PrivateKey{
-		PublicKey: rsa.PublicKey{
-			E: priv.E,
-			N: new(big.Int).SetBytes(priv.N.Bytes),
-		},
-		D: new(big.Int).SetBytes(priv.D.Bytes),
-		P: new(big.Int).SetBytes(priv.P.Bytes),
-		Q: new(big.Int).SetBytes(priv.Q.Bytes),
+	key = new(rsa.PrivateKey)
+	key.PublicKey = rsa.PublicKey{
+		E: priv.E,
+		N: new(big.Int).SetBytes(priv.N.Bytes),
 	}
+
+	key.D = new(big.Int).SetBytes(priv.D.Bytes)
+	key.P = new(big.Int).SetBytes(priv.P.Bytes)
+	key.Q = new(big.Int).SetBytes(priv.Q.Bytes)
 
 	err = key.Validate()
 	if err != nil {
 		return nil, err
 	}
+
 	return
 }
 
@@ -89,6 +90,7 @@ func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 // These structures reflect the ASN.1 structure of X.509 certificates.:
 
 type certificate struct {
+	Raw                asn1.RawContent
 	TBSCertificate     tbsCertificate
 	SignatureAlgorithm algorithmIdentifier
 	SignatureValue     asn1.BitString
@@ -304,9 +306,46 @@ const (
 	KeyUsageDecipherOnly
 )
 
+// RFC 5280, 4.2.1.12  Extended Key Usage
+//
+// anyExtendedKeyUsage OBJECT IDENTIFIER ::= { id-ce-extKeyUsage 0 }
+//
+// id-kp OBJECT IDENTIFIER ::= { id-pkix 3 }
+//
+// id-kp-serverAuth             OBJECT IDENTIFIER ::= { id-kp 1 }
+// id-kp-clientAuth             OBJECT IDENTIFIER ::= { id-kp 2 }
+// id-kp-codeSigning            OBJECT IDENTIFIER ::= { id-kp 3 }
+// id-kp-emailProtection        OBJECT IDENTIFIER ::= { id-kp 4 }
+// id-kp-timeStamping           OBJECT IDENTIFIER ::= { id-kp 8 }
+// id-kp-OCSPSigning            OBJECT IDENTIFIER ::= { id-kp 9 }
+var (
+	oidExtKeyUsageAny             = asn1.ObjectIdentifier{2, 5, 29, 37, 0}
+	oidExtKeyUsageServerAuth      = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 1}
+	oidExtKeyUsageClientAuth      = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 2}
+	oidExtKeyUsageCodeSigning     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 3}
+	oidExtKeyUsageEmailProtection = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 4}
+	oidExtKeyUsageTimeStamping    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 8}
+	oidExtKeyUsageOCSPSigning     = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 3, 9}
+)
+
+// ExtKeyUsage represents an extended set of actions that are valid for a given key.
+// Each of the ExtKeyUsage* constants define a unique action.
+type ExtKeyUsage int
+
+const (
+	ExtKeyUsageAny ExtKeyUsage = iota
+	ExtKeyUsageServerAuth
+	ExtKeyUsageClientAuth
+	ExtKeyUsageCodeSigning
+	ExtKeyUsageEmailProtection
+	ExtKeyUsageTimeStamping
+	ExtKeyUsageOCSPSigning
+)
+
 // A Certificate represents an X.509 certificate.
 type Certificate struct {
-	Raw                []byte // Raw ASN.1 DER contents.
+	Raw                []byte // Complete ASN.1 DER content (certificate, signature algorithm and signature).
+	RawTBSCertificate  []byte // Certificate part of raw ASN.1 DER content.
 	Signature          []byte
 	SignatureAlgorithm SignatureAlgorithm
 
@@ -319,6 +358,9 @@ type Certificate struct {
 	Subject             Name
 	NotBefore, NotAfter *time.Time // Validity bounds.
 	KeyUsage            KeyUsage
+
+	ExtKeyUsage        []ExtKeyUsage           // Sequence of extended key usages.
+	UnknownExtKeyUsage []asn1.ObjectIdentifier // Encountered extended key usages unknown to this package.
 
 	BasicConstraintsValid bool // if true then the next two fields are valid.
 	IsCA                  bool
@@ -394,7 +436,7 @@ func (c *Certificate) CheckSignatureFrom(parent *Certificate) (err os.Error) {
 		return UnsupportedAlgorithmError{}
 	}
 
-	h.Write(c.Raw)
+	h.Write(c.RawTBSCertificate)
 	digest := h.Sum()
 
 	return rsa.VerifyPKCS1v15(pub, hashType, digest, c.Signature)
@@ -518,7 +560,8 @@ func parsePublicKey(algo PublicKeyAlgorithm, asn1Data []byte) (interface{}, os.E
 
 func parseCertificate(in *certificate) (*Certificate, os.Error) {
 	out := new(Certificate)
-	out.Raw = in.TBSCertificate.Raw
+	out.Raw = in.Raw
+	out.RawTBSCertificate = in.TBSCertificate.Raw
 
 	out.Signature = in.SignatureValue.RightAlign()
 	out.SignatureAlgorithm =
@@ -664,6 +707,44 @@ func parseCertificate(in *certificate) (*Certificate, os.Error) {
 					return nil, err
 				}
 				out.AuthorityKeyId = a.Id
+				continue
+
+			case 37:
+				// RFC 5280, 4.2.1.12.  Extended Key Usage
+
+				// id-ce-extKeyUsage OBJECT IDENTIFIER ::= { id-ce 37 }
+				//
+				// ExtKeyUsageSyntax ::= SEQUENCE SIZE (1..MAX) OF KeyPurposeId
+				//
+				// KeyPurposeId ::= OBJECT IDENTIFIER
+
+				var keyUsage []asn1.ObjectIdentifier
+				_, err = asn1.Unmarshal(e.Value, &keyUsage)
+				if err != nil {
+					return nil, err
+				}
+
+				for _, u := range keyUsage {
+					switch {
+					case u.Equal(oidExtKeyUsageAny):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageAny)
+					case u.Equal(oidExtKeyUsageServerAuth):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageServerAuth)
+					case u.Equal(oidExtKeyUsageClientAuth):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageClientAuth)
+					case u.Equal(oidExtKeyUsageCodeSigning):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageCodeSigning)
+					case u.Equal(oidExtKeyUsageEmailProtection):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageEmailProtection)
+					case u.Equal(oidExtKeyUsageTimeStamping):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageTimeStamping)
+					case u.Equal(oidExtKeyUsageOCSPSigning):
+						out.ExtKeyUsage = append(out.ExtKeyUsage, ExtKeyUsageOCSPSigning)
+					default:
+						out.UnknownExtKeyUsage = append(out.UnknownExtKeyUsage, u)
+					}
+				}
+
 				continue
 
 			case 14:
@@ -918,6 +999,7 @@ func CreateCertificate(rand io.Reader, template, parent *Certificate, pub *rsa.P
 	}
 
 	cert, err = asn1.Marshal(certificate{
+		nil,
 		c,
 		algorithmIdentifier{oidSHA1WithRSA},
 		asn1.BitString{Bytes: signature, BitLength: len(signature) * 8},

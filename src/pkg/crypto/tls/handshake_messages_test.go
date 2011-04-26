@@ -34,7 +34,11 @@ func TestMarshalUnmarshal(t *testing.T) {
 	for i, iface := range tests {
 		ty := reflect.NewValue(iface).Type()
 
-		for j := 0; j < 100; j++ {
+		n := 100
+		if testing.Short() {
+			n = 5
+		}
+		for j := 0; j < n; j++ {
 			v, ok := quick.Value(ty, rand)
 			if !ok {
 				t.Errorf("#%d: failed to create value", i)
@@ -117,7 +121,7 @@ func (*clientHelloMsg) Generate(rand *rand.Rand, size int) reflect.Value {
 	m.ocspStapling = rand.Intn(10) > 5
 	m.supportedPoints = randomBytes(rand.Intn(5)+1, rand)
 	m.supportedCurves = make([]uint16, rand.Intn(5)+1)
-	for i, _ := range m.supportedCurves {
+	for i := range m.supportedCurves {
 		m.supportedCurves[i] = uint16(rand.Intn(30000))
 	}
 

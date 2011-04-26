@@ -23,7 +23,7 @@ install: $(QUOTED_GOBIN)/$(TARG)
 $(QUOTED_GOBIN)/$(TARG): $(TARG)
 	cp -f $(TARG) $(QUOTED_GOBIN)
 
-CLEANFILES+=$(TARG)
+CLEANFILES+=$(TARG) _test _testmain.go
 
 nuke: clean
 	rm -f $(QUOTED_GOBIN)/$(TARG)
@@ -33,8 +33,6 @@ testpackage: _test/main.a
 
 testpackage-clean:
 	rm -f _test/main.a _gotest_.$O
-
-testpackage: _test/main.a
 
 _test/main.a: _gotest_.$O
 	@mkdir -p _test

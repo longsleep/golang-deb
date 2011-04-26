@@ -13,16 +13,22 @@ import (
 	"sort"
 )
 
+// readAll reads from r until an error or EOF and returns the data it read
+// from the internal buffer allocated with a specified capacity.
+func readAll(r io.Reader, capacity int64) ([]byte, os.Error) {
+	buf := bytes.NewBuffer(make([]byte, 0, capacity))
+	_, err := buf.ReadFrom(r)
+	return buf.Bytes(), err
+}
+
 // ReadAll reads from r until an error or EOF and returns the data it read.
 func ReadAll(r io.Reader) ([]byte, os.Error) {
-	var buf bytes.Buffer
-	_, err := io.Copy(&buf, r)
-	return buf.Bytes(), err
+	return readAll(r, bytes.MinRead)
 }
 
 // ReadFile reads the file named by filename and returns the contents.
 func ReadFile(filename string) ([]byte, os.Error) {
-	f, err := os.Open(filename, os.O_RDONLY, 0)
+	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -34,23 +40,19 @@ func ReadFile(filename string) ([]byte, os.Error) {
 	if err == nil && fi.Size < 2e9 { // Don't preallocate a huge buffer, just in case.
 		n = fi.Size
 	}
-	// Add a little extra in case Size is zero, and to avoid another allocation after
-	// Read has filled the buffer.
-	n += bytes.MinRead
-	// Pre-allocate the correct size of buffer, then set its size to zero.  The
-	// Buffer will read into the allocated space cheaply.  If the size was wrong,
-	// we'll either waste some space off the end or reallocate as needed, but
+	// As initial capacity for readAll, use n + a little extra in case Size is zero,
+	// and to avoid another allocation after Read has filled the buffer.  The readAll
+	// call will read into its allocated internal buffer cheaply.  If the size was
+	// wrong, we'll either waste some space off the end or reallocate as needed, but
 	// in the overwhelmingly common case we'll get it just right.
-	buf := bytes.NewBuffer(make([]byte, 0, n))
-	_, err = buf.ReadFrom(f)
-	return buf.Bytes(), err
+	return readAll(f, n+bytes.MinRead)
 }
 
 // WriteFile writes data to a file named by filename.
 // If the file does not exist, WriteFile creates it with permissions perm;
 // otherwise WriteFile truncates it before writing.
 func WriteFile(filename string, data []byte, perm uint32) os.Error {
-	f, err := os.Open(filename, os.O_WRONLY|os.O_CREAT|os.O_TRUNC, perm)
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
@@ -72,7 +74,7 @@ func (f fileInfoList) Swap(i, j int)      { f[i], f[j] = f[j], f[i] }
 // ReadDir reads the directory named by dirname and returns
 // a list of sorted directory entries.
 func ReadDir(dirname string) ([]*os.FileInfo, os.Error) {
-	f, err := os.Open(dirname, os.O_RDONLY, 0)
+	f, err := os.Open(dirname)
 	if err != nil {
 		return nil, err
 	}
@@ -87,4 +89,16 @@ func ReadDir(dirname string) ([]*os.FileInfo, os.Error) {
 	}
 	sort.Sort(fi)
 	return fi, nil
+}
+
+type nopCloser struct {
+	io.Reader
+}
+
+func (nopCloser) Close() os.Error { return nil }
+
+// NopCloser returns a ReadCloser with a no-op Close method wrapping
+// the provided Reader r.
+func NopCloser(r io.Reader) io.ReadCloser {
+	return nopCloser{r}
 }

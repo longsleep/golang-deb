@@ -249,11 +249,12 @@ var parseFieldParametersTestData []parseFieldParametersTest = []parseFieldParame
 	{"printable", fieldParameters{stringType: tagPrintableString}},
 	{"optional", fieldParameters{optional: true}},
 	{"explicit", fieldParameters{explicit: true, tag: new(int)}},
+	{"application", fieldParameters{application: true, tag: new(int)}},
 	{"optional,explicit", fieldParameters{optional: true, explicit: true, tag: new(int)}},
 	{"default:42", fieldParameters{defaultValue: newInt64(42)}},
 	{"tag:17", fieldParameters{tag: newInt(17)}},
 	{"optional,explicit,default:42,tag:17", fieldParameters{optional: true, explicit: true, defaultValue: newInt64(42), tag: newInt(17)}},
-	{"optional,explicit,default:42,tag:17,rubbish1", fieldParameters{true, true, newInt64(42), newInt(17), 0, false}},
+	{"optional,explicit,default:42,tag:17,rubbish1", fieldParameters{true, true, false, newInt64(42), newInt(17), 0, false}},
 	{"set", fieldParameters{set: true}},
 }
 
@@ -308,9 +309,9 @@ var unmarshalTestData []unmarshalTest = []unmarshalTest{
 
 func TestUnmarshal(t *testing.T) {
 	for i, test := range unmarshalTestData {
-		pv := reflect.MakeZero(reflect.NewValue(test.out).Type())
-		zv := reflect.MakeZero(pv.Type().(*reflect.PtrType).Elem())
-		pv.(*reflect.PtrValue).PointTo(zv)
+		pv := reflect.Zero(reflect.NewValue(test.out).Type())
+		zv := reflect.Zero(pv.Type().Elem())
+		pv.Set(zv.Addr())
 		val := pv.Interface()
 		_, err := Unmarshal(test.in, val)
 		if err != nil {

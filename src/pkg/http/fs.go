@@ -72,7 +72,7 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 		return
 	}
 
-	f, err := os.Open(name, os.O_RDONLY, 0)
+	f, err := os.Open(name)
 	if err != nil {
 		// TODO expose actual error?
 		NotFound(w, r)
@@ -108,12 +108,12 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 		w.WriteHeader(StatusNotModified)
 		return
 	}
-	w.SetHeader("Last-Modified", time.SecondsToUTC(d.Mtime_ns/1e9).Format(TimeFormat))
+	w.Header().Set("Last-Modified", time.SecondsToUTC(d.Mtime_ns/1e9).Format(TimeFormat))
 
 	// use contents of index.html for directory, if present
 	if d.IsDirectory() {
 		index := name + filepath.FromSlash(indexPage)
-		ff, err := os.Open(index, os.O_RDONLY, 0)
+		ff, err := os.Open(index)
 		if err == nil {
 			defer ff.Close()
 			dd, err := ff.Stat()
@@ -134,43 +134,48 @@ func serveFile(w ResponseWriter, r *Request, name string, redirect bool) {
 	size := d.Size
 	code := StatusOK
 
-	// use extension to find content type.
-	ext := filepath.Ext(name)
-	if ctype := mime.TypeByExtension(ext); ctype != "" {
-		w.SetHeader("Content-Type", ctype)
-	} else {
-		// read first chunk to decide between utf-8 text and binary
-		var buf [1024]byte
-		n, _ := io.ReadFull(f, buf[:])
-		b := buf[:n]
-		if isText(b) {
-			w.SetHeader("Content-Type", "text-plain; charset=utf-8")
-		} else {
-			w.SetHeader("Content-Type", "application/octet-stream") // generic binary
+	// If Content-Type isn't set, use the file's extension to find it.
+	if w.Header().Get("Content-Type") == "" {
+		ctype := mime.TypeByExtension(filepath.Ext(name))
+		if ctype == "" {
+			// read a chunk to decide between utf-8 text and binary
+			var buf [1024]byte
+			n, _ := io.ReadFull(f, buf[:])
+			b := buf[:n]
+			if isText(b) {
+				ctype = "text-plain; charset=utf-8"
+			} else {
+				// generic binary
+				ctype = "application/octet-stream"
+			}
+			f.Seek(0, os.SEEK_SET) // rewind to output whole file
 		}
-		f.Seek(0, 0) // rewind to output whole file
+		w.Header().Set("Content-Type", ctype)
 	}
 
 	// handle Content-Range header.
 	// TODO(adg): handle multiple ranges
 	ranges, err := parseRange(r.Header.Get("Range"), size)
-	if err != nil || len(ranges) > 1 {
+	if err == nil && len(ranges) > 1 {
+		err = os.ErrorString("multiple ranges not supported")
+	}
+	if err != nil {
 		Error(w, err.String(), StatusRequestedRangeNotSatisfiable)
 		return
 	}
 	if len(ranges) == 1 {
 		ra := ranges[0]
-		if _, err := f.Seek(ra.start, 0); err != nil {
+		if _, err := f.Seek(ra.start, os.SEEK_SET); err != nil {
 			Error(w, err.String(), StatusRequestedRangeNotSatisfiable)
 			return
 		}
 		size = ra.length
 		code = StatusPartialContent
-		w.SetHeader("Content-Range", fmt.Sprintf("bytes %d-%d/%d", ra.start, ra.start+ra.length-1, d.Size))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", ra.start, ra.start+ra.length-1, d.Size))
 	}
 
-	w.SetHeader("Accept-Ranges", "bytes")
-	w.SetHeader("Content-Length", strconv.Itoa64(size))
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Length", strconv.Itoa64(size))
 
 	w.WriteHeader(code)
 

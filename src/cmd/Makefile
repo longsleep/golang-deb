@@ -18,7 +18,7 @@ DIRS=\
 	gc\
 	godefs\
 	gopack\
-	gotest\
+	gotry\
 	nm\
 	prof\
 	
@@ -41,8 +41,11 @@ CLEANDIRS=\
 	cgo\
 	ebnflint\
 	godoc\
+	gofix\
 	gofmt\
 	goinstall\
+	gotest\
+	gotype\
 	goyacc\
 	hgpatch\
 

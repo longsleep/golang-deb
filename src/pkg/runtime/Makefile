@@ -22,6 +22,7 @@ GOFILES=\
 	debug.go\
 	error.go\
 	extern.go\
+	mem.go\
 	sig.go\
 	softfloat64.go\
 	type.go\
@@ -52,6 +53,7 @@ OFILES=\
 	cgocall.$O\
 	chan.$O\
 	closure.$O\
+	cpuprof.$O\
 	float.$O\
 	complex.$O\
 	hashmap.$O\

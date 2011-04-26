@@ -318,7 +318,7 @@ reswitch:
 			n->left = N;
 			goto ret;
 		}
-		if(!isptr[t->etype] || (t->type != T && t->type->etype == TANY) /* unsafe.Pointer */) {
+		if(!isptr[t->etype]) {
 			yyerror("invalid indirect of %+N", n->left);
 			goto error;
 		}
@@ -921,7 +921,6 @@ reswitch:
 		n->type = t;
 		goto ret;
 
-	case OCLOSED:
 	case OCLOSE:
 		if(onearg(n, "%#O", n->op) < 0)
 			goto error;
@@ -934,11 +933,7 @@ reswitch:
 			yyerror("invalid operation: %#N (non-chan type %T)", n, t);
 			goto error;
 		}
-		if(n->op == OCLOSED) {
-			n->type = types[TBOOL];
-			ok |= Erv;
-		} else
-			ok |= Etop;
+		ok |= Etop;
 		goto ret;
 
 	case OAPPEND:
@@ -1316,7 +1311,7 @@ ret:
 
 	// TODO(rsc): should not need to check importpkg,
 	// but reflect mentions unsafe.Pointer.
-	if(safemode && !incannedimport && !importpkg && isptrto(t, TANY))
+	if(safemode && !incannedimport && !importpkg && t && t->etype == TUNSAFEPTR)
 		yyerror("cannot use unsafe.Pointer");
 
 	evconst(n);
@@ -1639,11 +1634,6 @@ typecheckaste(int op, Node *call, int isddd, Type *tstruct, NodeList *nl, char *
 	for(tl=tstruct->type; tl; tl=tl->down) {
 		t = tl->type;
 		if(tl->isddd) {
-			if(nl != nil && nl->n->op == ONAME && nl->n->isddd && !isddd) {
-				// TODO(rsc): This is not actually illegal, but it will help catch bugs.
-				yyerror("to pass '%#N' as ...%T, use '%#N...'", nl->n, t->type, nl->n);
-				isddd = 1;
-			}
 			if(isddd) {
 				if(nl == nil)
 					goto notenough;
@@ -2377,8 +2367,9 @@ typecheckas2(Node *n)
 			n->op = OAS2MAPR;
 			goto common;
 		case ORECV:
-			yyerror("cannot use multiple-value assignment for non-blocking receive; use select");
-			goto out;
+			n->op = OAS2RECV;
+			n->right = n->rlist->n;
+			goto common;
 		case ODOTTYPE:
 			n->op = OAS2DOTTYPE;
 			r->op = ODOTTYPE2;

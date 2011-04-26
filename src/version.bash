@@ -17,7 +17,11 @@ if [ $? != 0 ]; then
 fi
 
 # Find most recent known release tag.
-TAG=$(hg tags | awk '$1~/^release\./ {print $1}' | sed -n 1p)
+TAG=$(hg tags |
+	sed 's/:.*//' |
+	sort -rn -k2 |
+	awk -v ver=$VERSION '$2 <= ver && $1~/^(release|weekly)\./ {print $1}' |
+	sed -n 1p)
 
 if [ "$TAG" != "" ]; then
 	VERSION="$TAG $VERSION"

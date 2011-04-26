@@ -348,17 +348,19 @@ dimportpath(Pkg *p)
  * uncommonType
  * ../../pkg/runtime/type.go:/uncommonType
  */
-static Sym*
-dextratype(Type *t)
+static int
+dextratype(Sym *sym, int off, Type *t, int ptroff)
 {
 	int ot, n;
-	char *p;
 	Sym *s;
 	Sig *a, *m;
 
 	m = methods(t);
 	if(t->sym == nil && m == nil)
-		return nil;
+		return off;
+	
+	// fill in *extraType pointer in header
+	dsymptr(sym, ptroff, sym, off);
 
 	n = 0;
 	for(a=m; a; a=a->link) {
@@ -366,9 +368,8 @@ dextratype(Type *t)
 		n++;
 	}
 
-	p = smprint("_.%#T", t);
-	s = pkglookup(p, typepkg);
-	ot = 0;
+	ot = off;
+	s = sym;
 	if(t->sym) {
 		ot = dgostringptr(s, ot, t->sym->name);
 		if(t != types[t->etype])
@@ -402,9 +403,8 @@ dextratype(Type *t)
 		else
 			ot = duintptr(s, ot, 0);
 	}
-	ggloblsym(s, ot, 0);
 
-	return s;
+	return ot;
 }
 
 enum {
@@ -466,6 +466,7 @@ kinds[] =
 	[TFUNC]		= KindFunc,
 	[TCOMPLEX64]	= KindComplex64,
 	[TCOMPLEX128]	= KindComplex128,
+	[TUNSAFEPTR]	= KindUnsafePointer,
 };
 
 static char*
@@ -488,6 +489,7 @@ structnames[] =
 	[TFLOAT64]	= "*runtime.FloatType",
 	[TBOOL]		= "*runtime.BoolType",
 	[TSTRING]	= "*runtime.StringType",
+	[TUNSAFEPTR] =	"*runtime.UnsafePointerType",
 
 	[TPTR32]	= "*runtime.PtrType",
 	[TPTR64]	= "*runtime.PtrType",
@@ -513,9 +515,6 @@ typestruct(Type *t)
 
 	if(isslice(t))
 		name = "*runtime.SliceType";
-
-	if(isptr[et] && t->type->etype == TANY)
-		name = "*runtime.UnsafePointerType";
 
 	return pkglookup(name, typepkg);
 }
@@ -553,6 +552,7 @@ haspointers(Type *t)
 	case TSTRING:
 	case TPTR32:
 	case TPTR64:
+	case TUNSAFEPTR:
 	case TINTER:
 	case TCHAN:
 	case TMAP:
@@ -570,7 +570,6 @@ static int
 dcommontype(Sym *s, int ot, Type *t)
 {
 	int i;
-	Sym *s1;
 	Sym *sptr;
 	char *p;
 
@@ -581,8 +580,6 @@ dcommontype(Sym *s, int ot, Type *t)
 		sptr = dtypesym(ptrto(t));
 	else
 		sptr = weaktypesym(ptrto(t));
-
-	s1 = dextratype(t);
 
 	// empty interface pointing at this type.
 	// all the references that we emit are *interface{};
@@ -612,8 +609,6 @@ dcommontype(Sym *s, int ot, Type *t)
 	i = kinds[t->etype];
 	if(t->etype == TARRAY && t->bound < 0)
 		i = KindSlice;
-	if(isptr[t->etype] && t->type->etype == TANY)
-		i = KindUnsafePointer;
 	if(!haspointers(t))
 		i |= KindNoPointers;
 	ot = duint8(s, ot, i);  // kind
@@ -622,11 +617,14 @@ dcommontype(Sym *s, int ot, Type *t)
 	longsymnames = 0;
 	ot = dgostringptr(s, ot, p);	// string
 	free(p);
-	if(s1)
-		ot = dsymptr(s, ot, s1, 0);	// extraType
-	else
-		ot = duintptr(s, ot, 0);
-	ot = dsymptr(s, ot, sptr, 0);  // ptr to type
+	
+	// skip pointer to extraType,
+	// which follows the rest of this type structure.
+	// caller will fill in if needed.
+	// otherwise linker will assume 0.
+	ot += widthptr;
+
+	ot = dsymptr(s, ot, sptr, 0);  // ptrto type
 	return ot;
 }
 
@@ -693,7 +691,7 @@ weaktypesym(Type *t)
 static Sym*
 dtypesym(Type *t)
 {
-	int ot, n, isddd, dupok;
+	int ot, xt, n, isddd, dupok;
 	Sym *s, *s1, *s2;
 	Sig *a, *m;
 	Type *t1, *tbase;
@@ -714,12 +712,8 @@ dtypesym(Type *t)
 		tbase = t->type;
 	dupok = tbase->sym == S;
 
-	if(compiling_runtime) {
-		if(tbase == types[tbase->etype])	// int, float, etc
-			goto ok;
-		if(tbase->etype == tptr && tbase->type->etype == TANY)	// unsafe.Pointer
-			goto ok;
-	}
+	if(compiling_runtime && tbase == types[tbase->etype])	// int, float, etc
+		goto ok;
 
 	// named types from other files are defined only by those files
 	if(tbase->sym && !tbase->local)
@@ -729,15 +723,18 @@ dtypesym(Type *t)
 
 ok:
 	ot = 0;
+	xt = 0;
 	switch(t->etype) {
 	default:
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		break;
 
 	case TARRAY:
 		// ../../pkg/runtime/type.go:/ArrayType
 		s1 = dtypesym(t->type);
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = dsymptr(s, ot, s1, 0);
 		if(t->bound < 0)
 			ot = duintptr(s, ot, -1);
@@ -749,6 +746,7 @@ ok:
 		// ../../pkg/runtime/type.go:/ChanType
 		s1 = dtypesym(t->type);
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = dsymptr(s, ot, s1, 0);
 		ot = duintptr(s, ot, t->chan);
 		break;
@@ -765,6 +763,7 @@ ok:
 			dtypesym(t1->type);
 
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = duint8(s, ot, isddd);
 
 		// two slice headers: in and out.
@@ -796,6 +795,7 @@ ok:
 
 		// ../../pkg/runtime/type.go:/InterfaceType
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = dsymptr(s, ot, s, ot+widthptr+2*4);
 		ot = duint32(s, ot, n);
 		ot = duint32(s, ot, n);
@@ -812,6 +812,7 @@ ok:
 		s1 = dtypesym(t->down);
 		s2 = dtypesym(t->type);
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = dsymptr(s, ot, s1, 0);
 		ot = dsymptr(s, ot, s2, 0);
 		break;
@@ -826,6 +827,7 @@ ok:
 		// ../../pkg/runtime/type.go:/PtrType
 		s1 = dtypesym(t->type);
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = dsymptr(s, ot, s1, 0);
 		break;
 
@@ -838,6 +840,7 @@ ok:
 			n++;
 		}
 		ot = dcommontype(s, ot, t);
+		xt = ot - 2*widthptr;
 		ot = dsymptr(s, ot, s, ot+widthptr+2*4);
 		ot = duint32(s, ot, n);
 		ot = duint32(s, ot, n);
@@ -859,7 +862,7 @@ ok:
 		}
 		break;
 	}
-
+	ot = dextratype(s, ot, t, xt);
 	ggloblsym(s, ot, dupok);
 	return s;
 }
@@ -908,7 +911,7 @@ dumptypestructs(void)
 		for(i=1; i<=TBOOL; i++)
 			dtypesym(ptrto(types[i]));
 		dtypesym(ptrto(types[TSTRING]));
-		dtypesym(ptrto(pkglookup("Pointer", unsafepkg)->def->type));
+		dtypesym(ptrto(types[TUNSAFEPTR]));
 		
 		// add paths for runtime and main, which 6l imports implicitly.
 		dimportpath(runtimepkg);

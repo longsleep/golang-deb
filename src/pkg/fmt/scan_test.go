@@ -88,14 +88,15 @@ type FloatTest struct {
 type Xs string
 
 func (x *Xs) Scan(state ScanState, verb int) os.Error {
-	tok, err := state.Token()
+	tok, err := state.Token(true, func(r int) bool { return r == verb })
 	if err != nil {
 		return err
 	}
-	if !regexp.MustCompile("^" + string(verb) + "+$").MatchString(tok) {
+	s := string(tok)
+	if !regexp.MustCompile("^" + string(verb) + "+$").MatchString(s) {
 		return os.ErrorString("syntax error for xs")
 	}
-	*x = Xs(tok)
+	*x = Xs(s)
 	return nil
 }
 
@@ -113,9 +114,11 @@ func (s *IntString) Scan(state ScanState, verb int) os.Error {
 		return err
 	}
 
-	if _, err := Fscan(state, &s.s); err != nil {
+	tok, err := state.Token(true, nil)
+	if err != nil {
 		return err
 	}
+	s.s = string(tok)
 	return nil
 }
 
@@ -331,7 +334,7 @@ var multiTests = []ScanfMultiTest{
 	{"%c%c%c", "2\u50c2X", args(&i, &j, &k), args('2', '\u50c2', 'X'), ""},
 
 	// Custom scanners.
-	{"%2e%f", "eefffff", args(&x, &y), args(Xs("ee"), Xs("fffff")), ""},
+	{"%e%f", "eefffff", args(&x, &y), args(Xs("ee"), Xs("fffff")), ""},
 	{"%4v%s", "12abcd", args(&z, &s), args(IntString{12, "ab"}, "cd"), ""},
 
 	// Errors
@@ -368,7 +371,7 @@ func testScan(name string, t *testing.T, scan func(r io.Reader, a ...interface{}
 		}
 		// The incoming value may be a pointer
 		v := reflect.NewValue(test.in)
-		if p, ok := v.(*reflect.PtrValue); ok {
+		if p := v; p.Kind() == reflect.Ptr {
 			v = p.Elem()
 		}
 		val := v.Interface()
@@ -407,7 +410,7 @@ func TestScanf(t *testing.T) {
 		}
 		// The incoming value may be a pointer
 		v := reflect.NewValue(test.in)
-		if p, ok := v.(*reflect.PtrValue); ok {
+		if p := v; p.Kind() == reflect.Ptr {
 			v = p.Elem()
 		}
 		val := v.Interface()
@@ -483,7 +486,7 @@ func TestInf(t *testing.T) {
 }
 
 func testScanfMulti(name string, t *testing.T) {
-	sliceType := reflect.Typeof(make([]interface{}, 1)).(*reflect.SliceType)
+	sliceType := reflect.Typeof(make([]interface{}, 1))
 	for _, test := range multiTests {
 		var r io.Reader
 		if name == "StringReader" {
@@ -510,8 +513,8 @@ func testScanfMulti(name string, t *testing.T) {
 		// Convert the slice of pointers into a slice of values
 		resultVal := reflect.MakeSlice(sliceType, n, n)
 		for i := 0; i < n; i++ {
-			v := reflect.NewValue(test.in[i]).(*reflect.PtrValue).Elem()
-			resultVal.Elem(i).(*reflect.InterfaceValue).Set(v)
+			v := reflect.NewValue(test.in[i]).Elem()
+			resultVal.Index(i).Set(v)
 		}
 		result := resultVal.Interface()
 		if !reflect.DeepEqual(result, test.out) {
@@ -820,12 +823,12 @@ func testScanInts(t *testing.T, scan func(*RecursiveInt, *bytes.Buffer) os.Error
 	i := 1
 	for ; r != nil; r = r.next {
 		if r.i != i {
-			t.Fatal("bad scan: expected %d got %d", i, r.i)
+			t.Fatalf("bad scan: expected %d got %d", i, r.i)
 		}
 		i++
 	}
 	if i-1 != intCount {
-		t.Fatal("bad scan count: expected %d got %d", intCount, i-1)
+		t.Fatalf("bad scan count: expected %d got %d", intCount, i-1)
 	}
 }
 

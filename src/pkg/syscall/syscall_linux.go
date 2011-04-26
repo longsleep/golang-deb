@@ -29,7 +29,7 @@ func Openat(dirfd int, path string, flags int, mode uint32) (fd int, errno int) 
 	return openat(dirfd, path, flags|O_LARGEFILE, mode)
 }
 
-//sys	pipe(p *[2]_C_int) (errno int)
+//sysnb	pipe(p *[2]_C_int) (errno int)
 func Pipe(p []int) (errno int) {
 	if len(p) != 2 {
 		return EINVAL
@@ -60,7 +60,7 @@ func Futimesat(dirfd int, path string, tv []Timeval) (errno int) {
 func Futimes(fd int, tv []Timeval) (errno int) {
 	// Believe it or not, this is the best we can do on Linux
 	// (and is what glibc does).
-	return Utimes("/proc/self/fd/"+str(fd), tv)
+	return Utimes("/proc/self/fd/"+itoa(fd), tv)
 }
 
 const ImplementsGetwd = true
@@ -415,6 +415,13 @@ func Socketpair(domain, typ, proto int) (fd [2]int, errno int) {
 	return
 }
 
+func GetsockoptInt(fd, level, opt int) (value, errno int) {
+	var n int32
+	vallen := _Socklen(4)
+	errno = getsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), &vallen)
+	return int(n), errno
+}
+
 func SetsockoptInt(fd, level, opt int, value int) (errno int) {
 	var n = int32(value)
 	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), 4)
@@ -667,10 +674,48 @@ func PtraceAttach(pid int) (errno int) { return ptrace(PTRACE_ATTACH, pid, 0, 0)
 
 func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0) }
 
+//sys	reboot(magic1 uint, magic2 uint, cmd int, arg string) (errno int)
+func Reboot(cmd int) (errno int) {
+	return reboot(LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, cmd, "")
+}
+
+func clen(n []byte) int {
+	for i := 0; i < len(n); i++ {
+		if n[i] == 0 {
+			return i
+		}
+	}
+	return len(n)
+}
+
+func ReadDirent(fd int, buf []byte) (n int, errno int) {
+	return Getdents(fd, buf)
+}
+
+func ParseDirent(buf []byte, max int, names []string) (consumed int, count int, newnames []string) {
+	origlen := len(buf)
+	count = 0
+	for max != 0 && len(buf) > 0 {
+		dirent := (*Dirent)(unsafe.Pointer(&buf[0]))
+		buf = buf[dirent.Reclen:]
+		if dirent.Ino == 0 { // File absent in directory.
+			continue
+		}
+		bytes := (*[10000]byte)(unsafe.Pointer(&dirent.Name[0]))
+		var name = string(bytes[0:clen(bytes[:])])
+		if name == "." || name == ".." { // Useless names
+			continue
+		}
+		max--
+		count++
+		names = append(names, name)
+	}
+	return origlen - len(buf), count, names
+}
+
 // Sendto
 // Recvfrom
 // Socketpair
-// Getsockopt
 
 /*
  * Direct access
@@ -683,10 +728,10 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 //sys	Chroot(path string) (errno int)
 //sys	Close(fd int) (errno int)
 //sys	Creat(path string, mode uint32) (fd int, errno int)
-//sys	Dup(oldfd int) (fd int, errno int)
-//sys	Dup2(oldfd int, newfd int) (fd int, errno int)
-//sys	EpollCreate(size int) (fd int, errno int)
-//sys	EpollCtl(epfd int, op int, fd int, event *EpollEvent) (errno int)
+//sysnb	Dup(oldfd int) (fd int, errno int)
+//sysnb	Dup2(oldfd int, newfd int) (fd int, errno int)
+//sysnb	EpollCreate(size int) (fd int, errno int)
+//sysnb	EpollCtl(epfd int, op int, fd int, event *EpollEvent) (errno int)
 //sys	EpollWait(epfd int, events []EpollEvent, msec int) (n int, errno int)
 //sys	Exit(code int) = SYS_EXIT_GROUP
 //sys	Faccessat(dirfd int, path string, mode uint32, flags int) (errno int)
@@ -699,24 +744,25 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 //sys	Fdatasync(fd int) (errno int)
 //sys	Fsync(fd int) (errno int)
 //sys	Getdents(fd int, buf []byte) (n int, errno int) = SYS_GETDENTS64
-//sys	Getpgid(pid int) (pgid int, errno int)
-//sys	Getpgrp() (pid int)
-//sys	Getpid() (pid int)
-//sys	Getppid() (ppid int)
-//sys	Getrlimit(resource int, rlim *Rlimit) (errno int)
-//sys	Getrusage(who int, rusage *Rusage) (errno int)
-//sys	Gettid() (tid int)
-//sys   InotifyAddWatch(fd int, pathname string, mask uint32) (watchdesc int, errno int)
-//sys   InotifyInit() (fd int, errno int)
-//sys   InotifyInit1(flags int) (fd int, errno int)
-//sys   InotifyRmWatch(fd int, watchdesc uint32) (success int, errno int)
-//sys	Kill(pid int, sig int) (errno int)
+//sysnb	Getpgid(pid int) (pgid int, errno int)
+//sysnb	Getpgrp() (pid int)
+//sysnb	Getpid() (pid int)
+//sysnb	Getppid() (ppid int)
+//sysnb	Getrlimit(resource int, rlim *Rlimit) (errno int)
+//sysnb	Getrusage(who int, rusage *Rusage) (errno int)
+//sysnb	Gettid() (tid int)
+//sys	InotifyAddWatch(fd int, pathname string, mask uint32) (watchdesc int, errno int)
+//sysnb	InotifyInit() (fd int, errno int)
+//sysnb	InotifyInit1(flags int) (fd int, errno int)
+//sysnb	InotifyRmWatch(fd int, watchdesc uint32) (success int, errno int)
+//sysnb	Kill(pid int, sig int) (errno int)
 //sys	Klogctl(typ int, buf []byte) (n int, errno int) = SYS_SYSLOG
 //sys	Link(oldpath string, newpath string) (errno int)
 //sys	Mkdir(path string, mode uint32) (errno int)
 //sys	Mkdirat(dirfd int, path string, mode uint32) (errno int)
 //sys	Mknod(path string, mode uint32, dev int) (errno int)
 //sys	Mknodat(dirfd int, path string, mode uint32, dev int) (errno int)
+//sys	Mount(source string, target string, fstype string, flags int, data string) (errno int)
 //sys	Nanosleep(time *Timespec, leftover *Timespec) (errno int)
 //sys	Pause() (errno int)
 //sys	PivotRoot(newroot string, putold string) (errno int) = SYS_PIVOT_ROOT
@@ -727,21 +773,22 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 //sys	Rmdir(path string) (errno int)
 //sys	Setdomainname(p []byte) (errno int)
 //sys	Sethostname(p []byte) (errno int)
-//sys	Setpgid(pid int, pgid int) (errno int)
-//sys	Setrlimit(resource int, rlim *Rlimit) (errno int)
-//sys	Setsid() (pid int, errno int)
-//sys	Settimeofday(tv *Timeval) (errno int)
-//sys	Setuid(uid int) (errno int)
+//sysnb	Setpgid(pid int, pgid int) (errno int)
+//sysnb	Setrlimit(resource int, rlim *Rlimit) (errno int)
+//sysnb	Setsid() (pid int, errno int)
+//sysnb	Settimeofday(tv *Timeval) (errno int)
+//sysnb	Setuid(uid int) (errno int)
 //sys	Symlink(oldpath string, newpath string) (errno int)
 //sys	Sync()
-//sys	Sysinfo(info *Sysinfo_t) (errno int)
+//sysnb	Sysinfo(info *Sysinfo_t) (errno int)
 //sys	Tee(rfd int, wfd int, len int, flags int) (n int64, errno int)
-//sys	Tgkill(tgid int, tid int, sig int) (errno int)
-//sys	Times(tms *Tms) (ticks uintptr, errno int)
-//sys	Umask(mask int) (oldmask int)
-//sys	Uname(buf *Utsname) (errno int)
+//sysnb	Tgkill(tgid int, tid int, sig int) (errno int)
+//sysnb	Times(tms *Tms) (ticks uintptr, errno int)
+//sysnb	Umask(mask int) (oldmask int)
+//sysnb	Uname(buf *Utsname) (errno int)
 //sys	Unlink(path string) (errno int)
 //sys	Unlinkat(dirfd int, path string) (errno int)
+//sys	Unmount(target string, flags int) (errno int) = SYS_UMOUNT2
 //sys	Unshare(flags int) (errno int)
 //sys	Ustat(dev int, ubuf *Ustat_t) (errno int)
 //sys	Utime(path string, buf *Utimbuf) (errno int)
@@ -749,6 +796,23 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 //sys	exitThread(code int) (errno int) = SYS_EXIT
 //sys	read(fd int, p *byte, np int) (n int, errno int)
 //sys	write(fd int, p *byte, np int) (n int, errno int)
+
+// mmap varies by architecture; see syscall_linux_*.go.
+//sys	munmap(addr uintptr, length uintptr) (errno int)
+
+var mapper = &mmapper{
+	active: make(map[*byte][]byte),
+	mmap:   mmap,
+	munmap: munmap,
+}
+
+func Mmap(fd int, offset int64, length int, prot int, flags int) (data []byte, errno int) {
+	return mapper.Mmap(fd, offset, length, prot, flags)
+}
+
+func Munmap(b []byte) (errno int) {
+	return mapper.Munmap(b)
+}
 
 /*
  * Unimplemented
@@ -842,7 +906,6 @@ func PtraceDetach(pid int) (errno int) { return ptrace(PTRACE_DETACH, pid, 0, 0)
 // Quotactl
 // Readahead
 // Readv
-// Reboot
 // RemapFilePages
 // Removexattr
 // RequestKey
