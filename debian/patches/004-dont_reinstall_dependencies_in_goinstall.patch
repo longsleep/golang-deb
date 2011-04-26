@@ -43,21 +43,22 @@
  Goinstall is an experiment in automatic package installation.
  It installs packages, possibly downloading them from the internet.
  It maintains a list of public Go packages at http://godashboard.appspot.com/package.
-@@ -14,15 +19,16 @@ Usage:
+@@ -14,6 +19,7 @@ Usage:
  
  Flags and default settings:
          -a=false          install all previously installed packages
 +        -d=false          install all package prerequisites (dangerous on Debian)
+ 	-clean=false      clean the package directory before installing
  	-dashboard=true   tally public packages on godashboard.appspot.com
  	-log=true         log installed packages to $GOROOT/goinstall.log for use by -a
- 	-u=false          update already-downloaded packages
+@@ -21,9 +27,9 @@ Flags and default settings:
  	-v=false          verbose operation
  
  Goinstall installs each of the packages identified on the command line.  It
 -installs a package's prerequisites before trying to install the package
 -itself. Unless -log=false is specified, goinstall logs the import path of each
 -installed package to $GOROOT/goinstall.log for use by goinstall -a.
-+installs a package's prerequisites if give -d=true before trying to install
++installs a package's prerequisites if given -d=true before trying to install
 +the package itself. Unless -log=false is specified, goinstall logs the import
 +path of each installed package to $GOROOT/goinstall.log for use by goinstall -a.
  

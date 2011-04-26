@@ -1,6 +1,6 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -38,7 +38,7 @@ var (
+@@ -39,7 +39,7 @@ var (
  	installedPkgs = make(map[string]bool)
  
  	allpkg            = flag.Bool("a", false, "install all previously installed packages")
@@ -11,10 +11,10 @@
  	clean             = flag.Bool("clean", false, "clean the package directory before installing")
 --- a/src/cmd/goinstall/doc.go
 +++ b/src/cmd/goinstall/doc.go
-@@ -20,7 +20,7 @@ Usage:
- Flags and default settings:
+@@ -21,7 +21,7 @@ Flags and default settings:
          -a=false          install all previously installed packages
          -d=false          install all package prerequisites (dangerous on Debian)
+ 	-clean=false      clean the package directory before installing
 -	-dashboard=true   tally public packages on godashboard.appspot.com
 +	-dashboard=false  tally public packages on godashboard.appspot.com
  	-log=true         log installed packages to $GOROOT/goinstall.log for use by -a
