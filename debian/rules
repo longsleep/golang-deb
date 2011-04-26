@@ -72,35 +72,53 @@ GOARM :=
 
 DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
 DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
+DEB_BUILD_ARCH_OS := $(shell dpkg-architecture -qDEB_BUILD_ARCH_OS 2>/dev/null)
+DEB_BUILD_ARCH_CPU := $(shell dpkg-architecture -qDEB_BUILD_ARCH_CPU 2>/dev/null)
+
+ifeq ($(DEB_BUILD_ARCH_OS), kfreebsd)
+    GOHOSTOS := freebsd
+else ifeq ($(DEB_BUILD_ARCH_OS), linux)
+    GOHOSTOS := linux
+else
+    $(error unrecongized build host kernel $(DEB_BUILD_ARCH_OS)!)
+endif
 
 ifeq ($(DEB_HOST_ARCH_OS), kfreebsd)
     GOOS := freebsd
+else ifeq ($(DEB_HOST_ARCH_OS), linux)
+    GOOS := linux
 else
-    ifeq (,$(findstring $(DEB_HOST_ARCH_OS), linux freebsd darwin))
-        $(warning unrecognized kernel $(DEB_HOST_ARCH_OS)! continuing.)
-    endif
-    GOOS := $(DEB_HOST_ARCH_OS)
+    $(error unrecognized kernel $(DEB_HOST_ARCH_OS)!)
+endif
+
+ifeq ($(DEB_BUILD_ARCH_CPU), i386)
+    GOHOSTARCH := 386
+else ifeq ($(DEB_BUILD_ARCH_CPU), amd64)
+    GOHOSTARCH := amd64
+else ifeq ($(DEB_BUILD_ARCH_CPU), armel)
+    GOHOSTARCH := arm
+else ifeq ($(DEB_BUILD_ARCH_CPU), armhf)
+    GOHOSTARCH := arm
+else
+    $(error unrecognized build host instruction set $(DEB_HOSTOA_ARCH_CPU)!)
 endif
 
 ifeq ($(DEB_HOST_ARCH_CPU), i386)
     GOARCH := 386
-    GOHOSTARCH := 386
     GOPREFIX := 8
 else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOARCH := amd64
-    GOHOSTARCH := amd64
     GOPREFIX := 6
-else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), armel))
+else ifeq ($(DEB_HOST_ARCH_CPU), armel)
     GOARCH := arm
     GOARM := 5
     GOPREFIX := 5
-else ifeq (,$(findstring $(DEB_HOST_ARCH_CPU), armhf))
+else ifeq ($(DEB_HOST_ARCH_CPU), armhf)
     GOARCH := arm
     GOARM := 6
     GOPREFIX := 5
 else
-    $(warning unrecognized instruction set $(DEB_HOST_ARCH_CPU)! continuing.)
-    GOARCH := $(DEB_HOST_ARCH_CPU)
+    $(error unrecognized instruction set $(DEB_HOST_ARCH_CPU)!)
 endif
 
 export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
