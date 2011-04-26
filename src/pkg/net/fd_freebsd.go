@@ -15,6 +15,10 @@ type pollster struct {
 	kq       int
 	eventbuf [10]syscall.Kevent_t
 	events   []syscall.Kevent_t
+
+	// An event buffer for AddFD/DelFD.
+	// Must hold pollServer lock.
+	kbuf [1]syscall.Kevent_t
 }
 
 func newpollster() (p *pollster, err os.Error) {
@@ -27,15 +31,16 @@ func newpollster() (p *pollster, err os.Error) {
 	return p, nil
 }
 
-func (p *pollster) AddFD(fd int, mode int, repeat bool) os.Error {
+func (p *pollster) AddFD(fd int, mode int, repeat bool) (bool, os.Error) {
+	// pollServer is locked.
+
 	var kmode int
 	if mode == 'r' {
 		kmode = syscall.EVFILT_READ
 	} else {
 		kmode = syscall.EVFILT_WRITE
 	}
-	var events [1]syscall.Kevent_t
-	ev := &events[0]
+	ev := &p.kbuf[0]
 	// EV_ADD - add event to kqueue list
 	// EV_ONESHOT - delete the event the first time it triggers
 	flags := syscall.EV_ADD
@@ -44,34 +49,35 @@ func (p *pollster) AddFD(fd int, mode int, repeat bool) os.Error {
 	}
 	syscall.SetKevent(ev, fd, kmode, flags)
 
-	n, e := syscall.Kevent(p.kq, events[:], nil, nil)
+	n, e := syscall.Kevent(p.kq, p.kbuf[:], nil, nil)
 	if e != 0 {
-		return os.NewSyscallError("kevent", e)
+		return false, os.NewSyscallError("kevent", e)
 	}
 	if n != 1 || (ev.Flags&syscall.EV_ERROR) == 0 || int(ev.Ident) != fd || int(ev.Filter) != kmode {
-		return os.NewSyscallError("kqueue phase error", e)
+		return false, os.NewSyscallError("kqueue phase error", e)
 	}
 	if ev.Data != 0 {
-		return os.Errno(int(ev.Data))
+		return false, os.Errno(int(ev.Data))
 	}
-	return nil
+	return false, nil
 }
 
 func (p *pollster) DelFD(fd int, mode int) {
+	// pollServer is locked.
+
 	var kmode int
 	if mode == 'r' {
 		kmode = syscall.EVFILT_READ
 	} else {
 		kmode = syscall.EVFILT_WRITE
 	}
-	var events [1]syscall.Kevent_t
-	ev := &events[0]
+	ev := &p.kbuf[0]
 	// EV_DELETE - delete event from kqueue list
 	syscall.SetKevent(ev, fd, kmode, syscall.EV_DELETE)
-	syscall.Kevent(p.kq, events[:], nil, nil)
+	syscall.Kevent(p.kq, p.kbuf[:], nil, nil)
 }
 
-func (p *pollster) WaitFD(nsec int64) (fd int, mode int, err os.Error) {
+func (p *pollster) WaitFD(s *pollServer, nsec int64) (fd int, mode int, err os.Error) {
 	var t *syscall.Timespec
 	for len(p.events) == 0 {
 		if nsec > 0 {
@@ -80,7 +86,11 @@ func (p *pollster) WaitFD(nsec int64) (fd int, mode int, err os.Error) {
 			}
 			*t = syscall.NsecToTimespec(nsec)
 		}
+
+		s.Unlock()
 		nn, e := syscall.Kevent(p.kq, nil, p.eventbuf[:], t)
+		s.Lock()
+
 		if e != 0 {
 			if e == syscall.EINTR {
 				continue

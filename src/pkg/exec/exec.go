@@ -2,8 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// The exec package runs external commands.
+// The exec package runs external commands. It wraps os.StartProcess
+// to make it easier to remap stdin and stdout, connect I/O with pipes,
+// and do other adjustments.
 package exec
+
+// BUG(r): This package should be made even easier to use or merged into os.
 
 import (
 	"os"
@@ -49,7 +53,7 @@ func modeToFiles(mode, fd int) (*os.File, *os.File, os.Error) {
 		if fd == 0 {
 			rw = os.O_RDONLY
 		}
-		f, err := os.Open(os.DevNull, rw, 0)
+		f, err := os.OpenFile(os.DevNull, rw, 0)
 		return f, nil, err
 	case PassThrough:
 		switch fd {
@@ -75,17 +79,19 @@ func modeToFiles(mode, fd int) (*os.File, *os.File, os.Error) {
 
 // Run starts the named binary running with
 // arguments argv and environment envv.
+// If the dir argument is not empty, the child changes
+// into the directory before executing the binary.
 // It returns a pointer to a new Cmd representing
 // the command or an error.
 //
-// The parameters stdin, stdout, and stderr
+// The arguments stdin, stdout, and stderr
 // specify how to handle standard input, output, and error.
 // The choices are DevNull (connect to /dev/null),
 // PassThrough (connect to the current process's standard stream),
 // Pipe (connect to an operating system pipe), and
 // MergeWithStdout (only for standard error; use the same
 // file descriptor as was used for standard output).
-// If a parameter is Pipe, then the corresponding field (Stdin, Stdout, Stderr)
+// If an argument is Pipe, then the corresponding field (Stdin, Stdout, Stderr)
 // of the returned Cmd is the other end of the pipe.
 // Otherwise the field in Cmd is nil.
 func Run(name string, argv, envv []string, dir string, stdin, stdout, stderr int) (c *Cmd, err os.Error) {
@@ -105,7 +111,7 @@ func Run(name string, argv, envv []string, dir string, stdin, stdout, stderr int
 	}
 
 	// Run command.
-	c.Process, err = os.StartProcess(name, argv, envv, dir, fd[0:])
+	c.Process, err = os.StartProcess(name, argv, &os.ProcAttr{Dir: dir, Files: fd[:], Env: envv})
 	if err != nil {
 		goto Error
 	}

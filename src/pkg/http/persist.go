@@ -211,7 +211,9 @@ type ClientConn struct {
 	nread, nwritten int
 	pipereq         map[*Request]uint
 
-	pipe textproto.Pipeline
+	pipe     textproto.Pipeline
+	writeReq func(*Request, io.Writer) os.Error
+	readRes  func(buf *bufio.Reader, method string) (*Response, os.Error)
 }
 
 // NewClientConn returns a new ClientConn reading and writing c.  If r is not
@@ -220,7 +222,21 @@ func NewClientConn(c net.Conn, r *bufio.Reader) *ClientConn {
 	if r == nil {
 		r = bufio.NewReader(c)
 	}
-	return &ClientConn{c: c, r: r, pipereq: make(map[*Request]uint)}
+	return &ClientConn{
+		c:        c,
+		r:        r,
+		pipereq:  make(map[*Request]uint),
+		writeReq: (*Request).Write,
+		readRes:  ReadResponse,
+	}
+}
+
+// NewProxyClientConn works like NewClientConn but writes Requests
+// using Request's WriteProxy method.
+func NewProxyClientConn(c net.Conn, r *bufio.Reader) *ClientConn {
+	cc := NewClientConn(c, r)
+	cc.writeReq = (*Request).WriteProxy
+	return cc
 }
 
 // Close detaches the ClientConn and returns the underlying connection as well
@@ -281,7 +297,7 @@ func (cc *ClientConn) Write(req *Request) (err os.Error) {
 	}
 	cc.lk.Unlock()
 
-	err = req.Write(c)
+	err = cc.writeReq(req, c)
 	cc.lk.Lock()
 	defer cc.lk.Unlock()
 	if err != nil {
@@ -349,7 +365,7 @@ func (cc *ClientConn) Read(req *Request) (resp *Response, err os.Error) {
 		}
 	}
 
-	resp, err = ReadResponse(r, req.Method)
+	resp, err = cc.readRes(r, req.Method)
 	cc.lk.Lock()
 	defer cc.lk.Unlock()
 	if err != nil {

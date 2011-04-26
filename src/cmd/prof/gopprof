@@ -1896,6 +1896,7 @@ sub SvgJavascript {
 // SVGPan
 // http://www.cyberz.org/blog/2009/12/08/svgpan-a-javascript-svg-panzoomdrag-library/
 // Local modification: if(true || ...) below to force panning, never moving.
+// Local modification: add clamping to fix bug in handleMouseWheel.
 
 /**
  *  SVGPan library 1.2
@@ -2038,6 +2039,15 @@ function handleMouseWheel(evt) {
 
 	var z = 1 + delta; // Zoom factor: 0.9/1.1
 
+	// Clamp to reasonable values.
+	// The 0.1 check is important because
+	// a very large scroll can turn into a
+	// negative z, which rotates the image 180 degrees.
+	if(z < 0.1)
+		z = 0.1;
+	if(z > 10.0)
+		z = 10.0;
+		
 	var g = svgDoc.getElementById("viewport");
 
 	var p = getEventPoint(evt);
@@ -2416,11 +2426,17 @@ sub RemoveUninterestingFrames {
                       'makechan',
                       'makemap',
                       'mal',
-                      'mallocgc',
+                      'runtime.new',
+                      'makeslice1',
+                      'runtime.gostringsize',
+                      'runtime.malloc',
+                      'unsafe.New',
+                      'runtime.mallocgc',
                       'runtime.catstring',
                       'runtime.ifaceT2E',
                       'runtime.ifaceT2I',
                       'runtime.makechan',
+                      'runtime.makechan_c',
                       'runtime.makemap',
                       'runtime.makeslice',
                       'runtime.mal',
@@ -2460,7 +2476,8 @@ sub RemoveUninterestingFrames {
     # Nothing skipped for unknown types
   }
 
-  if ($main::profile_type eq 'cpu') {
+  # Go doesn't have the problem that this heuristic tries to fix.  Disable.
+  if (0 && $main::profile_type eq 'cpu') {
     # If all the second-youngest program counters are the same,
     # this STRONGLY suggests that it is an artifact of measurement,
     # i.e., stack frames pushed by the CPU profiler signal handler.
@@ -2960,7 +2977,7 @@ sub FetchDynamicProfile {
         $url = sprintf("http://$profile_name" . "seconds=%d",
             $main::opt_seconds);
       }
-      $curl_timeout = sprintf("--max-time=%d",
+      $curl_timeout = sprintf("--max-time %d",
                               int($main::opt_seconds * 1.01 + 60));
     } else {
       # For non-CPU profiles, we add a type-extension to

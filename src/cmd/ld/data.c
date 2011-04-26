@@ -722,7 +722,7 @@ addsize(Sym *s, Sym *t)
 void
 dodata(void)
 {
-	int32 h, t, datsize;
+	int32 t, datsize;
 	Section *sect;
 	Sym *s, *last, **l;
 
@@ -732,23 +732,22 @@ dodata(void)
 
 	last = nil;
 	datap = nil;
-	for(h=0; h<NHASH; h++) {
-		for(s=hash[h]; s!=S; s=s->hash){
-			if(!s->reachable || s->special)
-				continue;
-			if(STEXT < s->type && s->type < SXREF) {
-				if(last == nil)
-					datap = s;
-				else
-					last->next = s;
-				s->next = nil;
-				last = s;
-			}
+
+	for(s=allsym; s!=S; s=s->allsym) {
+		if(!s->reachable || s->special)
+			continue;
+		if(STEXT < s->type && s->type < SXREF) {
+			if(last == nil)
+				datap = s;
+			else
+				last->next = s;
+			s->next = nil;
+			last = s;
 		}
 	}
 
 	for(s = datap; s != nil; s = s->next) {
-		if(s->np > 0 && s->type == SBSS)	// TODO: necessary?
+		if(s->np > 0 && s->type == SBSS)
 			s->type = SDATA;
 		if(s->np > s->size)
 			diag("%s: initialize bounds (%lld < %d)",
@@ -786,8 +785,7 @@ dodata(void)
 	s = datap;
 	for(; s != nil && s->type < SDATA; s = s->next) {
 		s->type = SRODATA;
-		t = rnd(s->size, 4);
-		s->size = t;
+		t = rnd(s->size, PtrSize);
 		s->value = datsize;
 		datsize += t;
 	}
@@ -834,7 +832,6 @@ dodata(void)
 			datsize = rnd(datsize, 4);
 		else
 			datsize = rnd(datsize, 8);
-		s->size = t;
 		s->value = datsize;
 		datsize += t;
 	}

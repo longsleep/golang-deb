@@ -28,8 +28,37 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Where symbol table data gets mapped into memory.
-#define SYMDATVA 0x99LL<<24
+enum
+{
+	Sxxx,
+	
+	/* order here is order in output file */
+	STEXT,
+	SELFDATA,
+	SMACHOPLT,
+	STYPE,
+	SSTRING,
+	SGOSTRING,
+	SRODATA,
+	SDATA,
+	SMACHO,	/* Mach-O __nl_symbol_ptr */
+	SMACHOGOT,
+	SWINDOWS,
+	SBSS,
+
+	SXREF,
+	SMACHODYNSTR,
+	SMACHODYNSYM,
+	SMACHOINDIRECTPLT,
+	SMACHOINDIRECTGOT,
+	SFILE,
+	SCONST,
+	SDYNIMPORT,
+
+	SSUB = 1<<8,	/* sub-symbol, linked from parent via ->sub list */
+	
+	NHASH = 100003,
+};
 
 typedef struct Library Library;
 struct Library
@@ -79,6 +108,7 @@ EXTERN	Library*	library;
 EXTERN	int	libraryp;
 EXTERN	int	nlibrary;
 EXTERN	Sym*	hash[NHASH];
+EXTERN	Sym*	allsym;
 EXTERN	Sym*	histfrog[MAXHIST];
 EXTERN	uchar	fnuxi8[8];
 EXTERN	uchar	fnuxi4[4];
@@ -106,6 +136,7 @@ void	asmlc(void);
 void	histtoauto(void);
 void	collapsefrog(Sym *s);
 Sym*	lookup(char *symb, int v);
+Sym*	rlookup(char *symb, int v);
 void	nuxiinit(void);
 int	find1(int32 l, int c);
 int	find2(int32 l, int c);
@@ -243,3 +274,6 @@ EXTERN	char*	headstring;
 extern	Header	headers[];
 
 int	headtype(char*);
+
+int	Yconv(Fmt*);
+#pragma	varargck	type	"Y"	Sym*

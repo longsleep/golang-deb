@@ -5,6 +5,8 @@
 
 eval $(gomake --no-print-directory -f ../src/Make.inc go-env)
 
+export E=
+
 case X"$GOARCH" in
 Xamd64)
 	export A=6
@@ -97,6 +99,7 @@ do
 			echo $i >>pass.out
 		fi
 		echo $(awk 'NR==1{print $2}' $TMP2FILE) $D/$F >>times.out
+		rm -f $F.$A $A.out
 	) done
 done | # clean up some stack noise
 	egrep -v '^(r[0-9a-z]+|[cfg]s)  +0x'  |

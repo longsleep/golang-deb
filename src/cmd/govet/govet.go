@@ -7,7 +7,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"utf8"
 )
 
 var verbose = flag.Bool("v", false, "verbose")
@@ -63,6 +63,7 @@ func main() {
 				}
 				name = name[:colon]
 			}
+			name = strings.ToLower(name)
 			if name[len(name)-1] == 'f' {
 				printfList[name] = skip
 			} else {
@@ -205,35 +206,38 @@ func (f *File) checkCallExpr(call *ast.CallExpr) {
 }
 
 // printfList records the formatted-print functions. The value is the location
-// of the format parameter.
+// of the format parameter. Names are lower-cased so the lookup is
+// case insensitive.
 var printfList = map[string]int{
-	"Errorf":  0,
-	"Fatalf":  0,
-	"Fprintf": 1,
-	"Panicf":  0,
-	"Printf":  0,
-	"Sprintf": 0,
+	"errorf":  0,
+	"fatalf":  0,
+	"fprintf": 1,
+	"panicf":  0,
+	"printf":  0,
+	"sprintf": 0,
 }
 
 // printList records the unformatted-print functions. The value is the location
-// of the first parameter to be printed.
+// of the first parameter to be printed.  Names are lower-cased so the lookup is
+// case insensitive.
 var printList = map[string]int{
-	"Error":  0,
-	"Fatal":  0,
-	"Fprint": 1, "Fprintln": 1,
-	"Panic": 0, "Panicln": 0,
-	"Print": 0, "Println": 0,
-	"Sprint": 0, "Sprintln": 0,
+	"error":  0,
+	"fatal":  0,
+	"fprint": 1, "fprintln": 1,
+	"panic": 0, "panicln": 0,
+	"print": 0, "println": 0,
+	"sprint": 0, "sprintln": 0,
 }
 
 // checkCall triggers the print-specific checks if the call invokes a print function.
-func (f *File) checkCall(call *ast.CallExpr, name string) {
+func (f *File) checkCall(call *ast.CallExpr, Name string) {
+	name := strings.ToLower(Name)
 	if skip, ok := printfList[name]; ok {
-		f.checkPrintf(call, name, skip)
+		f.checkPrintf(call, Name, skip)
 		return
 	}
 	if skip, ok := printList[name]; ok {
-		f.checkPrint(call, name, skip)
+		f.checkPrint(call, Name, skip)
 		return
 	}
 }
@@ -256,7 +260,7 @@ func (f *File) checkPrintf(call *ast.CallExpr, name string, skip int) {
 		return
 	}
 	if lit.Kind == token.STRING {
-		if bytes.IndexByte(lit.Value, '%') < 0 {
+		if !strings.Contains(lit.Value, "%") {
 			if len(call.Args) > skip+1 {
 				f.Badf(call.Pos(), "no formatting directive in %s call", name)
 			}
@@ -265,24 +269,64 @@ func (f *File) checkPrintf(call *ast.CallExpr, name string, skip int) {
 	}
 	// Hard part: check formats against args.
 	// Trivial but useful test: count.
-	numPercent := 0
-	for i := 0; i < len(lit.Value); i++ {
+	numArgs := 0
+	for i, w := 0, 0; i < len(lit.Value); i += w {
+		w = 1
 		if lit.Value[i] == '%' {
-			if i+1 < len(lit.Value) && lit.Value[i+1] == '%' {
-				// %% doesn't count.
-				i++
-			} else {
-				numPercent++
-			}
+			nbytes, nargs := parsePrintfVerb(lit.Value[i:])
+			w = nbytes
+			numArgs += nargs
 		}
 	}
 	expect := len(call.Args) - (skip + 1)
-	if numPercent != expect {
-		f.Badf(call.Pos(), "wrong number of formatting directives in %s call: %d percent(s) for %d args", name, numPercent, expect)
+	if numArgs != expect {
+		f.Badf(call.Pos(), "wrong number of args in %s call: %d needed but %d args", name, numArgs, expect)
 	}
 }
 
-var terminalNewline = []byte(`\n"`) // \n at end of interpreted string
+// parsePrintfVerb returns the number of bytes and number of arguments
+// consumed by the Printf directive that begins s, including its percent sign
+// and verb.
+func parsePrintfVerb(s string) (nbytes, nargs int) {
+	// There's guaranteed a percent sign.
+	nbytes = 1
+	end := len(s)
+	// There may be flags.
+FlagLoop:
+	for nbytes < end {
+		switch s[nbytes] {
+		case '#', '0', '+', '-', ' ':
+			nbytes++
+		default:
+			break FlagLoop
+		}
+	}
+	getNum := func() {
+		if nbytes < end && s[nbytes] == '*' {
+			nbytes++
+			nargs++
+		} else {
+			for nbytes < end && '0' <= s[nbytes] && s[nbytes] <= '9' {
+				nbytes++
+			}
+		}
+	}
+	// There may be a width.
+	getNum()
+	// If there's a period, there may be a precision.
+	if nbytes < end && s[nbytes] == '.' {
+		nbytes++
+		getNum()
+	}
+	// Now a verb.
+	c, w := utf8.DecodeRuneInString(s[nbytes:])
+	nbytes += w
+	if c != '%' {
+		nargs++
+	}
+	return
+}
+
 
 // checkPrint checks a call to an unformatted print routine such as Println.
 // The skip argument records how many arguments to ignore; that is,
@@ -298,7 +342,7 @@ func (f *File) checkPrint(call *ast.CallExpr, name string, skip int) {
 	}
 	arg := args[skip]
 	if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-		if bytes.IndexByte(lit.Value, '%') >= 0 {
+		if strings.Contains(lit.Value, "%") {
 			f.Badf(call.Pos(), "possible formatting directive in %s call", name)
 		}
 	}
@@ -306,7 +350,7 @@ func (f *File) checkPrint(call *ast.CallExpr, name string, skip int) {
 		// The last item, if a string, should not have a newline.
 		arg = args[len(call.Args)-1]
 		if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			if bytes.HasSuffix(lit.Value, terminalNewline) {
+			if strings.HasSuffix(lit.Value, `\n"`) {
 				f.Badf(call.Pos(), "%s call ends with newline", name)
 			}
 		}
@@ -320,8 +364,16 @@ func BadFunctionUsedInTests() {
 	fmt.Println("%s", "hi")            // % in call to Println
 	fmt.Printf("%s", "hi", 3)          // wrong # percents
 	fmt.Printf("%s%%%d", "hi", 3)      // right # percents
+	fmt.Printf("%.*d", 3, 3)           // right # percents, with a *
+	fmt.Printf("%.*d", 3, 3, 3)        // wrong # percents, with a *
+	printf("now is the time", "buddy") // no %s
 	Printf("now is the time", "buddy") // no %s
 	f := new(File)
 	f.Warn(0, "%s", "hello", 3)  // % in call to added function
 	f.Warnf(0, "%s", "hello", 3) // wrong # %s in call to added function
+}
+
+// printf is used by the test.
+func printf(format string, args ...interface{}) {
+	panic("don't call - testing only")
 }

@@ -131,6 +131,7 @@ struct	Sym
 	uchar	dynexport;
 	uchar	special;
 	uchar	stkcheck;
+	uchar	hide;
 	int32	value;
 	int32	size;
 	int32	sig;
@@ -138,6 +139,7 @@ struct	Sym
 	int32	plt;
 	int32	got;
 	Sym*	hash;	// in hash table
+	Sym*	allsym;	// in all symbol list
 	Sym*	next;	// in text or data list
 	Sym*	sub;	// in sub list
 	Sym*	outer;	// container of sub
@@ -168,31 +170,6 @@ struct	Optab
 
 enum
 {
-	Sxxx,
-	
-	/* order here is order in output file */
-	STEXT,
-	SELFDATA,
-	SMACHOPLT,
-	SRODATA,
-	SDATA,
-	SMACHO,	/* Mach-O __nl_symbol_ptr */
-	SMACHOGOT,
-	SWINDOWS,
-	SBSS,
-
-	SXREF,
-	SMACHODYNSTR,
-	SMACHODYNSYM,
-	SMACHOINDIRECTPLT,
-	SMACHOINDIRECTGOT,
-	SFILE,
-	SCONST,
-	SDYNIMPORT,
-
-	SSUB = 1<<8,	/* sub-symbol, linked from parent via ->sub list */
-
-	NHASH		= 10007,
 	MINSIZ		= 4,
 	STRINGSZ	= 200,
 	MINLC		= 1,

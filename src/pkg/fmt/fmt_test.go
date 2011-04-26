@@ -139,7 +139,17 @@ var fmttests = []struct {
 	{"%5s", "abc", "  abc"},
 	{"%2s", "\u263a", " \u263a"},
 	{"%-5s", "abc", "abc  "},
+	{"%-8q", "abc", `"abc"   `},
 	{"%05s", "abc", "00abc"},
+	{"%08q", "abc", `000"abc"`},
+	{"%5s", "abcdefghijklmnopqrstuvwxyz", "abcdefghijklmnopqrstuvwxyz"},
+	{"%.5s", "abcdefghijklmnopqrstuvwxyz", "abcde"},
+	{"%.5s", "日本語日本語", "日本語日本"},
+	{"%.5s", []byte("日本語日本語"), "日本語日本"},
+	{"%.5q", "abcdefghijklmnopqrstuvwxyz", `"abcde"`},
+	{"%.3q", "日本語日本語", `"\u65e5\u672c\u8a9e"`},
+	{"%.3q", []byte("日本語日本語"), `"\u65e5\u672c\u8a9e"`},
+	{"%10.1q", "日本語日本語", `  "\u65e5"`},
 
 	// integers
 	{"%d", 12345, "12345"},
@@ -160,6 +170,7 @@ var fmttests = []struct {
 
 	// unicode format
 	{"%U", 0x1, "U+0001"},
+	{"%U", uint(0x1), "U+0001"},
 	{"%.8U", 0x2, "U+00000002"},
 	{"%U", 0x1234, "U+1234"},
 	{"%U", 0x12345, "U+12345"},
@@ -442,6 +453,9 @@ func BenchmarkSprintfPrefixedInt(b *testing.B) {
 }
 
 func TestCountMallocs(t *testing.T) {
+	if testing.Short() {
+		return
+	}
 	mallocs := 0 - runtime.MemStats.Mallocs
 	for i := 0; i < 100; i++ {
 		Sprintf("")

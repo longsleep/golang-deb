@@ -32,11 +32,12 @@ DIRS=\
 	container/vector\
 	crypto\
 	crypto/aes\
-	crypto/block\
 	crypto/blowfish\
 	crypto/cast5\
 	crypto/cipher\
+	crypto/des\
 	crypto/dsa\
+	crypto/ecdsa\
 	crypto/elliptic\
 	crypto/hmac\
 	crypto/md4\
@@ -89,11 +90,13 @@ DIRS=\
 	go/scanner\
 	go/token\
 	go/typechecker\
+	go/types\
 	gob\
 	hash\
 	hash/adler32\
 	hash/crc32\
 	hash/crc64\
+	hash/fnv\
 	html\
 	http\
 	http/cgi\
@@ -102,6 +105,7 @@ DIRS=\
 	image\
 	image/jpeg\
 	image/png\
+	image/ycbcr\
 	index/suffixarray\
 	io\
 	io/ioutil\
@@ -153,8 +157,11 @@ DIRS=\
 	../cmd/cgo\
 	../cmd/ebnflint\
 	../cmd/godoc\
+	../cmd/gofix\
 	../cmd/gofmt\
 	../cmd/goinstall\
+	../cmd/gotest\
+	../cmd/gotype\
 	../cmd/govet\
 	../cmd/goyacc\
 	../cmd/hgpatch\
@@ -165,7 +172,7 @@ DIRS+=\
 
 endif
 
-NOTEST=\
+NOTEST+=\
 	crypto\
 	crypto/openpgp/error\
 	debug/proc\
@@ -180,7 +187,6 @@ NOTEST=\
 	net/dict\
 	rand\
 	runtime/cgo\
-	runtime/pprof\
 	syscall\
 	testing\
 	testing/iotest\
@@ -188,24 +194,22 @@ NOTEST=\
 	../cmd/cgo\
 	../cmd/ebnflint\
 	../cmd/godoc\
-	../cmd/gofmt\
-	../cmd/goinstall\
+	../cmd/gotest\
 	../cmd/govet\
 	../cmd/goyacc\
 	../cmd/hgpatch\
 
-NOBENCH=\
+NOBENCH+=\
 	container/vector\
 
 # Disable tests that depend on an external network.
 ifeq ($(DISABLE_NET_TESTS),1)
-NOTEST+=http net syslog
+NOTEST+=net syslog
 endif
 
 # Disable tests that windows cannot run yet.
 ifeq ($(GOOS),windows)
 NOTEST+=os/signal    # no signals
-NOTEST+=path         # tree walking does not work
 NOTEST+=syslog       # no network
 NOTEST+=time         # no syscall.Kill, syscall.SIGCHLD for sleep tests
 endif
@@ -220,19 +224,26 @@ clean.dirs: $(addsuffix .clean, $(DIRS))
 install.dirs: $(addsuffix .install, $(DIRS))
 nuke.dirs: $(addsuffix .nuke, $(DIRS))
 test.dirs: $(addsuffix .test, $(TEST))
+testshort.dirs: $(addsuffix .testshort, $(TEST))
 bench.dirs: $(addsuffix .bench, $(BENCH))
 
 %.clean:
 	+$(MAKE) -C $* clean
 
 %.install:
-	+$(MAKE) -C $* install
+	+@echo install $*
+	+@$(MAKE) -C $* install.clean >$*/build.out 2>&1 || (echo INSTALL FAIL $*; cat $*/build.out; exit 1)
 
 %.nuke:
 	+$(MAKE) -C $* nuke
 
 %.test:
-	+$(MAKE) -C $* test
+	+@echo test $*
+	+@$(MAKE) -C $* test.clean >$*/test.out 2>&1 || (echo TEST FAIL $*; cat $*/test.out; exit 1)
+
+%.testshort:
+	+@echo test $*
+	+@$(MAKE) -C $* testshort.clean >$*/test.out 2>&1 || (echo TEST FAIL $*; cat $*/test.out; exit 1)
 
 %.bench:
 	+$(MAKE) -C $* bench	
@@ -242,6 +253,8 @@ clean: clean.dirs
 install: install.dirs
 
 test:	test.dirs
+
+testshort: testshort.dirs
 
 bench:	bench.dirs ../../test/garbage.bench
 

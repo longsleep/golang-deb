@@ -12,6 +12,9 @@
 bool	runtime·iscgo;
 
 static void unwindstack(G*, byte*);
+static void schedule(G*);
+static void acquireproc(void);
+static void releaseproc(void);
 
 typedef struct Sched Sched;
 
@@ -67,6 +70,7 @@ struct Sched {
 	int32 msyscall;	// number of ms in system calls
 
 	int32 predawn;	// running initialization, don't run new gs.
+	int32 profilehz;	// cpu profiling rate
 
 	Note	stopped;	// one g can wait here for ms to stop
 	int32 waitstop;	// after setting this flag
@@ -74,6 +78,13 @@ struct Sched {
 
 Sched runtime·sched;
 int32 gomaxprocs;
+
+// An m that is waiting for notewakeup(&m->havenextg).  This may be
+// only be accessed while the scheduler lock is held.  This is used to
+// minimize the number of times we call notewakeup while the scheduler
+// lock is held, since the m will normally move quickly to lock the
+// scheduler itself, producing lock contention.
+static M* mwakeup;
 
 // Scheduling helpers.  Sched must be locked.
 static void gput(G*);	// put/get on ghead/gtail
@@ -85,9 +96,6 @@ static G* gfget(void);
 static void matchmg(void);	// match ms to gs
 static void readylocked(G*);	// ready, but sched is locked
 static void mnextg(M*, G*);
-
-// Scheduler loop.
-static void scheduler(void);
 
 // The bootstrap sequence is:
 //
@@ -130,6 +138,26 @@ runtime·schedinit(void)
 	m->nomemprof--;
 }
 
+// Lock the scheduler.
+static void
+schedlock(void)
+{
+	runtime·lock(&runtime·sched);
+}
+
+// Unlock the scheduler.
+static void
+schedunlock(void)
+{
+	M *m;
+
+	m = mwakeup;
+	mwakeup = nil;
+	runtime·unlock(&runtime·sched);
+	if(m != nil)
+		runtime·notewakeup(&m->havenextg);
+}
+
 // Called after main·init_function; main·main will be called on return.
 void
 runtime·initdone(void)
@@ -141,9 +169,9 @@ runtime·initdone(void)
 	// If main·init_function started other goroutines,
 	// kick off new ms to handle them, like ready
 	// would have, had it not been pre-dawn.
-	runtime·lock(&runtime·sched);
+	schedlock();
 	matchmg();
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 }
 
 void
@@ -261,9 +289,9 @@ mget(G *g)
 void
 runtime·ready(G *g)
 {
-	runtime·lock(&runtime·sched);
+	schedlock();
 	readylocked(g);
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 }
 
 // Mark g ready to run.  Sched is already locked.
@@ -280,7 +308,7 @@ readylocked(G *g)
 	}
 
 	// Mark runnable.
-	if(g->status == Grunnable || g->status == Grunning || g->status == Grecovery || g->status == Gstackalloc) {
+	if(g->status == Grunnable || g->status == Grunning) {
 		runtime·printf("goroutine %d has status %d\n", g->goid, g->status);
 		runtime·throw("bad g->status in ready");
 	}
@@ -314,7 +342,9 @@ mnextg(M *m, G *g)
 	m->nextg = g;
 	if(m->waitnextg) {
 		m->waitnextg = 0;
-		runtime·notewakeup(&m->havenextg);
+		if(mwakeup != nil)
+			runtime·notewakeup(&mwakeup->havenextg);
+		mwakeup = m;
 	}
 }
 
@@ -335,7 +365,7 @@ nextgandunlock(void)
 	if(m->nextg != nil) {
 		gp = m->nextg;
 		m->nextg = nil;
-		runtime·unlock(&runtime·sched);
+		schedunlock();
 		return gp;
 	}
 
@@ -353,7 +383,7 @@ nextgandunlock(void)
 				continue;
 			}
 			runtime·sched.mcpu++;		// this m will run gp
-			runtime·unlock(&runtime·sched);
+			schedunlock();
 			return gp;
 		}
 		// Otherwise, wait on global m queue.
@@ -368,7 +398,7 @@ nextgandunlock(void)
 		runtime·sched.waitstop = 0;
 		runtime·notewakeup(&runtime·sched.stopped);
 	}
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 
 	runtime·notesleep(&m->havenextg);
 	if((gp = m->nextg) == nil)
@@ -382,7 +412,7 @@ nextgandunlock(void)
 void
 runtime·stoptheworld(void)
 {
-	runtime·lock(&runtime·sched);
+	schedlock();
 	runtime·gcwaiting = 1;
 	runtime·sched.mcpumax = 1;
 	while(runtime·sched.mcpu > 1) {
@@ -392,11 +422,11 @@ runtime·stoptheworld(void)
 		// so this is okay.
 		runtime·noteclear(&runtime·sched.stopped);
 		runtime·sched.waitstop = 1;
-		runtime·unlock(&runtime·sched);
+		schedunlock();
 		runtime·notesleep(&runtime·sched.stopped);
-		runtime·lock(&runtime·sched);
+		schedlock();
 	}
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 }
 
 // TODO(rsc): Remove. This is only temporary,
@@ -404,11 +434,11 @@ runtime·stoptheworld(void)
 void
 runtime·starttheworld(void)
 {
-	runtime·lock(&runtime·sched);
+	schedlock();
 	runtime·gcwaiting = 0;
 	runtime·sched.mcpumax = runtime·gomaxprocs;
 	matchmg();
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 }
 
 // Called to start an M.
@@ -419,8 +449,15 @@ runtime·mstart(void)
 		runtime·throw("bad runtime·mstart");
 	if(m->mcache == nil)
 		m->mcache = runtime·allocmcache();
+
+	// Record top of stack for use by mcall.
+	// Once we call schedule we're never coming back,
+	// so other calls can reuse this stack space.
+	runtime·gosave(&m->g0->sched);
+	m->g0->sched.pc = (void*)-1;  // make sure it is never used
+
 	runtime·minit();
-	scheduler();
+	schedule(nil);
 }
 
 // When running with cgo, we call libcgo_thread_start
@@ -454,7 +491,7 @@ matchmg(void)
 		if((m = mget(g)) == nil){
 			m = runtime·malloc(sizeof(M));
 			// Add to runtime·allm so garbage collector doesn't free m
-			// when it is just in a register (R14 on amd64).
+			// when it is just in a register or thread-local storage.
 			m->alllink = runtime·allm;
 			runtime·allm = m;
 			m->id = runtime·sched.mcount++;
@@ -469,7 +506,7 @@ matchmg(void)
 				ts.m = m;
 				ts.g = m->g0;
 				ts.fn = runtime·mstart;
-				runtime·runcgo(libcgo_thread_start, &ts);
+				runtime·asmcgocall(libcgo_thread_start, &ts);
 			} else {
 				if(Windows)
 					// windows will layout sched stack on os stack
@@ -483,58 +520,19 @@ matchmg(void)
 	}
 }
 
-// Scheduler loop: find g to run, run it, repeat.
+// One round of scheduler: find a goroutine and run it.
+// The argument is the goroutine that was running before
+// schedule was called, or nil if this is the first call.
+// Never returns.
 static void
-scheduler(void)
+schedule(G *gp)
 {
-	G* gp;
+	int32 hz;
 
-	runtime·lock(&runtime·sched);
-	if(runtime·gosave(&m->sched) != 0){
-		gp = m->curg;
-		if(gp->status == Grecovery) {
-			// switched to scheduler to get stack unwound.
-			// don't go through the full scheduling logic.
-			Defer *d;
-
-			d = gp->defer;
-			gp->defer = d->link;
-			
-			// unwind to the stack frame with d's arguments in it.
-			unwindstack(gp, d->argp);
-
-			// make the deferproc for this d return again,
-			// this time returning 1.  function will jump to
-			// standard return epilogue.
-			// the -2*sizeof(uintptr) makes up for the
-			// two extra words that are on the stack at
-			// each call to deferproc.
-			// (the pc we're returning to does pop pop
-			// before it tests the return value.)
-			// on the arm there are 2 saved LRs mixed in too.
-			if(thechar == '5')
-				gp->sched.sp = (byte*)d->argp - 4*sizeof(uintptr);
-			else
-				gp->sched.sp = (byte*)d->argp - 2*sizeof(uintptr);
-			gp->sched.pc = d->pc;
-			gp->status = Grunning;
-			runtime·free(d);
-			runtime·gogo(&gp->sched, 1);
-		}
-		
-		if(gp->status == Gstackalloc) {
-			// switched to scheduler stack to call stackalloc.
-			gp->param = runtime·stackalloc((uintptr)gp->param);
-			gp->status = Grunning;
-			runtime·gogo(&gp->sched, 1);
-		}
-
-		// Jumped here via runtime·gosave/gogo, so didn't
-		// execute lock(&runtime·sched) above.
-		runtime·lock(&runtime·sched);
-
+	schedlock();
+	if(gp != nil) {
 		if(runtime·sched.predawn)
-			runtime·throw("init sleeping");
+			runtime·throw("init rescheduling");
 
 		// Just finished running gp.
 		gp->m = nil;
@@ -545,8 +543,6 @@ scheduler(void)
 		switch(gp->status){
 		case Grunnable:
 		case Gdead:
-		case Grecovery:
-		case Gstackalloc:
 			// Shouldn't have been running!
 			runtime·throw("bad gp->status in sched");
 		case Grunning:
@@ -578,10 +574,16 @@ scheduler(void)
 	gp->status = Grunning;
 	m->curg = gp;
 	gp->m = m;
+	
+	// Check whether the profiler needs to be turned on or off.
+	hz = runtime·sched.profilehz;
+	if(m->profilehz != hz)
+		runtime·resetcpuprofiler(hz);
+
 	if(gp->sched.pc == (byte*)runtime·goexit) {	// kickoff
 		runtime·gogocall(&gp->sched, (void(*)(void))gp->entry);
 	}
-	runtime·gogo(&gp->sched, 1);
+	runtime·gogo(&gp->sched, 0);
 }
 
 // Enter scheduler.  If g->status is Grunning,
@@ -595,8 +597,7 @@ runtime·gosched(void)
 		runtime·throw("gosched holding locks");
 	if(g == m->g0)
 		runtime·throw("gosched of g0");
-	if(runtime·gosave(&g->sched) == 0)
-		runtime·gogo(&m->sched, 1);
+	runtime·mcall(schedule);
 }
 
 // The goroutine g is about to enter a system call.
@@ -605,19 +606,20 @@ runtime·gosched(void)
 // not from the low-level system calls used by the runtime.
 // Entersyscall cannot split the stack: the runtime·gosave must
 // make g->sched refer to the caller's stack pointer.
+// It's okay to call matchmg and notewakeup even after
+// decrementing mcpu, because we haven't released the
+// sched lock yet.
 #pragma textflag 7
 void
 runtime·entersyscall(void)
 {
-	runtime·lock(&runtime·sched);
 	// Leave SP around for gc and traceback.
 	// Do before notewakeup so that gc
 	// never sees Gsyscall with wrong stack.
 	runtime·gosave(&g->sched);
-	if(runtime·sched.predawn) {
-		runtime·unlock(&runtime·sched);
+	if(runtime·sched.predawn)
 		return;
-	}
+	schedlock();
 	g->status = Gsyscall;
 	runtime·sched.mcpu--;
 	runtime·sched.msyscall++;
@@ -627,7 +629,7 @@ runtime·entersyscall(void)
 		runtime·sched.waitstop = 0;
 		runtime·notewakeup(&runtime·sched.stopped);
 	}
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 }
 
 // The goroutine g exited its system call.
@@ -637,17 +639,16 @@ runtime·entersyscall(void)
 void
 runtime·exitsyscall(void)
 {
-	runtime·lock(&runtime·sched);
-	if(runtime·sched.predawn) {
-		runtime·unlock(&runtime·sched);
+	if(runtime·sched.predawn)
 		return;
-	}
+
+	schedlock();
 	runtime·sched.msyscall--;
 	runtime·sched.mcpu++;
 	// Fast path - if there's room for this m, we're done.
-	if(runtime·sched.mcpu <= runtime·sched.mcpumax) {
+	if(m->profilehz == runtime·sched.profilehz && runtime·sched.mcpu <= runtime·sched.mcpumax) {
 		g->status = Grunning;
-		runtime·unlock(&runtime·sched);
+		schedunlock();
 		return;
 	}
 	// Tell scheduler to put g back on the run queue:
@@ -655,67 +656,13 @@ runtime·exitsyscall(void)
 	// but keeps the garbage collector from thinking
 	// that g is running right now, which it's not.
 	g->readyonstop = 1;
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 
 	// Slow path - all the cpus are taken.
 	// The scheduler will ready g and put this m to sleep.
 	// When the scheduler takes g away from m,
 	// it will undo the runtime·sched.mcpu++ above.
 	runtime·gosched();
-}
-
-// Restore the position of m's scheduler stack if we unwind the stack
-// through a cgo callback.
-static void
-runtime·unwindcgocallback(void **spaddr, void *sp)
-{
-	*spaddr = sp;
-}
-
-// Start scheduling g1 again for a cgo callback.
-void
-runtime·startcgocallback(G* g1)
-{
-	Defer *d;
-
-	runtime·lock(&runtime·sched);
-	g1->status = Grunning;
-	runtime·sched.msyscall--;
-	runtime·sched.mcpu++;
-	runtime·unlock(&runtime·sched);
-
-	// Add an entry to the defer stack which restores the old
-	// position of m's scheduler stack.  This is so that if the
-	// code we are calling panics, we won't lose the space on the
-	// scheduler stack.  Note that we are locked to this m here.
-	d = runtime·malloc(sizeof(*d) + 2*sizeof(void*) - sizeof(d->args));
-	d->fn = (byte*)runtime·unwindcgocallback;
-	d->siz = 2 * sizeof(uintptr);
-	((void**)d->args)[0] = &m->sched.sp;
-	((void**)d->args)[1] = m->sched.sp;
-	d->link = g1->defer;
-	g1->defer = d;
-}
-
-// Stop scheduling g1 after a cgo callback.
-void
-runtime·endcgocallback(G* g1)
-{
-	Defer *d;
-
-	runtime·lock(&runtime·sched);
-	g1->status = Gsyscall;
-	runtime·sched.mcpu--;
-	runtime·sched.msyscall++;
-	runtime·unlock(&runtime·sched);
-
-	// Remove the entry on the defer stack added by
-	// startcgocallback.
-	d = g1->defer;
-	if (d == nil || d->fn != (byte*)runtime·unwindcgocallback)
-		runtime·throw("bad defer entry in endcgocallback");
-	g1->defer = d->link;
-	runtime·free(d);
 }
 
 void
@@ -766,6 +713,10 @@ runtime·newstack(void)
 	if(m->morebuf.sp < g1->stackguard - StackGuard) {
 		runtime·printf("runtime: split stack overflow: %p < %p\n", m->morebuf.sp, g1->stackguard - StackGuard);
 		runtime·throw("runtime: split stack overflow");
+	}
+	if(argsize % sizeof(uintptr) != 0) {
+		runtime·printf("runtime: stack split with misaligned argsize %d\n", argsize);
+		runtime·throw("runtime: stack split argsize");
 	}
 
 	reflectcall = framesize==1;
@@ -831,12 +782,18 @@ runtime·newstack(void)
 	*(int32*)345 = 123;	// never return
 }
 
+static void
+mstackalloc(G *gp)
+{
+	gp->param = runtime·stackalloc((uintptr)gp->param);
+	runtime·gogo(&gp->sched, 0);
+}
+
 G*
 runtime·malg(int32 stacksize)
 {
 	G *newg;
 	byte *stk;
-	int32 oldstatus;
 
 	newg = runtime·malloc(sizeof(G));
 	if(stacksize >= 0) {
@@ -845,17 +802,10 @@ runtime·malg(int32 stacksize)
 			stk = runtime·stackalloc(StackSystem + stacksize);
 		} else {
 			// have to call stackalloc on scheduler stack.
-			oldstatus = g->status;
 			g->param = (void*)(StackSystem + stacksize);
-			g->status = Gstackalloc;
-			// next two lines are runtime·gosched without the check
-			// of m->locks.  we're almost certainly holding a lock,
-			// but this is not a real rescheduling so it's okay.
-			if(runtime·gosave(&g->sched) == 0)
-				runtime·gogo(&m->sched, 1);
+			runtime·mcall(mstackalloc);
 			stk = g->param;
 			g->param = nil;
-			g->status = oldstatus;
 		}
 		newg->stack0 = stk;
 		newg->stackguard = stk + StackSystem + StackGuard;
@@ -900,7 +850,7 @@ runtime·newproc1(byte *fn, byte *argp, int32 narg, int32 nret, void *callerpc)
 	if(siz > 1024)
 		runtime·throw("runtime.newproc: too many args");
 
-	runtime·lock(&runtime·sched);
+	schedlock();
 
 	if((newg = gfget()) != nil){
 		newg->status = Gwaiting;
@@ -933,7 +883,7 @@ runtime·newproc1(byte *fn, byte *argp, int32 narg, int32 nret, void *callerpc)
 	newg->goid = runtime·goidgen;
 
 	newprocreadylocked(newg);
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 
 	return newg;
 //printf(" goid=%d\n", newg->goid);
@@ -1040,6 +990,8 @@ printpanics(Panic *p)
 		runtime·printf(" [recovered]");
 	runtime·printf("\n");
 }
+
+static void recovery(G*);
 	
 void
 runtime·panic(Eface e)
@@ -1070,9 +1022,8 @@ runtime·panic(Eface e)
 			// for scheduler to find.
 			d->link = g->defer;
 			g->defer = d;
-			g->status = Grecovery;
-			runtime·gosched();
-			runtime·throw("recovery failed"); // gosched should not return
+			runtime·mcall(recovery);
+			runtime·throw("recovery failed"); // mcall should not return
 		}
 		runtime·free(d);
 	}
@@ -1081,6 +1032,36 @@ runtime·panic(Eface e)
 	runtime·startpanic();
 	printpanics(g->panic);
 	runtime·dopanic(0);
+}
+
+static void
+recovery(G *gp)
+{
+	Defer *d;
+
+	// Rewind gp's stack; we're running on m->g0's stack.
+	d = gp->defer;
+	gp->defer = d->link;
+	
+	// Unwind to the stack frame with d's arguments in it.
+	unwindstack(gp, d->argp);
+
+	// Make the deferproc for this d return again,
+	// this time returning 1.  The calling function will
+	// jump to the standard return epilogue.
+	// The -2*sizeof(uintptr) makes up for the
+	// two extra words that are on the stack at
+	// each call to deferproc.
+	// (The pc we're returning to does pop pop
+	// before it tests the return value.)
+	// On the arm there are 2 saved LRs mixed in too.
+	if(thechar == '5')
+		gp->sched.sp = (byte*)d->argp - 4*sizeof(uintptr);
+	else
+		gp->sched.sp = (byte*)d->argp - 2*sizeof(uintptr);
+	gp->sched.pc = d->pc;
+	runtime·free(d);
+	runtime·gogo(&gp->sched, 1);
 }
 
 #pragma textflag 7	/* no split, or else g->stackguard is not the stack for fp */
@@ -1210,7 +1191,7 @@ runtime·gomaxprocsfunc(int32 n)
 {
 	int32 ret;
 
-	runtime·lock(&runtime·sched);
+	schedlock();
 	ret = runtime·gomaxprocs;
 	if (n <= 0)
 		n = ret;
@@ -1218,7 +1199,7 @@ runtime·gomaxprocsfunc(int32 n)
 	runtime·sched.mcpumax = n;
 	// handle fewer procs?
 	if(runtime·sched.mcpu > runtime·sched.mcpumax) {
-		runtime·unlock(&runtime·sched);
+		schedunlock();
 		// just give up the cpu.
 		// we'll only get rescheduled once the
 		// number has come down.
@@ -1227,7 +1208,7 @@ runtime·gomaxprocsfunc(int32 n)
 	}
 	// handle more procs
 	matchmg();
-	runtime·unlock(&runtime·sched);
+	schedunlock();
 	return ret;
 }
 
@@ -1236,6 +1217,12 @@ runtime·UnlockOSThread(void)
 {
 	m->lockedg = nil;
 	g->lockedm = nil;
+}
+
+bool
+runtime·lockedOSThread(void)
+{
+	return g->lockedm != nil && m->lockedg != nil;
 }
 
 // for testing of wire, unwire
@@ -1257,4 +1244,70 @@ int32
 runtime·mcount(void)
 {
 	return runtime·sched.mcount;
+}
+
+void
+runtime·badmcall(void)  // called from assembly
+{
+	runtime·throw("runtime: mcall called on m->g0 stack");
+}
+
+void
+runtime·badmcall2(void)  // called from assembly
+{
+	runtime·throw("runtime: mcall function returned");
+}
+
+static struct {
+	Lock;
+	void (*fn)(uintptr*, int32);
+	int32 hz;
+	uintptr pcbuf[100];
+} prof;
+
+void
+runtime·sigprof(uint8 *pc, uint8 *sp, uint8 *lr, G *gp)
+{
+	int32 n;
+	
+	if(prof.fn == nil || prof.hz == 0)
+		return;
+	
+	runtime·lock(&prof);
+	if(prof.fn == nil) {
+		runtime·unlock(&prof);
+		return;
+	}
+	n = runtime·gentraceback(pc, sp, lr, gp, 0, prof.pcbuf, nelem(prof.pcbuf));
+	if(n > 0)
+		prof.fn(prof.pcbuf, n);
+	runtime·unlock(&prof);
+}
+
+void
+runtime·setcpuprofilerate(void (*fn)(uintptr*, int32), int32 hz)
+{
+	// Force sane arguments.
+	if(hz < 0)
+		hz = 0;
+	if(hz == 0)
+		fn = nil;
+	if(fn == nil)
+		hz = 0;
+
+	// Stop profiler on this cpu so that it is safe to lock prof.
+	// if a profiling signal came in while we had prof locked,
+	// it would deadlock.
+	runtime·resetcpuprofiler(0);
+
+	runtime·lock(&prof);
+	prof.fn = fn;
+	prof.hz = hz;
+	runtime·unlock(&prof);
+	runtime·lock(&runtime·sched);
+	runtime·sched.profilehz = hz;
+	runtime·unlock(&runtime·sched);
+	
+	if(hz != 0)
+		runtime·resetcpuprofiler(hz);
 }

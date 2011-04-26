@@ -27,8 +27,8 @@ func Getwd() (string, int) { return "", ENOTSUP }
  * Wrapped
  */
 
-//sys	getgroups(ngid int, gid *_Gid_t) (n int, errno int)
-//sys	setgroups(ngid int, gid *_Gid_t) (errno int)
+//sysnb	getgroups(ngid int, gid *_Gid_t) (n int, errno int)
+//sysnb	setgroups(ngid int, gid *_Gid_t) (errno int)
 
 func Getgroups() (gids []int, errno int) {
 	n, err := getgroups(0, nil)
@@ -66,6 +66,12 @@ func Setgroups(gids []int) (errno int) {
 		a[i] = _Gid_t(v)
 	}
 	return setgroups(len(a), &a[0])
+}
+
+func ReadDirent(fd int, buf []byte) (n int, errno int) {
+	// Final argument is (basep *uintptr) and the syscall doesn't take nil.
+	// TODO(rsc): Can we use a single global basep for all calls?
+	return Getdirentries(fd, buf, new(uintptr))
 }
 
 // Wait status is 7 bits at bottom, either 0 (exited),
@@ -130,7 +136,7 @@ func Wait4(pid int, wstatus *WaitStatus, options int, rusage *Rusage) (wpid int,
 	return
 }
 
-//sys	pipe() (r int, w int, errno int)
+//sysnb	pipe() (r int, w int, errno int)
 
 func Pipe(p []int) (errno int) {
 	if len(p) != 2 {
@@ -148,10 +154,11 @@ func Sleep(ns int64) (errno int) {
 //sys	accept(s int, rsa *RawSockaddrAny, addrlen *_Socklen) (fd int, errno int)
 //sys	bind(s int, addr uintptr, addrlen _Socklen) (errno int)
 //sys	connect(s int, addr uintptr, addrlen _Socklen) (errno int)
-//sys	socket(domain int, typ int, proto int) (fd int, errno int)
+//sysnb	socket(domain int, typ int, proto int) (fd int, errno int)
+//sys	getsockopt(s int, level int, name int, val uintptr, vallen *_Socklen) (errno int)
 //sys	setsockopt(s int, level int, name int, val uintptr, vallen int) (errno int)
-//sys	getpeername(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
-//sys	getsockname(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
+//sysnb	getpeername(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
+//sysnb	getsockname(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
 //sys	Shutdown(s int, how int) (errno int)
 
 // For testing: clients can set this flag to force
@@ -355,11 +362,18 @@ func Socket(domain, typ, proto int) (fd, errno int) {
 	return
 }
 
-//sys socketpair(domain int, typ int, proto int, fd *[2]int) (errno int)
+//sysnb socketpair(domain int, typ int, proto int, fd *[2]int) (errno int)
 
 func Socketpair(domain, typ, proto int) (fd [2]int, errno int) {
 	errno = socketpair(domain, typ, proto, &fd)
 	return
+}
+
+func GetsockoptInt(fd, level, opt int) (value, errno int) {
+	var n int32
+	vallen := _Socklen(4)
+	errno = getsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), &vallen)
+	return int(n), errno
 }
 
 func SetsockoptInt(fd, level, opt int, value int) (errno int) {
@@ -552,9 +566,24 @@ func Sendmsg(fd int, p, oob []byte, to Sockaddr, flags int) (errno int) {
 // TODO: wrap
 //	Acct(name nil-string) (errno int)
 //	Gethostuuid(uuid *byte, timeout *Timespec) (errno int)
-//	Getsockopt(s int, level int, name int, val *byte, vallen *int) (errno int)
 //	Madvise(addr *byte, len int, behav int) (errno int)
 //	Mprotect(addr *byte, len int, prot int) (errno int)
 //	Msync(addr *byte, len int, flags int) (errno int)
-//	Munmap(addr *byte, len int) (errno int)
 //	Ptrace(req int, pid int, addr uintptr, data int) (ret uintptr, errno int)
+
+//sys	mmap(addr uintptr, length uintptr, prot int, flag int, fd int, pos int64) (ret uintptr, errno int)
+//sys	munmap(addr uintptr, length uintptr) (errno int)
+
+var mapper = &mmapper{
+	active: make(map[*byte][]byte),
+	mmap:   mmap,
+	munmap: munmap,
+}
+
+func Mmap(fd int, offset int64, length int, prot int, flags int) (data []byte, errno int) {
+	return mapper.Mmap(fd, offset, length, prot, flags)
+}
+
+func Munmap(b []byte) (errno int) {
+	return mapper.Munmap(b)
+}

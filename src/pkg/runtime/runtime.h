@@ -103,8 +103,6 @@ enum
 	Gwaiting,
 	Gmoribund,
 	Gdead,
-	Grecovery,
-	Gstackalloc,
 };
 enum
 {
@@ -219,7 +217,6 @@ struct	M
 	uint64	procid;		// for debuggers, but offset not hard-coded
 	G*	gsignal;	// signal-handling G
 	uint32	tls[8];		// thread-local storage (for 386 extern register)
-	Gobuf	sched;	// scheduling stack
 	G*	curg;		// current running goroutine
 	int32	id;
 	int32	mallocing;
@@ -228,6 +225,7 @@ struct	M
 	int32	nomemprof;
 	int32	waitnextg;
 	int32	dying;
+	int32	profilehz;
 	Note	havenextg;
 	G*	nextg;
 	M*	alllink;	// on allm
@@ -385,7 +383,7 @@ int32	runtime·charntorune(int32*, uint8*, int32);
 
 void	runtime·gogo(Gobuf*, uintptr);
 void	runtime·gogocall(Gobuf*, void(*)(void));
-uintptr	runtime·gosave(Gobuf*);
+void	runtime·gosave(Gobuf*);
 void	runtime·lessstack(void);
 void	runtime·goargs(void);
 void	runtime·goenvs(void);
@@ -442,25 +440,27 @@ void	runtime·walkfintab(void (*fn)(void*));
 void	runtime·runpanic(Panic*);
 void*	runtime·getcallersp(void*);
 int32	runtime·mcount(void);
+void	runtime·mcall(void(*)(G*));
 
 void	runtime·exit(int32);
 void	runtime·breakpoint(void);
 void	runtime·gosched(void);
 void	runtime·goexit(void);
-void	runtime·runcgo(void (*fn)(void*), void*);
-void	runtime·runcgocallback(G*, void*, void (*fn)());
+void	runtime·asmcgocall(void (*fn)(void*), void*);
 void	runtime·entersyscall(void);
 void	runtime·exitsyscall(void);
-void	runtime·startcgocallback(G*);
-void	runtime·endcgocallback(G*);
 G*	runtime·newproc1(byte*, byte*, int32, int32, void*);
 void	runtime·siginit(void);
 bool	runtime·sigsend(int32 sig);
 void	runtime·gettime(int64*, int32*);
 int32	runtime·callers(int32, uintptr*, int32);
+int32	runtime·gentraceback(byte*, byte*, byte*, G*, int32, uintptr*, int32);
 int64	runtime·nanotime(void);
 void	runtime·dopanic(int32);
 void	runtime·startpanic(void);
+void	runtime·sigprof(uint8 *pc, uint8 *sp, uint8 *lr, G *gp);
+void	runtime·resetcpuprofiler(int32);
+void	runtime·setcpuprofilerate(void(*)(uintptr*, int32), int32);
 
 #pragma	varargck	argpos	runtime·printf	1
 #pragma	varargck	type	"d"	int32
@@ -590,7 +590,6 @@ Hchan*	runtime·makechan_c(Type*, int64);
 void	runtime·chansend(Hchan*, void*, bool*);
 void	runtime·chanrecv(Hchan*, void*, bool*, bool*);
 void	runtime·chanclose(Hchan*);
-bool	runtime·chanclosed(Hchan*);
 int32	runtime·chanlen(Hchan*);
 int32	runtime·chancap(Hchan*);
 

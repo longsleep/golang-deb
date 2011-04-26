@@ -53,7 +53,6 @@ enum {
 static uint64 nlookup;
 static uint64 nsizelookup;
 static uint64 naddrlookup;
-static uint64 nhandoff;
 static int32 gctrace;
 
 typedef struct Workbuf Workbuf;
@@ -71,10 +70,8 @@ extern byte end[];
 static G *fing;
 static Finalizer *finq;
 static int32 fingwait;
-static uint32 nfullwait;
 
 static void runfinq(void);
-static bool bitlookup(void*, uintptr**, uintptr*, int32*);
 static Workbuf* getempty(Workbuf*);
 static Workbuf* getfull(Workbuf*);
 
@@ -379,8 +376,6 @@ mark(void)
 		case Gdead:
 			break;
 		case Grunning:
-		case Grecovery:
-		case Gstackalloc:
 			if(gp != g)
 				runtime·throw("mark - world not stopped");
 			scanstack(gp);

@@ -12,7 +12,7 @@ my $q = CGI->new;
 my $params = $q->Vars;
 
 my $NL = "\r\n";
-$NL = "\n" if 1 || $params->{mode} eq "NL";
+$NL = "\n" if $params->{mode} eq "NL";
 
 my $p = sub {
   print "$_[0]$NL";
@@ -30,5 +30,7 @@ foreach my $k (sort keys %$params) {
 }
 
 foreach my $k (sort keys %ENV) {
-  print "env-$k=$ENV{$k}\n";
+  my $clean_env = $ENV{$k};
+  $clean_env =~ s/[\n\r]//g;
+  print "env-$k=$clean_env\n";
 }

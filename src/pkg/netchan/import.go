@@ -48,7 +48,7 @@ func NewImporter(conn io.ReadWriter) *Importer {
 
 // Import imports a set of channels from the given network and address.
 func Import(network, remoteaddr string) (*Importer, os.Error) {
-	conn, err := net.Dial(network, "", remoteaddr)
+	conn, err := net.Dial(network, remoteaddr)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (imp *Importer) run() {
 		ackHdr.SeqNum = hdr.SeqNum
 		imp.encode(ackHdr, payAck, nil)
 		// Create a new value for each received item.
-		value := reflect.MakeZero(nch.ch.Type().(*reflect.ChanType).Elem())
+		value := reflect.Zero(nch.ch.Type().Elem())
 		if e := imp.decode(value); e != nil {
 			impLog("importer value decode:", e)
 			return
@@ -213,8 +213,8 @@ func (imp *Importer) ImportNValues(name string, chT interface{}, dir Dir, size, 
 	if dir == Send {
 		go func() {
 			for i := 0; n == -1 || i < n; i++ {
-				val, closed := nch.recv()
-				if closed {
+				val, ok := nch.recv()
+				if !ok {
 					if err = imp.encode(hdr, payClosed, nil); err != nil {
 						impLog("error encoding client closed message:", err)
 					}

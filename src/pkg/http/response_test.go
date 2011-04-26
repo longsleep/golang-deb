@@ -164,6 +164,28 @@ var respTests = []respTest{
 		"Body here\n",
 	},
 
+	// Chunked response in response to a HEAD request (the "chunked" should
+	// be ignored, as HEAD responses never have bodies)
+	{
+		"HTTP/1.0 200 OK\r\n" +
+			"Transfer-Encoding: chunked\r\n" +
+			"\r\n",
+
+		Response{
+			Status:        "200 OK",
+			StatusCode:    200,
+			Proto:         "HTTP/1.0",
+			ProtoMajor:    1,
+			ProtoMinor:    0,
+			RequestMethod: "HEAD",
+			Header:        Header{},
+			Close:         true,
+			ContentLength: 0,
+		},
+
+		"",
+	},
+
 	// Status line without a Reason-Phrase, but trailing space.
 	// (permitted by RFC 2616)
 	{
@@ -229,8 +251,8 @@ func TestReadResponse(t *testing.T) {
 }
 
 func diff(t *testing.T, prefix string, have, want interface{}) {
-	hv := reflect.NewValue(have).(*reflect.PtrValue).Elem().(*reflect.StructValue)
-	wv := reflect.NewValue(want).(*reflect.PtrValue).Elem().(*reflect.StructValue)
+	hv := reflect.NewValue(have).Elem()
+	wv := reflect.NewValue(want).Elem()
 	if hv.Type() != wv.Type() {
 		t.Errorf("%s: type mismatch %v vs %v", prefix, hv.Type(), wv.Type())
 	}
@@ -238,7 +260,7 @@ func diff(t *testing.T, prefix string, have, want interface{}) {
 		hf := hv.Field(i).Interface()
 		wf := wv.Field(i).Interface()
 		if !reflect.DeepEqual(hf, wf) {
-			t.Errorf("%s: %s = %v want %v", prefix, hv.Type().(*reflect.StructType).Field(i).Name, hf, wf)
+			t.Errorf("%s: %s = %v want %v", prefix, hv.Type().Field(i).Name, hf, wf)
 		}
 	}
 }

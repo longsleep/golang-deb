@@ -26,10 +26,12 @@ includes_Linux='
 #include <sys/inotify.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <linux/ptrace.h>
 #include <linux/wait.h>
 #include <linux/if_tun.h>
+#include <linux/reboot.h>
 #include <net/if.h>
 #include <netpacket/packet.h>
 '
@@ -43,6 +45,7 @@ includes_Darwin='
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/sysctl.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 #include <net/if.h>
 #include <net/route.h>
@@ -58,6 +61,7 @@ includes_FreeBSD='
 #include <sys/sockio.h>
 #include <sys/sysctl.h>
 #include <sys/wait.h>
+#include <net/bpf.h>
 #include <net/if.h>
 #include <net/route.h>
 #include <netinet/in.h>
@@ -116,15 +120,21 @@ done
 		$2 ~ /^E[A-Z0-9_]+$/ ||
 		$2 ~ /^SIG[^_]/ ||
 		$2 ~ /^IN_/ ||
-		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|IFF|NET_RT|RTM|RTF|RTV|RTA|RTAX|MCL)_/ ||
+		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|MCL|DT|MADV)_/ ||
 		$2 == "SOMAXCONN" ||
 		$2 == "NAME_MAX" ||
 		$2 == "IFNAMSIZ" ||
 		$2 == "CTL_NET" ||
 		$2 == "CTL_MAXNAME" ||
+		$2 ~ /^(MS|MNT)_/ ||
 		$2 ~ /^TUN(SET|GET|ATTACH|DETACH)/ ||
 		$2 ~ /^(O|F|FD|NAME|S|PTRACE)_/ ||
+		$2 ~ /^LINUX_REBOOT_CMD_/ ||
+		$2 ~ /^LINUX_REBOOT_MAGIC[12]$/ ||
 		$2 ~ /^SIOC/ ||
+		$2 ~ /^(IFF|NET_RT|RTM|RTF|RTV|RTA|RTAX)_/ ||
+		$2 ~ /^BIOC/ ||
+		$2 ~ /^(BPF|DLT)_/ ||
 		$2 !~ "WMESGLEN" &&
 		$2 ~ /^W[A-Z0-9]+$/ {printf("\t$%s = %s,\n", $2, $2)}
 		$2 ~ /^__WCOREFLAG$/ {next}

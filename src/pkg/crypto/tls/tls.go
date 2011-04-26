@@ -87,8 +87,9 @@ func Listen(network, laddr string, config *Config) (*Listener, os.Error) {
 // Dial interprets a nil configuration as equivalent to
 // the zero configuration; see the documentation of Config
 // for the defaults.
-func Dial(network, laddr, raddr string, config *Config) (*Conn, os.Error) {
-	c, err := net.Dial(network, laddr, raddr)
+func Dial(network, addr string, config *Config) (*Conn, os.Error) {
+	raddr := addr
+	c, err := net.Dial(network, raddr)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +124,16 @@ func LoadX509KeyPair(certFile string, keyFile string) (cert Certificate, err os.
 	if err != nil {
 		return
 	}
+	keyPEMBlock, err := ioutil.ReadFile(keyFile)
+	if err != nil {
+		return
+	}
+	return X509KeyPair(certPEMBlock, keyPEMBlock)
+}
 
+// X509KeyPair parses a public/private key pair from a pair of
+// PEM encoded data.
+func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (cert Certificate, err os.Error) {
 	var certDERBlock *pem.Block
 	for {
 		certDERBlock, certPEMBlock = pem.Decode(certPEMBlock)
@@ -137,11 +147,6 @@ func LoadX509KeyPair(certFile string, keyFile string) (cert Certificate, err os.
 
 	if len(cert.Certificate) == 0 {
 		err = os.ErrorString("crypto/tls: failed to parse certificate PEM data")
-		return
-	}
-
-	keyPEMBlock, err := ioutil.ReadFile(keyFile)
-	if err != nil {
 		return
 	}
 

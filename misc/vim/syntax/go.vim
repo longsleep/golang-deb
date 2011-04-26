@@ -85,7 +85,7 @@ syn match       goType              /\<func\>/
 syn match       goDeclaration       /^func\>/
 
 " Predefined functions and values
-syn keyword     goBuiltins          append cap close closed complex copy imag len
+syn keyword     goBuiltins          append cap close complex copy imag len
 syn keyword     goBuiltins          make new panic print println real recover
 syn keyword     goConstants         iota true false nil
 
@@ -181,7 +181,7 @@ if go_highlight_extra_types != 0
   syn match goExtraType /\<bytes\.\(Buffer\)\>/
   syn match goExtraType /\<io\.\(Reader\|Writer\|ReadWriter\|ReadWriteCloser\)\>/
   syn match goExtraType /\<\(os\.Error\)\>/
-  syn match goExtraType /\<reflect\.\w*\(Type\|Value\)\>/
+  syn match goExtraType /\<reflect\.\(Kind\|Type\|Value\)\>/
   syn match goExtraType /\<unsafe\.Pointer\>/
 endif
 

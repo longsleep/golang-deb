@@ -19,6 +19,7 @@ import (
 	"hash/crc32"
 	"encoding/binary"
 	"io"
+	"io/ioutil"
 	"os"
 )
 
@@ -34,6 +35,11 @@ type Reader struct {
 	Comment string
 }
 
+type ReadCloser struct {
+	f *os.File
+	Reader
+}
+
 type File struct {
 	FileHeader
 	zipr         io.ReaderAt
@@ -46,43 +52,60 @@ func (f *File) hasDataDescriptor() bool {
 	return f.Flags&0x8 != 0
 }
 
-// OpenReader will open the Zip file specified by name and return a Reader.
-func OpenReader(name string) (*Reader, os.Error) {
-	f, err := os.Open(name, os.O_RDONLY, 0644)
+// OpenReader will open the Zip file specified by name and return a ReaderCloser.
+func OpenReader(name string) (*ReadCloser, os.Error) {
+	f, err := os.Open(name)
 	if err != nil {
 		return nil, err
 	}
 	fi, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
-	return NewReader(f, fi.Size)
+	r := new(ReadCloser)
+	if err := r.init(f, fi.Size); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return r, nil
 }
 
 // NewReader returns a new Reader reading from r, which is assumed to
 // have the given size in bytes.
 func NewReader(r io.ReaderAt, size int64) (*Reader, os.Error) {
+	zr := new(Reader)
+	if err := zr.init(r, size); err != nil {
+		return nil, err
+	}
+	return zr, nil
+}
+
+func (z *Reader) init(r io.ReaderAt, size int64) os.Error {
 	end, err := readDirectoryEnd(r, size)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	z := &Reader{
-		r:       r,
-		File:    make([]*File, end.directoryRecords),
-		Comment: end.comment,
-	}
+	z.r = r
+	z.File = make([]*File, end.directoryRecords)
+	z.Comment = end.comment
 	rs := io.NewSectionReader(r, 0, size)
-	if _, err = rs.Seek(int64(end.directoryOffset), 0); err != nil {
-		return nil, err
+	if _, err = rs.Seek(int64(end.directoryOffset), os.SEEK_SET); err != nil {
+		return err
 	}
 	buf := bufio.NewReader(rs)
 	for i := range z.File {
 		z.File[i] = &File{zipr: r, zipsize: size}
 		if err := readDirectoryHeader(z.File[i], buf); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return z, nil
+	return nil
+}
+
+// Close closes the Zip file, rendering it unusable for I/O.
+func (rc *ReadCloser) Close() os.Error {
+	return rc.f.Close()
 }
 
 // Open returns a ReadCloser that provides access to the File's contents.
@@ -93,7 +116,7 @@ func (f *File) Open() (rc io.ReadCloser, err os.Error) {
 		if err = readFileHeader(f, r); err != nil {
 			return
 		}
-		if f.bodyOffset, err = r.Seek(0, 1); err != nil {
+		if f.bodyOffset, err = r.Seek(0, os.SEEK_CUR); err != nil {
 			return
 		}
 	}
@@ -109,7 +132,7 @@ func (f *File) Open() (rc io.ReadCloser, err os.Error) {
 	r := io.NewSectionReader(f.zipr, off+f.bodyOffset, size)
 	switch f.Method {
 	case 0: // store (no compression)
-		rc = nopCloser{r}
+		rc = ioutil.NopCloser(r)
 	case 8: // DEFLATE
 		rc = flate.NewReader(r)
 	default:
@@ -146,12 +169,6 @@ func (r *checksumReader) Read(b []byte) (n int, err os.Error) {
 }
 
 func (r *checksumReader) Close() os.Error { return r.rc.Close() }
-
-type nopCloser struct {
-	io.Reader
-}
-
-func (f nopCloser) Close() os.Error { return nil }
 
 func readFileHeader(f *File, r io.Reader) (err os.Error) {
 	defer func() {

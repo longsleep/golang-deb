@@ -34,8 +34,14 @@ var filenames = []string{
 	"basn6a16",
 }
 
+var filenamesShort = []string{
+	"basn0g01",
+	"basn0g04-31",
+	"basn6a16",
+}
+
 func readPng(filename string) (image.Image, os.Error) {
-	f, err := os.Open(filename, os.O_RDONLY, 0444)
+	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +163,11 @@ func sng(w io.WriteCloser, filename string, png image.Image) {
 }
 
 func TestReader(t *testing.T) {
-	for _, fn := range filenames {
+	names := filenames
+	if testing.Short() {
+		names = filenamesShort
+	}
+	for _, fn := range names {
 		// Read the .png file.
 		img, err := readPng("testdata/pngsuite/" + fn + ".png")
 		if err != nil {
@@ -181,7 +191,7 @@ func TestReader(t *testing.T) {
 		defer piper.Close()
 
 		// Read the .sng file.
-		sf, err := os.Open("testdata/pngsuite/"+fn+".sng", os.O_RDONLY, 0444)
+		sf, err := os.Open("testdata/pngsuite/" + fn + ".sng")
 		if err != nil {
 			t.Error(fn, err)
 			continue

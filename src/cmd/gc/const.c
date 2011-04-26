@@ -136,7 +136,6 @@ convlit1(Node **np, Type *t, int explicit)
 	case CTNIL:
 		switch(et) {
 		default:
-			yyerror("cannot use nil as %T", t);
 			n->type = T;
 			goto bad;
 
@@ -155,6 +154,7 @@ convlit1(Node **np, Type *t, int explicit)
 		case TMAP:
 		case TCHAN:
 		case TFUNC:
+		case TUNSAFEPTR:
 			break;
 		}
 		break;
