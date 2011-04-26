@@ -1,3 +1,10 @@
+golang (2011.04.13-2~exp2) experimental; urgency=low
+
+  * DEB_HOST_ARCH_CPU is arm for armel
+  * Add GNU/KFreeBSD support by replacing all uname calls by $(GOOS)
+
+ -- Ondřej Surý <ondrej@debian.org>  Tue, 26 Apr 2011 16:40:46 +0200
+
 golang (2011.04.13-2~exp1) experimental; urgency=low
 
   * Add support for kfreebsd-i386, kfreebsd-amd64, armel and armhf
