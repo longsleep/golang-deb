@@ -1,3 +1,9 @@
+golang (2011.04.13-2~exp5) experimental; urgency=low
+
+  * s/freebsd/kfreebsd/
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 27 Apr 2011 14:47:05 +0200
+
 golang (2011.04.13-2~exp4) experimental; urgency=low
 
   * Fix kfreebsd builds by depending on freebsd-hackedutils and fixing
