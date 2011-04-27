@@ -1,3 +1,9 @@
+golang (2011.04.13-2~exp3) experimental; urgency=low
+
+  * No need to remove RUNPATH from binaries; fixed upstream (golang#1527)
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 27 Apr 2011 10:50:48 +0200
+
 golang (2011.04.13-2~exp2) experimental; urgency=low
 
   * DEB_HOST_ARCH_CPU is arm for armel
