@@ -1,3 +1,10 @@
+golang (2011.04.13-2~exp4) experimental; urgency=low
+
+  * Fix kfreebsd builds by depending on freebsd-hackedutils and fixing
+    upstream path to ld-elf.so.1 on kfreebsd-i386
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 27 Apr 2011 14:01:14 +0200
+
 golang (2011.04.13-2~exp3) experimental; urgency=low
 
   * No need to remove RUNPATH from binaries; fixed upstream (golang#1527)
