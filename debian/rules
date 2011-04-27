@@ -31,8 +31,6 @@ override_dh_compress:
 
 override_dh_auto_install:
 	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
-	# remove RUNPATH from go binaries
-	for cmd in goyacc ebnflint godoc govet gofmt goinstall cgo; do chrpath -d $(CURDIR)$(bindir)/$$cmd; done
 
 override_dh_install:
 	dh_install --fail-missing
