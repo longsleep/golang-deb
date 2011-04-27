@@ -1,3 +1,4 @@
+007-freebsd-hackedutils.patch
 001-allow_IPv4_on_IPv6_sockets.patch
 003-set_correct_runpath.patch
 004-dont_reinstall_dependencies_in_goinstall.patch

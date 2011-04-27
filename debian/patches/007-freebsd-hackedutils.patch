@@ -1,0 +1,13 @@
+Index: golang-2011.04.13/src/cmd/8l/asm.c
+===================================================================
+--- golang-2011.04.13.orig/src/cmd/8l/asm.c	2011-04-27 13:56:01.000000000 +0200
++++ golang-2011.04.13/src/cmd/8l/asm.c	2011-04-27 13:56:18.000000000 +0200
+@@ -40,7 +40,7 @@
+ #define	Dbufslop	100
+ 
+ char linuxdynld[] = "/lib/ld-linux.so.2";
+-char freebsddynld[] = "/usr/libexec/ld-elf.so.1";
++char freebsddynld[] = "/libexec/ld-elf.so.1";
+ 
+ int32
+ entryvalue(void)
