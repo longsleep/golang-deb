@@ -68,6 +68,7 @@ GOROOT_FINAL := $(libexecdir)
 GOBIN := $(CURDIR)$(bindir)
 GOARM :=
 
+DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
 DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
 DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
 DEB_BUILD_ARCH_OS := $(shell dpkg-architecture -qDEB_BUILD_ARCH_OS 2>/dev/null)
@@ -109,12 +110,14 @@ else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOPREFIX := 6
 else ifeq ($(DEB_HOST_ARCH_CPU), arm)
     GOARCH := arm
+    GOPREFIX := 5
+ifeq ($(DEB_HOST_ARCH), armel)
     GOARM := 5
-    GOPREFIX := 5
-else ifeq ($(DEB_HOST_ARCH_CPU), armhf)
-    GOARCH := arm
+else if ($(DEB_HOST_ARCH), armhf)
     GOARM := 6
-    GOPREFIX := 5
+else
+    $(error unrecognized arm architecture $(DEB_HOST_ARCH)!)
+endif
 else
     $(error unrecognized instruction set $(DEB_HOST_ARCH_CPU)!)
 endif
