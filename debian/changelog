@@ -1,43 +1,21 @@
-golang (2011.04.13-2~exp6) experimental; urgency=low
+golang (2011.04.27-1) unstable; urgency=low
 
-  * Update debian/rules to allow pulling weekly releases
-  * Use native kfreebsd dynamic linker
-
- -- Ondřej Surý <ondrej@debian.org>  Thu, 28 Apr 2011 09:49:16 +0200
-
-golang (2011.04.13-2~exp5) experimental; urgency=low
-
-  * s/freebsd/kfreebsd/
-
- -- Ondřej Surý <ondrej@debian.org>  Wed, 27 Apr 2011 14:47:05 +0200
-
-golang (2011.04.13-2~exp4) experimental; urgency=low
-
-  * Fix kfreebsd builds by depending on freebsd-hackedutils and fixing
-    upstream path to ld-elf.so.1 on kfreebsd-i386
-
- -- Ondřej Surý <ondrej@debian.org>  Wed, 27 Apr 2011 14:01:14 +0200
-
-golang (2011.04.13-2~exp3) experimental; urgency=low
-
-  * No need to remove RUNPATH from binaries; fixed upstream (golang#1527)
-
- -- Ondřej Surý <ondrej@debian.org>  Wed, 27 Apr 2011 10:50:48 +0200
-
-golang (2011.04.13-2~exp2) experimental; urgency=low
-
-  * DEB_HOST_ARCH_CPU is arm for armel
-  * Add GNU/KFreeBSD support by replacing all uname calls by $(GOOS)
-
- -- Ondřej Surý <ondrej@debian.org>  Tue, 26 Apr 2011 16:40:46 +0200
-
-golang (2011.04.13-2~exp1) experimental; urgency=low
-
+  * Imported Upstream version 2011.04.27
+  * Update debian/rules to allow pulling weekly upstream releases
+  * Don't remove RUNPATH from binaries; fixed upstream (golang#1527)
+  * Set GOHOSTOS and GOHOSTARCH to match dpkg-architecture variables
   * Add support for kfreebsd-i386, kfreebsd-amd64, armel and armhf
     architectures
-  * Set GOHOSTOS and GOHOSTARCH to match dpkg-architecture variables
+    + 006-fix_kfreebsd_build.patch:
+      - Add GNU/KFreeBSD support by replacing all uname calls by $(GOOS)
+    + 007-use_native_dynamic_linker_on_kfreebsd.patch:
+      - Use native kfreebsd dynamic linker (/lib/ld-*.so.1)
+  * Add information about available architectures (Closes: #623877)
+  * Don't strip gotest
+  * Add Depends: golang-go to golang-tools
+  * Add better support for armhf
 
- -- Ondřej Surý <ondrej@debian.org>  Tue, 26 Apr 2011 11:53:59 +0200
+ -- Ondřej Surý <ondrej@debian.org>  Thu, 28 Apr 2011 16:14:39 +0200
 
 golang (2011.04.13-1) unstable; urgency=low
 
