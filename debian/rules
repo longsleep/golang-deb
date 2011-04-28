@@ -122,20 +122,18 @@ endif
 export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
 
 REPO = https://go.googlecode.com/hg/
-REV = release
+REV = weekly
+GOLANG_ORIG_DIR = $(CURDIR)/../go
 get-orig-source:
-	mkdir debian-orig-source
-	-set -e; cd debian-orig-source; \
-	hg clone -r"$(REV)" "$(REPO)" go; \
-	( \
-		cd go; \
-		VERSION=$$( \
-			hg identify -t -r"$(REV)" | \
-			perl -e '<> =~ /release\.(\d+)-(\d+)-(\d+)/; print "$$1.$$2.$$3"' \
-		); \
-		hg archive -ttgz -p"google-go-$$VERSION/" -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' \
-			../../google-go_$$VERSION.orig.tar.gz; \
-	)
-	rm -fr debian-orig-source
+	-set -e; \
+	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
+		hg clone -r"$(REV)" "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
+	fi
+	cd "$(GOLANG_ORIG_DIR)"; \
+	hg pull; \
+	hg update "$(REV)"; \
+	VERSION=$$(hg identify -t -r"$(REV)" | perl -e '<> =~ /$(REV)\.(\d+)-(\d+)-(\d+)([\.\d]*)/; print "$$1.$$2.$$3$$4"'); \
+	hg archive -ttgz -p"golang-$$VERSION/" -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../golang_$$VERSION.orig.tar.gz";
+	echo "Now run git-import-orig $(CURDIR)/../golang_$$VERSION.orig.tar.gz"
 
 .PHONY: build clean install binary-arch binary-indep binary
