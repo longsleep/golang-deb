@@ -1,11 +1,11 @@
 --- a/src/Make.cmd
 +++ b/src/Make.cmd
-@@ -13,7 +13,7 @@ include $(QUOTED_GOROOT)/src/Make.common
+@@ -17,7 +17,7 @@ include $(QUOTED_GOROOT)/src/Make.common
  PREREQ+=$(patsubst %,%.make,$(DEPS))
  
  $(TARG): _go_.$O
--	$(LD) -o $@ _go_.$O
-+	$(LD) -o $@ -r $(QUOTED_GOROOT_FINAL)/pkg/$(GOOS)_$(GOARCH) _go_.$O
+-	$(LD) $(LDIMPORTS) -o $@ _go_.$O
++	$(LD) $(LDIMPORTS) -o $@ -r $(QUOTED_GOROOT_FINAL)/pkg/$(GOOS)_$(GOARCH) _go_.$O
  
  _go_.$O: $(GOFILES) $(PREREQ)
- 	$(GC) -o $@ $(GOFILES)
+ 	$(GC) $(GCIMPORTS) -o $@ $(GOFILES)

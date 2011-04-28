@@ -16,7 +16,7 @@
  )
  
  type status int // status for visited map
-@@ -189,7 +191,11 @@ func install(pkg, parent string) {
+@@ -191,7 +193,11 @@ func install(pkg, parent string) {
  	}
  	for _, p := range dirInfo.imports {
  		if p != "C" {
@@ -28,7 +28,7 @@
 +			}
  		}
  	}
- 	if dirInfo.pkgName == "main" {
+ 
 --- a/src/cmd/goinstall/doc.go
 +++ b/src/cmd/goinstall/doc.go
 @@ -4,6 +4,11 @@
