@@ -1,3 +1,9 @@
+golang (2011.04.27-2) unstable; urgency=low
+
+  * Fix yet another build failure on kfreebsd (use linux userspace)
+
+ -- Ondřej Surý <ondrej@debian.org>  Fri, 29 Apr 2011 16:22:47 +0200
+
 golang (2011.04.27-1) unstable; urgency=low
 
   * Imported Upstream version 2011.04.27
