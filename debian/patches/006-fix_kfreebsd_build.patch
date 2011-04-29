@@ -87,3 +87,14 @@
  	echo "${!indirect} $includes"
  	echo
  	echo 'enum {'
+--- a/src/pkg/net/Makefile
++++ b/src/pkg/net/Makefile
+@@ -31,7 +31,7 @@ GOFILES_freebsd=\
+ 	port.go\
+ 
+ CGOFILES_freebsd=\
+-	cgo_bsd.go\
++	cgo_linux.go\
+ 	cgo_unix.go\
+ 
+ GOFILES_darwin=\
