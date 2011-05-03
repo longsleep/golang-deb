@@ -113,7 +113,7 @@ else ifeq ($(DEB_HOST_ARCH_CPU), arm)
     GOPREFIX := 5
 ifeq ($(DEB_HOST_ARCH), armel)
     GOARM := 5
-else if ($(DEB_HOST_ARCH), armhf)
+else ifeq ($(DEB_HOST_ARCH), armhf)
     GOARM := 6
 else
     $(error unrecognized arm architecture $(DEB_HOST_ARCH)!)
@@ -125,18 +125,30 @@ endif
 export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
 
 REPO = https://go.googlecode.com/hg/
-REV = weekly
 GOLANG_ORIG_DIR = $(CURDIR)/../go
-get-orig-source:
+RVERSION=$(shell dpkg-parsechangelog | grep Version: | perl -e '<> =~ /Version: (\d+)[-~+]/; print "$$1";')
+get-orig-source-weekly:
 	-set -e; \
 	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
-		hg clone -r"$(REV)" "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
+		hg clone -r"weekly" "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
 	fi
 	cd "$(GOLANG_ORIG_DIR)"; \
 	hg pull; \
-	hg update "$(REV)"; \
-	VERSION=$$(hg identify -t -r"$(REV)" | perl -e '<> =~ /$(REV)\.(\d+)-(\d+)-(\d+)([\.\d]*)/; print "$$1.$$2.$$3$$4"'); \
-	hg archive -ttgz -p"golang-$$VERSION/" -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../golang_$$VERSION.orig.tar.gz";
+	hg update "weekly"; \
+	VERSION=$$(hg identify -t -r"weekly" | perl -e '<> =~ /weekly\.(\d+)-(\d+)-(\d+)([\.\d]*)/; print "$$1.$$2.$$3$$4"'); \
+	hg archive -ttgz -p"golang-$(RVERSION)+$$VERSION/" -r"weekly" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../golang_$(RVERSION)+$$VERSION.orig.tar.gz"; \
+	echo "Now run git-import-orig $(CURDIR)/../golang_$(RVERSION)+$$VERSION.orig.tar.gz"
+
+get-orig-source-release:
+	-set -e; \
+	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
+		hg clone -rrelease "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
+	fi
+	cd "$(GOLANG_ORIG_DIR)"; \
+	hg pull; \
+	hg update release; \
+	VERSION=$$(hg identify -t -rrelease | perl -e '<> =~ /release\.r(\d+)/; print "$$1"'); \
+	hg archive -ttgz -p"golang-$$VERSION/" -r"release" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../golang_$$VERSION.orig.tar.gz"; \
 	echo "Now run git-import-orig $(CURDIR)/../golang_$$VERSION.orig.tar.gz"
 
 .PHONY: build clean install binary-arch binary-indep binary
