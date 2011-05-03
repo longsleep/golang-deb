@@ -1,3 +1,14 @@
+golang (1:57-1) unstable; urgency=low
+
+  * Imported Upstream version r57
+  * Bumped epoch version to 1, to convert from date based versions
+    to release number based version
+  * Allow release to migrate to testing (Closes: #624408)
+  * Add kate and vim syntax highlighting (Closes: #624544)
+  * Add -dbg package with debugging symbols
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 04 May 2011 01:20:07 +0200
+
 golang (2011.04.27-2) unstable; urgency=low
 
   * Fix yet another build failure on kfreebsd (use linux userspace)
