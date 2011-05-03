@@ -98,3 +98,20 @@ Suggests: golang-go
 Description: Go mode for GNU Emacs
  Provides a major mode for GNU Emacs to edit programs written in Google's
  Go programming language.
+
+Package: kate-syntax-go
+Architecture: all
+Depends: ${misc:Depends}, kate
+Suggests: golang-go
+Description: Syntax files to highlight Go in kate
+ Provides a syntax highlighting for the Kate editor to edit programs
+ written in Google's Go programming language.
+
+Package: vim-syntax-go
+Architecture: all
+Depends: ${misc:Depends}, vim
+Recommends: vim-addon-manager
+Suggests: golang-go
+Description: Syntax files to highlight Go in vim
+ Provides a syntax highlighting for vim editor to edit programs
+ written in Google's Go programming language.
