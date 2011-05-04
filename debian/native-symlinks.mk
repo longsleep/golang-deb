@@ -4,7 +4,7 @@
 export GOROOT = .
 include src/Make.inc
 
-bindir = debian/golang-go/usr/bin
+bindir = debian/$(PACKAGE)-go/usr/bin
 basenames = a c cov g l nm prof
 
 .PHONY: all

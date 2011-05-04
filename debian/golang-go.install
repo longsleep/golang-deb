@@ -14,7 +14,6 @@ bin/?c /usr/bin/
 bin/?a /usr/bin/
 bin/?nm /usr/bin/
 bin/?g /usr/bin/
-bin/golang-* /usr/bin/
 src/Make.* /usr/share/go/src/
 src/pkg/runtime/cgocall.h /usr/share/go/src/pkg/runtime/
 src/pkg/runtime/runtime.h /usr/share/go/src/pkg/runtime/

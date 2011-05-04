@@ -27,20 +27,17 @@ override_dh_auto_test:
 #	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
 
 override_dh_compress:
-	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
-
-override_dh_auto_install:
-	for cmd in a c g l; do ln -s $(GOPREFIX)$$cmd $(CURDIR)$(bindir)/golang-$$cmd; done
+	dh_compress -Xusr/share/doc/$(PACKAGE)-doc/html -Xusr/share/doc/$(PACKAGE)-doc/godoc
 
 override_dh_install:
 	dh_install --fail-missing
 	for f in $$(find src/cmd -name doc.go ; find src/pkg -name \*.go); do \
-	  install -D -m 0644 $$f debian/golang-src/$(datadir)/$$f; \
+	  install -D -m 0644 $$f debian/$(PACKAGE)-src/$(datadir)/$$f; \
 	done
-	make -f debian/native-symlinks.mk
+	make -f debian/native-symlinks.mk PACKAGE=$(PACKAGE)
 
 override_dh_strip:
-	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet -Xgotest --dbg-package=golang-dbg
+	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet -Xgotest --dbg-package=$(PACKAGE)-dbg
 
 debian/build.stamp:
 	rm -f debian/build.stamp
@@ -126,16 +123,17 @@ export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
 
 REPO = https://go.googlecode.com/hg/
 GOLANG_ORIG_DIR = $(CURDIR)/../go
+REV = release
 get-orig-source:
 	-set -e; \
 	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
-		hg clone -rrelease "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
+		hg clone -r"$(REV)" "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
 	fi
 	cd "$(GOLANG_ORIG_DIR)"; \
 	hg pull; \
-	hg update release; \
-	VERSION=$$(hg identify -t -rrelease | perl -e '<> =~ /release\.r(\d+)/; print "$$1"'); \
-	hg archive -ttgz -p"golang-$$VERSION/" -r"release" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../golang_$$VERSION.orig.tar.gz"; \
-	echo "Now run git-import-orig $(CURDIR)/../golang_$$VERSION.orig.tar.gz"
+	hg update "$(REV)"; \
+	VERSION=$$(hg identify -t -r"$(REV)" | perl -e '<> =~ /$(REV)\.r(\d+)/; print "$$1"'); \
+	hg archive -ttgz -p"$(PACKAGE)-$$VERSION/" -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../$(PACKAGE)_$$VERSION.orig.tar.gz"; \
+	echo "Now run git-import-orig $(CURDIR)/../$(PACKAGE)_$$VERSION.orig.tar.gz"
 
 .PHONY: build clean install binary-arch binary-indep binary
