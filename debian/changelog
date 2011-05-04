@@ -1,3 +1,13 @@
+golang (1:57-2) unstable; urgency=low
+
+  * Remove weekly code from debian/rules
+  * Add golang meta-package
+  * Don't create tool chain symlinks twice
+  * Make debian/rules more generic for simpler sync between weekly
+    and release branches
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 04 May 2011 16:48:24 +0200
+
 golang (1:57-1) unstable; urgency=low
 
   * Imported Upstream version r57
