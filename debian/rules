@@ -126,20 +126,7 @@ export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
 
 REPO = https://go.googlecode.com/hg/
 GOLANG_ORIG_DIR = $(CURDIR)/../go
-RVERSION=$(shell dpkg-parsechangelog | grep Version: | perl -e '<> =~ /Version: (\d+)[-~+]/; print "$$1";')
-get-orig-source-weekly:
-	-set -e; \
-	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
-		hg clone -r"weekly" "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
-	fi
-	cd "$(GOLANG_ORIG_DIR)"; \
-	hg pull; \
-	hg update "weekly"; \
-	VERSION=$$(hg identify -t -r"weekly" | perl -e '<> =~ /weekly\.(\d+)-(\d+)-(\d+)([\.\d]*)/; print "$$1.$$2.$$3$$4"'); \
-	hg archive -ttgz -p"golang-$(RVERSION)+$$VERSION/" -r"weekly" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../golang_$(RVERSION)+$$VERSION.orig.tar.gz"; \
-	echo "Now run git-import-orig $(CURDIR)/../golang_$(RVERSION)+$$VERSION.orig.tar.gz"
-
-get-orig-source-release:
+get-orig-source:
 	-set -e; \
 	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
 		hg clone -rrelease "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
