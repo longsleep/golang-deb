@@ -39,6 +39,9 @@ override_dh_install:
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofix -Xgofmt -Xgovet -Xgotest --dbg-package=$(PACKAGE)-dbg
 
+override_dh_shlibdeps:
+	dh_shlibdeps -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofix -Xgofmt -Xgovet -Xgotest
+
 debian/build.stamp:
 	rm -f debian/build.stamp
 	mkdir -p $(GOBIN)
