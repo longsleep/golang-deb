@@ -77,6 +77,7 @@ Recommends: golang-src
 Description: Tools for Google's Go programming language
  This package provides various tools for the Go programming language:
   * godoc - extracts and generates documentation for Go programs
+  * gofix - upgrade Go programs to the most recent release
   * gofmt - formats Go programs
   * goinstall - automatic package installation
   * gotry - evaluate expressions on the command line

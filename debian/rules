@@ -37,7 +37,7 @@ override_dh_install:
 	make -f debian/native-symlinks.mk PACKAGE=$(PACKAGE)
 
 override_dh_strip:
-	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofmt -Xgovet -Xgotest --dbg-package=$(PACKAGE)-dbg
+	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofix -Xgofmt -Xgovet -Xgotest --dbg-package=$(PACKAGE)-dbg
 
 debian/build.stamp:
 	rm -f debian/build.stamp
