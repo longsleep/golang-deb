@@ -3,7 +3,10 @@ golang (1:57-3) unstable; urgency=low
   [ Florian Weimer ]
   * golang-tools: install gofix binary
 
- -- Ondřej Surý <ondrej@debian.org>  Sat, 07 May 2011 20:23:30 +0200
+  [ Ondřej Surý ]
+  * Add lintian-overrides for gofix binary
+
+ -- Ondřej Surý <ondrej@debian.org>  Sat, 07 May 2011 20:41:58 +0200
 
 golang (1:57-2) unstable; urgency=low
 
