@@ -105,7 +105,7 @@ Package: kate-syntax-go
 Architecture: all
 Depends: ${misc:Depends}, kate
 Suggests: golang-go
-Description: Syntax files to highlight Go in kate
+Description: Syntax files to highlight Go in Kate editor
  Provides a syntax highlighting for the Kate editor to edit programs
  written in Google's Go programming language.
 
