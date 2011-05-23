@@ -1,0 +1,13 @@
+--- a/src/cmd/goinstall/main.go
++++ b/src/cmd/goinstall/main.go
+@@ -169,8 +169,8 @@ func install(pkg, parent string) {
+ 		dir = pkg
+ 		local = true
+ 	} else if isStandardPath(pkg) {
+-		dir = filepath.Join(root, filepath.FromSlash(pkg))
+-		local = true
++		visit[pkg] = done
++		return
+ 	} else {
+ 		proot = findPkgroot(pkg)
+ 		err := download(pkg, proot.srcDir())
