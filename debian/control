@@ -15,7 +15,7 @@ Recommends: golang-tools
 Provides: go-compiler
 Description: Go programming language compiler
  This package provides assembler, compiler and linker for the Go
- programming language.  This is the Google's Go implementation of the
+ programming language.  This is Google's Go implementation of the
  tool chain.
  .
  The Go programming language is an open source project to make
@@ -125,7 +125,7 @@ Recommends: gdb
 Section: debug
 Priority: extra
 Description: Go programming language tool chain [debug]
- This package provides the debug symbols for the Google's Go tool
+ This package provides the debug symbols for Google's Go tool
  chain binaries (assembler, compiler, linker) needed for properly
  debugging errors in the tool chain with gdb.
 
