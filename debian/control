@@ -2,8 +2,8 @@ Source: golang
 Section: devel
 Priority: optional
 Maintainer: Ondřej Surý <ondrej@debian.org>
-Vcs-Browser: https://alioth.debian.org/plugins/scmgit/cgi-bin/gitweb.cgi?p=pkg-google/golang.git
-Vcs-Git: git://scm.alioth.debian.org/git/pkg-google/golang.git
+Vcs-Browser: http://git.debian.org/?p=pkg-google/golang.git
+Vcs-Git: git://git.debian.org/pkg-google/golang.git
 Build-Depends: debhelper (>= 7.4.10), bison, ed, mawk | awk, perl
 Standards-Version: 3.9.2
 Homepage: http://golang.org/
