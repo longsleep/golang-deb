@@ -105,7 +105,7 @@ Package: kate-syntax-go
 Architecture: all
 Depends: ${misc:Depends}, kate
 Suggests: golang-go
-Description: Syntax files to highlight Go in Kate editor
+Description: Syntax files to highlight Go in the Kate editor
  Provides a syntax highlighting for the Kate editor to edit programs
  written in Google's Go programming language.
 
@@ -114,8 +114,8 @@ Architecture: all
 Depends: ${misc:Depends}, vim
 Recommends: vim-addon-manager
 Suggests: golang-go
-Description: Syntax files to highlight Go in vim
- Provides a syntax highlighting for vim editor to edit programs
+Description: Syntax files to highlight Go in the Vim editor
+ Provides a syntax highlighting for the Vim editor to edit programs
  written in Google's Go programming language.
 
 Package: golang-dbg
