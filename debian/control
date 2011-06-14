@@ -13,7 +13,7 @@ Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
 Recommends: golang-tools
 Provides: go-compiler
-Description: Go programming language compiler
+Description: Experimental Go programming language compiler
  This package provides assembler, compiler and linker for the Go
  programming language.  This is Google's Go implementation of the
  tool chain.
@@ -27,6 +27,13 @@ Description: Go programming language compiler
  garbage collection and the power of run-time reflection.  It's a
  fast, statically typed, compiled language that feels like a
  dynamically typed, interpreted language.
+ .
+ Go is an experiment. We hope adventurous users will give it a try and
+ see if they enjoy it. Not every programmer will, but we hope enough
+ will find satisfaction in the approach it offers to justify further
+ development. The language can (and still does) change between stable
+ releases, check http://golang.org/doc/devel/release.html before
+ upgrading this package.
 
 Package: golang-src
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
@@ -45,6 +52,13 @@ Description: Go programming language compiler (.go source files)
  garbage collection and the power of run-time reflection.  It's a
  fast, statically typed, compiled language that feels like a
  dynamically typed, interpreted language.
+ .
+ Go is an experiment. We hope adventurous users will give it a try and
+ see if they enjoy it. Not every programmer will, but we hope enough
+ will find satisfaction in the approach it offers to justify further
+ development. The language can (and still does) change between stable
+ releases, check http://golang.org/doc/devel/release.html before
+ upgrading this package.
 
 Package: golang-doc
 Architecture: all
@@ -68,7 +82,12 @@ Description: Documentation for Google's Go programming language
  formatted documentation by running godoc --http=:6060 and then
  visiting http://localhost:6060/doc/install.html.
  .
- TODO: Pregenerate HTML documentation to /usr/share/doc/golang-doc/html
+ Go is an experiment. We hope adventurous users will give it a try and
+ see if they enjoy it. Not every programmer will, but we hope enough
+ will find satisfaction in the approach it offers to justify further
+ development. The language can (and still does) change between stable
+ releases, check http://golang.org/doc/devel/release.html before
+ upgrading this package.
 
 Package: golang-tools
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
@@ -92,6 +111,13 @@ Description: Tools for Google's Go programming language
  garbage collection and the power of run-time reflection.  It's a
  fast, statically typed, compiled language that feels like a
  dynamically typed, interpreted language.
+ .
+ Go is an experiment. We hope adventurous users will give it a try and
+ see if they enjoy it. Not every programmer will, but we hope enough
+ will find satisfaction in the approach it offers to justify further
+ development. The language can (and still does) change between stable
+ releases, check http://golang.org/doc/devel/release.html before
+ upgrading this package.
 
 Package: golang-mode
 Architecture: all
@@ -135,7 +161,7 @@ Depends: ${misc:Depends},
          golang-src (>= ${source:Version}),
          golang-tools (>= ${source:Version})
 Architecture: all
-Description: Go programming language [meta package]
+Description: Experimental Go programming language [meta package]
  This package is a metapackage that, when installed, guarantees
  that (almost) full Go development environment is installed.
  .
@@ -148,3 +174,10 @@ Description: Go programming language [meta package]
  garbage collection and the power of run-time reflection.  It's a
  fast, statically typed, compiled language that feels like a
  dynamically typed, interpreted language.
+ .
+ Go is an experiment. We hope adventurous users will give it a try and
+ see if they enjoy it. Not every programmer will, but we hope enough
+ will find satisfaction in the approach it offers to justify further
+ development. The language can (and still does) change between stable
+ releases, check http://golang.org/doc/devel/release.html before
+ upgrading this package.
