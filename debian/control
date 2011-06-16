@@ -163,7 +163,7 @@ Depends: ${misc:Depends},
 Architecture: all
 Description: Experimental Go programming language [meta package]
  This package is a metapackage that, when installed, guarantees
- that (almost) full Go development environment is installed.
+ that the full Go development environment is installed.
  .
  The Go programming language is an open source project to make
  programmers more productive. Go is expressive, concise, clean, and
