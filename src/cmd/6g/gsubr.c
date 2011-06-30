@@ -48,7 +48,7 @@ clearp(Prog *p)
 
 /*
  * generate and return proc with p->as = as,
- * linked into program.  pc is next instruction.
+ * linked into program. pc is next instruction.
  */
 Prog*
 prog(int as)
@@ -368,11 +368,13 @@ regfree(Node *n)
 {
 	int i;
 
-	if(n->op == ONAME && iscomplex[n->type->etype])
+	if(n->op == ONAME)
 		return;
 	if(n->op != OREGISTER && n->op != OINDREG)
 		fatal("regfree: not a register");
 	i = n->val.u.reg;
+	if(i == D_SP)
+		return;
 	if(i < 0 || i >= sizeof(reg))
 		fatal("regfree: reg out of range");
 	if(reg[i] <= 0)
@@ -926,7 +928,7 @@ Prog*
 gins(int as, Node *f, Node *t)
 {
 //	Node nod;
-//	int32 v;
+	int32 w;
 	Prog *p;
 	Addr af, at;
 
@@ -971,6 +973,27 @@ gins(int as, Node *f, Node *t)
 		p->to = at;
 	if(debug['g'])
 		print("%P\n", p);
+
+
+	w = 0;
+	switch(as) {
+	case AMOVB:
+		w = 1;
+		break;
+	case AMOVW:
+		w = 2;
+		break;
+	case AMOVL:
+		w = 4;
+		break;
+	case AMOVQ:
+		w = 8;
+		break;
+	}
+	if(w != 0 && f != N && (af.width > w || at.width > w)) {
+		fatal("bad width: %P (%d, %d)\n", p, af.width, at.width);
+	}
+
 	return p;
 }
 
@@ -985,7 +1008,7 @@ checkoffset(Addr *a, int canemitcode)
 		fatal("checkoffset %#llx, cannot emit code", a->offset);
 
 	// cannot rely on unmapped nil page at 0 to catch
-	// reference with large offset.  instead, emit explicit
+	// reference with large offset. instead, emit explicit
 	// test of 0(reg).
 	p = gins(ATESTB, nodintconst(0), N);
 	p->to = *a;
@@ -1003,7 +1026,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 	a->index = D_NONE;
 	a->type = D_NONE;
 	a->gotype = S;
-
+	a->node = N;
 	if(n == N)
 		return;
 
@@ -1082,6 +1105,8 @@ naddr(Node *n, Addr *a, int canemitcode)
 			break;
 		case PAUTO:
 			a->type = D_AUTO;
+			if (n->sym)
+				a->node = n->orig;
 			break;
 		case PPARAM:
 		case PPARAMOUT:
@@ -1144,8 +1169,9 @@ naddr(Node *n, Addr *a, int canemitcode)
 		naddr(n->left, a, canemitcode);
 		if(a->type == D_CONST && a->offset == 0)
 			break;	// len(nil)
-		a->etype = TUINT;
+		a->etype = TUINT32;
 		a->offset += Array_nel;
+		a->width = 4;
 		if(a->offset >= unmappedzero && a->offset-Array_nel < unmappedzero)
 			checkoffset(a, canemitcode);
 		break;
@@ -1155,8 +1181,9 @@ naddr(Node *n, Addr *a, int canemitcode)
 		naddr(n->left, a, canemitcode);
 		if(a->type == D_CONST && a->offset == 0)
 			break;	// cap(nil)
-		a->etype = TUINT;
+		a->etype = TUINT32;
 		a->offset += Array_cap;
+		a->width = 4;
 		if(a->offset >= unmappedzero && a->offset-Array_cap < unmappedzero)
 			checkoffset(a, canemitcode);
 		break;
@@ -2000,12 +2027,12 @@ oindex:
 		if(o & OAddable) {
 			n2 = *l;
 			n2.xoffset += Array_array;
-			n2.type = types[TUINT64];
+			n2.type = types[tptr];
 			gmove(&n2, reg);
 		} else {
 			n2 = *reg;
-			n2.xoffset = Array_array;
 			n2.op = OINDREG;
+			n2.xoffset = Array_array;
 			n2.type = types[tptr];
 			gmove(&n2, reg);
 		}

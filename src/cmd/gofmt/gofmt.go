@@ -245,14 +245,14 @@ func gofmtMain() {
 func diff(b1, b2 []byte) (data []byte, err os.Error) {
 	f1, err := ioutil.TempFile("", "gofmt")
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer os.Remove(f1.Name())
 	defer f1.Close()
 
 	f2, err := ioutil.TempFile("", "gofmt")
 	if err != nil {
-		return nil, err
+		return
 	}
 	defer os.Remove(f2.Name())
 	defer f2.Close()
@@ -260,17 +260,12 @@ func diff(b1, b2 []byte) (data []byte, err os.Error) {
 	f1.Write(b1)
 	f2.Write(b2)
 
-	diffcmd, err := exec.LookPath("diff")
-	if err != nil {
-		return nil, err
+	data, err = exec.Command("diff", "-u", f1.Name(), f2.Name()).CombinedOutput()
+	if len(data) > 0 {
+		// diff exits with a non-zero status when the files don't match.
+		// Ignore that failure as long as we get output.
+		err = nil
 	}
+	return
 
-	c, err := exec.Run(diffcmd, []string{"diff", "-u", f1.Name(), f2.Name()},
-		nil, "", exec.DevNull, exec.Pipe, exec.MergeWithStdout)
-	if err != nil {
-		return nil, err
-	}
-	defer c.Close()
-
-	return ioutil.ReadAll(c.Stdout)
 }

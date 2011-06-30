@@ -225,6 +225,7 @@ struct	Node
 	Type*	realtype;	// as determined by typecheck
 	NodeList*	list;
 	NodeList*	rlist;
+	Node*	orig;		// original form, for printing, and tracking copies of ONAMEs
 
 	// for-body
 	NodeList*	ninit;
@@ -253,6 +254,7 @@ struct	Node
 	Node*	ntype;
 	Node*	defn;
 	Node*	pack;	// real package for import . names
+	Node*	curfn;	// function for local variables
 
 	// ONAME func param with PHEAP
 	Node*	heapaddr;	// temp holding heap address of param
@@ -271,6 +273,7 @@ struct	Node
 	int32	lineno;
 	int32	endlineno;
 	vlong	xoffset;
+	int32	stkdelta;	// offset added by stack frame compaction phase.
 	int32	ostk;
 	int32	iota;
 };
@@ -516,15 +519,16 @@ enum
 
 enum
 {
-	Etop = 1<<1,	// evaluated at statement level
-	Erv = 1<<2,	// evaluated in value context
+	Etop = 1<<1,		// evaluated at statement level
+	Erv = 1<<2,		// evaluated in value context
 	Etype = 1<<3,
-	Ecall = 1<<4,	// call-only expressions are ok
+	Ecall = 1<<4,		// call-only expressions are ok
 	Efnstruct = 1<<5,	// multivalue function returns are ok
 	Eiota = 1<<6,		// iota is ok
 	Easgn = 1<<7,		// assigning to expression
 	Eindir = 1<<8,		// indirecting through expression
 	Eaddr = 1<<9,		// taking address of expression
+	Eproc = 1<<10,		// inside a go statement
 };
 
 #define	BITS	5
@@ -544,6 +548,7 @@ struct	Var
 	vlong	offset;
 	Sym*	sym;
 	Sym*	gotype;
+	Node*	node;
 	int	width;
 	char	name;
 	char	etype;
@@ -814,8 +819,9 @@ int	bset(Bits a, uint n);
  */
 Node*	closurebody(NodeList *body);
 void	closurehdr(Node *ntype);
-void	typecheckclosure(Node *func);
+void	typecheckclosure(Node *func, int top);
 Node*	walkclosure(Node *func, NodeList **init);
+void	walkcallclosure(Node *n, NodeList **init);
 
 /*
  *	const.c
@@ -858,7 +864,6 @@ NodeList*	checkarglist(NodeList *all, int input);
 Node*	colas(NodeList *left, NodeList *right);
 void	colasdefn(NodeList *left, Node *defn);
 NodeList*	constiter(NodeList *vl, Node *t, NodeList *cl);
-void	dclchecks(void);
 Node*	dclname(Sym *s);
 void	declare(Node *n, int ctxt);
 Type*	dostruct(NodeList *l, int et);
@@ -869,6 +874,7 @@ void	funcbody(Node *n);
 void	funccompile(Node *n, int isclosure);
 void	funchdr(Node *n);
 Type*	functype(Node *this, NodeList *in, NodeList *out);
+void	ifacedcl(Node *n);
 int	isifacemethod(Type *f);
 void	markdcl(void);
 Node*	methodname(Node *n, Type *t);
@@ -1103,6 +1109,7 @@ int	istype(Type *t, int et);
 void	linehist(char *file, int32 off, int relative);
 NodeList*	list(NodeList *l, Node *n);
 NodeList*	list1(Node *n);
+void	listsort(NodeList**, int(*f)(Node*, Node*));
 Node*	liststmt(NodeList *l);
 NodeList*	listtreecopy(NodeList *l);
 Sym*	lookup(char *name);
@@ -1161,6 +1168,11 @@ int	exportassignok(Type *t, char *desc);
 int	islvalue(Node *n);
 Node*	typecheck(Node **np, int top);
 void	typechecklist(NodeList *l, int top);
+Node*	typecheckdef(Node *n);
+void	resumetypecopy(void);
+void	copytype(Node *n, Type *t);
+void	defertypecopy(Node *n, Type *t);
+void	queuemethod(Node *n);
 
 /*
  *	unsafe.c
@@ -1172,15 +1184,10 @@ Node*	unsafenmagic(Node *n);
  */
 Node*	callnew(Type *t);
 Node*	chanfn(char *name, int n, Type *t);
-void	copytype(Node *n, Type *t);
-void	defertypecopy(Node *n, Type *t);
 Node*	mkcall(char *name, Type *t, NodeList **init, ...);
 Node*	mkcall1(Node *fn, Type *t, NodeList **init, ...);
-void	queuemethod(Node *n);
-void	resumetypecopy(void);
 int	vmatch1(Node *l, Node *r);
 void	walk(Node *fn);
-Node*	walkdef(Node *n);
 void	walkexpr(Node **np, NodeList **init);
 void	walkexprlist(NodeList *l, NodeList **init);
 void	walkexprlistsafe(NodeList *l, NodeList **init);
@@ -1208,6 +1215,7 @@ EXTERN	Prog*	continpc;
 EXTERN	Prog*	breakpc;
 EXTERN	Prog*	pc;
 EXTERN	Prog*	firstpc;
+EXTERN	Prog*	retpc;
 
 EXTERN	Node*	nodfp;
 
@@ -1221,6 +1229,7 @@ void	cgen_callinter(Node *n, Node *res, int proc);
 void	cgen_ret(Node *n);
 void	clearfat(Node *n);
 void	compile(Node*);
+void	defframe(Prog*);
 int	dgostringptr(Sym*, int off, char *str);
 int	dgostrlitptr(Sym*, int off, Strlit*);
 int	dstringptr(Sym *s, int off, char *str);

@@ -5,10 +5,10 @@
 // Package ebnf is a library for EBNF grammars. The input is text ([]byte)
 // satisfying the following grammar (represented itself in EBNF):
 //
-//	Production  = name "=" Expression "." .
+//	Production  = name "=" [ Expression ] "." .
 //	Expression  = Alternative { "|" Alternative } .
 //	Alternative = Term { Term } .
-//	Term        = name | token [ "..." token ] | Group | Option | Repetition .
+//	Term        = name | token [ "…" token ] | Group | Option | Repetition .
 //	Group       = "(" Expression ")" .
 //	Option      = "[" Expression "]" .
 //	Repetition  = "{" Expression "}" .
@@ -82,6 +82,12 @@ type (
 		Body   Expression // {body}
 	}
 
+	// A Bad node stands for pieces of source code that lead to a parse error.
+	Bad struct {
+		TokPos token.Pos
+		Error  string // parser error message
+	}
+
 	// A Production node represents an EBNF production.
 	Production struct {
 		Name *Name
@@ -103,6 +109,7 @@ func (x *Range) Pos() token.Pos      { return x.Begin.Pos() }
 func (x *Group) Pos() token.Pos      { return x.Lparen }
 func (x *Option) Pos() token.Pos     { return x.Lbrack }
 func (x *Repetition) Pos() token.Pos { return x.Lbrace }
+func (x *Bad) Pos() token.Pos        { return x.TokPos }
 func (x *Production) Pos() token.Pos { return x.Name.Pos() }
 
 

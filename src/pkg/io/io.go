@@ -162,6 +162,18 @@ type ByteReader interface {
 	ReadByte() (c byte, err os.Error)
 }
 
+// ByteScanner is the interface that adds the UnreadByte method to the
+// basic ReadByte method.
+//
+// UnreadByte causes the next call to ReadByte to return the same byte
+// as the previous call to ReadByte.
+// It may be an error to call UnreadByte twice without an intervening
+// call to ReadByte.
+type ByteScanner interface {
+	ByteReader
+	UnreadByte() os.Error
+}
+
 // RuneReader is the interface that wraps the ReadRune method.
 //
 // ReadRune reads a single UTF-8 encoded Unicode character
@@ -169,6 +181,18 @@ type ByteReader interface {
 // available, err will be set.
 type RuneReader interface {
 	ReadRune() (rune int, size int, err os.Error)
+}
+
+// RuneScanner is the interface that adds the UnreadRune method to the
+// basic ReadRune method.
+//
+// UnreadRune causes the next call to ReadRune to return the same rune
+// as the previous call to ReadRune.
+// It may be an error to call UnreadRune twice without an intervening
+// call to ReadRune.
+type RuneScanner interface {
+	RuneReader
+	UnreadRune() os.Error
 }
 
 // WriteString writes the contents of the string s to w, which accepts an array of bytes.
@@ -303,22 +327,26 @@ func Copy(dst Writer, src Reader) (written int64, err os.Error) {
 
 // LimitReader returns a Reader that reads from r
 // but stops with os.EOF after n bytes.
-func LimitReader(r Reader, n int64) Reader { return &limitedReader{r, n} }
+// The underlying implementation is a *LimitedReader.
+func LimitReader(r Reader, n int64) Reader { return &LimitedReader{r, n} }
 
-type limitedReader struct {
-	r Reader
-	n int64
+// A LimitedReader reads from R but limits the amount of
+// data returned to just N bytes. Each call to Read
+// updates N to reflect the new amount remaining.
+type LimitedReader struct {
+	R Reader // underlying reader
+	N int64  // max bytes remaining
 }
 
-func (l *limitedReader) Read(p []byte) (n int, err os.Error) {
-	if l.n <= 0 {
+func (l *LimitedReader) Read(p []byte) (n int, err os.Error) {
+	if l.N <= 0 {
 		return 0, os.EOF
 	}
-	if int64(len(p)) > l.n {
-		p = p[0:l.n]
+	if int64(len(p)) > l.N {
+		p = p[0:l.N]
 	}
-	n, err = l.r.Read(p)
-	l.n -= int64(n)
+	n, err = l.R.Read(p)
+	l.N -= int64(n)
 	return
 }
 

@@ -6,7 +6,12 @@
 
 package big
 
-import "strings"
+import (
+	"encoding/binary"
+	"fmt"
+	"os"
+	"strings"
+)
 
 // A Rat represents a quotient a/b of arbitrary precision. The zero value for
 // a Rat, 0/0, is not a legal Rat.
@@ -84,7 +89,7 @@ func (z *Rat) Num() *Int {
 }
 
 
-// Demom returns the denominator of z; it is always > 0.
+// Denom returns the denominator of z; it is always > 0.
 // The result is a reference to z's denominator; it
 // may change if a new value is assigned to z.
 func (z *Rat) Denom() *Int {
@@ -209,6 +214,28 @@ func (z *Rat) Set(x *Rat) *Rat {
 }
 
 
+func ratTok(ch int) bool {
+	return strings.IndexRune("+-/0123456789.eE", ch) >= 0
+}
+
+
+// Scan is a support routine for fmt.Scanner. It accepts the formats
+// 'e', 'E', 'f', 'F', 'g', 'G', and 'v'. All formats are equivalent.
+func (z *Rat) Scan(s fmt.ScanState, ch int) os.Error {
+	tok, err := s.Token(true, ratTok)
+	if err != nil {
+		return err
+	}
+	if strings.IndexRune("efgEFGv", ch) < 0 {
+		return os.ErrorString("Rat.Scan: invalid verb")
+	}
+	if _, ok := z.SetString(string(tok)); !ok {
+		return os.ErrorString("Rat.Scan: invalid syntax")
+	}
+	return nil
+}
+
+
 // SetString sets z to the value of s and returns z and a boolean indicating
 // success. s can be given as a fraction "a/b" or as a floating-point number
 // optionally followed by an exponent. If the operation failed, the value of z
@@ -225,8 +252,8 @@ func (z *Rat) SetString(s string) (*Rat, bool) {
 			return z, false
 		}
 		s = s[sep+1:]
-		var n int
-		if z.b, _, n = z.b.scan(s, 10); n != len(s) {
+		var err os.Error
+		if z.b, _, err = z.b.scan(strings.NewReader(s), 10); err != nil {
 			return z, false
 		}
 		return z.norm(), true
@@ -270,7 +297,7 @@ func (z *Rat) SetString(s string) (*Rat, bool) {
 
 // String returns a string representation of z in the form "a/b" (even if b == 1).
 func (z *Rat) String() string {
-	return z.a.String() + "/" + z.b.string(10)
+	return z.a.String() + "/" + z.b.decimalString()
 }
 
 
@@ -288,7 +315,11 @@ func (z *Rat) RatString() string {
 // digits of precision after the decimal point and the last digit rounded.
 func (z *Rat) FloatString(prec int) string {
 	if z.IsInt() {
-		return z.a.String()
+		s := z.a.String()
+		if prec > 0 {
+			s += "." + strings.Repeat("0", prec)
+		}
+		return s
 	}
 
 	q, r := nat{}.div(nat{}, z.a.abs, z.b)
@@ -311,16 +342,58 @@ func (z *Rat) FloatString(prec int) string {
 		}
 	}
 
-	s := q.string(10)
+	s := q.decimalString()
 	if z.a.neg {
 		s = "-" + s
 	}
 
 	if prec > 0 {
-		rs := r.string(10)
+		rs := r.decimalString()
 		leadingZeros := prec - len(rs)
 		s += "." + strings.Repeat("0", leadingZeros) + rs
 	}
 
 	return s
+}
+
+
+// Gob codec version. Permits backward-compatible changes to the encoding.
+const ratGobVersion byte = 1
+
+// GobEncode implements the gob.GobEncoder interface.
+func (z *Rat) GobEncode() ([]byte, os.Error) {
+	buf := make([]byte, 1+4+(len(z.a.abs)+len(z.b))*_S) // extra bytes for version and sign bit (1), and numerator length (4)
+	i := z.b.bytes(buf)
+	j := z.a.abs.bytes(buf[0:i])
+	n := i - j
+	if int(uint32(n)) != n {
+		// this should never happen
+		return nil, os.ErrorString("Rat.GobEncode: numerator too large")
+	}
+	binary.BigEndian.PutUint32(buf[j-4:j], uint32(n))
+	j -= 1 + 4
+	b := ratGobVersion << 1 // make space for sign bit
+	if z.a.neg {
+		b |= 1
+	}
+	buf[j] = b
+	return buf[j:], nil
+}
+
+
+// GobDecode implements the gob.GobDecoder interface.
+func (z *Rat) GobDecode(buf []byte) os.Error {
+	if len(buf) == 0 {
+		return os.ErrorString("Rat.GobDecode: no data")
+	}
+	b := buf[0]
+	if b>>1 != ratGobVersion {
+		return os.ErrorString(fmt.Sprintf("Rat.GobDecode: encoding version %d not supported", b>>1))
+	}
+	const j = 1 + 4
+	i := j + binary.BigEndian.Uint32(buf[j-4:j])
+	z.a.neg = b&1 != 0
+	z.a.abs = z.a.abs.setBytes(buf[j:i])
+	z.b = z.b.setBytes(buf[i:])
+	return nil
 }

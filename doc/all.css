@@ -140,7 +140,7 @@ h1#title {
 }
 #content h2 {
   border-top: 2px solid #ddd;
-  padding: 8px 5px;
+  padding: 8px 0;
   margin: 1.5em 0 0;
 }
 #content .subtitle {
@@ -197,4 +197,9 @@ span.alert {
 .detail {
   padding: 0.25em 1em;
   background: #F4F4F4;
+}
+sup.new {
+  color: red;
+  font-size: 8px;
+  line-height: 0;
 }

@@ -736,7 +736,6 @@ ginit(void)
 		reg[i] = 1;
 	for(i=D_AL; i<=D_DI; i++)
 		reg[i] = 0;
-
 	for(i=0; i<nelem(resvd); i++)
 		reg[resvd[i]]++;
 }
@@ -827,6 +826,8 @@ err:
 	return;
 
 out:
+	if (i == D_SP)
+		print("alloc SP\n");
 	if(reg[i] == 0) {
 		regpc[i] = (ulong)__builtin_return_address(0);
 		if(i == D_AX || i == D_CX || i == D_DX || i == D_SP) {
@@ -842,10 +843,14 @@ void
 regfree(Node *n)
 {
 	int i;
-
+	
+	if(n->op == ONAME)
+		return;
 	if(n->op != OREGISTER && n->op != OINDREG)
 		fatal("regfree: not a register");
 	i = n->val.u.reg;
+	if(i == D_SP)
+		return;
 	if(i < 0 || i >= sizeof(reg))
 		fatal("regfree: reg out of range");
 	if(reg[i] <= 0)
@@ -1167,6 +1172,9 @@ gmove(Node *f, Node *t)
 	case CASE(TINT8, TUINT8):
 	case CASE(TUINT8, TINT8):
 	case CASE(TUINT8, TUINT8):
+		a = AMOVB;
+		break;
+
 	case CASE(TINT16, TINT8):	// truncate
 	case CASE(TUINT16, TINT8):
 	case CASE(TINT32, TINT8):
@@ -1176,7 +1184,7 @@ gmove(Node *f, Node *t)
 	case CASE(TINT32, TUINT8):
 	case CASE(TUINT32, TUINT8):
 		a = AMOVB;
-		break;
+		goto rsrc;
 
 	case CASE(TINT64, TINT8):	// truncate low word
 	case CASE(TUINT64, TINT8):
@@ -1184,7 +1192,7 @@ gmove(Node *f, Node *t)
 	case CASE(TUINT64, TUINT8):
 		split64(f, &flo, &fhi);
 		nodreg(&r1, t->type, D_AX);
-		gins(AMOVB, &flo, &r1);
+		gmove(&flo, &r1);
 		gins(AMOVB, &r1, t);
 		splitclean();
 		return;
@@ -1193,12 +1201,15 @@ gmove(Node *f, Node *t)
 	case CASE(TINT16, TUINT16):
 	case CASE(TUINT16, TINT16):
 	case CASE(TUINT16, TUINT16):
+		a = AMOVW;
+		break;
+
 	case CASE(TINT32, TINT16):	// truncate
 	case CASE(TUINT32, TINT16):
 	case CASE(TINT32, TUINT16):
 	case CASE(TUINT32, TUINT16):
 		a = AMOVW;
-		break;
+		goto rsrc;
 
 	case CASE(TINT64, TINT16):	// truncate low word
 	case CASE(TUINT64, TINT16):
@@ -1206,7 +1217,7 @@ gmove(Node *f, Node *t)
 	case CASE(TUINT64, TUINT16):
 		split64(f, &flo, &fhi);
 		nodreg(&r1, t->type, D_AX);
-		gins(AMOVW, &flo, &r1);
+		gmove(&flo, &r1);
 		gins(AMOVW, &r1, t);
 		splitclean();
 		return;
@@ -1224,7 +1235,7 @@ gmove(Node *f, Node *t)
 	case CASE(TUINT64, TUINT32):
 		split64(f, &flo, &fhi);
 		nodreg(&r1, t->type, D_AX);
-		gins(AMOVL, &flo, &r1);
+		gmove(&flo, &r1);
 		gins(AMOVL, &r1, t);
 		splitclean();
 		return;
@@ -1378,14 +1389,14 @@ gmove(Node *f, Node *t)
 		case TUINT8:
 			gins(ATESTL, ncon(0xffffff00), &t1);
 			p1 = gbranch(AJEQ, T);
-			gins(AMOVB, ncon(0), &t1);
+			gins(AMOVL, ncon(0), &t1);
 			patch(p1, pc);
 			gmove(&t1, t);
 			break;
 		case TUINT16:
 			gins(ATESTL, ncon(0xffff0000), &t1);
 			p1 = gbranch(AJEQ, T);
-			gins(AMOVW, ncon(0), &t1);
+			gins(AMOVL, ncon(0), &t1);
 			patch(p1, pc);
 			gmove(&t1, t);
 			break;
@@ -1456,11 +1467,11 @@ gmove(Node *f, Node *t)
 		split64(t, &tlo, &thi);
 		gins(AXORL, ncon(0x80000000), &thi);	// + 2^63
 		patch(p3, pc);
-		patch(p1, pc);
 		splitclean();
-
 		// restore rounding mode
 		gins(AFLDCW, &t1, N);
+
+		patch(p1, pc);
 		return;
 
 	/*
@@ -1609,6 +1620,14 @@ gmove(Node *f, Node *t)
 	gins(a, f, t);
 	return;
 
+rsrc:
+	// requires register source
+	regalloc(&r1, f->type, t);
+	gmove(f, &r1);
+	gins(a, &r1, t);
+	regfree(&r1);
+	return;
+
 rdst:
 	// requires register destination
 	regalloc(&r1, t->type, t);
@@ -1661,6 +1680,7 @@ gins(int as, Node *f, Node *t)
 {
 	Prog *p;
 	Addr af, at;
+	int w;
 
 	if(as == AFMOVF && f && f->op == OREGISTER && t && t->op == OREGISTER)
 		fatal("gins MOVF reg, reg");
@@ -1686,6 +1706,26 @@ gins(int as, Node *f, Node *t)
 		p->to = at;
 	if(debug['g'])
 		print("%P\n", p);
+
+	w = 0;
+	switch(as) {
+	case AMOVB:
+		w = 1;
+		break;
+	case AMOVW:
+		w = 2;
+		break;
+	case AMOVL:
+		w = 4;
+		break;
+	}
+
+	if(1 && w != 0 && f != N && (af.width > w || at.width > w)) {
+		dump("bad width from:", f);
+		dump("bad width to:", t);
+		fatal("bad width: %P (%d, %d)\n", p, af.width, at.width);
+	}
+
 	return p;
 }
 
@@ -1718,6 +1758,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 	a->index = D_NONE;
 	a->type = D_NONE;
 	a->gotype = S;
+	a->node = N;
 	if(n == N)
 		return;
 
@@ -1775,6 +1816,8 @@ naddr(Node *n, Addr *a, int canemitcode)
 			break;
 		case PAUTO:
 			a->type = D_AUTO;
+			if (n->sym)
+				a->node = n->orig;
 			break;
 		case PPARAM:
 		case PPARAMOUT:
@@ -1837,8 +1880,9 @@ naddr(Node *n, Addr *a, int canemitcode)
 		naddr(n->left, a, canemitcode);
 		if(a->type == D_CONST && a->offset == 0)
 			break;	// len(nil)
-		a->etype = TUINT;
+		a->etype = TUINT32;
 		a->offset += Array_nel;
+		a->width = 4;
 		if(a->offset >= unmappedzero && a->offset-Array_nel < unmappedzero)
 			checkoffset(a, canemitcode);
 		break;
@@ -1848,8 +1892,9 @@ naddr(Node *n, Addr *a, int canemitcode)
 		naddr(n->left, a, canemitcode);
 		if(a->type == D_CONST && a->offset == 0)
 			break;	// cap(nil)
-		a->etype = TUINT;
+		a->etype = TUINT32;
 		a->offset += Array_cap;
+		a->width = 4;
 		if(a->offset >= unmappedzero && a->offset-Array_nel < unmappedzero)
 			checkoffset(a, canemitcode);
 		break;

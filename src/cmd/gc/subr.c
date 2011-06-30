@@ -105,7 +105,7 @@ hcrash(void)
 		flusherrors();
 		if(outfile)
 			unlink(outfile);
-		*(int*)0 = 0;
+		*(volatile int*)0 = 0;
 	}
 }
 
@@ -480,6 +480,7 @@ nod(int op, Node *nleft, Node *nright)
 	n->right = nright;
 	n->lineno = parserline();
 	n->xoffset = BADWIDTH;
+	n->orig = n;
 	return n;
 }
 
@@ -1031,10 +1032,21 @@ Econv(Fmt *fp)
 	return fmtstrcpy(fp, etnames[et]);
 }
 
+static const char* classnames[] = {
+	"Pxxx",
+	"PEXTERN",
+	"PAUTO",
+	"PPARAM",
+	"PPARAMOUT",
+	"PPARAMREF",
+	"PFUNC",
+};
+
 int
 Jconv(Fmt *fp)
 {
 	Node *n;
+	char *s;
 
 	n = va_arg(fp->args, Node*);
 	if(n->ullman != 0)
@@ -1049,12 +1061,18 @@ Jconv(Fmt *fp)
 	if(n->lineno != 0)
 		fmtprint(fp, " l(%d)", n->lineno);
 
-	if(n->xoffset != 0)
-		fmtprint(fp, " x(%lld)", n->xoffset);
+	if(n->xoffset != BADWIDTH)
+		fmtprint(fp, " x(%lld%+d)", n->xoffset, n->stkdelta);
 
-	if(n->class != 0)
-		fmtprint(fp, " class(%d)", n->class);
-
+	if(n->class != 0) {
+		s = "";
+		if (n->class & PHEAP) s = ",heap";
+		if ((n->class & ~PHEAP) < nelem(classnames))
+			fmtprint(fp, " class(%s%s)", classnames[n->class&~PHEAP], s);
+		else
+			fmtprint(fp, " class(%d?%s)", n->class&~PHEAP, s);
+	}
+ 
 	if(n->colas != 0)
 		fmtprint(fp, " colas(%d)", n->colas);
 
@@ -1073,6 +1091,11 @@ Jconv(Fmt *fp)
 	if(n->implicit != 0)
 		fmtprint(fp, " implicit(%d)", n->implicit);
 
+	if(n->pun != 0)
+		fmtprint(fp, " pun(%d)", n->pun);
+
+	if(n->used != 0)
+		fmtprint(fp, " used(%d)", n->used);
 	return 0;
 }
 
@@ -1141,7 +1164,7 @@ Tpretty(Fmt *fp, Type *t)
 	Type *t1;
 	Sym *s;
 	
-	if(debug['r']) {
+	if(0 && debug['r']) {
 		debug['r'] = 0;
 		fmtprint(fp, "%T (orig=%T)", t, t->orig);
 		debug['r'] = 1;
@@ -1454,6 +1477,8 @@ Nconv(Fmt *fp)
 	}
 
 	if(fp->flags & FmtSharp) {
+		if(n->orig != N)
+			n = n->orig;
 		exprfmt(fp, n, 0);
 		goto out;
 	}
@@ -3107,7 +3132,7 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 	Type *tpad;
 	int isddd;
 
-	if(debug['r'])
+	if(0 && debug['r'])
 		print("genwrapper rcvrtype=%T method=%T newnam=%S\n",
 			rcvr, method, newnam);
 
@@ -3161,11 +3186,14 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 		fn->nbody = list1(n);
 	}
 
-	if(debug['r'])
+	if(0 && debug['r'])
 		dumplist("genwrapper body", fn->nbody);
 
 	funcbody(fn);
+	curfn = fn;
 	typecheck(&fn, Etop);
+	typechecklist(fn->nbody, Etop);
+	curfn = nil;
 	funccompile(fn, 0);
 }
 
@@ -3256,8 +3284,9 @@ implements(Type *t, Type *iface, Type **m, Type **samename, int *ptr)
 		// the method does not exist for value types.
 		rcvr = getthisx(tm->type)->type->type;
 		if(isptr[rcvr->etype] && !isptr[t0->etype] && !followptr && !isifacemethod(tm->type)) {
-			if(debug['r'])
+			if(0 && debug['r'])
 				yyerror("interface pointer mismatch");
+
 			*m = im;
 			*samename = nil;
 			*ptr = 1;
@@ -3328,6 +3357,64 @@ NodeList*
 list(NodeList *l, Node *n)
 {
 	return concat(l, list1(n));
+}
+
+void
+listsort(NodeList** l, int(*f)(Node*, Node*))
+{
+	NodeList *l1, *l2, *le;
+
+	if(*l == nil || (*l)->next == nil)
+		return;
+
+	l1 = *l;
+	l2 = *l;
+	for(;;) {
+		l2 = l2->next;
+		if(l2 == nil)
+			break;
+		l2 = l2->next;
+		if(l2 == nil)
+			break;
+		l1 = l1->next;
+	}
+
+	l2 = l1->next;
+	l1->next = nil;
+	l2->end = (*l)->end;
+	(*l)->end = l1;
+
+	l1 = *l;
+	listsort(&l1, f);
+	listsort(&l2, f);
+
+	if ((*f)(l1->n, l2->n) < 0) {
+		*l = l1;
+	} else {
+		*l = l2;
+		l2 = l1;
+		l1 = *l;
+	}
+
+	// now l1 == *l; and l1 < l2
+
+	while ((l1 != nil) && (l2 != nil)) {
+		while ((l1->next != nil) && (*f)(l1->next->n, l2->n) < 0)
+			l1 = l1->next;
+		
+		// l1 is last one from l1 that is < l2
+		le = l1->next;		// le is the rest of l1, first one that is >= l2
+		if (le != nil)
+			le->end = (*l)->end;
+
+		(*l)->end = l1;		// cut *l at l1
+		*l = concat(*l, l2);	// glue l2 to *l's tail
+
+		l1 = l2;		// l1 is the first element of *l that is < the new l2
+		l2 = le;		// ... because l2 now is the old tail of l1
+	}
+
+	*l = concat(*l, l2);		// any remainder 
 }
 
 NodeList*

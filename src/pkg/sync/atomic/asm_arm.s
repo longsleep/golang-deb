@@ -87,11 +87,14 @@ add64loop:
 // which will make uses of the 64-bit atomic operations loop forever.
 // If things are working, set okLDREXD to avoid future checks.
 // https://bugs.launchpad.net/qemu/+bug/670883.
-TEXT	check64<>(SB),7,$8
+TEXT	check64<>(SB),7,$16
 	MOVW	$10, R1
+	// 8-aligned stack address scratch space.
+	MOVW	$8(R13), R5
+	AND	$~7, R5
 loop:
-	LDREXD	(SP), R2
-	STREXD	R2, (SP), R0
+	LDREXD	(R5), R2
+	STREXD	R2, (R5), R0
 	CMP	$0, R0
 	BEQ	ok
 	SUB	$1, R1

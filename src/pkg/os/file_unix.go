@@ -69,21 +69,27 @@ func (file *File) Stat() (fi *FileInfo, err Error) {
 }
 
 // Readdir reads the contents of the directory associated with file and
-// returns an array of up to count FileInfo structures, as would be returned
-// by Lstat, in directory order.  Subsequent calls on the same file will yield
+// returns an array of up to n FileInfo structures, as would be returned
+// by Lstat, in directory order. Subsequent calls on the same file will yield
 // further FileInfos.
-// A negative count means to read until EOF.
-// Readdir returns the array and an Error, if any.
-func (file *File) Readdir(count int) (fi []FileInfo, err Error) {
+//
+// If n > 0, Readdir returns at most n FileInfo structures. In this case, if
+// Readdir returns an empty slice, it will return a non-nil error
+// explaining why. At the end of a directory, the error is os.EOF.
+//
+// If n <= 0, Readdir returns all the FileInfo from the directory in
+// a single slice. In this case, if Readdir succeeds (reads all
+// the way to the end of the directory), it returns the slice and a
+// nil os.Error. If it encounters an error before the end of the
+// directory, Readdir returns the FileInfo read until that point
+// and a non-nil error.
+func (file *File) Readdir(n int) (fi []FileInfo, err Error) {
 	dirname := file.name
 	if dirname == "" {
 		dirname = "."
 	}
 	dirname += "/"
-	names, err1 := file.Readdirnames(count)
-	if err1 != nil {
-		return nil, err1
-	}
+	names, err := file.Readdirnames(n)
 	fi = make([]FileInfo, len(names))
 	for i, filename := range names {
 		fip, err := Lstat(dirname + filename)

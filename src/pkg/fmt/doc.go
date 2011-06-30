@@ -25,9 +25,10 @@
 		%c	the character represented by the corresponding Unicode code point
 		%d	base 10
 		%o	base 8
+		%q	a single-quoted character literal safely escaped with Go syntax.
 		%x	base 16, with lower-case letters for a-f
 		%X	base 16, with upper-case letters for A-F
-		%U	Unicode format: U+1234; same as "U+%0.4X"
+		%U	Unicode format: U+1234; same as "U+%04X"
 	Floating-point and complex constituents:
 		%b	decimalless scientific notation with exponent a power
 			of two, in the manner of strconv.Ftoa32, e.g. -123456p-78
@@ -134,10 +135,10 @@
 	The formats behave analogously to those of Printf with the
 	following exceptions:
 
-	%p is not implemented
-	%T is not implemented
-	%e %E %f %F %g %g are all equivalent and scan any floating point or complex value
-	%s and %v on strings scan a space-delimited token
+		%p is not implemented
+		%T is not implemented
+		%e %E %f %F %g %G are all equivalent and scan any floating point or complex value
+		%s and %v on strings scan a space-delimited token
 
 	The familiar base-setting prefixes 0 (octal) and 0x
 	(hexadecimal) are accepted when scanning integers without a

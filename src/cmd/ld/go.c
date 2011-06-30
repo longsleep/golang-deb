@@ -415,8 +415,8 @@ loaddynimport(char *file, char *pkg, char *p, int n)
 	char *pend, *next, *name, *def, *p0, *lib, *q;
 	Sym *s;
 
+	USED(file);
 	pend = p + n;
-	p0 = p;
 	for(; p<pend; p=next) {
 		next = strchr(p, '\n');
 		if(next == nil)
@@ -454,6 +454,7 @@ loaddynimport(char *file, char *pkg, char *p, int n)
 		if(strcmp(name, "_") == 0 && strcmp(def, "_") == 0) {
 			// allow #pragma dynimport _ _ "foo.so"
 			// to force a link of foo.so.
+			havedynamic = 1;
 			adddynlib(lib);
 			continue;
 		}
@@ -468,6 +469,7 @@ loaddynimport(char *file, char *pkg, char *p, int n)
 			s->dynimpname = def;
 			s->dynimpvers = q;
 			s->type = SDYNIMPORT;
+			havedynamic = 1;
 		}
 	}
 	return;
@@ -483,8 +485,8 @@ loaddynexport(char *file, char *pkg, char *p, int n)
 	char *pend, *next, *local, *elocal, *remote, *p0;
 	Sym *s;
 
+	USED(file);
 	pend = p + n;
-	p0 = p;
 	for(; p<pend; p=next) {
 		next = strchr(p, '\n');
 		if(next == nil)

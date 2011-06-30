@@ -38,6 +38,9 @@ func newTransferWriter(r interface{}) (t *transferWriter, err os.Error) {
 		t.TransferEncoding = rr.TransferEncoding
 		t.Trailer = rr.Trailer
 		atLeastHTTP11 = rr.ProtoAtLeast(1, 1)
+		if t.Body != nil && t.ContentLength <= 0 && len(t.TransferEncoding) == 0 && atLeastHTTP11 {
+			t.TransferEncoding = []string{"chunked"}
+		}
 	case *Response:
 		t.Body = rr.Body
 		t.ContentLength = rr.ContentLength
@@ -45,7 +48,7 @@ func newTransferWriter(r interface{}) (t *transferWriter, err os.Error) {
 		t.TransferEncoding = rr.TransferEncoding
 		t.Trailer = rr.Trailer
 		atLeastHTTP11 = rr.ProtoAtLeast(1, 1)
-		t.ResponseToHEAD = noBodyExpected(rr.RequestMethod)
+		t.ResponseToHEAD = noBodyExpected(rr.Request.Method)
 	}
 
 	// Sanitize Body,ContentLength,TransferEncoding
@@ -95,7 +98,7 @@ func (t *transferWriter) WriteHeader(w io.Writer) (err os.Error) {
 		if err != nil {
 			return
 		}
-	} else if t.ContentLength > 0 || t.ResponseToHEAD {
+	} else if t.ContentLength > 0 || t.ResponseToHEAD || (t.ContentLength == 0 && isIdentity(t.TransferEncoding)) {
 		io.WriteString(w, "Content-Length: ")
 		_, err = io.WriteString(w, strconv.Itoa64(t.ContentLength)+"\r\n")
 		if err != nil {
@@ -196,7 +199,7 @@ func readTransfer(msg interface{}, r *bufio.Reader) (err os.Error) {
 	case *Response:
 		t.Header = rr.Header
 		t.StatusCode = rr.StatusCode
-		t.RequestMethod = rr.RequestMethod
+		t.RequestMethod = rr.Request.Method
 		t.ProtoMajor = rr.ProtoMajor
 		t.ProtoMinor = rr.ProtoMinor
 		t.Close = shouldClose(t.ProtoMajor, t.ProtoMinor, t.Header)
@@ -288,6 +291,9 @@ func readTransfer(msg interface{}, r *bufio.Reader) (err os.Error) {
 
 // Checks whether chunked is part of the encodings stack
 func chunked(te []string) bool { return len(te) > 0 && te[0] == "chunked" }
+
+// Checks whether the encoding is explicitly "identity".
+func isIdentity(te []string) bool { return len(te) == 1 && te[0] == "identity" }
 
 // Sanitize transfer encoding
 func fixTransferEncoding(requestMethod string, header Header) ([]string, os.Error) {

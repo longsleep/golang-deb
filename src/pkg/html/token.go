@@ -331,10 +331,10 @@ func (z *Tokenizer) trim(i int) int {
 	return k
 }
 
-// lower finds the largest alphabetic [0-9A-Za-z]* word at the start of z.buf[i:]
-// and returns that word lower-cased, as well as the trimmed cursor location
-// after that word.
-func (z *Tokenizer) lower(i int) ([]byte, int) {
+// word finds the largest alphabetic [0-9A-Za-z]* word at the start
+// of z.buf[i:] and returns that word (optionally lower-cased), as
+// well as the trimmed cursor location after that word.
+func (z *Tokenizer) word(i int, lower bool) ([]byte, int) {
 	i0 := i
 loop:
 	for ; i < z.p1; i++ {
@@ -343,8 +343,37 @@ loop:
 		case '0' <= c && c <= '9':
 			// No-op.
 		case 'A' <= c && c <= 'Z':
-			z.buf[i] = c + 'a' - 'A'
+			if lower {
+				z.buf[i] = c + 'a' - 'A'
+			}
 		case 'a' <= c && c <= 'z':
+			// No-op.
+		default:
+			break loop
+		}
+	}
+	return z.buf[i0:i], z.trim(i)
+}
+
+// attrName finds the largest attribute name at the start
+// of z.buf[i:] and returns it lower-cased, as well
+// as the trimmed cursor location after that word.
+//
+// http://dev.w3.org/html5/spec/Overview.html#syntax-attribute-name
+// TODO: unicode characters
+func (z *Tokenizer) attrName(i int) ([]byte, int) {
+	i0 := i
+loop:
+	for ; i < z.p1; i++ {
+		c := z.buf[i]
+		switch c {
+		case '<', '>', '"', '\'', '/', '=':
+			break loop
+		}
+		switch {
+		case 'A' <= c && c <= 'Z':
+			z.buf[i] = c + 'a' - 'A'
+		case c > ' ' && c < 0x7f:
 			// No-op.
 		default:
 			break loop
@@ -388,7 +417,7 @@ func (z *Tokenizer) TagName() (name []byte, hasAttr bool) {
 	if z.buf[i] == '/' {
 		i++
 	}
-	name, z.p0 = z.lower(i)
+	name, z.p0 = z.word(i, true)
 	hasAttr = z.p0 != z.p1
 	return
 }
@@ -397,23 +426,36 @@ func (z *Tokenizer) TagName() (name []byte, hasAttr bool) {
 // attribute for the current tag token and whether there are more attributes.
 // The contents of the returned slices may change on the next call to Next.
 func (z *Tokenizer) TagAttr() (key, val []byte, moreAttr bool) {
-	key, i := z.lower(z.p0)
-	// Get past the "=\"".
-	if i == z.p1 || z.buf[i] != '=' {
+	key, i := z.attrName(z.p0)
+	// Check for an empty attribute value.
+	if i == z.p1 {
+		z.p0 = i
+		return
+	}
+	// Get past the equals and quote characters.
+	if z.buf[i] != '=' {
+		z.p0, moreAttr = i, true
 		return
 	}
 	i = z.trim(i + 1)
-	if i == z.p1 || z.buf[i] != '"' {
+	if i == z.p1 {
+		z.p0 = i
+		return
+	}
+	closeQuote := z.buf[i]
+	if closeQuote != '\'' && closeQuote != '"' {
+		val, z.p0 = z.word(i, false)
+		moreAttr = z.p0 != z.p1
 		return
 	}
 	i = z.trim(i + 1)
-	// Copy and unescape everything up to the closing '"'.
+	// Copy and unescape everything up to the closing quote.
 	dst, src := i, i
 loop:
 	for src < z.p1 {
 		c := z.buf[src]
 		switch c {
-		case '"':
+		case closeQuote:
 			src++
 			break loop
 		case '&':

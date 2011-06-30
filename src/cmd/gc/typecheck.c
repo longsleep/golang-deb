@@ -8,7 +8,6 @@
  * evaluates compile time constants.
  * marks variables that escape the local frame.
  * rewrites n->op to be more specific in some cases.
- * sets n->walk to walking function.
  */
 
 #include "go.h"
@@ -29,9 +28,11 @@ static void	typecheckfunc(Node*);
 static void	checklvalue(Node*, char*);
 static void	checkassign(Node*);
 static void	checkassignlist(NodeList*);
-static void stringtoarraylit(Node**);
-static Node* resolve(Node*);
+static void	stringtoarraylit(Node**);
+static Node*	resolve(Node*);
 static Type*	getforwtype(Node*);
+
+static	NodeList*	typecheckdefstack;
 
 /*
  * resolve ONONAME to definition, if any.
@@ -159,7 +160,7 @@ typecheck(Node **np, int top)
 		if(n->op == OTYPE && (ft = getforwtype(n->ntype)) != T)
 			defertypecopy(n, ft);
 
-		walkdef(n);
+		typecheckdef(n);
 		n->realtype = n->type;
 		if(n->op == ONONAME)
 			goto error;
@@ -780,7 +781,7 @@ reswitch:
 			n = r;
 			goto reswitch;
 		}
-		typecheck(&n->left, Erv | Etype | Ecall);
+		typecheck(&n->left, Erv | Etype | Ecall |(top&Eproc));
 		l = n->left;
 		if(l->op == ONAME && l->etype != 0) {
 			if(n->isddd && l->etype != OAPPEND)
@@ -794,7 +795,7 @@ reswitch:
 		defaultlit(&n->left, T);
 		l = n->left;
 		if(l->op == OTYPE) {
-			if(n->isddd)
+			if(n->isddd || l->type->bound == -100)
 				yyerror("invalid use of ... in type conversion", l);
 			// pick off before type-checking arguments
 			ok |= Erv;
@@ -822,7 +823,13 @@ reswitch:
 
 		case ODOTMETH:
 			n->op = OCALLMETH;
-			typecheckaste(OCALL, n->left, 0, getthisx(t), list1(l->left), "method receiver");
+			// typecheckaste was used here but there wasn't enough
+			// information further down the call chain to know if we
+			// were testing a method receiver for unexported fields.
+			// It isn't necessary, so just do a sanity check.
+			tp = getthisx(t)->type->type;
+			if(l->left == N || !eqtype(l->left->type, tp))
+				fatal("method receiver");
 			break;
 
 		default:
@@ -894,12 +901,20 @@ reswitch:
 		// might be constant
 		switch(t->etype) {
 		case TSTRING:
-			if(isconst(l, CTSTR))
-				nodconst(n, types[TINT], l->val.u.sval->len);
+			if(isconst(l, CTSTR)) {
+				r = nod(OXXX, N, N);
+				nodconst(r, types[TINT], l->val.u.sval->len);
+				r->orig = n;
+				n = r;
+			}
 			break;
 		case TARRAY:
-			if(t->bound >= 0 && l->op == ONAME)
-				nodconst(n, types[TINT], t->bound);
+			if(t->bound >= 0 && l->op == ONAME) {
+				r = nod(OXXX, N, N);
+				nodconst(r, types[TINT], t->bound);
+				r->orig = n;
+				n = r;
+			}
 			break;
 		}
 		n->type = types[TINT];
@@ -1013,9 +1028,9 @@ reswitch:
 		
 		// copy([]byte, string)
 		if(isslice(n->left->type) && n->right->type->etype == TSTRING) {
-		        if (n->left->type->type ==types[TUINT8])
-			        goto ret;
-		        yyerror("arguments to copy have different element types: %lT and string", n->left->type);
+			if (n->left->type->type == types[TUINT8])
+				goto ret;
+			yyerror("arguments to copy have different element types: %lT and string", n->left->type);
 			goto error;
 		}
 			       
@@ -1203,7 +1218,7 @@ reswitch:
 
 	case OCLOSURE:
 		ok |= Erv;
-		typecheckclosure(n);
+		typecheckclosure(n, top);
 		if(n->type == T)
 			goto error;
 		goto ret;
@@ -1232,9 +1247,13 @@ reswitch:
 		goto ret;
 
 	case ODEFER:
-	case OPROC:
 		ok |= Etop;
 		typecheck(&n->left, Etop);
+		goto ret;
+
+	case OPROC:
+		ok |= Etop;
+		typecheck(&n->left, Etop|Eproc);
 		goto ret;
 
 	case OFOR:
@@ -1357,7 +1376,10 @@ ret:
 		goto error;
 	}
 	if((top & Etop) && !(top & (Ecall|Erv|Etype)) && !(ok & Etop)) {
-		yyerror("%#N not used", n);
+		if(n->diag == 0) {
+			yyerror("%#N not used", n);
+			n->diag = 1;
+		}
 		goto error;
 	}
 
@@ -2148,7 +2170,9 @@ addrescapes(Node *n)
 		if(n->noescape)
 			break;
 		switch(n->class) {
-		case PAUTO:
+		case PPARAMREF:
+			addrescapes(n->defn);
+			break;
 		case PPARAM:
 		case PPARAMOUT:
 			// if func param, need separate temporary
@@ -2156,16 +2180,17 @@ addrescapes(Node *n)
 			// the function type has already been checked
 			// (we're in the function body)
 			// so the param already has a valid xoffset.
-			if(n->class == PPARAM || n->class == PPARAMOUT) {
-				// expression to refer to stack copy
-				n->stackparam = nod(OPARAM, n, N);
-				n->stackparam->type = n->type;
-				n->stackparam->addable = 1;
-				if(n->xoffset == BADWIDTH)
-					fatal("addrescapes before param assignment");
-				n->stackparam->xoffset = n->xoffset;
-				n->xoffset = 0;
-			}
+
+			// expression to refer to stack copy
+			n->stackparam = nod(OPARAM, n, N);
+			n->stackparam->type = n->type;
+			n->stackparam->addable = 1;
+			if(n->xoffset == BADWIDTH)
+				fatal("addrescapes before param assignment");
+			n->stackparam->xoffset = n->xoffset;
+			n->xoffset = 0;
+			// fallthrough
+		case PAUTO:
 
 			n->class |= PHEAP;
 			n->addable = 0;
@@ -2178,7 +2203,9 @@ addrescapes(Node *n)
 			snprint(buf, sizeof buf, "&%S", n->sym);
 			n->heapaddr->sym = lookup(buf);
 			n->heapaddr->class = PHEAP-1;	// defer tempname to allocparams
-			curfn->dcl = list(curfn->dcl, n->heapaddr);
+			n->heapaddr->ullman = 1;
+			n->curfn->dcl = list(n->curfn->dcl, n->heapaddr);
+
 			break;
 		}
 		break;
@@ -2496,4 +2523,295 @@ getforwtype(Node *n)
 				return T;
 		}
 	}
+}
+
+static int ntypecheckdeftype;
+static NodeList *methodqueue;
+
+static void
+domethod(Node *n)
+{
+	Node *nt;
+
+	nt = n->type->nname;
+	typecheck(&nt, Etype);
+	if(nt->type == T) {
+		// type check failed; leave empty func
+		n->type->etype = TFUNC;
+		n->type->nod = N;
+		return;
+	}
+	*n->type = *nt->type;
+	n->type->nod = N;
+	checkwidth(n->type);
+}
+
+typedef struct NodeTypeList NodeTypeList;
+struct NodeTypeList {
+	Node *n;
+	Type *t;
+	NodeTypeList *next;
+};
+
+static	NodeTypeList	*dntq;
+static	NodeTypeList	*dntend;
+
+void
+defertypecopy(Node *n, Type *t)
+{
+	NodeTypeList *ntl;
+
+	if(n == N || t == T)
+		return;
+
+	ntl = mal(sizeof *ntl);
+	ntl->n = n;
+	ntl->t = t;
+	ntl->next = nil;
+
+	if(dntq == nil)
+		dntq = ntl;
+	else
+		dntend->next = ntl;
+
+	dntend = ntl;
+}
+
+void
+resumetypecopy(void)
+{
+	NodeTypeList *l;
+
+	for(l=dntq; l; l=l->next)
+		copytype(l->n, l->t);
+}
+
+void
+copytype(Node *n, Type *t)
+{
+	*n->type = *t;
+
+	t = n->type;
+	t->sym = n->sym;
+	t->local = n->local;
+	t->vargen = n->vargen;
+	t->siggen = 0;
+	t->method = nil;
+	t->nod = N;
+	t->printed = 0;
+	t->deferwidth = 0;
+}
+
+static void
+typecheckdeftype(Node *n)
+{
+	int maplineno, embedlineno, lno;
+	Type *t;
+	NodeList *l;
+
+	ntypecheckdeftype++;
+	lno = lineno;
+	setlineno(n);
+	n->type->sym = n->sym;
+	n->typecheck = 1;
+	typecheck(&n->ntype, Etype);
+	if((t = n->ntype->type) == T) {
+		n->diag = 1;
+		goto ret;
+	}
+	if(n->type == T) {
+		n->diag = 1;
+		goto ret;
+	}
+
+	maplineno = n->type->maplineno;
+	embedlineno = n->type->embedlineno;
+
+	// copy new type and clear fields
+	// that don't come along.
+	// anything zeroed here must be zeroed in
+	// typedcl2 too.
+	copytype(n, t);
+
+	// double-check use of type as map key.
+	if(maplineno) {
+		lineno = maplineno;
+		maptype(n->type, types[TBOOL]);
+	}
+	if(embedlineno) {
+		lineno = embedlineno;
+		if(isptr[t->etype])
+			yyerror("embedded type cannot be a pointer");
+	}
+
+ret:
+	lineno = lno;
+
+	// if there are no type definitions going on, it's safe to
+	// try to resolve the method types for the interfaces
+	// we just read.
+	if(ntypecheckdeftype == 1) {
+		while((l = methodqueue) != nil) {
+			methodqueue = nil;
+			for(; l; l=l->next)
+				domethod(l->n);
+		}
+	}
+	ntypecheckdeftype--;
+}
+
+void
+queuemethod(Node *n)
+{
+	if(ntypecheckdeftype == 0) {
+		domethod(n);
+		return;
+	}
+	methodqueue = list(methodqueue, n);
+}
+
+Node*
+typecheckdef(Node *n)
+{
+	int lno;
+	Node *e;
+	Type *t;
+	NodeList *l;
+
+	lno = lineno;
+	setlineno(n);
+
+	if(n->op == ONONAME) {
+		if(!n->diag) {
+			n->diag = 1;
+			if(n->lineno != 0)
+				lineno = n->lineno;
+			yyerror("undefined: %S", n->sym);
+		}
+		return n;
+	}
+
+	if(n->walkdef == 1)
+		return n;
+
+	l = mal(sizeof *l);
+	l->n = n;
+	l->next = typecheckdefstack;
+	typecheckdefstack = l;
+
+	if(n->walkdef == 2) {
+		flusherrors();
+		print("typecheckdef loop:");
+		for(l=typecheckdefstack; l; l=l->next)
+			print(" %S", l->n->sym);
+		print("\n");
+		fatal("typecheckdef loop");
+	}
+	n->walkdef = 2;
+
+	if(n->type != T || n->sym == S)	// builtin or no name
+		goto ret;
+
+	switch(n->op) {
+	default:
+		fatal("typecheckdef %O", n->op);
+
+	case OLITERAL:
+		if(n->ntype != N) {
+			typecheck(&n->ntype, Etype);
+			n->type = n->ntype->type;
+			n->ntype = N;
+			if(n->type == T) {
+				n->diag = 1;
+				goto ret;
+			}
+		}
+		e = n->defn;
+		n->defn = N;
+		if(e == N) {
+			lineno = n->lineno;
+			dump("typecheckdef nil defn", n);
+			yyerror("xxx");
+		}
+		typecheck(&e, Erv | Eiota);
+		if(e->type != T && e->op != OLITERAL) {
+			yyerror("const initializer must be constant");
+			goto ret;
+		}
+		if(isconst(e, CTNIL)) {
+			yyerror("const initializer cannot be nil");
+			goto ret;
+		}
+		t = n->type;
+		if(t != T) {
+			if(!okforconst[t->etype]) {
+				yyerror("invalid constant type %T", t);
+				goto ret;
+			}
+			if(!isideal(e->type) && !eqtype(t, e->type)) {
+				yyerror("cannot use %+N as type %T in const initializer", e, t);
+				goto ret;
+			}
+			convlit(&e, t);
+		}
+		n->val = e->val;
+		n->type = e->type;
+		break;
+
+	case ONAME:
+		if(n->ntype != N) {
+			typecheck(&n->ntype, Etype);
+			n->type = n->ntype->type;
+			if(n->type == T) {
+				n->diag = 1;
+				goto ret;
+			}
+		}
+		if(n->type != T)
+			break;
+		if(n->defn == N) {
+			if(n->etype != 0)	// like OPRINTN
+				break;
+			if(nerrors > 0) {
+				// Can have undefined variables in x := foo
+				// that make x have an n->ndefn == nil.
+				// If there are other errors anyway, don't
+				// bother adding to the noise.
+				break;
+			}
+			fatal("var without type, init: %S", n->sym);
+		}
+		if(n->defn->op == ONAME) {
+			typecheck(&n->defn, Erv);
+			n->type = n->defn->type;
+			break;
+		}
+		typecheck(&n->defn, Etop);	// fills in n->type
+		break;
+
+	case OTYPE:
+		if(curfn)
+			defercheckwidth();
+		n->walkdef = 1;
+		n->type = typ(TFORW);
+		n->type->sym = n->sym;
+		typecheckdeftype(n);
+		if(curfn)
+			resumecheckwidth();
+		break;
+
+	case OPACK:
+		// nothing to see here
+		break;
+	}
+
+ret:
+	if(typecheckdefstack->n != n)
+		fatal("typecheckdefstack mismatch");
+	l = typecheckdefstack;
+	typecheckdefstack = l->next;
+
+	lineno = lno;
+	n->walkdef = 1;
+	return n;
 }

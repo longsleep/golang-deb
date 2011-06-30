@@ -28,9 +28,9 @@ Let's start in the usual way:
 <p>
 <pre> <!-- progs/helloworld.go /package/ END -->
 05    package main
-<p>
+
 07    import fmt &quot;fmt&quot;  // Package implementing formatted I/O.
-<p>
+
 09    func main() {
 10        fmt.Printf(&quot;Hello, world; or Καλημέρα κόσμε; or こんにちは 世界\n&quot;)
 11    }
@@ -118,19 +118,19 @@ Next up, here's a version of the Unix utility <code>echo(1)</code>:
 <p>
 <pre> <!-- progs/echo.go /package/ END -->
 05    package main
-<p>
+
 07    import (
 08        &quot;os&quot;
 09        &quot;flag&quot;  // command line option parser
 10    )
-<p>
+
 12    var omitNewline = flag.Bool(&quot;n&quot;, false, &quot;don't print final newline&quot;)
-<p>
+
 14    const (
 15        Space = &quot; &quot;
 16        Newline = &quot;\n&quot;
 17    )
-<p>
+
 19    func main() {
 20        flag.Parse()   // Scans the arg list and sets up flags
 21        var s string = &quot;&quot;
@@ -340,7 +340,7 @@ Using slices one can write this function (from <code>sum.go</code>):
 15    }
 </pre>
 <p>
-Note how the return type (<code>int</code>) is defined for <code>sum()</code> by stating it
+Note how the return type (<code>int</code>) is defined for <code>sum</code> by stating it
 after the parameter list.
 <p>
 To call the function, we slice the array.  This intricate call (we'll show
@@ -372,7 +372,7 @@ There are also maps, which you can initialize like this:
     m := map[string]int{"one":1 , "two":2}
 </pre>
 <p>
-The built-in function <code>len()</code>, which returns number of elements,
+The built-in function <code>len</code>, which returns number of elements,
 makes its first appearance in <code>sum</code>.  It works on strings, arrays,
 slices, maps, and channels.
 <p>
@@ -400,7 +400,7 @@ for more examples of its use.
 Most types in Go are values. If you have an <code>int</code> or a <code>struct</code>
 or an array, assignment
 copies the contents of the object.
-To allocate a new variable, use <code>new()</code>, which
+To allocate a new variable, use the built-in function <code>new</code>, which
 returns a pointer to the allocated storage.
 <p>
 <pre>
@@ -417,7 +417,7 @@ or the more idiomatic
 Some types&mdash;maps, slices, and channels (see below)&mdash;have reference semantics.
 If you're holding a slice or a map and you modify its contents, other variables
 referencing the same underlying data will see the modification.  For these three
-types you want to use the built-in function <code>make()</code>:
+types you want to use the built-in function <code>make</code>:
 <p>
 <pre>
     m := make(map[string]int)
@@ -431,11 +431,11 @@ If you just declare the map, as in
 </pre>
 <p>
 it creates a <code>nil</code> reference that cannot hold anything. To use the map,
-you must first initialize the reference using <code>make()</code> or by assignment from an
+you must first initialize the reference using <code>make</code> or by assignment from an
 existing map.
 <p>
 Note that <code>new(T)</code> returns type <code>*T</code> while <code>make(T)</code> returns type
-<code>T</code>.  If you (mistakenly) allocate a reference object with <code>new()</code>,
+<code>T</code>.  If you (mistakenly) allocate a reference object with <code>new</code> rather than <code>make</code>,
 you receive a pointer to a nil reference, equivalent to
 declaring an uninitialized variable and taking its address.
 <p>
@@ -478,12 +478,12 @@ open/close/read/write interface.  Here's the start of <code>file.go</code>:
 <p>
 <pre> <!-- progs/file.go /package/ /^}/ -->
 05    package file
-<p>
+
 07    import (
 08        &quot;os&quot;
 09        &quot;syscall&quot;
 10    )
-<p>
+
 12    type File struct {
 13        fd   int    // file descriptor number
 14        name string // file name at Open time
@@ -600,7 +600,7 @@ the tricky standard arguments to open and, especially, to create a file:
 41        O_CREATE = syscall.O_CREAT
 42        O_TRUNC  = syscall.O_TRUNC
 43    )
-<p>
+
 45    func Open(name string) (file *File, err os.Error) {
 46        return OpenFile(name, O_RDONLY, 0)
 47    }
@@ -631,7 +631,7 @@ each of which declares a receiver variable <code>file</code>.
 61        }
 62        return nil
 63    }
-<p>
+
 65    func (file *File) Read(b []byte) (ret int, err os.Error) {
 66        if file == nil {
 67            return -1, os.EINVAL
@@ -642,7 +642,7 @@ each of which declares a receiver variable <code>file</code>.
 72        }
 73        return int(r), err
 74    }
-<p>
+
 76    func (file *File) Write(b []byte) (ret int, err os.Error) {
 77        if file == nil {
 78            return -1, os.EINVAL
@@ -653,7 +653,7 @@ each of which declares a receiver variable <code>file</code>.
 83        }
 84        return int(r), err
 85    }
-<p>
+
 87    func (file *File) String() string {
 88        return file.name
 89    }
@@ -676,13 +676,13 @@ We can now use our new package:
 <p>
 <pre> <!-- progs/helloworld3.go /package/ END -->
 05    package main
-<p>
+
 07    import (
 08        &quot;./file&quot;
 09        &quot;fmt&quot;
 10        &quot;os&quot;
 11    )
-<p>
+
 13    func main() {
 14        hello := []byte(&quot;hello, world\n&quot;)
 15        file.Stdout.Write(hello)
@@ -719,14 +719,14 @@ Building on the <code>file</code> package, here's a simple version of the Unix u
 <p>
 <pre> <!-- progs/cat.go /package/ END -->
 05    package main
-<p>
+
 07    import (
 08        &quot;./file&quot;
 09        &quot;flag&quot;
 10        &quot;fmt&quot;
 11        &quot;os&quot;
 12    )
-<p>
+
 14    func cat(f *file.File) {
 15        const NBUF = 512
 16        var buf [NBUF]byte
@@ -745,7 +745,7 @@ Building on the <code>file</code> package, here's a simple version of the Unix u
 29            }
 30        }
 31    }
-<p>
+
 33    func main() {
 34        flag.Parse() // Scans the arg list and sets up flags
 35        if flag.NArg() == 0 {
@@ -766,7 +766,7 @@ Building on the <code>file</code> package, here's a simple version of the Unix u
 By now this should be easy to follow, but the <code>switch</code> statement introduces some
 new features.  Like a <code>for</code> loop, an <code>if</code> or <code>switch</code> can include an
 initialization statement.  The <code>switch</code> on line 18 uses one to create variables
-<code>nr</code> and <code>er</code> to hold the return values from <code>f.Read()</code>.  (The <code>if</code> on line 25
+<code>nr</code> and <code>er</code> to hold the return values from the call to <code>f.Read</code>.  (The <code>if</code> on line 25
 has the same idea.)  The <code>switch</code> statement is general: it evaluates the cases
 from  top to bottom looking for the first case that matches the value; the
 case expressions don't need to be constants or even integers, as long as
@@ -778,14 +778,14 @@ in a <code>for</code> statement, a missing value means <code>true</code>.  In fa
 is a form of <code>if-else</code> chain. While we're here, it should be mentioned that in
 <code>switch</code> statements each <code>case</code> has an implicit <code>break</code>.
 <p>
-Line 25 calls <code>Write()</code> by slicing the incoming buffer, which is itself a slice.
+Line 25 calls <code>Write</code> by slicing the incoming buffer, which is itself a slice.
 Slices provide the standard Go way to handle I/O buffers.
 <p>
 Now let's make a variant of <code>cat</code> that optionally does <code>rot13</code> on its input.
 It's easy to do by just processing the bytes, but instead we will exploit
 Go's notion of an <i>interface</i>.
 <p>
-The <code>cat()</code> subroutine uses only two methods of <code>f</code>: <code>Read()</code> and <code>String()</code>,
+The <code>cat</code> subroutine uses only two methods of <code>f</code>: <code>Read</code> and <code>String</code>,
 so let's start by defining an interface that has exactly those two methods.
 Here is code from <code>progs/cat_rot13.go</code>:
 <p>
@@ -810,11 +810,11 @@ we have a second implementation of the <code>reader</code> interface.
 31    type rotate13 struct {
 32        source reader
 33    }
-<p>
+
 35    func newRotate13(source reader) *rotate13 {
 36        return &amp;rotate13{source}
 37    }
-<p>
+
 39    func (r13 *rotate13) Read(b []byte) (ret int, err os.Error) {
 40        r, e := r13.source.Read(b)
 41        for i := 0; i &lt; r; i++ {
@@ -822,7 +822,7 @@ we have a second implementation of the <code>reader</code> interface.
 43        }
 44        return r, e
 45    }
-<p>
+
 47    func (r13 *rotate13) String() string {
 48        return r13.source.String()
 49    }
@@ -837,13 +837,13 @@ To use the new feature, we define a flag:
 14    var rot13Flag = flag.Bool(&quot;rot13&quot;, false, &quot;rot13 the input&quot;)
 </pre>
 <p>
-and use it from within a mostly unchanged <code>cat()</code> function:
+and use it from within a mostly unchanged <code>cat</code> function:
 <p>
 <pre> <!-- progs/cat_rot13.go /func.cat/ /^}/ -->
 52    func cat(r reader) {
 53        const NBUF = 512
 54        var buf [NBUF]byte
-<p>
+
 56        if *rot13Flag {
 57            r = newRotate13(r)
 58        }
@@ -865,7 +865,7 @@ and use it from within a mostly unchanged <code>cat()</code> function:
 74    }
 </pre>
 <p>
-(We could also do the wrapping in <code>main</code> and leave <code>cat()</code> mostly alone, except
+(We could also do the wrapping in <code>main</code> and leave <code>cat</code> mostly alone, except
 for changing the type of the argument; consider that an exercise.)
 Lines 56 through 58 set it all up: If the <code>rot13</code> flag is true, wrap the <code>reader</code>
 we received into a <code>rotate13</code> and proceed.  Note that the interface variables
@@ -936,7 +936,7 @@ arrays of integers, strings, etc.; here's the code for arrays of <code>int</code
 <p>
 <pre> <!-- progs/sort.go /type.*IntArray/ /Swap/ -->
 33    type IntArray []int
-<p>
+
 35    func (p IntArray) Len() int            { return len(p) }
 36    func (p IntArray) Less(i, j int) bool  { return p[i] &lt; p[j] }
 37    func (p IntArray) Swap(i, j int)       { p[i], p[j] = p[j], p[i] }
@@ -969,11 +969,11 @@ to implement the three methods for that type, like this:
 32        shortName  string
 33        longName   string
 34    }
-<p>
+
 36    type dayArray struct {
 37        data []*day
 38    }
-<p>
+
 40    func (p *dayArray) Len() int            { return len(p.data) }
 41    func (p *dayArray) Less(i, j int) bool  { return p.data[i].num &lt; p.data[j].num }
 42    func (p *dayArray) Swap(i, j int)       { p.data[i], p.data[j] = p.data[j], p.data[i] }
@@ -1054,7 +1054,7 @@ to that of the <code>Printf</code> call above.
 </pre>
 <p>
 If you have your own type you'd like <code>Printf</code> or <code>Print</code> to format,
-just give it a <code>String()</code> method that returns a string.  The print
+just give it a <code>String</code> method that returns a string.  The print
 routines will examine the value to inquire whether it implements
 the method and if so, use it rather than some other formatting.
 Here's a simple example.
@@ -1064,25 +1064,25 @@ Here's a simple example.
 10        a int
 11        b string
 12    }
-<p>
+
 14    func (t *testType) String() string {
 15        return fmt.Sprint(t.a) + &quot; &quot; + t.b
 16    }
-<p>
+
 18    func main() {
 19        t := &amp;testType{77, &quot;Sunset Strip&quot;}
 20        fmt.Println(t)
 21    }
 </pre>
 <p>
-Since <code>*testType</code> has a <code>String()</code> method, the
+Since <code>*testType</code> has a <code>String</code> method, the
 default formatter for that type will use it and produce the output
 <p>
 <pre>
     77 Sunset Strip
 </pre>
 <p>
-Observe that the <code>String()</code> method calls <code>Sprint</code> (the obvious Go
+Observe that the <code>String</code> method calls <code>Sprint</code> (the obvious Go
 variant that returns a string) to do its formatting; special formatters
 can use the <code>fmt</code> library recursively.
 <p>
@@ -1095,7 +1095,7 @@ and such, but that's getting a little off the main thread so we'll leave it
 as an exploration exercise.
 <p>
 You might ask, though, how <code>Printf</code> can tell whether a type implements
-the <code>String()</code> method.  Actually what it does is ask if the value can
+the <code>String</code> method.  Actually what it does is ask if the value can
 be converted to an interface variable that implements the method.
 Schematically, given a value <code>v</code>, it does this:
 <p>
@@ -1140,7 +1140,7 @@ interface type defined in the <code>io</code> library:
 <p>
 (This interface is another conventional name, this time for <code>Write</code>; there are also
 <code>io.Reader</code>, <code>io.ReadWriter</code>, and so on.)
-Thus you can call <code>Fprintf</code> on any type that implements a standard <code>Write()</code>
+Thus you can call <code>Fprintf</code> on any type that implements a standard <code>Write</code>
 method, not just files but also network channels, buffers, whatever
 you want.
 <p>
@@ -1346,7 +1346,7 @@ code that invokes the operation and responds to the request:
 <p>
 <pre> <!-- progs/server.go /type.binOp/ /^}/ -->
 14    type binOp func(a, b int) int
-<p>
+
 16    func run(op binOp, req *request) {
 17        reply := op(req.a, req.b)
 18        req.replyc &lt;- reply
