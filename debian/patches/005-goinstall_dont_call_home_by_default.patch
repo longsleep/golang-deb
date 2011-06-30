@@ -1,6 +1,6 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -38,7 +38,7 @@ var (
+@@ -36,7 +36,7 @@ var (
  	installedPkgs = make(map[string]bool)
  
  	allpkg            = flag.Bool("a", false, "install all previously installed packages")
@@ -11,7 +11,7 @@
  	clean             = flag.Bool("clean", false, "clean the package directory before installing")
 --- a/src/cmd/goinstall/doc.go
 +++ b/src/cmd/goinstall/doc.go
-@@ -15,7 +15,7 @@ Usage:
+@@ -14,7 +14,7 @@ Usage:
  Flags and default settings:
          -a=false          install all previously installed packages
  	-clean=false      clean the package directory before installing

@@ -60,7 +60,7 @@
  #define _LARGEFILE_SOURCE
  #define _LARGEFILE64_SOURCE
  #define _FILE_OFFSET_BITS 64
-@@ -36,7 +34,7 @@ includes_Linux='
+@@ -41,7 +39,7 @@ includes_Linux='
  #include <netpacket/packet.h>
  '
  
@@ -69,7 +69,7 @@
  #define _DARWIN_C_SOURCE
  #define KERNEL
  #define _DARWIN_USE_64_BIT_INODE
-@@ -55,7 +53,7 @@ includes_Darwin='
+@@ -61,7 +59,7 @@ includes_Darwin='
  #include <netinet/ip_mroute.h>
  '
  
@@ -78,7 +78,7 @@
  #include <sys/types.h>
  #include <sys/event.h>
  #include <sys/socket.h>
-@@ -98,7 +96,7 @@ done
+@@ -105,7 +103,7 @@ done
  
  # Write godefs input.
  (
@@ -89,8 +89,8 @@
  	echo 'enum {'
 --- a/src/pkg/net/Makefile
 +++ b/src/pkg/net/Makefile
-@@ -31,7 +31,7 @@ GOFILES_freebsd=\
- 	port.go\
+@@ -35,7 +35,7 @@ GOFILES_freebsd=\
+ 	sock_bsd.go\
  
  CGOFILES_freebsd=\
 -	cgo_bsd.go\
