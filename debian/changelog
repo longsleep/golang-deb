@@ -1,3 +1,11 @@
+golang (1:58-1) unstable; urgency=low
+
+  * Imported Upstream version 58
+    + Add NEWS file with upstream API changes
+  * Remove patch to not update standard package, fixed in upstream
+
+ -- Ondřej Surý <ondrej@debian.org>  Thu, 30 Jun 2011 15:36:35 +0200
+
 golang (1:57.2-1) unstable; urgency=low
 
   * Imported Upstream version 57.2
