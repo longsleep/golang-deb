@@ -7,13 +7,10 @@
 package http
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -74,6 +71,9 @@ type readClose struct {
 //
 // Generally Get, Post, or PostForm will be used instead of Do.
 func (c *Client) Do(req *Request) (resp *Response, err os.Error) {
+	if req.Method == "GET" || req.Method == "HEAD" {
+		return c.doFollowingRedirects(req)
+	}
 	return send(req, c.Transport)
 }
 
@@ -97,13 +97,10 @@ func send(req *Request, t RoundTripper) (resp *Response, err os.Error) {
 
 	info := req.URL.RawUserinfo
 	if len(info) > 0 {
-		enc := base64.URLEncoding
-		encoded := make([]byte, enc.EncodedLen(len(info)))
-		enc.Encode(encoded, []byte(info))
 		if req.Header == nil {
 			req.Header = make(Header)
 		}
-		req.Header.Set("Authorization", "Basic "+string(encoded))
+		req.Header.Set("Authorization", "Basic "+base64.URLEncoding.EncodeToString([]byte(info)))
 	}
 	return t.RoundTrip(req)
 }
@@ -126,13 +123,10 @@ func shouldRedirect(statusCode int) bool {
 //    303 (See Other)
 //    307 (Temporary Redirect)
 //
-// finalURL is the URL from which the response was fetched -- identical to the
-// input URL unless redirects were followed.
-//
 // Caller should close r.Body when done reading from it.
 //
 // Get is a convenience wrapper around DefaultClient.Get.
-func Get(url string) (r *Response, finalURL string, err os.Error) {
+func Get(url string) (r *Response, err os.Error) {
 	return DefaultClient.Get(url)
 }
 
@@ -145,11 +139,16 @@ func Get(url string) (r *Response, finalURL string, err os.Error) {
 //    303 (See Other)
 //    307 (Temporary Redirect)
 //
-// finalURL is the URL from which the response was fetched -- identical
-// to the input URL unless redirects were followed.
-//
 // Caller should close r.Body when done reading from it.
-func (c *Client) Get(url string) (r *Response, finalURL string, err os.Error) {
+func (c *Client) Get(url string) (r *Response, err os.Error) {
+	req, err := NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return c.doFollowingRedirects(req)
+}
+
+func (c *Client) doFollowingRedirects(ireq *Request) (r *Response, err os.Error) {
 	// TODO: if/when we add cookie support, the redirected request shouldn't
 	// necessarily supply the same cookies as the original.
 	var base *URL
@@ -159,33 +158,33 @@ func (c *Client) Get(url string) (r *Response, finalURL string, err os.Error) {
 	}
 	var via []*Request
 
+	req := ireq
+	url := "" // next relative or absolute URL to fetch (after first request)
 	for redirect := 0; ; redirect++ {
-		var req Request
-		req.Method = "GET"
-		req.Header = make(Header)
-		if base == nil {
-			req.URL, err = ParseURL(url)
-		} else {
+		if redirect != 0 {
+			req = new(Request)
+			req.Method = ireq.Method
+			req.Header = make(Header)
 			req.URL, err = base.ParseURL(url)
-		}
-		if err != nil {
-			break
-		}
-		if len(via) > 0 {
-			// Add the Referer header.
-			lastReq := via[len(via)-1]
-			if lastReq.URL.Scheme != "https" {
-				req.Referer = lastReq.URL.String()
-			}
-
-			err = redirectChecker(&req, via)
 			if err != nil {
 				break
+			}
+			if len(via) > 0 {
+				// Add the Referer header.
+				lastReq := via[len(via)-1]
+				if lastReq.URL.Scheme != "https" {
+					req.Referer = lastReq.URL.String()
+				}
+
+				err = redirectChecker(req, via)
+				if err != nil {
+					break
+				}
 			}
 		}
 
 		url = req.URL.String()
-		if r, err = send(&req, c.Transport); err != nil {
+		if r, err = send(req, c.Transport); err != nil {
 			break
 		}
 		if shouldRedirect(r.StatusCode) {
@@ -195,14 +194,14 @@ func (c *Client) Get(url string) (r *Response, finalURL string, err os.Error) {
 				break
 			}
 			base = req.URL
-			via = append(via, &req)
+			via = append(via, req)
 			continue
 		}
-		finalURL = url
 		return
 	}
 
-	err = &URLError{"Get", url, err}
+	method := ireq.Method
+	err = &URLError{method[0:1] + strings.ToLower(method[1:]), url, err}
 	return
 }
 
@@ -226,23 +225,12 @@ func Post(url string, bodyType string, body io.Reader) (r *Response, err os.Erro
 //
 // Caller should close r.Body when done reading from it.
 func (c *Client) Post(url string, bodyType string, body io.Reader) (r *Response, err os.Error) {
-	var req Request
-	req.Method = "POST"
-	req.ProtoMajor = 1
-	req.ProtoMinor = 1
-	req.Close = true
-	req.Body = ioutil.NopCloser(body)
-	req.Header = Header{
-		"Content-Type": {bodyType},
-	}
-	req.TransferEncoding = []string{"chunked"}
-
-	req.URL, err = ParseURL(url)
+	req, err := NewRequest("POST", url, body)
 	if err != nil {
 		return nil, err
 	}
-
-	return send(&req, c.Transport)
+	req.Header.Set("Content-Type", bodyType)
+	return send(req, c.Transport)
 }
 
 // PostForm issues a POST to the specified URL, 
@@ -251,7 +239,7 @@ func (c *Client) Post(url string, bodyType string, body io.Reader) (r *Response,
 // Caller should close r.Body when done reading from it.
 //
 // PostForm is a wrapper around DefaultClient.PostForm
-func PostForm(url string, data map[string]string) (r *Response, err os.Error) {
+func PostForm(url string, data Values) (r *Response, err os.Error) {
 	return DefaultClient.PostForm(url, data)
 }
 
@@ -259,50 +247,36 @@ func PostForm(url string, data map[string]string) (r *Response, err os.Error) {
 // with data's keys and values urlencoded as the request body.
 //
 // Caller should close r.Body when done reading from it.
-func (c *Client) PostForm(url string, data map[string]string) (r *Response, err os.Error) {
-	var req Request
-	req.Method = "POST"
-	req.ProtoMajor = 1
-	req.ProtoMinor = 1
-	req.Close = true
-	body := urlencode(data)
-	req.Body = ioutil.NopCloser(body)
-	req.Header = Header{
-		"Content-Type":   {"application/x-www-form-urlencoded"},
-		"Content-Length": {strconv.Itoa(body.Len())},
-	}
-	req.ContentLength = int64(body.Len())
-
-	req.URL, err = ParseURL(url)
-	if err != nil {
-		return nil, err
-	}
-
-	return send(&req, c.Transport)
+func (c *Client) PostForm(url string, data Values) (r *Response, err os.Error) {
+	return c.Post(url, "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
 }
 
-// TODO: remove this function when PostForm takes a multimap.
-func urlencode(data map[string]string) (b *bytes.Buffer) {
-	m := make(map[string][]string, len(data))
-	for k, v := range data {
-		m[k] = []string{v}
-	}
-	return bytes.NewBuffer([]byte(EncodeQuery(m)))
-}
-
-// Head issues a HEAD to the specified URL.
+// Head issues a HEAD to the specified URL.  If the response is one of the
+// following redirect codes, Head follows the redirect after calling the
+// Client's CheckRedirect function.
+//
+//    301 (Moved Permanently)
+//    302 (Found)
+//    303 (See Other)
+//    307 (Temporary Redirect)
 //
 // Head is a wrapper around DefaultClient.Head
 func Head(url string) (r *Response, err os.Error) {
 	return DefaultClient.Head(url)
 }
 
-// Head issues a HEAD to the specified URL.
+// Head issues a HEAD to the specified URL.  If the response is one of the
+// following redirect codes, Head follows the redirect after calling the
+// Client's CheckRedirect function.
+//
+//    301 (Moved Permanently)
+//    302 (Found)
+//    303 (See Other)
+//    307 (Temporary Redirect)
 func (c *Client) Head(url string) (r *Response, err os.Error) {
-	var req Request
-	req.Method = "HEAD"
-	if req.URL, err = ParseURL(url); err != nil {
-		return
+	req, err := NewRequest("HEAD", url, nil)
+	if err != nil {
+		return nil, err
 	}
-	return send(&req, c.Transport)
+	return c.doFollowingRedirects(req)
 }

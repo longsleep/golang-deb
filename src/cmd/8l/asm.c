@@ -104,6 +104,9 @@ needlib(char *name)
 	char *p;
 	Sym *s;
 
+	if(*name == '\0')
+		return 0;
+
 	/* reuse hash code in symbol table */
 	p = smprint(".dynlib.%s", name);
 	s = lookup(p, 0);
@@ -532,6 +535,8 @@ doelf(void)
 		elfstr[ElfStrGosymcounts] = addstring(shstrtab, ".gosymcounts");
 		elfstr[ElfStrGosymtab] = addstring(shstrtab, ".gosymtab");
 		elfstr[ElfStrGopclntab] = addstring(shstrtab, ".gopclntab");
+		elfstr[ElfStrSymtab] = addstring(shstrtab, ".symtab");
+		elfstr[ElfStrStrtab] = addstring(shstrtab, ".strtab");
 		dwarfaddshstrings(shstrtab);
 	}
 	elfstr[ElfStrShstrtab] = addstring(shstrtab, ".shstrtab");
@@ -715,10 +720,10 @@ asmb(void)
 			if(iself)
 				goto Elfsym;
 		case Hgarbunix:
-			seek(cout, rnd(HEADR+segtext.filelen, 8192)+segdata.filelen, 0);
+			symo = rnd(HEADR+segtext.filelen, 8192)+segdata.filelen;
 			break;
 		case Hunixcoff:
-			seek(cout, rnd(HEADR+segtext.filelen, INITRND)+segdata.filelen, 0);
+			symo = rnd(HEADR+segtext.filelen, INITRND)+segdata.filelen;
 			break;
 		case Hplan9x32:
 			symo = HEADR+segtext.filelen+segdata.filelen;
@@ -736,32 +741,44 @@ asmb(void)
 			symo = rnd(symo, INITRND);
 			break;
 		case Hwindows:
-			// TODO(brainman): not sure what symo meant to be, but it is not used for Windows PE for now anyway
 			symo = rnd(HEADR+segtext.filelen, PEFILEALIGN)+segdata.filelen;
 			symo = rnd(symo, PEFILEALIGN);
 			break;
 		}
-		if(!debug['s']) {
-			seek(cout, symo, 0);
-			
-			if(HEADTYPE == Hplan9x32) {
-				asmplan9sym();
+		seek(cout, symo, 0);
+		switch(HEADTYPE) {
+		default:
+			if(iself) {
+				if(debug['v'])
+				       Bprint(&bso, "%5.2f elfsym\n", cputime());
+				asmelfsym();
 				cflush();
-				
-				sym = lookup("pclntab", 0);
-				if(sym != nil) {
-					lcsize = sym->np;
-					for(i=0; i < lcsize; i++)
-						cput(sym->p[i]);
-					
-					cflush();
-				}
-				
-			} else if(HEADTYPE != Hwindows) {
+				ewrite(cout, elfstrdat, elfstrsize);
+
 				if(debug['v'])
 					Bprint(&bso, "%5.2f dwarf\n", cputime());
 				dwarfemitdebugsections();
 			}
+			break;
+		case Hplan9x32:
+			asmplan9sym();
+			cflush();
+
+			sym = lookup("pclntab", 0);
+			if(sym != nil) {
+				lcsize = sym->np;
+				for(i=0; i < lcsize; i++)
+					cput(sym->p[i]);
+				
+				cflush();
+			}
+			break;
+		case Hdarwin:
+		case Hwindows:
+			if(debug['v'])
+				Bprint(&bso, "%5.2f dwarf\n", cputime());
+			dwarfemitdebugsections();
+			break;
 		}
 	}
 	if(debug['v'])
@@ -1081,6 +1098,20 @@ asmb(void)
 			sh->flags = SHF_ALLOC;
 			sh->addralign = 1;
 			shsym(sh, lookup("pclntab", 0));
+
+			sh = newElfShdr(elfstr[ElfStrSymtab]);
+			sh->type = SHT_SYMTAB;
+			sh->off = symo;
+			sh->size = symsize;
+			sh->addralign = 4;
+			sh->entsize = 16;
+			sh->link = eh->shnum;	// link to strtab
+
+			sh = newElfShdr(elfstr[ElfStrStrtab]);
+			sh->type = SHT_STRTAB;
+			sh->off = symo+symsize;
+			sh->size = elfstrsize;
+			sh->addralign = 1;
 
 			dwarfaddelfheaders();
 		}

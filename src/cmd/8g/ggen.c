@@ -7,106 +7,9 @@
 #include "gg.h"
 #include "opt.h"
 
-static Prog *pret;
-
 void
-compile(Node *fn)
+defframe(Prog *ptxt)
 {
-	Plist *pl;
-	Node nod1;
-	Prog *ptxt;
-	int32 lno;
-	Type *t;
-	Iter save;
-
-	if(newproc == N) {
-		newproc = sysfunc("newproc");
-		deferproc = sysfunc("deferproc");
-		deferreturn = sysfunc("deferreturn");
-		panicindex = sysfunc("panicindex");
-		panicslice = sysfunc("panicslice");
-		throwreturn = sysfunc("throwreturn");
-	}
-
-	if(fn->nbody == nil)
-		return;
-
-	// set up domain for labels
-	clearlabels();
-
-	lno = setlineno(fn);
-
-	curfn = fn;
-	dowidth(curfn->type);
-
-	if(curfn->type->outnamed) {
-		// add clearing of the output parameters
-		t = structfirst(&save, getoutarg(curfn->type));
-		while(t != T) {
-			if(t->nname != N)
-				curfn->nbody = concat(list1(nod(OAS, t->nname, N)), curfn->nbody);
-			t = structnext(&save);
-		}
-	}
-
-	hasdefer = 0;
-	walk(curfn);
-	if(nerrors != 0 || isblank(curfn->nname))
-		goto ret;
-
-	allocparams();
-
-	continpc = P;
-	breakpc = P;
-
-	pl = newplist();
-	pl->name = curfn->nname;
-
-	setlineno(curfn);
-
-	nodconst(&nod1, types[TINT32], 0);
-	ptxt = gins(ATEXT, curfn->nname, &nod1);
-	afunclit(&ptxt->from);
-
-	ginit();
-	genlist(curfn->enter);
-
-	pret = nil;
-	if(hasdefer || curfn->exit) {
-		Prog *p1;
-
-		p1 = gjmp(nil);
-		pret = gjmp(nil);
-		patch(p1, pc);
-	}
-
-	genlist(curfn->nbody);
-	gclean();
-	checklabels();
-	if(nerrors != 0)
-		goto ret;
-	if(curfn->endlineno)
-		lineno = curfn->endlineno;
-
-	if(curfn->type->outtuple != 0)
-		ginscall(throwreturn, 0);
-
-	if(pret)
-		patch(pret, pc);
-	ginit();
-	if(hasdefer)
-		ginscall(deferreturn, 0);
-	if(curfn->exit)
-		genlist(curfn->exit);
-	gclean();
-	if(nerrors != 0)
-		goto ret;
-	pc->as = ARET;	// overwrite AEND
-	pc->lineno = lineno;
-
-	if(!debug['N'] || debug['R'] || debug['P']) {
-		regopt(ptxt);
-	}
 	// fill in argument size
 	ptxt->to.offset2 = rnd(curfn->type->argwid, widthptr);
 
@@ -115,12 +18,6 @@ compile(Node *fn)
 		maxstksize = stksize;
 	ptxt->to.offset = rnd(maxstksize+maxarg, widthptr);
 	maxstksize = 0;
-
-	if(debug['f'])
-		frame(0);
-
-ret:
-	lineno = lno;
 }
 
 void
@@ -200,7 +97,7 @@ ginscall(Node *f, int proc)
 		if(proc == 2) {
 			nodreg(&reg, types[TINT64], D_AX);
 			gins(ATESTL, &reg, &reg);
-			patch(gbranch(AJNE, T), pret);
+			patch(gbranch(AJNE, T), retpc);
 		}
 		break;
 	}
@@ -391,8 +288,8 @@ void
 cgen_ret(Node *n)
 {
 	genlist(n->list);		// copy out args
-	if(pret)
-		gjmp(pret);
+	if(retpc)
+		gjmp(retpc);
 	else
 		gins(ARET, N, N);
 }
@@ -915,7 +812,7 @@ cgen_inline(Node *n, Node *res)
 	Node nodes[5];
 	Node n1, n2, nres, ntemp;
 	vlong v;
-	int i, narg;
+	int i, narg, nochk;
 
 	if(n->op != OCALLFUNC)
 		goto no;
@@ -953,6 +850,7 @@ slicearray:
 	// len = hb[3] - lb[2] (destroys hb)
 	n2 = *res;
 	n2.xoffset += Array_nel;
+	n2.type = types[TUINT32];
 
 	if(smallintconst(&nodes[3]) && smallintconst(&nodes[2])) {
 		v = mpgetfix(nodes[3].val.u.xval) -
@@ -971,6 +869,7 @@ slicearray:
 	// cap = nel[1] - lb[2] (destroys nel)
 	n2 = *res;
 	n2.xoffset += Array_cap;
+	n2.type = types[TUINT32];
 
 	if(smallintconst(&nodes[1]) && smallintconst(&nodes[2])) {
 		v = mpgetfix(nodes[1].val.u.xval) -
@@ -999,6 +898,7 @@ slicearray:
 	// ary = old[0] + (lb[2] * width[4]) (destroys old)
 	n2 = *res;
 	n2.xoffset += Array_array;
+	n2.type = types[tptr];
 
 	if(smallintconst(&nodes[2]) && smallintconst(&nodes[4])) {
 		v = mpgetfix(nodes[2].val.u.xval) *
@@ -1026,6 +926,7 @@ slicearray:
 sliceslice:
 	if(!fix64(n->list, narg))
 		goto no;
+	nochk = n->etype;  // skip bounds checking
 	ntemp.op = OXXX;
 	if(!sleasy(n->list->n->right)) {
 		Node *n0;
@@ -1055,11 +956,13 @@ sliceslice:
 		n2 = nodes[0];
 		n2.xoffset += Array_nel;
 		n2.type = types[TUINT32];
-		cmpandthrow(&nodes[1], &n2);
+		if(!nochk)
+			cmpandthrow(&nodes[1], &n2);
 
 		// ret.nel = old.nel[0]-lb[1];
 		n2 = nodes[0];
 		n2.xoffset += Array_nel;
+		n2.type = types[TUINT32];
 	
 		regalloc(&n1, types[TUINT32], N);
 		gins(optoas(OAS, types[TUINT32]), &n2, &n1);
@@ -1068,22 +971,25 @@ sliceslice:
 	
 		n2 = nres;
 		n2.xoffset += Array_nel;
+		n2.type = types[TUINT32];
 		gins(optoas(OAS, types[TUINT32]), &n1, &n2);
 		regfree(&n1);
 	} else {	// old[lb:hb]
-		// if(hb[2] > old.cap[0]) goto throw;
 		n2 = nodes[0];
 		n2.xoffset += Array_cap;
 		n2.type = types[TUINT32];
-		cmpandthrow(&nodes[2], &n2);
-
-		// if(lb[1] > hb[2]) goto throw;
-		cmpandthrow(&nodes[1], &nodes[2]);
+		if (!nochk) {
+			// if(hb[2] > old.cap[0]) goto throw;
+			cmpandthrow(&nodes[2], &n2);
+			// if(lb[1] > hb[2]) goto throw;
+			cmpandthrow(&nodes[1], &nodes[2]);
+		}
 
 		// ret.len = hb[2]-lb[1]; (destroys hb[2])
 		n2 = nres;
 		n2.xoffset += Array_nel;
-	
+		n2.type = types[TUINT32];
+
 		if(smallintconst(&nodes[2]) && smallintconst(&nodes[1])) {
 			v = mpgetfix(nodes[2].val.u.xval) -
 				mpgetfix(nodes[1].val.u.xval);
@@ -1102,6 +1008,7 @@ sliceslice:
 	// ret.cap = old.cap[0]-lb[1]; (uses hb[2])
 	n2 = nodes[0];
 	n2.xoffset += Array_cap;
+	n2.type = types[TUINT32];
 
 	regalloc(&n1, types[TUINT32], &nodes[2]);
 	gins(optoas(OAS, types[TUINT32]), &n2, &n1);
@@ -1110,12 +1017,14 @@ sliceslice:
 
 	n2 = nres;
 	n2.xoffset += Array_cap;
+	n2.type = types[TUINT32];
 	gins(optoas(OAS, types[TUINT32]), &n1, &n2);
 	regfree(&n1);
 
 	// ret.array = old.array[0]+lb[1]*width[3]; (uses lb[1])
 	n2 = nodes[0];
 	n2.xoffset += Array_array;
+	n2.type = types[tptr];
 
 	regalloc(&n1, types[tptr], &nodes[1]);
 	if(smallintconst(&nodes[1]) && smallintconst(&nodes[3])) {
@@ -1135,6 +1044,7 @@ sliceslice:
 
 	n2 = nres;
 	n2.xoffset += Array_array;
+	n2.type = types[tptr];
 	gins(optoas(OAS, types[tptr]), &n1, &n2);
 	regfree(&n1);
 

@@ -102,6 +102,11 @@ func getSysProcAddr(m uint32, pname string) uintptr {
 // Implemented in ../runtime/windows/syscall.cgo
 func NewCallback(fn interface{}) uintptr
 
+// TODO
+func Sendfile(outfd int, infd int, offset *int64, count int) (written int, errno int) {
+	return -1, ENOSYS
+}
+
 // windows api calls
 
 //sys	GetLastError() (lasterrno int)
@@ -136,8 +141,9 @@ func NewCallback(fn interface{}) uintptr
 //sys	GetQueuedCompletionStatus(cphandle int32, qty *uint32, key *uint32, overlapped **Overlapped, timeout uint32) (errno int)
 //sys	CancelIo(s uint32) (errno int)
 //sys	CreateProcess(appName *uint16, commandLine *uint16, procSecurity *SecurityAttributes, threadSecurity *SecurityAttributes, inheritHandles bool, creationFlags uint32, env *uint16, currentDir *uint16, startupInfo *StartupInfo, outProcInfo *ProcessInformation) (errno int) = CreateProcessW
-//sys	OpenProcess(da uint32, inheritHandle bool, pid uint32) (handle uint32, errno int)
-//sys	GetExitCodeProcess(handle uint32, exitcode *uint32) (errno int)
+//sys	OpenProcess(da uint32, inheritHandle bool, pid uint32) (handle int32, errno int)
+//sys	TerminateProcess(handle int32, exitcode uint32) (errno int)
+//sys	GetExitCodeProcess(handle int32, exitcode *uint32) (errno int)
 //sys	GetStartupInfo(startupInfo *StartupInfo) (errno int) = GetStartupInfoW
 //sys	GetCurrentProcess() (pseudoHandle int32, errno int)
 //sys	DuplicateHandle(hSourceProcessHandle int32, hSourceHandle int32, hTargetProcessHandle int32, lpTargetHandle *int32, dwDesiredAccess uint32, bInheritHandle bool, dwOptions uint32) (errno int)
@@ -161,6 +167,12 @@ func NewCallback(fn interface{}) uintptr
 //sys	SetHandleInformation(handle int32, mask uint32, flags uint32) (errno int)
 //sys	FlushFileBuffers(handle int32) (errno int)
 //sys	GetFullPathName(path *uint16, buflen uint32, buf *uint16, fname **uint16) (n uint32, errno int) = kernel32.GetFullPathNameW
+//sys	CreateFileMapping(fhandle int32, sa *SecurityAttributes, prot uint32, maxSizeHigh uint32, maxSizeLow uint32, name *uint16) (handle int32, errno int) = kernel32.CreateFileMappingW
+//sys	MapViewOfFile(handle int32, access uint32, offsetHigh uint32, offsetLow uint32, length uintptr) (addr uintptr, errno int)
+//sys	UnmapViewOfFile(addr uintptr) (errno int)
+//sys	FlushViewOfFile(addr uintptr, length uintptr) (errno int)
+//sys	VirtualLock(addr uintptr, length uintptr) (errno int)
+//sys	VirtualUnlock(addr uintptr, length uintptr) (errno int)
 
 // syscall interface implementation for other packages
 
@@ -219,16 +231,13 @@ func Open(path string, mode int, perm uint32) (fd int, errno int) {
 	}
 	var createmode uint32
 	switch {
-	case mode&O_CREAT != 0:
-		switch {
-		case mode&O_EXCL != 0:
-			createmode = CREATE_NEW
-		case mode&O_APPEND != 0:
-			createmode = OPEN_ALWAYS
-		default:
-			createmode = CREATE_ALWAYS
-		}
-	case mode&O_TRUNC != 0:
+	case mode&(O_CREAT|O_EXCL) == (O_CREAT | O_EXCL):
+		createmode = CREATE_NEW
+	case mode&(O_CREAT|O_TRUNC) == (O_CREAT | O_TRUNC):
+		createmode = CREATE_ALWAYS
+	case mode&O_CREAT == O_CREAT:
+		createmode = OPEN_ALWAYS
+	case mode&O_TRUNC == O_TRUNC:
 		createmode = TRUNCATE_EXISTING
 	default:
 		createmode = OPEN_EXISTING
@@ -525,8 +534,9 @@ func (sa *SockaddrInet4) sockaddr() (uintptr, int32, int) {
 }
 
 type SockaddrInet6 struct {
-	Port int
-	Addr [16]byte
+	Port   int
+	ZoneId uint32
+	Addr   [16]byte
 }
 
 func (sa *SockaddrInet6) sockaddr() (uintptr, int32, int) {
@@ -671,20 +681,22 @@ const (
 	IP_DROP_MEMBERSHIP
 )
 
-type IpMreq struct {
+type IPMreq struct {
 	Multiaddr [4]byte /* in_addr */
 	Interface [4]byte /* in_addr */
 }
 
-func SetsockoptLinger(fd, level, opt int, l *Linger) (errno int)    { return EWINDOWS }
-func SetsockoptIpMreq(fd, level, opt int, mreq *IpMreq) (errno int) { return EWINDOWS }
-func BindToDevice(fd int, device string) (errno int)                { return EWINDOWS }
+type IPv6Mreq struct {
+	Multiaddr [16]byte /* in6_addr */
+	Interface uint32
+}
+
+func SetsockoptLinger(fd, level, opt int, l *Linger) (errno int)        { return EWINDOWS }
+func SetsockoptIPMreq(fd, level, opt int, mreq *IPMreq) (errno int)     { return EWINDOWS }
+func SetsockoptIPv6Mreq(fd, level, opt int, mreq *IPv6Mreq) (errno int) { return EWINDOWS }
+func BindToDevice(fd int, device string) (errno int)                    { return EWINDOWS }
 
 // TODO(brainman): fix all needed for os
-
-const (
-	SIGTRAP = 5
-)
 
 func Getpid() (pid int)   { return -1 }
 func Getppid() (ppid int) { return -1 }

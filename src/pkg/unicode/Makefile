@@ -8,6 +8,7 @@ TARG=unicode
 GOFILES=\
 	casetables.go\
 	digit.go\
+	graphic.go\
 	letter.go\
 	tables.go\
 
@@ -26,6 +27,7 @@ tables:	maketables
 # Build (but do not run) maketables during testing,
 # just to make sure it still compiles.
 test: maketables
+testshort: maketables
 
 # Downloads from www.unicode.org, so not part
 # of standard test scripts.

@@ -18,59 +18,57 @@ func run(envv []string, dir string, argv ...string) os.Error {
 	if *verbose {
 		log.Println("run", argv)
 	}
-	bin, err := pathLookup(argv[0])
-	if err != nil {
-		return err
-	}
-	p, err := exec.Run(bin, argv, envv, dir,
-		exec.DevNull, exec.DevNull, exec.PassThrough)
-	if err != nil {
-		return err
-	}
-	return p.Close()
+	argv = useBash(argv)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
+	cmd.Env = envv
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // runLog runs a process and returns the combined stdout/stderr, 
-// as well as writing it to logfile (if specified).
-func runLog(envv []string, logfile, dir string, argv ...string) (output string, exitStatus int, err os.Error) {
+// as well as writing it to logfile (if specified). It returns
+// process combined stdout and stderr output, exit status and error.
+// The error returned is nil, if process is started successfully,
+// even if exit status is not 0.
+func runLog(envv []string, logfile, dir string, argv ...string) (string, int, os.Error) {
 	if *verbose {
 		log.Println("runLog", argv)
 	}
-	bin, err := pathLookup(argv[0])
-	if err != nil {
-		return
-	}
-	p, err := exec.Run(bin, argv, envv, dir,
-		exec.DevNull, exec.Pipe, exec.MergeWithStdout)
-	if err != nil {
-		return
-	}
-	defer p.Close()
+	argv = useBash(argv)
+
 	b := new(bytes.Buffer)
 	var w io.Writer = b
 	if logfile != "" {
 		f, err := os.OpenFile(logfile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 		if err != nil {
-			return
+			return "", 0, err
 		}
 		defer f.Close()
 		w = io.MultiWriter(f, b)
 	}
-	_, err = io.Copy(w, p.Stdout)
+
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = dir
+	cmd.Env = envv
+	cmd.Stdout = w
+	cmd.Stderr = w
+
+	err := cmd.Run()
 	if err != nil {
-		return
+		if ws, ok := err.(*os.Waitmsg); ok {
+			return b.String(), ws.ExitStatus(), nil
+		}
 	}
-	wait, err := p.Wait(0)
-	if err != nil {
-		return
-	}
-	return b.String(), wait.WaitStatus.ExitStatus(), nil
+	return b.String(), 0, nil
 }
 
-// Find bin in PATH if a relative or absolute path hasn't been specified
-func pathLookup(s string) (string, os.Error) {
-	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") {
-		return s, nil
+// useBash prefixes a list of args with 'bash' if the first argument
+// is a bash script.
+func useBash(argv []string) []string {
+	// TODO(brainman): choose a more reliable heuristic here.
+	if strings.HasSuffix(argv[0], ".bash") {
+		argv = append([]string{"bash"}, argv...)
 	}
-	return exec.LookPath(s)
+	return argv
 }

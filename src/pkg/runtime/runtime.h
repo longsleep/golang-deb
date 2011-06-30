@@ -306,7 +306,7 @@ enum {
 
 /*
  * defined macros
- *    you need super-goru privilege
+ *    you need super-gopher-guru privilege
  *    to add this list.
  */
 #define	nelem(x)	(sizeof(x)/sizeof((x)[0]))
@@ -413,6 +413,7 @@ int32	runtime·gotraceback(void);
 void	runtime·traceback(uint8 *pc, uint8 *sp, uint8 *lr, G* gp);
 void	runtime·tracebackothers(G*);
 int32	runtime·write(int32, void*, int32);
+int32	runtime·mincore(void*, uintptr, byte*);
 bool	runtime·cas(uint32*, uint32, uint32);
 bool	runtime·casp(void**, void*, void*);
 uint32	runtime·xadd(uint32 volatile*, int32);
@@ -596,18 +597,4 @@ int32	runtime·chanlen(Hchan*);
 int32	runtime·chancap(Hchan*);
 
 void	runtime·ifaceE2I(struct InterfaceType*, Eface, Iface*);
-
-enum
-{
-	// StackSystem is a number of additional bytes to add
-	// to each stack below the usual guard area for OS-specific
-	// purposes like signal handling.
-	// TODO(rsc): This is only for Windows.  Can't Windows use
-	// a separate exception stack like every other operating system?
-#ifdef __WINDOWS__
-	StackSystem = 2048,
-#else
-	StackSystem = 0,
-#endif
-};
 

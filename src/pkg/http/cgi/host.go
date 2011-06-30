@@ -36,7 +36,9 @@ var osDefaultInheritEnv = map[string][]string{
 	"darwin":  []string{"DYLD_LIBRARY_PATH"},
 	"freebsd": []string{"LD_LIBRARY_PATH"},
 	"hpux":    []string{"LD_LIBRARY_PATH", "SHLIB_PATH"},
+	"irix":    []string{"LD_LIBRARY_PATH", "LD_LIBRARYN32_PATH", "LD_LIBRARY64_PATH"},
 	"linux":   []string{"LD_LIBRARY_PATH"},
+	"solaris": []string{"LD_LIBRARY_PATH", "LD_LIBRARY_PATH_32", "LD_LIBRARY_PATH_64"},
 	"windows": []string{"SystemRoot", "COMSPEC", "PATHEXT", "WINDIR"},
 }
 
@@ -86,6 +88,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	env := []string{
 		"SERVER_SOFTWARE=go",
 		"SERVER_NAME=" + req.Host,
+		"SERVER_PROTOCOL=HTTP/1.1",
 		"HTTP_HOST=" + req.Host,
 		"GATEWAY_INTERFACE=CGI/1.1",
 		"REQUEST_METHOD=" + req.Method,
@@ -153,34 +156,35 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		cwd = "."
 	}
 
-	args := []string{h.Path}
-	args = append(args, h.Args...)
-
-	cmd, err := exec.Run(
-		pathBase,
-		args,
-		env,
-		cwd,
-		exec.Pipe,        // stdin
-		exec.Pipe,        // stdout
-		exec.PassThrough, // stderr (for now)
-	)
-	if err != nil {
+	internalError := func(err os.Error) {
 		rw.WriteHeader(http.StatusInternalServerError)
 		h.printf("CGI error: %v", err)
+	}
+
+	cmd := &exec.Cmd{
+		Path:   pathBase,
+		Args:   append([]string{h.Path}, h.Args...),
+		Dir:    cwd,
+		Env:    env,
+		Stderr: os.Stderr, // for now
+	}
+	if req.ContentLength != 0 {
+		cmd.Stdin = req.Body
+	}
+	stdoutRead, err := cmd.StdoutPipe()
+	if err != nil {
+		internalError(err)
 		return
 	}
-	defer func() {
-		cmd.Stdin.Close()
-		cmd.Stdout.Close()
-		cmd.Wait(0) // no zombies
-	}()
 
-	if req.ContentLength != 0 {
-		go io.Copy(cmd.Stdin, req.Body)
+	err = cmd.Start()
+	if err != nil {
+		internalError(err)
+		return
 	}
+	defer cmd.Wait()
 
-	linebody, _ := bufio.NewReaderSize(cmd.Stdout, 1024)
+	linebody, _ := bufio.NewReaderSize(stdoutRead, 1024)
 	headers := make(http.Header)
 	statusCode := 0
 	for {

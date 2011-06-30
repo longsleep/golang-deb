@@ -6,12 +6,12 @@
 
 // TODO(rsc):
 //	logging
-//	post support
 
 package http
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
@@ -20,6 +20,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -117,6 +118,27 @@ type response struct {
 	// "Connection: keep-alive" response header and a
 	// Content-Length.
 	closeAfterReply bool
+}
+
+type writerOnly struct {
+	io.Writer
+}
+
+func (r *response) ReadFrom(src io.Reader) (n int64, err os.Error) {
+	// Flush before checking r.chunking, as Flush will call
+	// WriteHeader if it hasn't been called yet, and WriteHeader
+	// is what sets r.chunking.
+	r.Flush()
+	if !r.chunking && r.bodyAllowed() {
+		if rf, ok := r.conn.rwc.(io.ReaderFrom); ok {
+			n, err = rf.ReadFrom(src)
+			r.written += n
+			return
+		}
+	}
+	// Fall back to default io.Copy implementation.
+	// Use wrapper to hide r.ReadFrom from io.Copy.
+	return io.Copy(writerOnly{r}, src)
 }
 
 // Create new connection from rwc.
@@ -309,8 +331,17 @@ func (w *response) WriteHeader(code int) {
 		text = "status code " + codestring
 	}
 	io.WriteString(w.conn.buf, proto+" "+codestring+" "+text+"\r\n")
-	writeSortedHeader(w.conn.buf, w.header, nil)
+	w.header.Write(w.conn.buf)
 	io.WriteString(w.conn.buf, "\r\n")
+}
+
+// bodyAllowed returns true if a Write is allowed for this response type.
+// It's illegal to call this before the header has been flushed.
+func (w *response) bodyAllowed() bool {
+	if !w.wroteHeader {
+		panic("")
+	}
+	return w.status != StatusNotModified && w.req.Method != "HEAD"
 }
 
 func (w *response) Write(data []byte) (n int, err os.Error) {
@@ -324,9 +355,7 @@ func (w *response) Write(data []byte) (n int, err os.Error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
-
-	if w.status == StatusNotModified || w.req.Method == "HEAD" {
-		// Must not have body.
+	if !w.bodyAllowed() {
 		return 0, ErrBodyNotAllowed
 	}
 
@@ -454,6 +483,33 @@ func (c *conn) close() {
 
 // Serve a new connection.
 func (c *conn) serve() {
+	defer func() {
+		err := recover()
+		if err == nil {
+			return
+		}
+		c.rwc.Close()
+
+		// TODO(rsc,bradfitz): this is boilerplate. move it to runtime.Stack()
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "http: panic serving %v: %v\n", c.remoteAddr, err)
+		for i := 1; i < 20; i++ {
+			pc, file, line, ok := runtime.Caller(i)
+			if !ok {
+				break
+			}
+			var name string
+			f := runtime.FuncForPC(pc)
+			if f != nil {
+				name = f.Name()
+			} else {
+				name = fmt.Sprintf("%#x", pc)
+			}
+			fmt.Fprintf(&buf, "  %s %s:%d\n", name, file, line)
+		}
+		log.Print(buf.String())
+	}()
+
 	for {
 		w, err := c.readRequest()
 		if err != nil {
@@ -581,12 +637,18 @@ func Redirect(w ResponseWriter, r *Request, url string, code int) {
 				url = olddir + url
 			}
 
+			var query string
+			if i := strings.Index(url, "?"); i != -1 {
+				url, query = url[:i], url[i:]
+			}
+
 			// clean up but preserve trailing slash
 			trailing := url[len(url)-1] == '/'
 			url = path.Clean(url)
 			if trailing && url[len(url)-1] != '/' {
 				url += "/"
 			}
+			url += query
 		}
 	}
 
@@ -805,6 +867,10 @@ func (srv *Server) Serve(l net.Listener) os.Error {
 	for {
 		rw, e := l.Accept()
 		if e != nil {
+			if ne, ok := e.(net.Error); ok && ne.Temporary() {
+				log.Printf("http: Accept error: %v", e)
+				continue
+			}
 			return e
 		}
 		if srv.ReadTimeout != 0 {

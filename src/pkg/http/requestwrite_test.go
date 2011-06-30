@@ -69,6 +69,7 @@ var reqWriteTests = []reqWriteTest{
 			"Proxy-Connection: keep-alive\r\n\r\n",
 
 		"GET http://www.techcrunch.com/ HTTP/1.1\r\n" +
+			"Host: www.techcrunch.com\r\n" +
 			"User-Agent: Fake\r\n" +
 			"Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n" +
 			"Accept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7\r\n" +
@@ -101,6 +102,7 @@ var reqWriteTests = []reqWriteTest{
 			"6\r\nabcdef\r\n0\r\n\r\n",
 
 		"GET http://www.google.com/search HTTP/1.1\r\n" +
+			"Host: www.google.com\r\n" +
 			"User-Agent: Go http package\r\n" +
 			"Transfer-Encoding: chunked\r\n\r\n" +
 			"6\r\nabcdef\r\n0\r\n\r\n",
@@ -131,6 +133,7 @@ var reqWriteTests = []reqWriteTest{
 			"6\r\nabcdef\r\n0\r\n\r\n",
 
 		"POST http://www.google.com/search HTTP/1.1\r\n" +
+			"Host: www.google.com\r\n" +
 			"User-Agent: Go http package\r\n" +
 			"Connection: close\r\n" +
 			"Transfer-Encoding: chunked\r\n\r\n" +
@@ -164,8 +167,38 @@ var reqWriteTests = []reqWriteTest{
 			"abcdef",
 
 		"POST http://www.google.com/search HTTP/1.1\r\n" +
+			"Host: www.google.com\r\n" +
 			"User-Agent: Go http package\r\n" +
 			"Connection: close\r\n" +
+			"Content-Length: 6\r\n" +
+			"\r\n" +
+			"abcdef",
+	},
+
+	// HTTP/1.1 POST with Content-Length in headers
+	{
+		Request{
+			Method: "POST",
+			RawURL: "http://example.com/",
+			Host:   "example.com",
+			Header: Header{
+				"Content-Length": []string{"10"}, // ignored
+			},
+			ContentLength: 6,
+		},
+
+		[]byte("abcdef"),
+
+		"POST http://example.com/ HTTP/1.1\r\n" +
+			"Host: example.com\r\n" +
+			"User-Agent: Go http package\r\n" +
+			"Content-Length: 6\r\n" +
+			"\r\n" +
+			"abcdef",
+
+		"POST http://example.com/ HTTP/1.1\r\n" +
+			"Host: example.com\r\n" +
+			"User-Agent: Go http package\r\n" +
 			"Content-Length: 6\r\n" +
 			"\r\n" +
 			"abcdef",
@@ -188,6 +221,7 @@ var reqWriteTests = []reqWriteTest{
 
 		// Looks weird but RawURL overrides what WriteProxy would choose.
 		"GET /search HTTP/1.1\r\n" +
+			"Host: www.google.com\r\n" +
 			"User-Agent: Go http package\r\n" +
 			"\r\n",
 	},
@@ -240,13 +274,45 @@ func (rc *closeChecker) Close() os.Error {
 
 // TestRequestWriteClosesBody tests that Request.Write does close its request.Body.
 // It also indirectly tests NewRequest and that it doesn't wrap an existing Closer
-// inside a NopCloser.
+// inside a NopCloser, and that it serializes it correctly.
 func TestRequestWriteClosesBody(t *testing.T) {
 	rc := &closeChecker{Reader: strings.NewReader("my body")}
-	req, _ := NewRequest("GET", "http://foo.com/", rc)
+	req, _ := NewRequest("POST", "http://foo.com/", rc)
+	if g, e := req.ContentLength, int64(-1); g != e {
+		t.Errorf("got req.ContentLength %d, want %d", g, e)
+	}
 	buf := new(bytes.Buffer)
 	req.Write(buf)
 	if !rc.closed {
 		t.Error("body not closed after write")
+	}
+	if g, e := buf.String(), "POST / HTTP/1.1\r\nHost: foo.com\r\nUser-Agent: Go http package\r\nTransfer-Encoding: chunked\r\n\r\n7\r\nmy body\r\n0\r\n\r\n"; g != e {
+		t.Errorf("write:\n got: %s\nwant: %s", g, e)
+	}
+}
+
+func TestZeroLengthNewRequest(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Writing with default identity encoding
+	req, _ := NewRequest("PUT", "http://foo.com/", strings.NewReader(""))
+	if len(req.TransferEncoding) == 0 || req.TransferEncoding[0] != "identity" {
+		t.Fatalf("got req.TransferEncoding of %v, want %v", req.TransferEncoding, []string{"identity"})
+	}
+	if g, e := req.ContentLength, int64(0); g != e {
+		t.Errorf("got req.ContentLength %d, want %d", g, e)
+	}
+	req.Write(&buf)
+	if g, e := buf.String(), "PUT / HTTP/1.1\r\nHost: foo.com\r\nUser-Agent: Go http package\r\nContent-Length: 0\r\n\r\n"; g != e {
+		t.Errorf("identity write:\n got: %s\nwant: %s", g, e)
+	}
+
+	// Overriding identity encoding and forcing chunked.
+	req, _ = NewRequest("PUT", "http://foo.com/", strings.NewReader(""))
+	req.TransferEncoding = nil
+	buf.Reset()
+	req.Write(&buf)
+	if g, e := buf.String(), "PUT / HTTP/1.1\r\nHost: foo.com\r\nUser-Agent: Go http package\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"; g != e {
+		t.Errorf("chunked write:\n got: %s\nwant: %s", g, e)
 	}
 }

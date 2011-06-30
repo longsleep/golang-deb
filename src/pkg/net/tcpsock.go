@@ -7,6 +7,7 @@
 package net
 
 import (
+	"io"
 	"os"
 	"syscall"
 )
@@ -41,7 +42,7 @@ func (a *TCPAddr) family() int {
 	if a == nil || len(a.IP) <= 4 {
 		return syscall.AF_INET
 	}
-	if ip := a.IP.To4(); ip != nil {
+	if a.IP.To4() != nil {
 		return syscall.AF_INET
 	}
 	return syscall.AF_INET6
@@ -60,10 +61,11 @@ func (a *TCPAddr) toAddr() sockaddr {
 
 // ResolveTCPAddr parses addr as a TCP address of the form
 // host:port and resolves domain names or port names to
-// numeric addresses.  A literal IPv6 host address must be
+// numeric addresses on the network net, which must be "tcp",
+// "tcp4" or "tcp6".  A literal IPv6 host address must be
 // enclosed in square brackets, as in "[::]:80".
-func ResolveTCPAddr(network, addr string) (*TCPAddr, os.Error) {
-	ip, port, err := hostPortToIP(network, addr)
+func ResolveTCPAddr(net, addr string) (*TCPAddr, os.Error) {
+	ip, port, err := hostPortToIP(net, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +94,14 @@ func (c *TCPConn) Read(b []byte) (n int, err os.Error) {
 		return 0, os.EINVAL
 	}
 	return c.fd.Read(b)
+}
+
+// ReadFrom implements the io.ReaderFrom ReadFrom method.
+func (c *TCPConn) ReadFrom(r io.Reader) (int64, os.Error) {
+	if n, err, handled := sendFile(c.fd, r); handled {
+		return n, err
+	}
+	return genericReadFrom(c, r)
 }
 
 // Write implements the net.Conn Write method.

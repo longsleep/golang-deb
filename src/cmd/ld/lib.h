@@ -122,6 +122,7 @@ EXTERN	char*	outfile;
 EXTERN	int32	nsymbol;
 EXTERN	char*	thestring;
 EXTERN	int	ndynexp;
+EXTERN	int	havedynamic;
 
 EXTERN	Segment	segtext;
 EXTERN	Segment	segdata;
@@ -185,7 +186,7 @@ vlong	addsize(Sym*, Sym*);
 vlong	adduint8(Sym*, uint8);
 vlong	adduint16(Sym*, uint16);
 void	asmsym(void);
-void	asmelfsym64(void);
+void	asmelfsym(void);
 void	asmplan9sym(void);
 void	strnput(char*, int);
 void	dodata(void);
@@ -200,6 +201,7 @@ void	addexport(void);
 void	dostkcheck(void);
 void	undef(void);
 void	doweak(void);
+void	setpersrc(Sym*);
 
 int	pathchar(void);
 void*	mal(uint32);

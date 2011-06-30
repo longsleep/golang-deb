@@ -1159,6 +1159,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 	a->type = D_NONE;
 	a->name = D_NONE;
 	a->reg = NREG;
+	a->node = N;
 	if(n == N)
 		return;
 
@@ -1247,6 +1248,8 @@ naddr(Node *n, Addr *a, int canemitcode)
 			break;
 		case PAUTO:
 			a->name = D_AUTO;
+			if (n->sym)
+				a->node = n->orig;
 			break;
 		case PPARAM:
 		case PPARAMOUT:

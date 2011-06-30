@@ -49,6 +49,23 @@ const (
 )
 
 const (
+	// More invented values for signals
+	SIGHUP  = 0x1
+	SIGINT  = 0x2
+	SIGQUIT = 0x3
+	SIGILL  = 0x4
+	SIGTRAP = 0x5
+	SIGABRT = 0x6
+	SIGBUS  = 0x7
+	SIGFPE  = 0x8
+	SIGKILL = 0x9
+	SIGSEGV = 0xb
+	SIGPIPE = 0xd
+	SIGALRM = 0xe
+	SIGTERM = 0xf
+)
+
+const (
 	GENERIC_READ    = 0x80000000
 	GENERIC_WRITE   = 0x40000000
 	GENERIC_EXECUTE = 0x20000000
@@ -119,6 +136,18 @@ const (
 	STANDARD_RIGHTS_READ      = 0x00020000
 	PROCESS_QUERY_INFORMATION = 0x00000400
 	SYNCHRONIZE               = 0x00100000
+
+	PAGE_READONLY          = 0x02
+	PAGE_READWRITE         = 0x04
+	PAGE_WRITECOPY         = 0x08
+	PAGE_EXECUTE_READ      = 0x20
+	PAGE_EXECUTE_READWRITE = 0x40
+	PAGE_EXECUTE_WRITECOPY = 0x80
+
+	FILE_MAP_COPY    = 0x01
+	FILE_MAP_WRITE   = 0x02
+	FILE_MAP_READ    = 0x04
+	FILE_MAP_EXECUTE = 0x20
 )
 
 const (
@@ -186,7 +215,7 @@ type Overlapped struct {
 	InternalHigh uint32
 	Offset       uint32
 	OffsetHigh   uint32
-	HEvent       *byte
+	HEvent       int32
 }
 
 type Filetime struct {

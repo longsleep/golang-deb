@@ -108,6 +108,9 @@ needlib(char *name)
 	char *p;
 	Sym *s;
 
+	if(*name == '\0')
+		return 0;
+
 	/* reuse hash code in symbol table */
 	p = smprint(".elfload.%s", name);
 	s = lookup(p, 0);
@@ -695,7 +698,7 @@ asmb(void)
 {
 	int32 magic;
 	int a, dynsym;
-	vlong vl, startva, symo, elfsymo, elfstro, elfsymsize, machlink;
+	vlong vl, startva, symo, machlink;
 	ElfEhdr *eh;
 	ElfPhdr *ph, *pph;
 	ElfShdr *sh;
@@ -706,9 +709,6 @@ asmb(void)
 	Bflush(&bso);
 
 	elftextsh = 0;
-	elfsymsize = 0;
-	elfstro = 0;
-	elfsymo = 0;
 	
 	if(debug['v'])
 		Bprint(&bso, "%5.2f codeblk\n", cputime());
@@ -787,40 +787,28 @@ asmb(void)
 			symo = rnd(symo, PEFILEALIGN);
 			break;
 		}
-		/*
-		 * the symbol information is stored as
-		 *	32-bit symbol table size
-		 *	32-bit line number table size
-		 *	symbol table
-		 *	line number table
-		 */
-		seek(cout, symo+8, 0);
-		if(debug['v'])
-			Bprint(&bso, "%5.2f sp\n", cputime());
-		Bflush(&bso);
-		if(debug['v'])
-			Bprint(&bso, "%5.2f pc\n", cputime());
-		Bflush(&bso);
-		if(!debug['s'])
-			strnput("", INITRND-(8+symsize+lcsize)%INITRND);
-		cflush();
 		seek(cout, symo, 0);
-		lputl(symsize);
-		lputl(lcsize);
-		cflush();
-		if(HEADTYPE != Hwindows && !debug['s']) {
-			elfsymo = symo+8+symsize+lcsize;
-			seek(cout, elfsymo, 0);
-			asmelfsym64();
-			cflush();
-			elfstro = seek(cout, 0, 1);
-			elfsymsize = elfstro - elfsymo;
-			ewrite(cout, elfstrdat, elfstrsize);
+		switch(HEADTYPE) {
+		default:
+			if(iself) {
+				seek(cout, symo, 0);
+				asmelfsym();
+				cflush();
+				ewrite(cout, elfstrdat, elfstrsize);
 
+				if(debug['v'])
+				       Bprint(&bso, "%5.2f dwarf\n", cputime());
+
+				dwarfemitdebugsections();
+			}
+			break;
+		case Hdarwin:
+		case Hwindows:
 			if(debug['v'])
 			       Bprint(&bso, "%5.2f dwarf\n", cputime());
 
 			dwarfemitdebugsections();
+			break;
 		}
 	}
 
@@ -1039,15 +1027,15 @@ asmb(void)
 
 			sh = newElfShdr(elfstr[ElfStrSymtab]);
 			sh->type = SHT_SYMTAB;
-			sh->off = elfsymo;
-			sh->size = elfsymsize;
+			sh->off = symo;
+			sh->size = symsize;
 			sh->addralign = 8;
 			sh->entsize = 24;
 			sh->link = eh->shnum;	// link to strtab
 
 			sh = newElfShdr(elfstr[ElfStrStrtab]);
 			sh->type = SHT_STRTAB;
-			sh->off = elfstro;
+			sh->off = symo+symsize;
 			sh->size = elfstrsize;
 			sh->addralign = 1;
 
@@ -1133,6 +1121,10 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 {
 	Auto *a;
 	Sym *s;
+
+	s = lookup("etext", 0);
+	if(s->type == STEXT)
+		put(s, s->name, 'T', s->value, s->size, s->version, 0);
 
 	for(s=allsym; s!=S; s=s->allsym) {
 		if(s->hide)

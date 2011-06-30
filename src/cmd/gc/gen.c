@@ -51,6 +51,8 @@ allocparams(void)
 		}
 		if(n->op != ONAME || n->class != PAUTO)
 			continue;
+		if (n->xoffset != BADWIDTH)
+			continue;
 		if(n->type == T)
 			continue;
 		dowidth(n->type);
@@ -59,6 +61,8 @@ allocparams(void)
 			fatal("bad width");
 		stksize += w;
 		stksize = rnd(stksize, n->type->align);
+		if(thechar == '5')
+			stksize = rnd(stksize, widthptr);
 		n->xoffset = -stksize;
 	}
 	lineno = lno;
@@ -668,13 +672,17 @@ dotoffset(Node *n, int *oary, Node **nn)
  * make a new off the books
  */
 void
-tempname(Node *n, Type *t)
+tempname(Node *nn, Type *t)
 {
+	Node *n;
 	Sym *s;
 	uint32 w;
 
 	if(stksize < 0)
 		fatal("tempname not during code generation");
+
+	if (curfn == N)
+		fatal("no curfn for tempname");
 
 	if(t == T) {
 		yyerror("tempname called with nil type");
@@ -686,19 +694,25 @@ tempname(Node *n, Type *t)
 	snprint(namebuf, sizeof(namebuf), "autotmp_%.4d", statuniqgen);
 	statuniqgen++;
 	s = lookup(namebuf);
-	memset(n, 0, sizeof(*n));
-	n->op = ONAME;
+	n = nod(ONAME, N, N);
 	n->sym = s;
 	n->type = t;
 	n->class = PAUTO;
 	n->addable = 1;
 	n->ullman = 1;
 	n->noescape = 1;
+	n->curfn = curfn;
+	curfn->dcl = list(curfn->dcl, n);
 
 	dowidth(t);
 	w = t->width;
 	stksize += w;
 	stksize = rnd(stksize, t->align);
+	if(thechar == '5')
+		stksize = rnd(stksize, widthptr);
 	n->xoffset = -stksize;
-	n->pun = anyregalloc();
+
+	//	print("\ttmpname (%d): %N\n", stksize, n);
+
+	*nn = *n;
 }

@@ -188,7 +188,7 @@ main(int argc, char *argv[])
 		if(INITDAT == -1)
 			INITDAT = 0;
 		if(INITRND == -1)
-			INITRND = 1;
+			INITRND = 4096;
 		break;
 	case Hmsdoscom:	/* MS-DOS .COM */
 		HEADR = 0;
@@ -218,7 +218,7 @@ main(int argc, char *argv[])
 		 */
 		tlsoffset = 0x468;
 		machoinit();
-		HEADR = MACHORESERVE;
+		HEADR = INITIAL_MACHO_HEADR;
 		if(INITTEXT == -1)
 			INITTEXT = 4096+HEADR;
 		if(INITDAT == -1)

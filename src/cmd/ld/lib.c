@@ -69,7 +69,7 @@ libinit(void)
 	// add goroot to the end of the libdir list.
 	libdir[nlibdir++] = smprint("%s/pkg/%s_%s", goroot, goos, goarch);
 
-	unlink(outfile);
+	remove(outfile);
 	cout = create(outfile, 1, 0775);
 	if(cout < 0) {
 		diag("cannot create %s", outfile);
@@ -235,30 +235,52 @@ addlibpath(char *srcref, char *objref, char *file, char *pkg)
 }
 
 void
-loadlib(void)
+loadinternal(char *name)
 {
 	char pname[1024];
 	int i, found;
 
 	found = 0;
 	for(i=0; i<nlibdir; i++) {
-		snprint(pname, sizeof pname, "%s/runtime.a", libdir[i]);
+		snprint(pname, sizeof pname, "%s/%s.a", libdir[i], name);
 		if(debug['v'])
-			Bprint(&bso, "searching for runtime.a in %s\n", pname);
+			Bprint(&bso, "searching for %s.a in %s\n", name, pname);
 		if(access(pname, AEXIST) >= 0) {
-			addlibpath("internal", "internal", pname, "runtime");
+			addlibpath("internal", "internal", pname, name);
 			found = 1;
 			break;
 		}
 	}
 	if(!found)
-		Bprint(&bso, "warning: unable to find runtime.a\n");
+		Bprint(&bso, "warning: unable to find %s.a\n", name);
+}
+
+void
+loadlib(void)
+{
+	int i;
+
+	loadinternal("runtime");
+	if(thechar == '5')
+		loadinternal("math");
 
 	for(i=0; i<libraryp; i++) {
 		if(debug['v'])
 			Bprint(&bso, "%5.2f autolib: %s (from %s)\n", cputime(), library[i].file, library[i].objref);
 		objfile(library[i].file, library[i].pkg);
 	}
+	
+	// We've loaded all the code now.
+	// If there are no dynamic libraries needed, gcc disables dynamic linking.
+	// Because of this, glibc's dynamic ELF loader occasionally (like in version 2.13)
+	// assumes that a dynamic binary always refers to at least one dynamic library.
+	// Rather than be a source of test cases for glibc, disable dynamic linking
+	// the same way that gcc would.
+	//
+	// Exception: on OS X, programs such as Shark only work with dynamic
+	// binaries, so leave it enabled on OS X (Mach-O) binaries.
+	if(!havedynamic && HEADTYPE != Hdarwin)
+		debug['d'] = 1;
 }
 
 /*
@@ -386,9 +408,6 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, int whence)
 	eof = Boffset(f) + len;
 
 	pn = strdup(pn);
-	
-	USED(c4);
-	USED(magic);
 
 	c1 = Bgetc(f);
 	c2 = Bgetc(f);
@@ -398,7 +417,7 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, int whence)
 	Bungetc(f);
 	Bungetc(f);
 	Bungetc(f);
-	
+
 	magic = c1<<24 | c2<<16 | c3<<8 | c4;
 	if(magic == 0x7f454c46) {	// \x7F E L F
 		ldelf(f, pkg, len, pn);
@@ -486,7 +505,6 @@ _lookup(char *symb, int v, int creat)
 	// not if(h < 0) h = ~h, because gcc 4.3 -O2 miscompiles it.
 	h &= 0xffffff;
 	h %= NHASH;
-	c = symb[0];
 	for(s = hash[h]; s != S; s = s->hash)
 		if(memcmp(s->name, symb, l) == 0)
 			return s;
@@ -511,7 +529,7 @@ _lookup(char *symb, int v, int creat)
 	s->size = 0;
 	hash[h] = s;
 	nsymbol++;
-	
+
 	s->allsym = allsym;
 	allsym = s;
 	return s;
@@ -538,7 +556,6 @@ copyhistfrog(char *buf, int nbuf)
 
 	p = buf;
 	ep = buf + nbuf;
-	i = 0;
 	for(i=0; i<histfrogp; i++) {
 		p = seprint(p, ep, "%s", histfrog[i]->name+1);
 		if(i+1<histfrogp && (p == buf || p[-1] != '/'))

@@ -89,7 +89,7 @@ var tokens = [...]elt{
 		literal,
 	},
 
-	// Operators and delimitors
+	// Operators and delimiters
 	{token.ADD, "+", operator},
 	{token.SUB, "-", operator},
 	{token.MUL, "*", operator},
@@ -650,7 +650,9 @@ var errors = []struct {
 	pos int
 	err string
 }{
-	{`#`, token.ILLEGAL, 0, "illegal character '#' (U+23)"},
+	{"\a", token.ILLEGAL, 0, "illegal character '\\a'"},
+	{`#`, token.ILLEGAL, 0, "illegal character '#'"},
+	{`…`, token.ILLEGAL, 0, "illegal character '…'"},
 	{`' '`, token.CHAR, 0, ""},
 	{`''`, token.CHAR, 0, "illegal character literal"},
 	{`'\8'`, token.CHAR, 2, "unknown escape sequence"},
@@ -670,6 +672,8 @@ var errors = []struct {
 	{"078e0", token.FLOAT, 0, ""},
 	{"078", token.INT, 0, "illegal octal number"},
 	{"07800000009", token.INT, 0, "illegal octal number"},
+	{"0x", token.INT, 0, "illegal hexadecimal number"},
+	{"0X", token.INT, 0, "illegal hexadecimal number"},
 	{"\"abc\x00def\"", token.STRING, 4, "illegal character NUL"},
 	{"\"abc\x80def\"", token.STRING, 4, "illegal UTF-8 encoding"},
 }
