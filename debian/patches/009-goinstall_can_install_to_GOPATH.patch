@@ -1,15 +1,11 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -75,6 +75,14 @@ func main() {
+@@ -75,6 +75,10 @@ func main() {
  		os.Exit(1)
  	}
  
 +	if os.Getuid() != 0 && os.Getenv("GOPATH") == "" {
 +		fmt.Fprintf(os.Stderr, "%s: set $GOPATH to the directory you want packages installed to if you get permission denied error\n", argv0)
-+	}
-+
-+	if root != defaultRoot.path {
-+		logfile = filepath.Join(defaultRoot.path, "goinstall.log")
 +	}
 +
  	// special case - "unsafe" is already installed
