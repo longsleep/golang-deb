@@ -5,3 +5,4 @@
 007-use_native_dynamic_linker_on_kfreebsd.patch
 008-emacs-mode-key-literal-indent.patch
 009-goinstall_can_install_to_GOPATH.patch
+010-getgoversion_from_debian_changelog.patch

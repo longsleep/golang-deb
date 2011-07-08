@@ -1,0 +1,46 @@
+--- a/src/version.bash
++++ b/src/version.bash
+@@ -3,36 +3,25 @@
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+ 
+-# Check that we can use 'hg'
+-if ! hg version > /dev/null 2>&1; then
+-	echo 'hg not installed' 1>&2
+-	exit 2
+-fi
++cd $(dirname $0)/..
+ 
+ # Get numerical revision
+-VERSION=$(hg identify -n 2>/dev/null)
+-if [ $? != 0 ]; then
+-	OLD=$(hg identify | sed 1q)
+-	VERSION=$(echo $OLD | awk '{print $1}')
+-fi
++# DEBIAN: We don't have a numerical revision
++VERSION=
+ 
+ # Get branch type
++# DEBIAN: Get release/weekly from source package name
+ BRANCH=release
+-if [ "$(hg identify -b 2>/dev/null)" == "default" ]; then
++if [ "$(dpkg-parsechangelog | sed -n 's/Source: golang-//p;')" == "" ]; then
+ 	BRANCH=weekly
+ fi
+ 
+ # Find most recent known release or weekly tag.
+-TAG=$(hg tags |
+-	grep $BRANCH |
+-	sed 's/:.*//' |
+-	sort -rn -k2 |
+-	awk -v ver=$VERSION '$2 <= ver && $1~/^(release|weekly)\./ {print $1}' |
+-	sed -n 1p)
++# DEBIAN: get tag from Debian changelog version
++TAG=$BRANCH.$(dpkg-parsechangelog | sed -n 's/Version: \([^-]*\)-.*/\1/p;')
+ 
+ if [ "$TAG" != "" ]; then
+ 	VERSION="$TAG $VERSION"
+ fi
+ 
+ echo $VERSION
+-
