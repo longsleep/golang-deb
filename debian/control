@@ -92,7 +92,7 @@ Description: Documentation for Google's Go programming language
 Package: golang-tools
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: golang-go, ${shlibs:Depends}, ${misc:Depends}
-Recommends: golang-src
+Recommends: golang-src, golang-doc
 Description: Tools for Google's Go programming language
  This package provides various tools for the Go programming language:
   * godoc - extracts and generates documentation for Go programs
@@ -159,7 +159,8 @@ Package: golang
 Depends: ${misc:Depends},
 	 golang-go (>= ${source:Version}),
          golang-src (>= ${source:Version}),
-         golang-tools (>= ${source:Version})
+         golang-tools (>= ${source:Version}),
+	 golang-doc (>= ${source:Version})
 Architecture: all
 Description: Experimental Go programming language [meta package]
  This package is a metapackage that, when installed, guarantees
