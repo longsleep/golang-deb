@@ -78,6 +78,7 @@ GOOSARCH="${GOOS}_${GOARCH}"
 # defaults
 mksyscall="./mksyscall.pl"
 mkerrors="./mkerrors.sh"
+zerrors="zerrors_$GOOSARCH.go"
 run="sh"
 
 case "$1" in
@@ -120,14 +121,13 @@ freebsd_amd64)
 darwin_386)
 	mkerrors="$mkerrors -f -m32"
 	mksyscall="./mksyscall.pl -l32"
-	mksysnum="./mksysnum_darwin.pl /home/rsc/pub/xnu-1228/bsd/kern/syscalls.master"
+	mksysnum="./mksysnum_darwin.pl /usr/include/sys/syscall.h"
 	mktypes="godefs -gsyscall -f-m32"
 	;;
 darwin_amd64)
 	mkerrors="$mkerrors -f -m64"
-	mksysnum="./mksysnum_darwin.pl /home/rsc/pub/xnu-1228/bsd/kern/syscalls.master"
+	mksysnum="./mksysnum_darwin.pl /usr/include/sys/syscall.h"
 	mktypes="godefs -gsyscall -f-m64"
-	mkerrors="./mkerrors.sh"
 	;;
 linux_386)
 	mkerrors="$mkerrors -f -m32"
@@ -151,6 +151,14 @@ windows_386)
 	mksysnum=
 	mktypes=
 	mkerrors="./mkerrors_windows.sh -f -m32"
+	zerrors="zerrors_windows.go"
+	;;
+windows_amd64)
+	mksyscall="./mksyscall_windows.pl"
+	mksysnum=
+	mktypes=
+	mkerrors="./mkerrors_windows.sh -f -m32"
+	zerrors="zerrors_windows.go"
 	;;
 plan9_386)
 	mkerrors=
@@ -165,7 +173,7 @@ plan9_386)
 esac
 
 (
-	if [ -n "$mkerrors" ]; then echo "$mkerrors |gofmt >zerrors_$GOOSARCH.go"; fi
+	if [ -n "$mkerrors" ]; then echo "$mkerrors |gofmt >$zerrors"; fi
 	syscall_goos="syscall_$GOOS.go"
 	case "$GOOS" in
 	darwin | freebsd)

@@ -62,7 +62,7 @@ var ForkLock sync.RWMutex
 
 // Convert array of string to array
 // of NUL-terminated byte pointer.
-func StringArrayPtr(ss []string) []*byte {
+func StringSlicePtr(ss []string) []*byte {
 	bb := make([]*byte, len(ss)+1)
 	for i := 0; i < len(ss); i++ {
 		bb[i] = StringBytePtr(ss[i])
@@ -96,7 +96,7 @@ func SetNonblock(fd int, nonblocking bool) (errno int) {
 // no rescheduling, no malloc calls, and no new stack segments.
 // The calls to RawSyscall are okay because they are assembly
 // functions that do not grow the stack.
-func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, pipe int) (pid int, err int) {
+func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, sys *SysProcAttr, pipe int) (pid int, err int) {
 	// Declare all variables at top in case any
 	// declarations require heap allocation (e.g., err1).
 	var r1, r2, err1 uintptr
@@ -131,7 +131,7 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	// Fork succeeded, now in child.
 
 	// Enable tracing if requested.
-	if attr.Ptrace {
+	if sys.Ptrace {
 		_, _, err1 = RawSyscall(SYS_PTRACE, uintptr(PTRACE_TRACEME), 0, 0)
 		if err1 != 0 {
 			goto childerror
@@ -139,8 +139,16 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	// Session ID
-	if attr.Setsid {
+	if sys.Setsid {
 		_, _, err1 = RawSyscall(SYS_SETSID, 0, 0, 0)
+		if err1 != 0 {
+			goto childerror
+		}
+	}
+
+	// Set process group
+	if sys.Setpgid {
+		_, _, err1 = RawSyscall(SYS_SETPGID, 0, 0, 0)
 		if err1 != 0 {
 			goto childerror
 		}
@@ -155,21 +163,21 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 	}
 
 	// User and groups
-	if attr.Credential != nil {
-		ngroups := uintptr(len(attr.Credential.Groups))
+	if cred := sys.Credential; cred != nil {
+		ngroups := uintptr(len(cred.Groups))
 		groups := uintptr(0)
 		if ngroups > 0 {
-			groups = uintptr(unsafe.Pointer(&attr.Credential.Groups[0]))
+			groups = uintptr(unsafe.Pointer(&cred.Groups[0]))
 		}
 		_, _, err1 = RawSyscall(SYS_SETGROUPS, ngroups, groups, 0)
 		if err1 != 0 {
 			goto childerror
 		}
-		_, _, err1 = RawSyscall(SYS_SETGID, uintptr(attr.Credential.Gid), 0, 0)
+		_, _, err1 = RawSyscall(SYS_SETGID, uintptr(cred.Gid), 0, 0)
 		if err1 != 0 {
 			goto childerror
 		}
-		_, _, err1 = RawSyscall(SYS_SETUID, uintptr(attr.Credential.Uid), 0, 0)
+		_, _, err1 = RawSyscall(SYS_SETUID, uintptr(cred.Uid), 0, 0)
 		if err1 != 0 {
 			goto childerror
 		}
@@ -241,6 +249,22 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		RawSyscall(SYS_CLOSE, uintptr(i), 0, 0)
 	}
 
+	// Detach fd 0 from tty
+	if sys.Noctty {
+		_, _, err1 = RawSyscall(SYS_IOCTL, 0, uintptr(TIOCNOTTY), 0)
+		if err1 != 0 {
+			goto childerror
+		}
+	}
+
+	// Make fd 0 the tty
+	if sys.Setctty {
+		_, _, err1 = RawSyscall(SYS_IOCTL, 0, uintptr(TIOCSCTTY), 0)
+		if err1 != 0 {
+			goto childerror
+		}
+	}
+
 	// Time to exec.
 	_, _, err1 = RawSyscall(SYS_EXECVE,
 		uintptr(unsafe.Pointer(argv0)),
@@ -249,7 +273,7 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 
 childerror:
 	// send error code on pipe
-	RawSyscall(SYS_WRITE, uintptr(pipe), uintptr(unsafe.Pointer(&err1)), uintptr(unsafe.Sizeof(err1)))
+	RawSyscall(SYS_WRITE, uintptr(pipe), uintptr(unsafe.Pointer(&err1)), unsafe.Sizeof(err1))
 	for {
 		RawSyscall(SYS_EXIT, 253, 0, 0)
 	}
@@ -260,23 +284,35 @@ childerror:
 	panic("unreached")
 }
 
+// Credential holds user and group identities to be assumed
+// by a child process started by StartProcess.
 type Credential struct {
 	Uid    uint32   // User ID.
 	Gid    uint32   // Group ID.
 	Groups []uint32 // Supplementary group IDs.
 }
 
+// ProcAttr holds attributes that will be applied to a new process started
+// by StartProcess.
 type ProcAttr struct {
-	Setsid     bool        // Create session.
-	Ptrace     bool        // Enable tracing.
-	Dir        string      // Current working directory.
-	Env        []string    // Environment.
-	Files      []int       // File descriptors.
-	Chroot     string      // Chroot.
-	Credential *Credential // Credential.
+	Dir   string   // Current working directory.
+	Env   []string // Environment.
+	Files []int    // File descriptors.
+	Sys   *SysProcAttr
 }
 
-var zeroAttributes ProcAttr
+type SysProcAttr struct {
+	Chroot     string      // Chroot.
+	Credential *Credential // Credential.
+	Ptrace     bool        // Enable tracing.
+	Setsid     bool        // Create session.
+	Setpgid    bool        // Set process group ID to new pid (SYSV setpgrp)
+	Setctty    bool        // Set controlling terminal to fd 0
+	Noctty     bool        // Detach fd 0 from controlling terminal
+}
+
+var zeroProcAttr ProcAttr
+var zeroSysProcAttr SysProcAttr
 
 func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err int) {
 	var p [2]int
@@ -285,7 +321,11 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err int) {
 	var wstatus WaitStatus
 
 	if attr == nil {
-		attr = &zeroAttributes
+		attr = &zeroProcAttr
+	}
+	sys := attr.Sys
+	if sys == nil {
+		sys = &zeroSysProcAttr
 	}
 
 	p[0] = -1
@@ -293,16 +333,16 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err int) {
 
 	// Convert args to C form.
 	argv0p := StringBytePtr(argv0)
-	argvp := StringArrayPtr(argv)
-	envvp := StringArrayPtr(attr.Env)
+	argvp := StringSlicePtr(argv)
+	envvp := StringSlicePtr(attr.Env)
 
 	if OS == "freebsd" && len(argv[0]) > len(argv0) {
 		argvp[0] = argv0p
 	}
 
 	var chroot *byte
-	if attr.Chroot != "" {
-		chroot = StringBytePtr(attr.Chroot)
+	if sys.Chroot != "" {
+		chroot = StringBytePtr(sys.Chroot)
 	}
 	var dir *byte
 	if attr.Dir != "" {
@@ -326,24 +366,18 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err int) {
 	}
 
 	// Kick off child.
-	pid, err = forkAndExecInChild(argv0p, argvp, envvp, chroot, dir, attr, p[1])
+	pid, err = forkAndExecInChild(argv0p, argvp, envvp, chroot, dir, attr, sys, p[1])
 	if err != 0 {
-	error:
-		if p[0] >= 0 {
-			Close(p[0])
-			Close(p[1])
-		}
-		ForkLock.Unlock()
-		return 0, err
+		goto error
 	}
 	ForkLock.Unlock()
 
 	// Read child error status from pipe.
 	Close(p[1])
-	n, err = read(p[0], (*byte)(unsafe.Pointer(&err1)), unsafe.Sizeof(err1))
+	n, err = read(p[0], (*byte)(unsafe.Pointer(&err1)), int(unsafe.Sizeof(err1)))
 	Close(p[0])
 	if err != 0 || n != 0 {
-		if n == unsafe.Sizeof(err1) {
+		if n == int(unsafe.Sizeof(err1)) {
 			err = int(err1)
 		}
 		if err == 0 {
@@ -361,6 +395,14 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err int) {
 
 	// Read got EOF, so pipe closed on exec, so exec succeeded.
 	return pid, 0
+
+error:
+	if p[0] >= 0 {
+		Close(p[0])
+		Close(p[1])
+	}
+	ForkLock.Unlock()
+	return 0, err
 }
 
 // Combination of fork and exec, careful to be thread safe.
@@ -378,7 +420,7 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid, handle int,
 func Exec(argv0 string, argv []string, envv []string) (err int) {
 	_, _, err1 := RawSyscall(SYS_EXECVE,
 		uintptr(unsafe.Pointer(StringBytePtr(argv0))),
-		uintptr(unsafe.Pointer(&StringArrayPtr(argv)[0])),
-		uintptr(unsafe.Pointer(&StringArrayPtr(envv)[0])))
+		uintptr(unsafe.Pointer(&StringSlicePtr(argv)[0])),
+		uintptr(unsafe.Pointer(&StringSlicePtr(envv)[0])))
 	return int(err1)
 }

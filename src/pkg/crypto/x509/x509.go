@@ -30,11 +30,11 @@ type pkcs1PrivateKey struct {
 	P       *big.Int
 	Q       *big.Int
 	// We ignore these values, if present, because rsa will calculate them.
-	Dp   *big.Int "optional"
-	Dq   *big.Int "optional"
-	Qinv *big.Int "optional"
+	Dp   *big.Int `asn1:"optional"`
+	Dq   *big.Int `asn1:"optional"`
+	Qinv *big.Int `asn1:"optional"`
 
-	AdditionalPrimes []pkcs1AdditionalRSAPrime "optional"
+	AdditionalPrimes []pkcs1AdditionalRSAPrime `asn1:"optional"`
 }
 
 type pkcs1AdditionalRSAPrime struct {
@@ -58,11 +58,11 @@ func ParsePKCS1PrivateKey(der []byte) (key *rsa.PrivateKey, err os.Error) {
 	}
 
 	if priv.Version > 1 {
-		return nil, os.ErrorString("x509: unsupported private key version")
+		return nil, os.NewError("x509: unsupported private key version")
 	}
 
 	if priv.N.Sign() <= 0 || priv.D.Sign() <= 0 || priv.P.Sign() <= 0 || priv.Q.Sign() <= 0 {
-		return nil, os.ErrorString("private key contains zero or negative value")
+		return nil, os.NewError("private key contains zero or negative value")
 	}
 
 	key = new(rsa.PrivateKey)
@@ -77,7 +77,7 @@ func ParsePKCS1PrivateKey(der []byte) (key *rsa.PrivateKey, err os.Error) {
 	key.Primes[1] = priv.Q
 	for i, a := range priv.AdditionalPrimes {
 		if a.Prime.Sign() <= 0 {
-			return nil, os.ErrorString("private key contains zero or negative prime")
+			return nil, os.NewError("private key contains zero or negative prime")
 		}
 		key.Primes[i+2] = a.Prime
 		// We ignore the other two values because rsa will calculate
@@ -136,16 +136,16 @@ type certificate struct {
 
 type tbsCertificate struct {
 	Raw                asn1.RawContent
-	Version            int "optional,explicit,default:1,tag:0"
+	Version            int `asn1:"optional,explicit,default:1,tag:0"`
 	SerialNumber       *big.Int
 	SignatureAlgorithm pkix.AlgorithmIdentifier
 	Issuer             pkix.RDNSequence
 	Validity           validity
 	Subject            pkix.RDNSequence
 	PublicKey          publicKeyInfo
-	UniqueId           asn1.BitString   "optional,tag:1"
-	SubjectUniqueId    asn1.BitString   "optional,tag:2"
-	Extensions         []pkix.Extension "optional,explicit,tag:3"
+	UniqueId           asn1.BitString   `asn1:"optional,tag:1"`
+	SubjectUniqueId    asn1.BitString   `asn1:"optional,tag:2"`
+	Extensions         []pkix.Extension `asn1:"optional,explicit,tag:3"`
 }
 
 type dsaAlgorithmParameters struct {
@@ -168,7 +168,7 @@ type publicKeyInfo struct {
 
 // RFC 5280,  4.2.1.1
 type authKeyId struct {
-	Id []byte "optional,tag:0"
+	Id []byte `asn1:"optional,tag:0"`
 }
 
 type SignatureAlgorithm int
@@ -457,10 +457,10 @@ func (c *Certificate) CheckSignature(algo SignatureAlgorithm, signed, signature 
 			return err
 		}
 		if dsaSig.R.Sign() <= 0 || dsaSig.S.Sign() <= 0 {
-			return os.ErrorString("DSA signature contained zero or negative values")
+			return os.NewError("DSA signature contained zero or negative values")
 		}
 		if !dsa.Verify(pub, digest, dsaSig.R, dsaSig.S) {
-			return os.ErrorString("DSA verification failure")
+			return os.NewError("DSA verification failure")
 		}
 		return
 	}
@@ -480,8 +480,8 @@ func (h UnhandledCriticalExtension) String() string {
 }
 
 type basicConstraints struct {
-	IsCA       bool "optional"
-	MaxPathLen int  "optional"
+	IsCA       bool `asn1:"optional"`
+	MaxPathLen int  `asn1:"optional"`
 }
 
 type rsaPublicKey struct {
@@ -497,14 +497,14 @@ type policyInformation struct {
 
 // RFC 5280, 4.2.1.10
 type nameConstraints struct {
-	Permitted []generalSubtree "optional,tag:0"
-	Excluded  []generalSubtree "optional,tag:1"
+	Permitted []generalSubtree `asn1:"optional,tag:0"`
+	Excluded  []generalSubtree `asn1:"optional,tag:1"`
 }
 
 type generalSubtree struct {
-	Name string "tag:2,optional,ia5"
-	Min  int    "optional,tag:0"
-	Max  int    "optional,tag:1"
+	Name string `asn1:"tag:2,optional,ia5"`
+	Min  int    `asn1:"optional,tag:0"`
+	Max  int    `asn1:"optional,tag:1"`
 }
 
 func parsePublicKey(algo PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{}, os.Error) {
@@ -535,7 +535,7 @@ func parsePublicKey(algo PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{
 			return nil, err
 		}
 		if p.Sign() <= 0 || params.P.Sign() <= 0 || params.Q.Sign() <= 0 || params.G.Sign() <= 0 {
-			return nil, os.ErrorString("zero or negative DSA parameter")
+			return nil, os.NewError("zero or negative DSA parameter")
 		}
 		pub := &dsa.PublicKey{
 			Parameters: dsa.Parameters{
@@ -571,7 +571,7 @@ func parseCertificate(in *certificate) (*Certificate, os.Error) {
 	}
 
 	if in.TBSCertificate.SerialNumber.Sign() < 0 {
-		return nil, os.ErrorString("negative serial number")
+		return nil, os.NewError("negative serial number")
 	}
 
 	out.Version = in.TBSCertificate.Version + 1

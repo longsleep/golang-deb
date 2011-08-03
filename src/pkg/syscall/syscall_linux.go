@@ -472,7 +472,7 @@ func SetsockoptIPv6Mreq(fd, level, opt int, mreq *IPv6Mreq) (errno int) {
 }
 
 func SetsockoptString(fd, level, opt int, s string) (errno int) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&[]byte(s)[0])), len(s))
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&[]byte(s)[0])), uintptr(len(s)))
 }
 
 func Recvfrom(fd int, p []byte, flags int) (n int, from Sockaddr, errno int) {
@@ -529,17 +529,17 @@ func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from
 
 func Sendmsg(fd int, p, oob []byte, to Sockaddr, flags int) (errno int) {
 	var ptr uintptr
-	var nsock _Socklen
+	var salen _Socklen
 	if to != nil {
 		var err int
-		ptr, nsock, err = to.sockaddr()
+		ptr, salen, err = to.sockaddr()
 		if err != 0 {
 			return err
 		}
 	}
 	var msg Msghdr
 	msg.Name = (*byte)(unsafe.Pointer(ptr))
-	msg.Namelen = uint32(nsock)
+	msg.Namelen = uint32(salen)
 	var iov Iovec
 	if len(p) > 0 {
 		iov.Base = (*byte)(unsafe.Pointer(&p[0]))

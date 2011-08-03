@@ -76,12 +76,12 @@ func ProxyFromEnvironment(req *Request) (*URL, os.Error) {
 	}
 	proxyURL, err := ParseRequestURL(proxy)
 	if err != nil {
-		return nil, os.ErrorString("invalid proxy address")
+		return nil, os.NewError("invalid proxy address")
 	}
 	if proxyURL.Host == "" {
 		proxyURL, err = ParseRequestURL("http://" + proxy)
 		if err != nil {
-			return nil, os.ErrorString("invalid proxy address")
+			return nil, os.NewError("invalid proxy address")
 		}
 	}
 	return proxyURL, nil
@@ -329,9 +329,9 @@ func (t *Transport) getConn(cm *connectMethod) (*persistConn, os.Error) {
 			return nil, err
 		}
 		if resp.StatusCode != 200 {
-			f := strings.Split(resp.Status, " ", 2)
+			f := strings.SplitN(resp.Status, " ", 2)
 			conn.Close()
-			return nil, os.ErrorString(f[1])
+			return nil, os.NewError(f[1])
 		}
 	}
 
@@ -383,7 +383,7 @@ func useProxy(addr string) bool {
 		addr = addr[:strings.LastIndex(addr, ":")]
 	}
 
-	for _, p := range strings.Split(no_proxy, ",", -1) {
+	for _, p := range strings.Split(no_proxy, ",") {
 		p = strings.ToLower(strings.TrimSpace(p))
 		if len(p) == 0 {
 			continue

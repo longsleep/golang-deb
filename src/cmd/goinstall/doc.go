@@ -5,7 +5,8 @@
 /*
 Goinstall is an experiment in automatic package installation.
 It installs packages, possibly downloading them from the internet.
-It maintains a list of public Go packages at http://godashboard.appspot.com/package.
+It maintains a list of public Go packages at
+http://godashboard.appspot.com/package.
 
 Usage:
 	goinstall [flags] importpath...
@@ -15,7 +16,9 @@ Flags and default settings:
         -a=false          install all previously installed packages
 	-clean=false      clean the package directory before installing
 	-dashboard=true   tally public packages on godashboard.appspot.com
+	-install=true     build and install the package and its dependencies
 	-log=true         log installed packages to $GOROOT/goinstall.log for use by -a
+	-nuke=false       remove the target object and clean before installing
 	-u=false          update already-downloaded packages
 	-v=false          verbose operation
 
@@ -39,9 +42,22 @@ Another common idiom is to use
 to update, recompile, and reinstall all goinstalled packages.
 
 The source code for a package with import path foo/bar is expected
-to be in the directory $GOROOT/src/pkg/foo/bar/.  If the import
-path refers to a code hosting site, goinstall will download the code
-if necessary.  The recognized code hosting sites are:
+to be in the directory $GOROOT/src/pkg/foo/bar/ or $GOPATH/src/foo/bar/.
+See "The GOPATH Environment Variable" for more about GOPATH.
+
+By default, goinstall prints output only when it encounters an error.
+The -v flag causes goinstall to print information about packages
+being considered and installed.
+
+Goinstall ignores Makefiles.
+
+
+Remote Repositories
+
+If a package import path refers to a remote repository, goinstall will
+download the code if necessary.
+
+Goinstall recognizes packages from a few common code hosting sites:
 
 	BitBucket (Mercurial)
 
@@ -61,7 +77,7 @@ if necessary.  The recognized code hosting sites are:
 		import "project.googlecode.com/svn/trunk"
 		import "project.googlecode.com/svn/trunk/sub/directory"
 
-	Launchpad
+	Launchpad (Bazaar)
 
 		import "launchpad.net/project"
 		import "launchpad.net/project/series"
@@ -69,7 +85,6 @@ if necessary.  The recognized code hosting sites are:
 
 		import "launchpad.net/~user/project/branch"
 		import "launchpad.net/~user/project/branch/sub/directory"
-
 
 If the destination directory (e.g., $GOROOT/src/pkg/bitbucket.org/user/project)
 already exists and contains an appropriate checkout, goinstall will not
@@ -82,23 +97,42 @@ named "release".  If there is one, it uses that version of the code.
 Otherwise it uses the default version selected by the version control
 system, typically HEAD for git, tip for Mercurial.
 
-After a successful download and installation of a publicly accessible
-remote package, goinstall reports the installation to godashboard.appspot.com,
-which increments a count associated with the package and the time
-of its most recent installation.  This mechanism powers the package list
-at http://godashboard.appspot.com/package, allowing Go programmers
-to learn about popular packages that might be worth looking at.
+After a successful download and installation of one of these import paths,
+goinstall reports the installation to godashboard.appspot.com, which
+increments a count associated with the package and the time of its most
+recent installation. This mechanism powers the package list at
+http://godashboard.appspot.com/package, allowing Go programmers to learn about
+popular packages that might be worth looking at.	 
 The -dashboard=false flag disables this reporting.
 
-By default, goinstall prints output only when it encounters an error.
-The -v flag causes goinstall to print information about packages
-being considered and installed.
+For code hosted on other servers, goinstall recognizes the general form
 
-Goinstall does not attempt to be a replacement for make.
-Instead, it invokes "make install" after locating the package sources.
-For local packages without a Makefile and all remote packages,
-goinstall creates and uses a temporary Makefile constructed from
-the import path and the list of Go files in the package.
+	repository.vcs/path
+
+as denoting the given repository, with or without the .vcs suffix, using
+the named version control system, and then the path inside that repository.
+The supported version control systems are:
+
+	Bazaar      .bzr
+	Git         .git
+	Mercurial   .hg
+	Subversion  .svn
+
+For example, 
+
+	import "example.org/user/foo.hg"
+
+denotes the root directory of the Mercurial repository at example.org/user/foo
+or foo.hg, and
+
+	import "example.org/repo.git/foo/bar"
+
+denotes the foo/bar directory of the Git repository at example.com/repo or
+repo.git.
+
+When a version control system supports multiple protocols, goinstall tries each
+in turn.
+For example, for Git it tries git://, then https://, then http://.
 
 
 The GOPATH Environment Variable

@@ -12,6 +12,7 @@ import (
 	"http/httptest"
 	"io"
 	"io/ioutil"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -149,7 +150,7 @@ func TestRedirects(t *testing.T) {
 		n, _ := strconv.Atoi(r.FormValue("n"))
 		// Test Referer header. (7 is arbitrary position to test at)
 		if n == 7 {
-			if g, e := r.Referer, ts.URL+"/?n=6"; e != g {
+			if g, e := r.Referer(), ts.URL+"/?n=6"; e != g {
 				t.Errorf("on request ?n=7, expected referer of %q; got %q", e, g)
 			}
 		}
@@ -241,5 +242,50 @@ func TestStreamingGet(t *testing.T) {
 	_, err = io.ReadFull(res.Body, buf[0:1])
 	if err != os.EOF {
 		t.Fatalf("at end expected EOF, got %v", err)
+	}
+}
+
+type writeCountingConn struct {
+	net.Conn
+	count *int
+}
+
+func (c *writeCountingConn) Write(p []byte) (int, os.Error) {
+	*c.count++
+	return c.Conn.Write(p)
+}
+
+// TestClientWrites verifies that client requests are buffered and we
+// don't send a TCP packet per line of the http request + body.
+func TestClientWrites(t *testing.T) {
+	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+	}))
+	defer ts.Close()
+
+	writes := 0
+	dialer := func(netz string, addr string) (net.Conn, os.Error) {
+		c, err := net.Dial(netz, addr)
+		if err == nil {
+			c = &writeCountingConn{c, &writes}
+		}
+		return c, err
+	}
+	c := &Client{Transport: &Transport{Dial: dialer}}
+
+	_, err := c.Get(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 {
+		t.Errorf("Get request did %d Write calls, want 1", writes)
+	}
+
+	writes = 0
+	_, err = c.PostForm(ts.URL, Values{"foo": {"bar"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 {
+		t.Errorf("Post request did %d Write calls, want 1", writes)
 	}
 }

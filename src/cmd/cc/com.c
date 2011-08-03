@@ -28,6 +28,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
 #include "cc.h"
 
 int compar(Node*, int);
@@ -127,7 +128,7 @@ tcomo(Node *n, int f)
 	case ORETURN:
 		if(l == Z) {
 			if(n->type->etype != TVOID)
-				warn(n, "null return of a typed function");
+				diag(n, "null return of a typed function");
 			break;
 		}
 		if(tcom(l))

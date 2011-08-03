@@ -83,9 +83,6 @@ enum {
 	ElfStrText,
 	ElfStrData,
 	ElfStrBss,
-	ElfStrGosymcounts,
-	ElfStrGosymtab,
-	ElfStrGopclntab,
 	ElfStrShstrtab,
 	ElfStrSymtab,
 	ElfStrStrtab,
@@ -531,10 +528,9 @@ doelf(void)
 	elfstr[ElfStrBss] = addstring(shstrtab, ".bss");
 	addstring(shstrtab, ".elfdata");
 	addstring(shstrtab, ".rodata");
+	addstring(shstrtab, ".gosymtab");
+	addstring(shstrtab, ".gopclntab");
 	if(!debug['s']) {
-		elfstr[ElfStrGosymcounts] = addstring(shstrtab, ".gosymcounts");
-		elfstr[ElfStrGosymtab] = addstring(shstrtab, ".gosymtab");
-		elfstr[ElfStrGopclntab] = addstring(shstrtab, ".gopclntab");
 		elfstr[ElfStrSymtab] = addstring(shstrtab, ".symtab");
 		elfstr[ElfStrStrtab] = addstring(shstrtab, ".strtab");
 		dwarfaddshstrings(shstrtab);
@@ -679,10 +675,11 @@ asmb(void)
 	seek(cout, sect->vaddr - segtext.vaddr + segtext.fileoff, 0);
 	codeblk(sect->vaddr, sect->len);
 
-	/* output read-only data in text segment */
-	sect = segtext.sect->next;
-	seek(cout, sect->vaddr - segtext.vaddr + segtext.fileoff, 0);
-	datblk(sect->vaddr, sect->len);
+	/* output read-only data in text segment (rodata, gosymtab and pclntab) */
+	for(sect = sect->next; sect != nil; sect = sect->next) {
+		seek(cout, sect->vaddr - segtext.vaddr + segtext.fileoff, 0);
+		datblk(sect->vaddr, sect->len);
+	}
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f datblk\n", cputime());
@@ -920,10 +917,6 @@ asmb(void)
 		break;
 
 	Elfput:
-		/* elf 386 */
-		if(HEADTYPE == Htiny)
-			debug['d'] = 1;
-
 		eh = getElfEhdr();
 		startva = INITTEXT - HEADR;
 
@@ -1087,18 +1080,6 @@ asmb(void)
 			elfshbits(sect);
 
 		if (!debug['s']) {
-			sh = newElfShdr(elfstr[ElfStrGosymtab]);
-			sh->type = SHT_PROGBITS;
-			sh->flags = SHF_ALLOC;
-			sh->addralign = 1;
-			shsym(sh, lookup("symtab", 0));
-
-			sh = newElfShdr(elfstr[ElfStrGopclntab]);
-			sh->type = SHT_PROGBITS;
-			sh->flags = SHF_ALLOC;
-			sh->addralign = 1;
-			shsym(sh, lookup("pclntab", 0));
-
 			sh = newElfShdr(elfstr[ElfStrSymtab]);
 			sh->type = SHT_SYMTAB;
 			sh->off = symo;
@@ -1276,6 +1257,6 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 				put(nil, a->asym->name, 'p', a->aoffset, 0, 0, a->gotype);
 	}
 	if(debug['v'] || debug['n'])
-		Bprint(&bso, "symsize = %uld\n", symsize);
+		Bprint(&bso, "symsize = %d\n", symsize);
 	Bflush(&bso);
 }

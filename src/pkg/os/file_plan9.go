@@ -9,6 +9,32 @@ import (
 	"syscall"
 )
 
+// File represents an open file descriptor.
+type File struct {
+	fd      int
+	name    string
+	dirinfo *dirInfo // nil unless directory being read
+	nepipe  int      // number of consecutive EPIPE in Write
+}
+
+// Fd returns the integer Unix file descriptor referencing the open file.
+func (file *File) Fd() int {
+	if file == nil {
+		return -1
+	}
+	return file.fd
+}
+
+// NewFile returns a new File with the given file descriptor and name.
+func NewFile(fd int, name string) *File {
+	if fd < 0 {
+		return nil
+	}
+	f := &File{fd: fd, name: name}
+	runtime.SetFinalizer(f, (*File).Close)
+	return f
+}
+
 // Auxiliary information if the File describes a directory
 type dirInfo struct {
 	buf  [syscall.STATMAX]byte // buffer for directory I/O
@@ -30,19 +56,54 @@ const DevNull = "/dev/null"
 // methods on the returned File can be used for I/O.
 // It returns the File and an Error, if any.
 func OpenFile(name string, flag int, perm uint32) (file *File, err Error) {
-	var fd int
-	var e syscall.Error
+	var (
+		fd     int
+		e      syscall.Error
+		create bool
+		excl   bool
+		trunc  bool
+		append bool
+	)
+
+	if flag&O_CREATE == O_CREATE {
+		flag = flag & ^O_CREATE
+		create = true
+	}
+	if flag&O_EXCL == O_EXCL {
+		excl = true
+	}
+	if flag&O_TRUNC == O_TRUNC {
+		trunc = true
+	}
+	// O_APPEND is emulated on Plan 9
+	if flag&O_APPEND == O_APPEND {
+		flag = flag &^ O_APPEND
+		append = true
+	}
 
 	syscall.ForkLock.RLock()
-	if flag&O_CREATE == O_CREATE {
-		fd, e = syscall.Create(name, flag & ^O_CREATE, perm)
+	if (create && trunc) || excl {
+		fd, e = syscall.Create(name, flag, perm)
 	} else {
 		fd, e = syscall.Open(name, flag)
+		if e != nil && create {
+			var e1 syscall.Error
+			fd, e1 = syscall.Create(name, flag, perm)
+			if e1 == nil {
+				e = nil
+			}
+		}
 	}
 	syscall.ForkLock.RUnlock()
 
 	if e != nil {
 		return nil, &PathError{"open", name, e}
+	}
+
+	if append {
+		if _, e = syscall.Seek(fd, 0, SEEK_END); e != nil {
+			return nil, &PathError{"seek", name, e}
+		}
 	}
 
 	return NewFile(fd, name), nil
@@ -69,8 +130,12 @@ func (file *File) Close() Error {
 
 // Stat returns the FileInfo structure describing file.
 // It returns the FileInfo and an error, if any.
-func (file *File) Stat() (fi *FileInfo, err Error) {
-	return dirstat(file)
+func (f *File) Stat() (fi *FileInfo, err Error) {
+	d, err := dirstat(f)
+	if iserror(err) {
+		return nil, err
+	}
+	return fileInfoFromStat(new(FileInfo), d), err
 }
 
 // Truncate changes the size of the file.
@@ -90,10 +155,15 @@ func (f *File) Truncate(size int64) Error {
 // Chmod changes the mode of the file to mode.
 func (f *File) Chmod(mode uint32) Error {
 	var d Dir
+	var mask = ^uint32(0777)
+
 	d.Null()
+	odir, e := dirstat(f)
+	if iserror(e) {
+		return &PathError{"chmod", f.name, e}
+	}
 
-	d.Mode = mode & 0777
-
+	d.Mode = (odir.Mode & mask) | (mode &^ mask)
 	if e := syscall.Fwstat(f.fd, pdir(nil, &d)); iserror(e) {
 		return &PathError{"chmod", f.name, e}
 	}
@@ -188,10 +258,15 @@ func Rename(oldname, newname string) Error {
 // Chmod changes the mode of the named file to mode.
 func Chmod(name string, mode uint32) Error {
 	var d Dir
+	var mask = ^uint32(0777)
+
 	d.Null()
+	odir, e := dirstat(name)
+	if iserror(e) {
+		return &PathError{"chmod", name, e}
+	}
 
-	d.Mode = mode & 0777
-
+	d.Mode = (odir.Mode & mask) | (mode &^ mask)
 	if e := syscall.Wstat(name, pdir(nil, &d)); iserror(e) {
 		return &PathError{"chmod", name, e}
 	}

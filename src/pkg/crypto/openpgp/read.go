@@ -10,7 +10,6 @@ import (
 	"crypto/openpgp/armor"
 	"crypto/openpgp/error"
 	"crypto/openpgp/packet"
-	"crypto/rsa"
 	_ "crypto/sha256"
 	"hash"
 	"io"
@@ -57,7 +56,6 @@ type MessageDetails struct {
 	// been consumed. Once EOF has been seen, the following fields are
 	// valid. (An authentication code failure is reported as a
 	// SignatureError error when reading from UnverifiedBody.)
-
 	SignatureError os.Error          // nil if the signature is good.
 	Signature      *packet.Signature // the signature packet itself.
 
@@ -112,7 +110,10 @@ ParsePackets:
 		case *packet.EncryptedKey:
 			// This packet contains the decryption key encrypted to a public key.
 			md.EncryptedToKeyIds = append(md.EncryptedToKeyIds, p.KeyId)
-			if p.Algo != packet.PubKeyAlgoRSA && p.Algo != packet.PubKeyAlgoRSAEncryptOnly {
+			switch p.Algo {
+			case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSAEncryptOnly, packet.PubKeyAlgoElGamal:
+				break
+			default:
 				continue
 			}
 			var keys []Key
@@ -155,7 +156,7 @@ FindKey:
 			}
 			if !pk.key.PrivateKey.Encrypted {
 				if len(pk.encryptedKey.Key) == 0 {
-					pk.encryptedKey.DecryptRSA(pk.key.PrivateKey.PrivateKey.(*rsa.PrivateKey))
+					pk.encryptedKey.Decrypt(pk.key.PrivateKey)
 				}
 				if len(pk.encryptedKey.Key) == 0 {
 					continue
@@ -249,11 +250,12 @@ FindLiteralData:
 			md.IsSigned = true
 			md.SignedByKeyId = p.KeyId
 			keys := keyring.KeysById(p.KeyId)
-			for _, key := range keys {
+			for i, key := range keys {
 				if key.SelfSignature.FlagsValid && !key.SelfSignature.FlagSign {
 					continue
 				}
-				md.SignedBy = &key
+				md.SignedBy = &keys[i]
+				break
 			}
 		case *packet.LiteralData:
 			md.LiteralData = p

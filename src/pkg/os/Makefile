@@ -73,6 +73,7 @@ GOFILES_plan9=\
 	path_plan9.go\
 	sys_plan9.go\
 	exec_plan9.go\
+	str.go\
 
 GOFILES+=$(GOFILES_$(GOOS))
 
@@ -83,5 +84,5 @@ include ../../Make.pkg
 signal_unix.go: ../syscall/zerrors_$(GOOS)_$(GOARCH).go
 	./mkunixsignals.sh $< > $@ || rm -f $@
 
-signal_windows.go: ../syscall/ztypes_$(GOOS)_$(GOARCH).go
+signal_windows.go: ../syscall/ztypes_$(GOOS).go
 	./mkunixsignals.sh $< > $@ || rm -f $@

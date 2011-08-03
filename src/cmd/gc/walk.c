@@ -243,7 +243,16 @@ walkstmt(Node **np)
 		break;
 
 	case OPROC:
-		walkexpr(&n->left, &n->ninit);
+		switch(n->left->op) {
+		case OPRINT:
+		case OPRINTN:
+			walkexprlist(n->left->list, &n->ninit);
+			n->left = walkprint(n->left, &n->ninit, 1);
+			break;
+		default:
+			walkexpr(&n->left, &n->ninit);
+			break;
+		}
 		break;
 
 	case ORETURN:
@@ -485,9 +494,9 @@ walkexpr(Node **np, NodeList **init)
 		if(n->left->op == OCLOSURE) {
 			walkcallclosure(n, init);
 			t = n->left->type;
-		} else
-			walkexpr(&n->left, init);
+		}
 
+		walkexpr(&n->left, init);
 		walkexprlist(n->list, init);
 
 		ll = ascompatte(n->op, n->isddd, getinarg(t), n->list, 0, init);

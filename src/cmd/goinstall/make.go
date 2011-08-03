@@ -1,4 +1,4 @@
-// Copyright 2010 The Go Authors.  All rights reserved.
+// Copyright 2011 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -8,21 +8,25 @@ package main
 
 import (
 	"bytes"
+	"go/build"
 	"os"
 	"path/filepath"
+	"strings"
 	"template"
 )
 
 // domake builds the package in dir.
 // domake generates a standard Makefile and passes it
 // to make on standard input.
-func domake(dir, pkg string, root *pkgroot, isCmd bool) (err os.Error) {
-	makefile, err := makeMakefile(dir, pkg, root, isCmd)
+func domake(dir, pkg string, tree *build.Tree, isCmd bool) (err os.Error) {
+	makefile, err := makeMakefile(dir, pkg, tree, isCmd)
 	if err != nil {
 		return err
 	}
 	cmd := []string{"bash", "gomake", "-f-"}
-	if *clean {
+	if *nuke {
+		cmd = append(cmd, "nuke")
+	} else if *clean {
 		cmd = append(cmd, "clean")
 	}
 	cmd = append(cmd, "install")
@@ -32,46 +36,46 @@ func domake(dir, pkg string, root *pkgroot, isCmd bool) (err os.Error) {
 // makeMakefile computes the standard Makefile for the directory dir
 // installing as package pkg.  It includes all *.go files in the directory
 // except those in package main and those ending in _test.go.
-func makeMakefile(dir, pkg string, root *pkgroot, isCmd bool) ([]byte, os.Error) {
+func makeMakefile(dir, pkg string, tree *build.Tree, isCmd bool) ([]byte, os.Error) {
 	if !safeName(pkg) {
-		return nil, os.ErrorString("unsafe name: " + pkg)
+		return nil, os.NewError("unsafe name: " + pkg)
 	}
 	targ := pkg
-	targDir := root.pkgDir()
+	targDir := tree.PkgDir()
 	if isCmd {
 		// use the last part of the package name for targ
 		_, targ = filepath.Split(pkg)
-		targDir = root.binDir()
+		targDir = tree.BinDir()
 	}
-	dirInfo, err := scanDir(dir, isCmd)
+	dirInfo, err := build.ScanDir(dir, isCmd)
 	if err != nil {
 		return nil, err
 	}
 
-	cgoFiles := dirInfo.cgoFiles
+	cgoFiles := dirInfo.CgoFiles
 	isCgo := make(map[string]bool, len(cgoFiles))
 	for _, file := range cgoFiles {
 		if !safeName(file) {
-			return nil, os.ErrorString("bad name: " + file)
+			return nil, os.NewError("bad name: " + file)
 		}
 		isCgo[file] = true
 	}
 
-	goFiles := make([]string, 0, len(dirInfo.goFiles))
-	for _, file := range dirInfo.goFiles {
+	goFiles := make([]string, 0, len(dirInfo.GoFiles))
+	for _, file := range dirInfo.GoFiles {
 		if !safeName(file) {
-			return nil, os.ErrorString("unsafe name: " + file)
+			return nil, os.NewError("unsafe name: " + file)
 		}
 		if !isCgo[file] {
 			goFiles = append(goFiles, file)
 		}
 	}
 
-	oFiles := make([]string, 0, len(dirInfo.cFiles)+len(dirInfo.sFiles))
-	cgoOFiles := make([]string, 0, len(dirInfo.cFiles))
-	for _, file := range dirInfo.cFiles {
+	oFiles := make([]string, 0, len(dirInfo.CFiles)+len(dirInfo.SFiles))
+	cgoOFiles := make([]string, 0, len(dirInfo.CFiles))
+	for _, file := range dirInfo.CFiles {
 		if !safeName(file) {
-			return nil, os.ErrorString("unsafe name: " + file)
+			return nil, os.NewError("unsafe name: " + file)
 		}
 		// When cgo is in use, C files are compiled with gcc,
 		// otherwise they're compiled with gc.
@@ -82,11 +86,16 @@ func makeMakefile(dir, pkg string, root *pkgroot, isCmd bool) ([]byte, os.Error)
 		}
 	}
 
-	for _, file := range dirInfo.sFiles {
+	for _, file := range dirInfo.SFiles {
 		if !safeName(file) {
-			return nil, os.ErrorString("unsafe name: " + file)
+			return nil, os.NewError("unsafe name: " + file)
 		}
 		oFiles = append(oFiles, file[:len(file)-2]+".$O")
+	}
+
+	var imports []string
+	for _, t := range build.Path {
+		imports = append(imports, t.PkgDir())
 	}
 
 	var buf bytes.Buffer
@@ -104,6 +113,9 @@ var safeBytes = []byte("+-./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmno
 
 func safeName(s string) bool {
 	if s == "" {
+		return false
+	}
+	if strings.Contains(s, "..") {
 		return false
 	}
 	for i := 0; i < len(s); i++ {
@@ -134,28 +146,28 @@ TARGDIR={TargDir}
 
 {.section GoFiles}
 GOFILES=\
-{.repeated section GoFiles}
+{.repeated section @}
 	{@}\
 {.end}
 
 {.end}
 {.section OFiles}
 OFILES=\
-{.repeated section OFiles}
+{.repeated section @}
 	{@}\
 {.end}
 
 {.end}
 {.section CgoFiles}
 CGOFILES=\
-{.repeated section CgoFiles}
+{.repeated section @}
 	{@}\
 {.end}
 
 {.end}
 {.section CgoOFiles}
 CGO_OFILES=\
-{.repeated section CgoOFiles}
+{.repeated section @}
 	{@}\
 {.end}
 

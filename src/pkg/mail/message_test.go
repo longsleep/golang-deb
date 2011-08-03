@@ -217,6 +217,26 @@ func TestAddressParsing(t *testing.T) {
 				},
 			},
 		},
+		// Custom example of RFC 2047 "B"-encoded ISO-8859-1 address.
+		{
+			`=?ISO-8859-1?B?SvZyZw==?= <joerg@example.com>`,
+			[]*Address{
+				&Address{
+					Name:    `Jörg`,
+					Address: "joerg@example.com",
+				},
+			},
+		},
+		// Custom example of RFC 2047 "B"-encoded UTF-8 address.
+		{
+			`=?UTF-8?B?SsO2cmc=?= <joerg@example.com>`,
+			[]*Address{
+				&Address{
+					Name:    `Jörg`,
+					Address: "joerg@example.com",
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		addrs, err := newAddrParser(test.addrsStr).parseAddressList()

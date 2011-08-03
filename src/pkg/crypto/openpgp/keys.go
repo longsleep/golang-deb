@@ -12,6 +12,7 @@ import (
 	"crypto/rsa"
 	"io"
 	"os"
+	"time"
 )
 
 // PublicKeyType is the armor type for a PGP public key.
@@ -62,6 +63,78 @@ type KeyRing interface {
 	// DecryptionKeys returns all private keys that are valid for
 	// decryption.
 	DecryptionKeys() []Key
+}
+
+// primaryIdentity returns the Identity marked as primary or the first identity
+// if none are so marked.
+func (e *Entity) primaryIdentity() *Identity {
+	var firstIdentity *Identity
+	for _, ident := range e.Identities {
+		if firstIdentity == nil {
+			firstIdentity = ident
+		}
+		if ident.SelfSignature.IsPrimaryId != nil && *ident.SelfSignature.IsPrimaryId {
+			return ident
+		}
+	}
+	return firstIdentity
+}
+
+// encryptionKey returns the best candidate Key for encrypting a message to the
+// given Entity.
+func (e *Entity) encryptionKey() Key {
+	candidateSubkey := -1
+
+	for i, subkey := range e.Subkeys {
+		if subkey.Sig.FlagsValid && subkey.Sig.FlagEncryptCommunications && subkey.PublicKey.PubKeyAlgo.CanEncrypt() {
+			candidateSubkey = i
+			break
+		}
+	}
+
+	i := e.primaryIdentity()
+
+	if e.PrimaryKey.PubKeyAlgo.CanEncrypt() {
+		// If we don't have any candidate subkeys for encryption and
+		// the primary key doesn't have any usage metadata then we
+		// assume that the primary key is ok. Or, if the primary key is
+		// marked as ok to encrypt to, then we can obviously use it.
+		if candidateSubkey == -1 && !i.SelfSignature.FlagsValid || i.SelfSignature.FlagEncryptCommunications && i.SelfSignature.FlagsValid {
+			return Key{e, e.PrimaryKey, e.PrivateKey, i.SelfSignature}
+		}
+	}
+
+	if candidateSubkey != -1 {
+		subkey := e.Subkeys[candidateSubkey]
+		return Key{e, subkey.PublicKey, subkey.PrivateKey, subkey.Sig}
+	}
+
+	// This Entity appears to be signing only.
+	return Key{}
+}
+
+// signingKey return the best candidate Key for signing a message with this
+// Entity.
+func (e *Entity) signingKey() Key {
+	candidateSubkey := -1
+
+	for i, subkey := range e.Subkeys {
+		if subkey.Sig.FlagsValid && subkey.Sig.FlagSign && subkey.PublicKey.PubKeyAlgo.CanSign() {
+			candidateSubkey = i
+			break
+		}
+	}
+
+	i := e.primaryIdentity()
+
+	// If we have no candidate subkey then we assume that it's ok to sign
+	// with the primary key.
+	if candidateSubkey == -1 || i.SelfSignature.FlagsValid && i.SelfSignature.FlagSign {
+		return Key{e, e.PrimaryKey, e.PrivateKey, i.SelfSignature}
+	}
+
+	subkey := e.Subkeys[candidateSubkey]
+	return Key{e, subkey.PublicKey, subkey.PrivateKey, subkey.Sig}
 }
 
 // An EntityList contains one or more Entities.
@@ -199,6 +272,10 @@ func readEntity(packets *packet.Reader) (*Entity, os.Error) {
 		}
 	}
 
+	if !e.PrimaryKey.PubKeyAlgo.CanSign() {
+		return nil, error.StructuralError("primary key cannot be used for signatures")
+	}
+
 	var current *Identity
 EachPacket:
 	for {
@@ -229,7 +306,7 @@ EachPacket:
 					return nil, error.StructuralError("user ID packet not followed by self-signature")
 				}
 
-				if sig.SigType == packet.SigTypePositiveCert && sig.IssuerKeyId != nil && *sig.IssuerKeyId == e.PrimaryKey.KeyId {
+				if (sig.SigType == packet.SigTypePositiveCert || sig.SigType == packet.SigTypeGenericCert) && sig.IssuerKeyId != nil && *sig.IssuerKeyId == e.PrimaryKey.KeyId {
 					if err = e.PrimaryKey.VerifyUserIdSignature(pkt.Id, sig); err != nil {
 						return nil, error.StructuralError("user ID self-signature invalid: " + err.String())
 					}
@@ -398,5 +475,71 @@ func (e *Entity) SerializePrivate(w io.Writer) (err os.Error) {
 			return
 		}
 	}
+	return nil
+}
+
+// Serialize writes the public part of the given Entity to w. (No private
+// key material will be output).
+func (e *Entity) Serialize(w io.Writer) os.Error {
+	err := e.PrimaryKey.Serialize(w)
+	if err != nil {
+		return err
+	}
+	for _, ident := range e.Identities {
+		err = ident.UserId.Serialize(w)
+		if err != nil {
+			return err
+		}
+		err = ident.SelfSignature.Serialize(w)
+		if err != nil {
+			return err
+		}
+		for _, sig := range ident.Signatures {
+			err = sig.Serialize(w)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	for _, subkey := range e.Subkeys {
+		err = subkey.PublicKey.Serialize(w)
+		if err != nil {
+			return err
+		}
+		err = subkey.Sig.Serialize(w)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SignIdentity adds a signature to e, from signer, attesting that identity is
+// associated with e. The provided identity must already be an element of
+// e.Identities and the private key of signer must have been decrypted if
+// necessary.
+func (e *Entity) SignIdentity(identity string, signer *Entity) os.Error {
+	if signer.PrivateKey == nil {
+		return error.InvalidArgumentError("signing Entity must have a private key")
+	}
+	if signer.PrivateKey.Encrypted {
+		return error.InvalidArgumentError("signing Entity's private key must be decrypted")
+	}
+	ident, ok := e.Identities[identity]
+	if !ok {
+		return error.InvalidArgumentError("given identity string not found in Entity")
+	}
+
+	sig := &packet.Signature{
+		SigType:      packet.SigTypeGenericCert,
+		PubKeyAlgo:   signer.PrivateKey.PubKeyAlgo,
+		Hash:         crypto.SHA256,
+		CreationTime: uint32(time.Seconds()),
+		IssuerKeyId:  &signer.PrivateKey.KeyId,
+	}
+	if err := sig.SignKey(e.PrimaryKey, signer.PrivateKey); err != nil {
+		return err
+	}
+	ident.Signatures = append(ident.Signatures, sig)
 	return nil
 }

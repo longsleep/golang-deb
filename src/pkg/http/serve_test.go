@@ -373,11 +373,8 @@ func TestIdentityResponse(t *testing.T) {
 	}
 }
 
-// TestServeHTTP10Close verifies that HTTP/1.0 requests won't be kept alive.
-func TestServeHTTP10Close(t *testing.T) {
-	s := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
-		ServeFile(w, r, "testdata/file")
-	}))
+func testTcpConnectionCloses(t *testing.T, req string, h Handler) {
+	s := httptest.NewServer(h)
 	defer s.Close()
 
 	conn, err := net.Dial("tcp", s.Listener.Addr().String())
@@ -386,7 +383,7 @@ func TestServeHTTP10Close(t *testing.T) {
 	}
 	defer conn.Close()
 
-	_, err = fmt.Fprint(conn, "GET / HTTP/1.0\r\n\r\n")
+	_, err = fmt.Fprint(conn, req)
 	if err != nil {
 		t.Fatal("print error:", err)
 	}
@@ -412,6 +409,27 @@ func TestServeHTTP10Close(t *testing.T) {
 	}
 
 	success <- true
+}
+
+// TestServeHTTP10Close verifies that HTTP/1.0 requests won't be kept alive.
+func TestServeHTTP10Close(t *testing.T) {
+	testTcpConnectionCloses(t, "GET / HTTP/1.0\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+		ServeFile(w, r, "testdata/file")
+	}))
+}
+
+// TestHandlersCanSetConnectionClose verifies that handlers can force a connection to close,
+// even for HTTP/1.1 requests.
+func TestHandlersCanSetConnectionClose11(t *testing.T) {
+	testTcpConnectionCloses(t, "GET / HTTP/1.1\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+		w.Header().Set("Connection", "close")
+	}))
+}
+
+func TestHandlersCanSetConnectionClose10(t *testing.T) {
+	testTcpConnectionCloses(t, "GET / HTTP/1.0\r\nConnection: keep-alive\r\n\r\n", HandlerFunc(func(w ResponseWriter, r *Request) {
+		w.Header().Set("Connection", "close")
+	}))
 }
 
 func TestSetsRemoteAddr(t *testing.T) {
@@ -522,7 +540,12 @@ func TestHeadResponses(t *testing.T) {
 
 func TestTLSServer(t *testing.T) {
 	ts := httptest.NewTLSServer(HandlerFunc(func(w ResponseWriter, r *Request) {
-		fmt.Fprintf(w, "tls=%v", r.TLS != nil)
+		if r.TLS != nil {
+			w.Header().Set("X-TLS-Set", "true")
+			if r.TLS.HandshakeComplete {
+				w.Header().Set("X-TLS-HandshakeComplete", "true")
+			}
+		}
 	}))
 	defer ts.Close()
 	if !strings.HasPrefix(ts.URL, "https://") {
@@ -530,20 +553,17 @@ func TestTLSServer(t *testing.T) {
 	}
 	res, err := Get(ts.URL)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	if res == nil {
 		t.Fatalf("got nil Response")
 	}
-	if res.Body == nil {
-		t.Fatalf("got nil Response.Body")
+	defer res.Body.Close()
+	if res.Header.Get("X-TLS-Set") != "true" {
+		t.Errorf("expected X-TLS-Set response header")
 	}
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		t.Error(err)
-	}
-	if e, g := "tls=true", string(body); e != g {
-		t.Errorf("expected body %q; got %q", e, g)
+	if res.Header.Get("X-TLS-HandshakeComplete") != "true" {
+		t.Errorf("expected X-TLS-HandshakeComplete header")
 	}
 }
 
@@ -778,6 +798,45 @@ func TestHandlerPanic(t *testing.T) {
 	_, err := Get(ts.URL)
 	if err == nil {
 		t.Logf("expected an error")
+	}
+}
+
+func TestNoDate(t *testing.T) {
+	ts := httptest.NewServer(HandlerFunc(func(w ResponseWriter, r *Request) {
+		w.Header()["Date"] = nil
+	}))
+	defer ts.Close()
+	res, err := Get(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, present := res.Header["Date"]
+	if present {
+		t.Fatalf("Expected no Date header; got %v", res.Header["Date"])
+	}
+}
+
+func TestStripPrefix(t *testing.T) {
+	h := HandlerFunc(func(w ResponseWriter, r *Request) {
+		w.Header().Set("X-Path", r.URL.Path)
+	})
+	ts := httptest.NewServer(StripPrefix("/foo", h))
+	defer ts.Close()
+
+	res, err := Get(ts.URL + "/foo/bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, e := res.Header.Get("X-Path"), "/bar"; g != e {
+		t.Errorf("test 1: got %s, want %s", g, e)
+	}
+
+	res, err = Get(ts.URL + "/bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, e := res.StatusCode, 404; g != e {
+		t.Errorf("test 2: got status %v, want %v", g, e)
 	}
 }
 

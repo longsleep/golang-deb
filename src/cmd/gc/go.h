@@ -278,6 +278,7 @@ struct	Node
 	int32	iota;
 };
 #define	N	((Node*)0)
+EXTERN	int32	walkgen;
 
 struct	NodeList
 {
@@ -301,6 +302,7 @@ struct	Sym
 	uchar	flags;
 	uchar	sym;		// huffman encoding in object file
 	Sym*	link;
+	int32	npkg;	// number of imported packages with this name
 
 	// saved and restored by dcopy
 	Pkg*	pkg;
@@ -632,20 +634,19 @@ typedef struct	Prog Prog;
 
 struct	Label
 {
-	uchar	op;		// OGOTO/OLABEL
 	uchar	used;
 	Sym*	sym;
-	Node*	stmt;
-	Prog*	label;		// pointer to code
+	Node*	def;
+	NodeList*	use;
+	Label*	link;
+	
+	// for use during gen
+	Prog*	gotopc;	// pointer to unresolved gotos
+	Prog*	labelpc;	// pointer to code
 	Prog*	breakpc;	// pointer to code
 	Prog*	continpc;	// pointer to code
-	Label*	link;
-	int32	lineno;
 };
 #define	L	((Label*)0)
-
-EXTERN	Label*	labellist;
-EXTERN	Label*	lastlabel;
 
 /*
  * note this is the runtime representation
@@ -691,6 +692,7 @@ EXTERN	char*	infile;
 EXTERN	char*	outfile;
 EXTERN	Biobuf*	bout;
 EXTERN	int	nerrors;
+EXTERN	int	nsavederrors;
 EXTERN	int	nsyntaxerrors;
 EXTERN	int	safemode;
 EXTERN	char	namebuf[NSYMB];
@@ -776,6 +778,7 @@ EXTERN	int32	nhunk;
 EXTERN	int32	thunk;
 
 EXTERN	int	exporting;
+EXTERN	int	erroring;
 EXTERN	int	noargnames;
 
 EXTERN	int	funcdepth;
@@ -913,8 +916,8 @@ Type*	pkgtype(Sym *s);
 void	allocparams(void);
 void	cgen_as(Node *nl, Node *nr);
 void	cgen_callmeth(Node *n, int proc);
-void	checklabels(void);
 void	clearlabels(void);
+void	checklabels(void);
 int	dotoffset(Node *n, int *oary, Node **nn);
 void	gen(Node *n);
 void	genlist(NodeList *l);
@@ -1132,6 +1135,7 @@ Type*	ptrto(Type *t);
 void*	remal(void *p, int32 on, int32 n);
 Sym*	restrictlookup(char *name, Pkg *pkg);
 Node*	safeexpr(Node *n, NodeList **init);
+void	saveerrors(void);
 Node*	cheapexpr(Node *n, NodeList **init);
 int32	setlineno(Node *n);
 void	setmaxarg(Type *t);
@@ -1195,7 +1199,7 @@ void	walkstmt(Node **np);
 void	walkstmtlist(NodeList *l);
 
 /*
- *	arch-specific ggen.c/gsubr.c/gobj.c
+ *	arch-specific ggen.c/gsubr.c/gobj.c/pgen.c
  */
 #define	P	((Prog*)0)
 
@@ -1237,6 +1241,7 @@ int	dsymptr(Sym *s, int off, Sym *x, int xoff);
 int	duintxx(Sym *s, int off, uint64 v, int wid);
 void	dumpdata(void);
 void	dumpfuncs(void);
+void	fixautoused(Prog*);
 void	gdata(Node*, Node*, int);
 void	gdatacomplex(Node*, Mpcplx*);
 void	gdatastring(Node*, Strlit*);
@@ -1246,15 +1251,15 @@ void	ggloblsym(Sym *s, int32 width, int dupok);
 Prog*	gjmp(Prog*);
 void	gused(Node*);
 int	isfat(Type*);
+void	markautoused(Prog*);
 Plist*	newplist(void);
 Node*	nodarg(Type*, int);
 void	nopout(Prog*);
 void	patch(Prog*, Prog*);
+Prog*	unpatch(Prog*);
 void	zfile(Biobuf *b, char *p, int n);
 void	zhist(Biobuf *b, int line, vlong offset);
 void	zname(Biobuf *b, Sym *s, int t);
 void	data(void);
 void	text(void);
 
-EXTERN	int	hasgoto;
-void	clearstk(void);

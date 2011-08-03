@@ -400,6 +400,7 @@ func inBodyIM(p *parser) (insertionMode, bool) {
 			p.framesetOK = false
 		default:
 			// TODO.
+			p.addElement(p.tok.Data, p.tok.Attr)
 		}
 	case EndTagToken:
 		switch p.tok.Data {
@@ -413,7 +414,10 @@ func inBodyIM(p *parser) (insertionMode, bool) {
 				p.pop()
 			}
 		default:
-			// TODO.
+			// TODO: any other end tag
+			if p.tok.Data == p.top().Data {
+				p.pop()
+			}
 		}
 	}
 	if endP {

@@ -154,22 +154,32 @@ var drawTests = []drawTest{
 	{"genericSrc", fillBlue(255), vgradAlpha(192), Src, image.RGBAColor{0, 0, 102, 102}},
 }
 
-func makeGolden(dst, src, mask image.Image, op Op) image.Image {
+func makeGolden(dst image.Image, r image.Rectangle, src image.Image, sp image.Point, mask image.Image, mp image.Point, op Op) image.Image {
 	// Since golden is a newly allocated image, we don't have to check if the
 	// input source and mask images and the output golden image overlap.
 	b := dst.Bounds()
-	sx0 := src.Bounds().Min.X - b.Min.X
-	sy0 := src.Bounds().Min.Y - b.Min.Y
-	var mx0, my0 int
+	sb := src.Bounds()
+	mb := image.Rect(-1e9, -1e9, 1e9, 1e9)
 	if mask != nil {
-		mx0 = mask.Bounds().Min.X - b.Min.X
-		my0 = mask.Bounds().Min.Y - b.Min.Y
+		mb = mask.Bounds()
 	}
 	golden := image.NewRGBA(b.Max.X, b.Max.Y)
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		my, sy := my0+y, sy0+y
-		for x := b.Min.X; x < b.Max.X; x++ {
-			mx, sx := mx0+x, sx0+x
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		sy := y + sp.Y - r.Min.Y
+		my := y + mp.Y - r.Min.Y
+		for x := r.Min.X; x < r.Max.X; x++ {
+			if !(image.Point{x, y}.In(b)) {
+				continue
+			}
+			sx := x + sp.X - r.Min.X
+			if !(image.Point{sx, sy}.In(sb)) {
+				continue
+			}
+			mx := x + mp.X - r.Min.X
+			if !(image.Point{mx, my}.In(mb)) {
+				continue
+			}
+
 			const M = 1<<16 - 1
 			var dr, dg, db, da uint32
 			if op == Over {
@@ -189,35 +199,49 @@ func makeGolden(dst, src, mask image.Image, op Op) image.Image {
 			})
 		}
 	}
-	golden.Rect = b
-	return golden
+	return golden.SubImage(b)
 }
 
 func TestDraw(t *testing.T) {
-loop:
-	for _, test := range drawTests {
-		dst := hgradRed(255)
-		// Draw the (src, mask, op) onto a copy of dst using a slow but obviously correct implementation.
-		golden := makeGolden(dst, test.src, test.mask, test.op)
-		b := dst.Bounds()
-		if !b.Eq(golden.Bounds()) {
-			t.Errorf("draw %s: bounds %v versus %v", test.desc, dst.Bounds(), golden.Bounds())
-			continue
-		}
-		// Draw the same combination onto the actual dst using the optimized DrawMask implementation.
-		DrawMask(dst, b, test.src, image.ZP, test.mask, image.ZP, test.op)
-		// Check that the resultant pixel at (8, 8) matches what we expect
-		// (the expected value can be verified by hand).
-		if !eq(dst.At(8, 8), test.expected) {
-			t.Errorf("draw %s: at (8, 8) %v versus %v", test.desc, dst.At(8, 8), test.expected)
-			continue
-		}
-		// Check that the resultant dst image matches the golden output.
-		for y := b.Min.Y; y < b.Max.Y; y++ {
-			for x := b.Min.X; x < b.Max.X; x++ {
-				if !eq(dst.At(x, y), golden.At(x, y)) {
-					t.Errorf("draw %s: at (%d, %d), %v versus golden %v", test.desc, x, y, dst.At(x, y), golden.At(x, y))
-					continue loop
+	rr := []image.Rectangle{
+		image.Rect(0, 0, 0, 0),
+		image.Rect(0, 0, 16, 16),
+		image.Rect(3, 5, 12, 10),
+		image.Rect(0, 0, 9, 9),
+		image.Rect(8, 8, 16, 16),
+		image.Rect(8, 0, 9, 16),
+		image.Rect(0, 8, 16, 9),
+		image.Rect(8, 8, 9, 9),
+		image.Rect(8, 8, 8, 8),
+	}
+	for _, r := range rr {
+	loop:
+		for _, test := range drawTests {
+			dst := hgradRed(255).(*image.RGBA).SubImage(r).(Image)
+			// Draw the (src, mask, op) onto a copy of dst using a slow but obviously correct implementation.
+			golden := makeGolden(dst, image.Rect(0, 0, 16, 16), test.src, image.ZP, test.mask, image.ZP, test.op)
+			b := dst.Bounds()
+			if !b.Eq(golden.Bounds()) {
+				t.Errorf("draw %v %s: bounds %v versus %v", r, test.desc, dst.Bounds(), golden.Bounds())
+				continue
+			}
+			// Draw the same combination onto the actual dst using the optimized DrawMask implementation.
+			DrawMask(dst, image.Rect(0, 0, 16, 16), test.src, image.ZP, test.mask, image.ZP, test.op)
+			if image.Pt(8, 8).In(r) {
+				// Check that the resultant pixel at (8, 8) matches what we expect
+				// (the expected value can be verified by hand).
+				if !eq(dst.At(8, 8), test.expected) {
+					t.Errorf("draw %v %s: at (8, 8) %v versus %v", r, test.desc, dst.At(8, 8), test.expected)
+					continue
+				}
+			}
+			// Check that the resultant dst image matches the golden output.
+			for y := b.Min.Y; y < b.Max.Y; y++ {
+				for x := b.Min.X; x < b.Max.X; x++ {
+					if !eq(dst.At(x, y), golden.At(x, y)) {
+						t.Errorf("draw %v %s: at (%d, %d), %v versus golden %v", r, test.desc, x, y, dst.At(x, y), golden.At(x, y))
+						continue loop
+					}
 				}
 			}
 		}
@@ -230,19 +254,11 @@ func TestDrawOverlap(t *testing.T) {
 		loop:
 			for xoff := -2; xoff <= 2; xoff++ {
 				m := gradYellow(127).(*image.RGBA)
-				dst := &image.RGBA{
-					Pix:    m.Pix,
-					Stride: m.Stride,
-					Rect:   image.Rect(5, 5, 10, 10),
-				}
-				src := &image.RGBA{
-					Pix:    m.Pix,
-					Stride: m.Stride,
-					Rect:   image.Rect(5+xoff, 5+yoff, 10+xoff, 10+yoff),
-				}
-				// Draw the (src, mask, op) onto a copy of dst using a slow but obviously correct implementation.
-				golden := makeGolden(dst, src, nil, op)
+				dst := m.SubImage(image.Rect(5, 5, 10, 10)).(*image.RGBA)
+				src := m.SubImage(image.Rect(5+xoff, 5+yoff, 10+xoff, 10+yoff)).(*image.RGBA)
 				b := dst.Bounds()
+				// Draw the (src, mask, op) onto a copy of dst using a slow but obviously correct implementation.
+				golden := makeGolden(dst, b, src, src.Bounds().Min, nil, image.ZP, op)
 				if !b.Eq(golden.Bounds()) {
 					t.Errorf("drawOverlap xoff=%d,yoff=%d: bounds %v versus %v", xoff, yoff, dst.Bounds(), golden.Bounds())
 					continue
@@ -271,8 +287,68 @@ func TestNonZeroSrcPt(t *testing.T) {
 	b.Set(1, 0, image.RGBAColor{0, 0, 5, 5})
 	b.Set(0, 1, image.RGBAColor{0, 5, 0, 5})
 	b.Set(1, 1, image.RGBAColor{5, 0, 0, 5})
-	Draw(a, image.Rect(0, 0, 1, 1), b, image.Pt(1, 1))
+	Draw(a, image.Rect(0, 0, 1, 1), b, image.Pt(1, 1), Over)
 	if !eq(image.RGBAColor{5, 0, 0, 5}, a.At(0, 0)) {
 		t.Errorf("non-zero src pt: want %v got %v", image.RGBAColor{5, 0, 0, 5}, a.At(0, 0))
+	}
+}
+
+func TestFill(t *testing.T) {
+	rr := []image.Rectangle{
+		image.Rect(0, 0, 0, 0),
+		image.Rect(0, 0, 40, 30),
+		image.Rect(10, 0, 40, 30),
+		image.Rect(0, 20, 40, 30),
+		image.Rect(10, 20, 40, 30),
+		image.Rect(10, 20, 15, 25),
+		image.Rect(10, 0, 35, 30),
+		image.Rect(0, 15, 40, 16),
+		image.Rect(24, 24, 25, 25),
+		image.Rect(23, 23, 26, 26),
+		image.Rect(22, 22, 27, 27),
+		image.Rect(21, 21, 28, 28),
+		image.Rect(20, 20, 29, 29),
+	}
+	for _, r := range rr {
+		m := image.NewRGBA(40, 30).SubImage(r).(*image.RGBA)
+		b := m.Bounds()
+		c := image.RGBAColor{11, 0, 0, 255}
+		src := &image.ColorImage{c}
+		check := func(desc string) {
+			for y := b.Min.Y; y < b.Max.Y; y++ {
+				for x := b.Min.X; x < b.Max.X; x++ {
+					if !eq(c, m.At(x, y)) {
+						t.Errorf("%s fill: at (%d, %d), sub-image bounds=%v: want %v got %v", desc, x, y, r, c, m.At(x, y))
+						return
+					}
+				}
+			}
+		}
+		// Draw 1 pixel at a time.
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			for x := b.Min.X; x < b.Max.X; x++ {
+				DrawMask(m, image.Rect(x, y, x+1, y+1), src, image.ZP, nil, image.ZP, Src)
+			}
+		}
+		check("pixel")
+		// Draw 1 row at a time.
+		c = image.RGBAColor{0, 22, 0, 255}
+		src = &image.ColorImage{c}
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			DrawMask(m, image.Rect(b.Min.X, y, b.Max.X, y+1), src, image.ZP, nil, image.ZP, Src)
+		}
+		check("row")
+		// Draw 1 column at a time.
+		c = image.RGBAColor{0, 0, 33, 255}
+		src = &image.ColorImage{c}
+		for x := b.Min.X; x < b.Max.X; x++ {
+			DrawMask(m, image.Rect(x, b.Min.Y, x+1, b.Max.Y), src, image.ZP, nil, image.ZP, Src)
+		}
+		check("column")
+		// Draw the whole image at once.
+		c = image.RGBAColor{44, 55, 66, 77}
+		src = &image.ColorImage{c}
+		DrawMask(m, b, src, image.ZP, nil, image.ZP, Src)
+		check("whole")
 	}
 }

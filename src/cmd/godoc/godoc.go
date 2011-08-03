@@ -9,13 +9,12 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"go/doc"
-	"go/parser"
 	"go/printer"
 	"go/token"
 	"http"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path"
@@ -71,10 +70,11 @@ var (
 	maxResults   = flag.Int("maxresults", 10000, "maximum number of full text search results shown")
 
 	// file system mapping
-	fsMap      Mapping // user-defined mapping
-	fsTree     RWValue // *Directory tree of packages, updated with each sync
-	pathFilter RWValue // filter used when building fsMap directory trees
-	fsModified RWValue // timestamp of last call to invalidateIndex
+	fs         FileSystem // the underlying file system
+	fsMap      Mapping    // user-defined mapping
+	fsTree     RWValue    // *Directory tree of packages, updated with each sync
+	pathFilter RWValue    // filter used when building fsMap directory trees
+	fsModified RWValue    // timestamp of last call to invalidateIndex
 
 	// http handlers
 	fileServer http.Handler // default file server
@@ -84,8 +84,16 @@ var (
 
 
 func initHandlers() {
-	fsMap.Init(*pkgPath)
-	fileServer = http.FileServer(*goroot, "")
+	paths := filepath.SplitList(*pkgPath)
+	for _, t := range build.Path {
+		if t.Goroot {
+			continue
+		}
+		paths = append(paths, t.SrcDir())
+	}
+	fsMap.Init(paths)
+
+	fileServer = http.FileServer(http.Dir(*goroot))
 	cmdHandler = httpHandler{"/cmd/", filepath.Join(*goroot, "src", "cmd"), false}
 	pkgHandler = httpHandler{"/pkg/", filepath.Join(*goroot, "src", "pkg"), true}
 }
@@ -147,13 +155,13 @@ func getPathFilter() func(string) bool {
 // readDirList reads a file containing a newline-separated list
 // of directory paths and returns the list of paths.
 func readDirList(filename string) ([]string, os.Error) {
-	contents, err := ioutil.ReadFile(filename)
+	contents, err := fs.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 	// create a sorted list of valid directory names
 	filter := func(path string) bool {
-		d, e := os.Lstat(path)
+		d, e := fs.Lstat(path)
 		if e != nil && err == nil {
 			// remember first error and return it from readDirList
 			// so we have at least some information if things go bad
@@ -161,7 +169,7 @@ func readDirList(filename string) ([]string, os.Error) {
 		}
 		return e == nil && isPkgDir(d)
 	}
-	list := canonicalizePaths(strings.Split(string(contents), "\n", -1), filter)
+	list := canonicalizePaths(strings.Split(string(contents), "\n"), filter)
 	// for each parent path, remove all it's children q
 	// (requirement for binary search to work when filtering)
 	i := 0
@@ -598,7 +606,7 @@ func timeFmt(w io.Writer, format string, x ...interface{}) {
 
 // Template formatter for "dir/" format.
 func dirslashFmt(w io.Writer, format string, x ...interface{}) {
-	if x[0].(*os.FileInfo).IsDirectory() {
+	if x[0].(FileInfo).IsDirectory() {
 		w.Write([]byte{'/'})
 	}
 }
@@ -642,12 +650,12 @@ func readTemplate(name string) *template.Template {
 	if *templateDir != "" {
 		defaultpath := path
 		path = filepath.Join(*templateDir, name)
-		if _, err := os.Stat(path); err != nil {
+		if _, err := fs.Stat(path); err != nil {
 			log.Print("readTemplate:", err)
 			path = defaultpath
 		}
 	}
-	data, err := ioutil.ReadFile(path)
+	data, err := fs.ReadFile(path)
 	if err != nil {
 		log.Fatalf("ReadFile %s: %v", path, err)
 	}
@@ -742,9 +750,9 @@ func extractString(src []byte, rx *regexp.Regexp) (s string) {
 
 func serveHTMLDoc(w http.ResponseWriter, r *http.Request, abspath, relpath string) {
 	// get HTML body contents
-	src, err := ioutil.ReadFile(abspath)
+	src, err := fs.ReadFile(abspath)
 	if err != nil {
-		log.Printf("ioutil.ReadFile: %s", err)
+		log.Printf("ReadFile: %s", err)
 		serveError(w, r, relpath, err)
 		return
 	}
@@ -793,9 +801,9 @@ func redirect(w http.ResponseWriter, r *http.Request) (redirected bool) {
 }
 
 func serveTextFile(w http.ResponseWriter, r *http.Request, abspath, relpath, title string) {
-	src, err := ioutil.ReadFile(abspath)
+	src, err := fs.ReadFile(abspath)
 	if err != nil {
-		log.Printf("ioutil.ReadFile: %s", err)
+		log.Printf("ReadFile: %s", err)
 		serveError(w, r, relpath, err)
 		return
 	}
@@ -814,17 +822,11 @@ func serveDirectory(w http.ResponseWriter, r *http.Request, abspath, relpath str
 		return
 	}
 
-	list, err := ioutil.ReadDir(abspath)
+	list, err := fs.ReadDir(abspath)
 	if err != nil {
-		log.Printf("ioutil.ReadDir: %s", err)
+		log.Printf("ReadDir: %s", err)
 		serveError(w, r, relpath, err)
 		return
-	}
-
-	for _, d := range list {
-		if d.IsDirectory() {
-			d.Size = 0
-		}
 	}
 
 	contents := applyTemplate(dirlistHTML, "dirlistHTML", list)
@@ -864,7 +866,7 @@ func serveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dir, err := os.Lstat(abspath)
+	dir, err := fs.Lstat(abspath)
 	if err != nil {
 		log.Print(err)
 		serveError(w, r, relpath, err)
@@ -942,15 +944,15 @@ type httpHandler struct {
 //
 func (h *httpHandler) getPageInfo(abspath, relpath, pkgname string, mode PageInfoMode) PageInfo {
 	// filter function to select the desired .go files
-	filter := func(d *os.FileInfo) bool {
+	filter := func(d FileInfo) bool {
 		// If we are looking at cmd documentation, only accept
 		// the special fakePkgFile containing the documentation.
-		return isPkgFile(d) && (h.isPkg || d.Name == fakePkgFile)
+		return isPkgFile(d) && (h.isPkg || d.Name() == fakePkgFile)
 	}
 
 	// get package ASTs
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, abspath, filter, parser.ParseComments)
+	pkgs, err := parseDir(fset, abspath, filter)
 	if err != nil && pkgs == nil {
 		// only report directory read errors, ignore parse errors
 		// (may be able to extract partial package information)

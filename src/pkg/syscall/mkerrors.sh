@@ -30,7 +30,9 @@ includes_Linux='
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <linux/if_addr.h>
+#include <linux/if_ether.h>
 #include <linux/if_tun.h>
+#include <linux/filter.h>
 #include <linux/netlink.h>
 #include <linux/reboot.h>
 #include <linux/rtnetlink.h>
@@ -47,6 +49,7 @@ includes_Darwin='
 #define _DARWIN_USE_64_BIT_INODE
 #include <sys/types.h>
 #include <sys/event.h>
+#include <sys/ptrace.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/sysctl.h>
@@ -59,6 +62,7 @@ includes_Darwin='
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_mroute.h>
+#include <termios.h>
 '
 
 includes_FreeBSD='
@@ -68,11 +72,13 @@ includes_FreeBSD='
 #include <sys/sockio.h>
 #include <sys/sysctl.h>
 #include <sys/wait.h>
+#include <sys/ioctl.h>
 #include <net/bpf.h>
 #include <net/if.h>
 #include <net/if_types.h>
 #include <net/route.h>
 #include <netinet/in.h>
+#include <termios.h>
 #include <netinet/ip.h>
 #include <netinet/ip_mroute.h>
 '
@@ -136,12 +142,13 @@ done
 		$2 == "CTL_MAXNAME" ||
 		$2 ~ /^(MS|MNT)_/ ||
 		$2 ~ /^TUN(SET|GET|ATTACH|DETACH)/ ||
-		$2 ~ /^(O|F|FD|NAME|S|PTRACE)_/ ||
+		$2 ~ /^(O|F|FD|NAME|S|PTRACE|PT)_/ ||
 		$2 ~ /^LINUX_REBOOT_CMD_/ ||
 		$2 ~ /^LINUX_REBOOT_MAGIC[12]$/ ||
 		$2 !~ "NLA_TYPE_MASK" &&
-		$2 ~ /^(NETLINK|NLM|NLMSG|NLA|IFA|RTM|RTN|RTPROT|RTA|RTAX|RTNH|ARPHRD)_/ ||
+		$2 ~ /^(NETLINK|NLM|NLMSG|NLA|IFA|RTM|RTN|RTPROT|RTA|RTAX|RTNH|ARPHRD|ETH_P)_/ ||
 		$2 ~ /^SIOC/ ||
+		$2 ~ /^TIOC/ ||
 		$2 ~ /^(IFF|IFT|NET_RT|RTM|RTF|RTV|RTA|RTAX)_/ ||
 		$2 ~ /^BIOC/ ||
 		$2 !~ /^(BPF_TIMEVAL)$/ &&

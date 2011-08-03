@@ -1316,7 +1316,7 @@ def clpatch_or_undo(ui, repo, clname, opts, mode):
 		# Create fresh CL and start with patch that would reverse the change.
 		vers = short(rev.node())
 		cl = CL("new")
-		desc = rev.description()
+		desc = str(rev.description())
 		if mode == "undo":
 			cl.desc = (undoHeader % (clname, vers)) + desc + undoFooter
 		else:
@@ -1352,10 +1352,12 @@ def clpatch_or_undo(ui, repo, clname, opts, mode):
 			repo[vers].description()
 		except:
 			return "local repository is out of date; sync to get %s" % (vers)
-		patch, err = portPatch(repo, patch, vers, id)
+		patch1, err = portPatch(repo, patch, vers, id)
 		if err != "":
-			return "codereview issue %s is out of date: %s (%s->%s)" % (clname, err, vers, id)
-
+			if not opts["ignore_hgpatch_failure"]:
+				return "codereview issue %s is out of date: %s (%s->%s)" % (clname, err, vers, id)
+		else:
+			patch = patch1
 	argv = ["hgpatch"]
 	if opts["no_incoming"] or mode == "backport":
 		argv += ["--checksync=false"]
@@ -1369,7 +1371,7 @@ def clpatch_or_undo(ui, repo, clname, opts, mode):
 		return "hgpatch failed"
 	cl.local = True
 	cl.files = out.strip().split()
-	if not cl.files:
+	if not cl.files and not opts["ignore_hgpatch_failure"]:
 		return "codereview issue %s has no changed files" % clname
 	files = ChangedFiles(ui, repo, [], opts)
 	extra = Sub(cl.files, files)
@@ -1781,7 +1783,7 @@ def sync(ui, repo, **opts):
 		err = commands.postincoming(ui, repo, modheads, True, "tip")
 		if err:
 			return err
-	commands.update(ui, repo)
+	commands.update(ui, repo, rev="default")
 	sync_changes(ui, repo)
 
 def sync_note(msg):
@@ -1845,7 +1847,7 @@ def sync_changes(ui, repo):
 			cl.Flush(ui, repo)
 		if not cl.files:
 			if not cl.copied_from:
-				ui.warn("CL %s has no files; delete with hg change -d %s\n" % (cl.name, cl.name))
+				ui.warn("CL %s has no files; delete (abandon) with hg change -d %s\n" % (cl.name, cl.name))
 			else:
 				ui.warn("CL %s has no files; delete locally with hg change -D %s\n" % (cl.name, cl.name))
 	return
