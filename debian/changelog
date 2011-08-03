@@ -1,3 +1,13 @@
+golang (1:59-1) unstable; urgency=low
+
+  * Imported Upstream version 59
+  * Refresh patches to a new release
+  * Fix FTBFS on ARM (Closes: #634270)
+  * Update version.bash to work with Debian packaging and not hg
+    repository
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 03 Aug 2011 17:04:59 +0200
+
 golang (1:58.1-2) unstable; urgency=low
 
   * Install golang-doc package by default (Recommends from golang-tools,
