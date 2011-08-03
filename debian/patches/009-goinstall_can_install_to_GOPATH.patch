@@ -1,6 +1,6 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -75,6 +75,10 @@ func main() {
+@@ -77,6 +77,10 @@ func main() {
  		os.Exit(1)
  	}
  

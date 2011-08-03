@@ -19,7 +19,7 @@
  
 --- a/src/cmd/cov/Makefile
 +++ b/src/cmd/cov/Makefile
-@@ -23,11 +23,7 @@ LIB=\
+@@ -20,11 +20,7 @@ HFILES=\
  NOINSTALL=1
  include ../../Make.ccmd
  
@@ -34,7 +34,7 @@
  install-linux: install-default
 --- a/src/cmd/prof/Makefile
 +++ b/src/cmd/prof/Makefile
-@@ -19,11 +19,7 @@ LIB=\
+@@ -16,11 +16,7 @@ OFILES=\
  NOINSTALL=1
  include ../../Make.ccmd
  
@@ -60,7 +60,7 @@
  #define _LARGEFILE_SOURCE
  #define _LARGEFILE64_SOURCE
  #define _FILE_OFFSET_BITS 64
-@@ -41,7 +39,7 @@ includes_Linux='
+@@ -43,7 +41,7 @@ includes_Linux='
  #include <netpacket/packet.h>
  '
  
@@ -69,8 +69,8 @@
  #define _DARWIN_C_SOURCE
  #define KERNEL
  #define _DARWIN_USE_64_BIT_INODE
-@@ -61,7 +59,7 @@ includes_Darwin='
- #include <netinet/ip_mroute.h>
+@@ -65,7 +63,7 @@ includes_Darwin='
+ #include <termios.h>
  '
  
 -includes_FreeBSD='
@@ -78,7 +78,7 @@
  #include <sys/types.h>
  #include <sys/event.h>
  #include <sys/socket.h>
-@@ -105,7 +103,7 @@ done
+@@ -111,7 +109,7 @@ done
  
  # Write godefs input.
  (
@@ -89,7 +89,7 @@
  	echo 'enum {'
 --- a/src/pkg/net/Makefile
 +++ b/src/pkg/net/Makefile
-@@ -35,7 +35,7 @@ GOFILES_freebsd=\
+@@ -36,7 +36,7 @@ GOFILES_freebsd=\
  	sock_bsd.go\
  
  CGOFILES_freebsd=\
