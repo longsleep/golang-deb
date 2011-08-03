@@ -53,7 +53,7 @@ func main() {
 
 	if *allowedRewrites != "" {
 		allowed = make(map[string]bool)
-		for _, f := range strings.Split(*allowedRewrites, ",", -1) {
+		for _, f := range strings.Split(*allowedRewrites, ",") {
 			allowed[f] = true
 		}
 	}
@@ -123,7 +123,7 @@ func processFile(filename string, useStdin bool) os.Error {
 	newFile := file
 	fixed := false
 	for _, fix := range fixes {
-		if allowed != nil && !allowed[fix.desc] {
+		if allowed != nil && !allowed[fix.name] {
 			continue
 		}
 		if fix.f(newFile) {

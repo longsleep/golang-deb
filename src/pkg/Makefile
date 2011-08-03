@@ -45,6 +45,7 @@ DIRS=\
 	crypto/ocsp\
 	crypto/openpgp\
 	crypto/openpgp/armor\
+	crypto/openpgp/elgamal\
 	crypto/openpgp/error\
 	crypto/openpgp/packet\
 	crypto/openpgp/s2k\
@@ -61,6 +62,7 @@ DIRS=\
 	crypto/x509\
 	crypto/x509/pkix\
 	crypto/xtea\
+	csv\
 	debug/dwarf\
 	debug/macho\
 	debug/elf\
@@ -80,6 +82,8 @@ DIRS=\
 	exp/eval\
 	exp/gui\
 	exp/gui/x11\
+	exp/regexp/syntax\
+	exp/template\
 	expvar\
 	flag\
 	fmt\
@@ -181,6 +185,36 @@ DIRS+=\
 
 endif
 
+ifeq ($(GOOS),plan9)
+NOPLAN9BUILD=\
+	crypto/tls\
+	debug/proc\
+	exp/gui/x11\
+	expvar\
+	http\
+	http/cgi\
+	http/fcgi\
+	http/httptest\
+	http/pprof\
+	http/spdy\
+	mail\
+	mime/multipart\
+	net\
+	net/dict\
+	net/textproto\
+	netchan\
+	os/signal\
+	rpc\
+	rpc/jsonrpc\
+	smtp\
+	syslog\
+	websocket\
+	../cmd/godoc\
+	../cmd/goinstall\
+
+DIRS:=$(filter-out $(NOPLAN9BUILD),$(DIRS))
+endif
+
 NOTEST+=\
 	crypto\
 	crypto/openpgp/error\
@@ -206,8 +240,8 @@ NOTEST+=\
 	../cmd/cgo\
 	../cmd/ebnflint\
 	../cmd/godoc\
+	../cmd/goinstall\
 	../cmd/gotest\
-	../cmd/govet\
 	../cmd/goyacc\
 	../cmd/hgpatch\
 

@@ -16,9 +16,9 @@ var ints = [...]int{74, 59, 238, -784, 9845, 959, 905, 0, 0, 42, 7586, -5467984,
 var float64s = [...]float64{74.3, 59.0, 238.2, -784.0, 2.3, 9845.768, -959.7485, 905, 7.8, 7.8}
 var strings = [...]string{"", "Hello", "foo", "bar", "foo", "f00", "%*&^*&^&", "***"}
 
-func TestSortIntArray(t *testing.T) {
+func TestSortIntSlice(t *testing.T) {
 	data := ints
-	a := IntArray(data[0:])
+	a := IntSlice(data[0:])
 	Sort(a)
 	if !IsSorted(a) {
 		t.Errorf("sorted %v", ints)
@@ -26,9 +26,9 @@ func TestSortIntArray(t *testing.T) {
 	}
 }
 
-func TestSortFloat64Array(t *testing.T) {
+func TestSortFloat64Slice(t *testing.T) {
 	data := float64s
-	a := Float64Array(data[0:])
+	a := Float64Slice(data[0:])
 	Sort(a)
 	if !IsSorted(a) {
 		t.Errorf("sorted %v", float64s)
@@ -36,9 +36,9 @@ func TestSortFloat64Array(t *testing.T) {
 	}
 }
 
-func TestSortStringArray(t *testing.T) {
+func TestSortStringSlice(t *testing.T) {
 	data := strings
-	a := StringArray(data[0:])
+	a := StringSlice(data[0:])
 	Sort(a)
 	if !IsSorted(a) {
 		t.Errorf("sorted %v", strings)
@@ -46,27 +46,27 @@ func TestSortStringArray(t *testing.T) {
 	}
 }
 
-func TestSortInts(t *testing.T) {
+func TestInts(t *testing.T) {
 	data := ints
-	SortInts(data[0:])
+	Ints(data[0:])
 	if !IntsAreSorted(data[0:]) {
 		t.Errorf("sorted %v", ints)
 		t.Errorf("   got %v", data)
 	}
 }
 
-func TestSortFloat64s(t *testing.T) {
+func TestFloat64s(t *testing.T) {
 	data := float64s
-	SortFloat64s(data[0:])
+	Float64s(data[0:])
 	if !Float64sAreSorted(data[0:]) {
 		t.Errorf("sorted %v", float64s)
 		t.Errorf("   got %v", data)
 	}
 }
 
-func TestSortStrings(t *testing.T) {
+func TestStrings(t *testing.T) {
 	data := strings
-	SortStrings(data[0:])
+	Strings(data[0:])
 	if !StringsAreSorted(data[0:]) {
 		t.Errorf("sorted %v", strings)
 		t.Errorf("   got %v", data)
@@ -85,7 +85,7 @@ func TestSortLarge_Random(t *testing.T) {
 	if IntsAreSorted(data) {
 		t.Fatalf("terrible rand.rand")
 	}
-	SortInts(data)
+	Ints(data)
 	if !IntsAreSorted(data) {
 		t.Errorf("sort didn't sort - 1M ints")
 	}
@@ -99,7 +99,7 @@ func BenchmarkSortString1K(b *testing.B) {
 			data[i] = strconv.Itoa(i ^ 0x2cc)
 		}
 		b.StartTimer()
-		SortStrings(data)
+		Strings(data)
 		b.StopTimer()
 	}
 }
@@ -112,7 +112,7 @@ func BenchmarkSortInt1K(b *testing.B) {
 			data[i] = i ^ 0x2cc
 		}
 		b.StartTimer()
-		SortInts(data)
+		Ints(data)
 		b.StopTimer()
 	}
 }
@@ -125,7 +125,7 @@ func BenchmarkSortInt64K(b *testing.B) {
 			data[i] = i ^ 0xcccc
 		}
 		b.StartTimer()
-		SortInts(data)
+		Ints(data)
 		b.StopTimer()
 	}
 }
@@ -161,7 +161,7 @@ func (d *testingData) Len() int           { return len(d.data) }
 func (d *testingData) Less(i, j int) bool { return d.data[i] < d.data[j] }
 func (d *testingData) Swap(i, j int) {
 	if d.nswap >= d.maxswap {
-		d.t.Errorf("%s: used %d swaps sorting array of %d", d.desc, d.nswap, len(d.data))
+		d.t.Errorf("%s: used %d swaps sorting slice of %d", d.desc, d.nswap, len(d.data))
 		d.t.FailNow()
 	}
 	d.nswap++
@@ -241,9 +241,9 @@ func TestBentleyMcIlroy(t *testing.T) {
 						for i := 0; i < n; i++ {
 							mdata[i] = data[i]
 						}
-						// SortInts is known to be correct
+						// Ints is known to be correct
 						// because mode Sort runs after mode _Copy.
-						SortInts(mdata)
+						Ints(mdata)
 					case _Dither:
 						for i := 0; i < n; i++ {
 							mdata[i] = data[i] + i%5
@@ -255,13 +255,13 @@ func TestBentleyMcIlroy(t *testing.T) {
 					Sort(d)
 
 					// If we were testing C qsort, we'd have to make a copy
-					// of the array and sort it ourselves and then compare
+					// of the slice and sort it ourselves and then compare
 					// x against it, to ensure that qsort was only permuting
 					// the data, not (for example) overwriting it with zeros.
 					//
 					// In go, we don't have to be so paranoid: since the only
 					// mutating method Sort can call is TestingData.swap,
-					// it suffices here just to check that the final array is sorted.
+					// it suffices here just to check that the final slice is sorted.
 					if !IntsAreSorted(mdata) {
 						t.Errorf("%s: ints not sorted", desc)
 						t.Errorf("\t%v", mdata)

@@ -121,11 +121,11 @@ func createEnvBlock(envv []string) *uint16 {
 	return &utf16.Encode([]int(string(b)))[0]
 }
 
-func CloseOnExec(fd int) {
-	SetHandleInformation(int32(fd), HANDLE_FLAG_INHERIT, 0)
+func CloseOnExec(fd Handle) {
+	SetHandleInformation(Handle(fd), HANDLE_FLAG_INHERIT, 0)
 }
 
-func SetNonblock(fd int, nonblocking bool) (errno int) {
+func SetNonblock(fd Handle, nonblocking bool) (errno int) {
 	return 0
 }
 
@@ -218,22 +218,32 @@ func joinExeDirAndFName(dir, p string) (name string, err int) {
 }
 
 type ProcAttr struct {
-	Dir        string
-	Env        []string
-	Files      []int
+	Dir   string
+	Env   []string
+	Files []Handle
+	Sys   *SysProcAttr
+}
+
+type SysProcAttr struct {
 	HideWindow bool
 	CmdLine    string // used if non-empty, else the windows command line is built by escaping the arguments passed to StartProcess
 }
 
-var zeroAttributes ProcAttr
+var zeroProcAttr ProcAttr
+var zeroSysProcAttr SysProcAttr
 
 func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid, handle int, err int) {
 	if len(argv0) == 0 {
 		return 0, 0, EWINDOWS
 	}
 	if attr == nil {
-		attr = &zeroAttributes
+		attr = &zeroProcAttr
 	}
+	sys := attr.Sys
+	if sys == nil {
+		sys = &zeroSysProcAttr
+	}
+
 	if len(attr.Files) > 3 {
 		return 0, 0, EWINDOWS
 	}
@@ -257,8 +267,8 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid, handle int,
 	// Windows CreateProcess takes the command line as a single string:
 	// use attr.CmdLine if set, else build the command line by escaping
 	// and joining each argument with spaces
-	if attr.CmdLine != "" {
-		cmdline = attr.CmdLine
+	if sys.CmdLine != "" {
+		cmdline = sys.CmdLine
 	} else {
 		cmdline = makeCmdLine(argv)
 	}
@@ -280,20 +290,20 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid, handle int,
 	defer ForkLock.Unlock()
 
 	p, _ := GetCurrentProcess()
-	fd := make([]int32, len(attr.Files))
+	fd := make([]Handle, len(attr.Files))
 	for i := range attr.Files {
 		if attr.Files[i] > 0 {
-			err := DuplicateHandle(p, int32(attr.Files[i]), p, &fd[i], 0, true, DUPLICATE_SAME_ACCESS)
+			err := DuplicateHandle(p, Handle(attr.Files[i]), p, &fd[i], 0, true, DUPLICATE_SAME_ACCESS)
 			if err != 0 {
 				return 0, 0, err
 			}
-			defer CloseHandle(int32(fd[i]))
+			defer CloseHandle(Handle(fd[i]))
 		}
 	}
 	si := new(StartupInfo)
 	si.Cb = uint32(unsafe.Sizeof(*si))
 	si.Flags = STARTF_USESTDHANDLES
-	if attr.HideWindow {
+	if sys.HideWindow {
 		si.Flags |= STARTF_USESHOWWINDOW
 		si.ShowWindow = SW_HIDE
 	}
@@ -307,7 +317,7 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid, handle int,
 	if err != 0 {
 		return 0, 0, err
 	}
-	defer CloseHandle(pi.Thread)
+	defer CloseHandle(Handle(pi.Thread))
 
 	return int(pi.ProcessId), int(pi.Process), 0
 }

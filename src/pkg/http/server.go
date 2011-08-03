@@ -20,7 +20,7 @@ import (
 	"net"
 	"os"
 	"path"
-	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,6 +152,7 @@ func newConn(rwc net.Conn, handler Handler) (c *conn, err os.Error) {
 	c.buf = bufio.NewReadWriter(br, bw)
 
 	if tlsConn, ok := rwc.(*tls.Conn); ok {
+		tlsConn.Handshake()
 		c.tlsState = new(tls.ConnectionState)
 		*c.tlsState = tlsConn.ConnectionState()
 	}
@@ -254,7 +255,7 @@ func (w *response) WriteHeader(code int) {
 		}
 	}
 
-	if w.header.Get("Date") == "" {
+	if _, ok := w.header["Date"]; !ok {
 		w.Header().Set("Date", time.UTC().Format(TimeFormat))
 	}
 
@@ -311,6 +312,10 @@ func (w *response) WriteHeader(code int) {
 		}
 	} else if !w.req.ProtoAtLeast(1, 1) {
 		// Client did not ask to keep connection alive.
+		w.closeAfterReply = true
+	}
+
+	if w.header.Get("Connection") == "close" {
 		w.closeAfterReply = true
 	}
 
@@ -405,7 +410,7 @@ func errorKludge(w *response) {
 
 	// Is it a broken browser?
 	var msg string
-	switch agent := w.req.UserAgent; {
+	switch agent := w.req.UserAgent(); {
 	case strings.Contains(agent, "MSIE"):
 		msg = "Internet Explorer"
 	case strings.Contains(agent, "Chrome/"):
@@ -416,7 +421,7 @@ func errorKludge(w *response) {
 	msg += " would ignore this error page if this text weren't here.\n"
 
 	// Is it text?  ("Content-Type" is always in the map)
-	baseType := strings.Split(w.header.Get("Content-Type"), ";", 2)[0]
+	baseType := strings.SplitN(w.header.Get("Content-Type"), ";", 2)[0]
 	switch baseType {
 	case "text/html":
 		io.WriteString(w, "<!-- ")
@@ -490,23 +495,9 @@ func (c *conn) serve() {
 		}
 		c.rwc.Close()
 
-		// TODO(rsc,bradfitz): this is boilerplate. move it to runtime.Stack()
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "http: panic serving %v: %v\n", c.remoteAddr, err)
-		for i := 1; i < 20; i++ {
-			pc, file, line, ok := runtime.Caller(i)
-			if !ok {
-				break
-			}
-			var name string
-			f := runtime.FuncForPC(pc)
-			if f != nil {
-				name = f.Name()
-			} else {
-				name = fmt.Sprintf("%#x", pc)
-			}
-			fmt.Fprintf(&buf, "  %s %s:%d\n", name, file, line)
-		}
+		buf.Write(debug.Stack())
 		log.Print(buf.String())
 	}()
 
@@ -584,7 +575,7 @@ func (w *response) Hijack() (rwc net.Conn, buf *bufio.ReadWriter, err os.Error) 
 // Handler object that calls f.
 type HandlerFunc func(ResponseWriter, *Request)
 
-// ServeHTTP calls f(w, req).
+// ServeHTTP calls f(w, r).
 func (f HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) {
 	f(w, r)
 }
@@ -604,6 +595,22 @@ func NotFound(w ResponseWriter, r *Request) { Error(w, "404 page not found", Sta
 // NotFoundHandler returns a simple request handler
 // that replies to each request with a ``404 page not found'' reply.
 func NotFoundHandler() Handler { return HandlerFunc(NotFound) }
+
+// StripPrefix returns a handler that serves HTTP requests
+// by removing the given prefix from the request URL's Path
+// and invoking the handler h. StripPrefix handles a
+// request for a path that doesn't begin with prefix by
+// replying with an HTTP 404 not found error.
+func StripPrefix(prefix string, h Handler) Handler {
+	return HandlerFunc(func(w ResponseWriter, r *Request) {
+		if !strings.HasPrefix(r.URL.Path, prefix) {
+			NotFound(w, r)
+			return
+		}
+		r.URL.Path = r.URL.Path[len(prefix):]
+		h.ServeHTTP(w, r)
+	})
+}
 
 // Redirect replies to the request with a redirect to url,
 // which may be a path relative to the request path.
@@ -922,7 +929,9 @@ func ListenAndServe(addr string, handler Handler) os.Error {
 
 // ListenAndServeTLS acts identically to ListenAndServe, except that it
 // expects HTTPS connections. Additionally, files containing a certificate and
-// matching private key for the server must be provided.
+// matching private key for the server must be provided. If the certificate
+// is signed by a certificate authority, the certFile should be the concatenation
+// of the server's certificate followed by the CA's certificate.
 //
 // A trivial example server is:
 //
@@ -947,6 +956,24 @@ func ListenAndServe(addr string, handler Handler) os.Error {
 //
 // One can use generate_cert.go in crypto/tls to generate cert.pem and key.pem.
 func ListenAndServeTLS(addr string, certFile string, keyFile string, handler Handler) os.Error {
+	server := &Server{Addr: addr, Handler: handler}
+	return server.ListenAndServeTLS(certFile, keyFile)
+}
+
+// ListenAndServeTLS listens on the TCP network address srv.Addr and
+// then calls Serve to handle requests on incoming TLS connections.
+//
+// Filenames containing a certificate and matching private key for
+// the server must be provided. If the certificate is signed by a
+// certificate authority, the certFile should be the concatenation
+// of the server's certificate followed by the CA's certificate.
+//
+// If srv.Addr is blank, ":https" is used.
+func (s *Server) ListenAndServeTLS(certFile, keyFile string) os.Error {
+	addr := s.Addr
+	if addr == "" {
+		addr = ":https"
+	}
 	config := &tls.Config{
 		Rand:       rand.Reader,
 		Time:       time.Seconds,
@@ -966,7 +993,7 @@ func ListenAndServeTLS(addr string, certFile string, keyFile string, handler Han
 	}
 
 	tlsListener := tls.NewListener(conn, config)
-	return Serve(tlsListener, handler)
+	return s.Serve(tlsListener)
 }
 
 // TimeoutHandler returns a Handler that runs h with the given time limit.

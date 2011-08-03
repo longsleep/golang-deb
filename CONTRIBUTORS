@@ -40,6 +40,7 @@ Alexander Orlov <alexander.orlov@loxal.net>
 Alexey Borzenkov <snaury@gmail.com>
 Amrut Joshi <amrut.joshi@gmail.com>
 Andrei Vieru <euvieru@gmail.com>
+Andrew Balholm <andybalholm@gmail.com>
 Andrew Gerrand <adg@golang.org>
 Andrew Skiba <skibaa@gmail.com>
 Andrey Mirtchovski <mirtchovski@gmail.com>
@@ -100,6 +101,7 @@ Firmansyah Adiputra <frm.adiputra@gmail.com>
 Florian Uekermann <florian@uekermann-online.de> <f1@uekermann-online.de>
 Fumitoshi Ukai <ukai@google.com>
 Gary Burd <gary@beagledreams.com> <gary.burd@gmail.com>
+Gideon Jan-Wessel Redelinghuys <gjredelinghuys@gmail.com>
 Giles Lean <giles.lean@pobox.com>
 Graham Miller <graham.miller@gmail.com>
 Gustavo Niemeyer <gustavo@niemeyer.net> <n13m3y3r@gmail.com>
@@ -131,20 +133,23 @@ Jos Visser <josv@google.com>
 Jose Luis Vázquez González <josvazg@gmail.com>
 Josh Goebel <dreamer3@gmail.com>
 Jukka-Pekka Kekkonen <karatepekka@gmail.com>
+Julian Phillips <julian@quantumfyre.co.uk>
 Kai Backman <kaib@golang.org>
 Kei Son <hey.calmdown@gmail.com>
 Keith Rarick <kr@xph.us>
 Ken Friedenbach <kenliz@cruzio.com>
+Ken Rockot <ken@oz.gs> <ken.rockot@gmail.com>
 Ken Thompson <ken@golang.org>
 Kevin Ballard <kevin@sb.org>
 Kirklin McDonald <kirklin.mcdonald@gmail.com>
 Kyle Consalus <consalus@gmail.com>
-Kyle Lemons <kyle@kylelemons.net> <etherealflaim@gmail.com>
+Kyle Lemons <kyle@kylelemons.net> <kevlar@google.com>
 Larry Hosken <lahosken@golang.org>
 Lorenzo Stoakes <lstoakes@gmail.com>
 Lucio De Re <lucio.dere@gmail.com>
 Luit van Drongelen <luitvd@gmail.com>
 Luuk van Dijk <lvd@golang.org> <lvd@google.com>
+Marcel van Lohuizen <mpvl@golang.org>
 Mark Zavislak <zavislak@google.com>
 Markus Duft <markus.duft@salomon.at>
 Martin Neubauer <m.ne@gmx.net>
@@ -169,6 +174,7 @@ Padraig Kitterick <padraigkitterick@gmail.com>
 Paolo Giarrusso <p.giarrusso@gmail.com>
 Pascal S. de Kloe <pascal@quies.net>
 Patrick Gavlin <pgavlin@gmail.com>
+Paul Borman <borman@google.com>
 Petar Maymounkov <petarm@gmail.com>
 Peter Froehlich <peter.hans.froehlich@gmail.com>
 Peter McKenzie <petermck@google.com>
@@ -211,6 +217,7 @@ Vincent Ambo <tazjin@googlemail.com>
 Vincent Vanackere <vincent.vanackere@gmail.com>
 Vinu Rajashekhar <vinutheraj@gmail.com>
 Vish Subramanian <vish@google.com>
+Volker Dobler <dr.volker.dobler@gmail.com>
 Wei Guangjing <vcc.163@gmail.com>
 William Chan <willchan@chromium.org>
 William Josephson <wjosephson@gmail.com>

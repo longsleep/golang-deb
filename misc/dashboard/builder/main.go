@@ -60,8 +60,9 @@ var (
 )
 
 var (
-	goroot        string
-	releaseRegexp = regexp.MustCompile(`^(release|weekly)\.[0-9\-.]+`)
+	goroot      string
+	binaryTagRe = regexp.MustCompile(`^(release\.r|weekly\.)[0-9\-.]+`)
+	releaseRe   = regexp.MustCompile(`^release\.r[0-9\-.]+`)
 )
 
 func main() {
@@ -161,7 +162,7 @@ func NewBuilder(builder string) (*Builder, os.Error) {
 	b := &Builder{name: builder}
 
 	// get goos/goarch from builder string
-	s := strings.Split(builder, "-", 3)
+	s := strings.SplitN(builder, "-", 3)
 	if len(s) >= 2 {
 		b.goos, b.goarch = s[0], s[1]
 	} else {
@@ -177,7 +178,7 @@ func NewBuilder(builder string) (*Builder, os.Error) {
 	if err != nil {
 		return nil, fmt.Errorf("readKeys %s (%s): %s", b.name, fn, err)
 	}
-	v := strings.Split(string(c), "\n", -1)
+	v := strings.Split(string(c), "\n")
 	b.key = v[0]
 	if len(v) >= 3 {
 		b.codeUsername, b.codePassword = v[1], v[2]
@@ -200,7 +201,7 @@ func (b *Builder) buildExternal() {
 			log.Println("hg pull failed:", err)
 			continue
 		}
-		hash, tag, err := firstTag(releaseRegexp)
+		hash, tag, err := firstTag(releaseRe)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -321,7 +322,7 @@ func (b *Builder) buildHash(hash string) (err os.Error) {
 	}
 
 	// if this is a release, create tgz and upload to google code
-	releaseHash, release, err := firstTag(releaseRegexp)
+	releaseHash, release, err := firstTag(binaryTagRe)
 	if hash == releaseHash {
 		// clean out build state
 		err = run(b.envv(), srcDir, "./clean.bash", "--nopkg")
@@ -357,7 +358,10 @@ func (b *Builder) envv() []string {
 		"GOROOT_FINAL=/usr/local/go",
 	}
 	for _, k := range extraEnv {
-		e = append(e, k+"="+os.Getenv(k))
+		s, err := os.Getenverror(k)
+		if err == nil {
+			e = append(e, k+"="+s)
+		}
 	}
 	return e
 }
@@ -368,9 +372,14 @@ func (b *Builder) envvWindows() []string {
 		"GOOS":         b.goos,
 		"GOARCH":       b.goarch,
 		"GOROOT_FINAL": "/c/go",
+		// TODO(brainman): remove once we find make that does not hang.
+		"MAKEFLAGS": "-j1",
 	}
 	for _, name := range extraEnv {
-		start[name] = os.Getenv(name)
+		s, err := os.Getenverror(name)
+		if err == nil {
+			start[name] = s
+		}
 	}
 	skip := map[string]bool{
 		"GOBIN":   true,
@@ -384,7 +393,7 @@ func (b *Builder) envvWindows() []string {
 		skip[name] = true
 	}
 	for _, kv := range os.Environ() {
-		s := strings.Split(kv, "=", 2)
+		s := strings.SplitN(kv, "=", 2)
 		name := strings.ToUpper(s[0])
 		switch {
 		case name == "":
@@ -583,7 +592,7 @@ func fullHash(rev string) (hash string, err os.Error) {
 	if s == "" {
 		return "", fmt.Errorf("cannot find revision")
 	}
-	if len(s) != 20 {
+	if len(s) != 40 {
 		return "", fmt.Errorf("hg returned invalid hash " + s)
 	}
 	return s, nil
@@ -594,7 +603,7 @@ var revisionRe = regexp.MustCompile(`^([^ ]+) +[0-9]+:([0-9a-f]+)$`)
 // firstTag returns the hash and tag of the most recent tag matching re.
 func firstTag(re *regexp.Regexp) (hash string, tag string, err os.Error) {
 	o, _, err := runLog(nil, "", goroot, "hg", "tags")
-	for _, l := range strings.Split(o, "\n", -1) {
+	for _, l := range strings.Split(o, "\n") {
 		if l == "" {
 			continue
 		}
@@ -607,7 +616,7 @@ func firstTag(re *regexp.Regexp) (hash string, tag string, err os.Error) {
 			continue
 		}
 		tag = s[1]
-		hash, err = fullHash(s[3])
+		hash, err = fullHash(s[2])
 		return
 	}
 	err = os.NewError("no matching tag found")

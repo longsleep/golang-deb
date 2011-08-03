@@ -30,6 +30,8 @@ compile(Node *fn)
 	if(fn->nbody == nil)
 		return;
 
+	saveerrors();
+
 	// set up domain for labels
 	clearlabels();
 
@@ -53,7 +55,7 @@ compile(Node *fn)
 
 	hasdefer = 0;
 	walk(curfn);
-	if(nerrors != 0 || isblank(curfn->nname))
+	if(nerrors != 0)
 		goto ret;
 
 	allocparams();
@@ -67,7 +69,7 @@ compile(Node *fn)
 	setlineno(curfn);
 
 	nodconst(&nod1, types[TINT32], 0);
-	ptxt = gins(ATEXT, curfn->nname, &nod1);
+	ptxt = gins(ATEXT, isblank(curfn->nname) ? N : curfn->nname, &nod1);
 	afunclit(&ptxt->from);
 
 	ginit();
@@ -111,8 +113,7 @@ compile(Node *fn)
 	}
 
 	oldstksize = stksize;
-	if(thechar != '5')
-		compactframe(ptxt);
+	compactframe(ptxt);
 	if(0)
 		print("compactframe: %ld to %ld\n", oldstksize, stksize);
 
@@ -142,12 +143,12 @@ cmpstackvar(Node *a, Node *b)
 
 }
 
+// TODO(lvd) find out where the PAUTO/OLITERAL nodes come from.
 static void
 compactframe(Prog* ptxt)
 {
 	NodeList *ll;
 	Node* n;
-	Prog *p;
 	uint32 w;
 
 	if (stksize == 0)
@@ -155,17 +156,10 @@ compactframe(Prog* ptxt)
 
 	// Mark the PAUTO's unused.
 	for(ll=curfn->dcl; ll != nil; ll=ll->next)
-		if (ll->n->class == PAUTO && ll->n->op == ONAME)
+		if (ll->n->class == PAUTO)
 			ll->n->used = 0;
 
-	// Sweep the prog list to mark any used nodes.
-	for (p = ptxt; p; p = p->link) {
-		if (p->from.type == D_AUTO && p->from.node)
-			p->from.node->used++;
-
-		if (p->to.type == D_AUTO && p->to.node)
-			p->to.node->used++;
-	}
+	markautoused(ptxt);
 
 	listsort(&curfn->dcl, cmpstackvar);
 
@@ -191,7 +185,6 @@ compactframe(Prog* ptxt)
 	stksize = 0;
 	for(ll = curfn->dcl; ll != nil; ll=ll->next) {
 		n = ll->n;
-		// TODO find out where the literal autos come from
 		if (n->class != PAUTO || n->op != ONAME)
 			continue;
 
@@ -205,14 +198,7 @@ compactframe(Prog* ptxt)
 		n->stkdelta = -stksize - n->xoffset;
 	}
 
-	// Fixup instructions.
-	for (p = ptxt; p; p = p->link) {
-		if (p->from.type == D_AUTO && p->from.node)
-			p->from.offset += p->from.node->stkdelta;
-
-		if (p->to.type == D_AUTO && p->to.node)
-			p->to.offset += p->to.node->stkdelta;
-	}
+	fixautoused(ptxt);
 
 	// The debug information needs accurate offsets on the symbols.
 	for(ll = curfn->dcl ;ll != nil; ll=ll->next) {

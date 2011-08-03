@@ -30,20 +30,14 @@ func StartProcess(name string, argv []string, attr *ProcAttr) (p *Process, err E
 	sysattr := &syscall.ProcAttr{
 		Dir: attr.Dir,
 		Env: attr.Env,
+		Sys: attr.Sys,
 	}
 	if sysattr.Env == nil {
 		sysattr.Env = Environ()
 	}
-	// Create array of integer (system) fds.
-	intfd := make([]int, len(attr.Files))
-	for i, f := range attr.Files {
-		if f == nil {
-			intfd[i] = -1
-		} else {
-			intfd[i] = f.Fd()
-		}
+	for _, f := range attr.Files {
+		sysattr.Files = append(sysattr.Files, f.Fd())
 	}
-	sysattr.Files = intfd
 
 	pid, h, e := syscall.StartProcess(name, argv, sysattr)
 	if iserror(e) {
@@ -127,7 +121,10 @@ func itod(i int) string {
 	return string(b[bp:])
 }
 
-func (w Waitmsg) String() string {
+func (w *Waitmsg) String() string {
+	if w == nil {
+		return "<nil>"
+	}
 	// TODO(austin) Use signal names when possible?
 	res := ""
 	switch {

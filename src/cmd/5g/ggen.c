@@ -22,6 +22,32 @@ defframe(Prog *ptxt)
 	maxstksize = 0;
 }
 
+// Sweep the prog list to mark any used nodes.
+void
+markautoused(Prog* p)
+{
+	for (; p; p = p->link) {
+		if (p->from.name == D_AUTO && p->from.node)
+			p->from.node->used++;
+
+		if (p->to.name == D_AUTO && p->to.node)
+			p->to.node->used++;
+	}
+}
+
+// Fixup instructions after compactframe has moved all autos around.
+void
+fixautoused(Prog* p)
+{
+	for (; p; p = p->link) {
+		if (p->from.name == D_AUTO && p->from.node)
+			p->from.offset += p->from.node->stkdelta;
+
+		if (p->to.name == D_AUTO && p->to.node)
+			p->to.offset += p->to.node->stkdelta;
+	}
+}
+
 /*
  * generate:
  *	call f
@@ -147,13 +173,13 @@ cgen_callinter(Node *n, Node *res, int proc)
 	nodindreg(&nodsp, types[tptr], REGSP);
 	nodsp.xoffset = 4;
 	nodo.xoffset += widthptr;
-	cgen(&nodo, &nodsp);	// 4(SP) = 8(REG) -- i.s
+	cgen(&nodo, &nodsp);	// 4(SP) = 4(REG) -- i.data
 
 	nodo.xoffset -= widthptr;
-	cgen(&nodo, &nodr);	// REG = 0(REG) -- i.m
+	cgen(&nodo, &nodr);	// REG = 0(REG) -- i.tab
 
 	nodo.xoffset = n->left->xoffset + 3*widthptr + 8;
-	cgen(&nodo, &nodr);	// REG = 32+offset(REG) -- i.m->fun[f]
+	cgen(&nodo, &nodr);	// REG = 20+offset(REG) -- i.tab->fun[f]
 
 	// BOTCH nodr.type = fntype;
 	nodr.type = n->left->type;

@@ -9,22 +9,5 @@ GOFILES=\
 	download.go\
 	main.go\
 	make.go\
-	parse.go\
-	path.go\
-	syslist.go\
-
-CLEANFILES+=syslist.go
 
 include ../../Make.cmd
-
-syslist.go:
-	echo '// Generated automatically by make.' >$@
-	echo 'package main' >>$@
-	echo 'const goosList = "$(GOOS_LIST)"' >>$@
-	echo 'const goarchList = "$(GOARCH_LIST)"' >>$@
-
-test:
-	gotest
-
-testshort:
-	gotest -test.short

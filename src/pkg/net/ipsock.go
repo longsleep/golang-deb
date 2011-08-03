@@ -26,28 +26,26 @@ import (
 // boolean value is true, kernel supports IPv6 IPv4-mapping.
 func probeIPv6Stack() (supportsIPv6, supportsIPv4map bool) {
 	var probes = []struct {
-		s  int
 		la TCPAddr
 		ok bool
 	}{
 		// IPv6 communication capability
-		{-1, TCPAddr{IP: ParseIP("::1")}, false},
+		{TCPAddr{IP: ParseIP("::1")}, false},
 		// IPv6 IPv4-mapped address communication capability
-		{-1, TCPAddr{IP: IPv4(127, 0, 0, 1)}, false},
+		{TCPAddr{IP: IPv4(127, 0, 0, 1)}, false},
 	}
-	var errno int
 
 	for i := range probes {
-		probes[i].s, errno = syscall.Socket(syscall.AF_INET6, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+		s, errno := syscall.Socket(syscall.AF_INET6, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 		if errno != 0 {
 			continue
 		}
-		defer closesocket(probes[i].s)
+		defer closesocket(s)
 		sa, err := probes[i].la.toAddr().sockaddr(syscall.AF_INET6)
 		if err != nil {
 			continue
 		}
-		errno = syscall.Bind(probes[i].s, sa)
+		errno = syscall.Bind(s, sa)
 		if errno != 0 {
 			continue
 		}
@@ -270,12 +268,16 @@ func JoinHostPort(host, port string) string {
 
 // Convert "host:port" into IP address and port.
 func hostPortToIP(net, hostport string) (ip IP, iport int, err os.Error) {
+	var (
+		addr IP
+		p, i int
+		ok   bool
+	)
 	host, port, err := SplitHostPort(hostport)
 	if err != nil {
 		goto Error
 	}
 
-	var addr IP
 	if host != "" {
 		// Try as an IP address.
 		addr = ParseIP(host)
@@ -302,7 +304,7 @@ func hostPortToIP(net, hostport string) (ip IP, iport int, err os.Error) {
 		}
 	}
 
-	p, i, ok := dtoi(port, 0)
+	p, i, ok = dtoi(port, 0)
 	if !ok || i != len(port) {
 		p, err = LookupPort(net, port)
 		if err != nil {

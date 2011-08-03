@@ -16,7 +16,6 @@ package cgi
 
 import (
 	"bufio"
-	"bytes"
 	"exec"
 	"fmt"
 	"http"
@@ -46,6 +45,12 @@ var osDefaultInheritEnv = map[string][]string{
 type Handler struct {
 	Path string // path to the CGI executable
 	Root string // root URI prefix of handler or empty for "/"
+
+	// Dir specifies the CGI executable's working directory.
+	// If Dir is empty, the base directory of Path is used.
+	// If Path has no base directory, the current working
+	// directory is used.
+	Dir string
 
 	Env        []string    // extra environment variables to set, if any, as "key=value"
 	InheritEnv []string    // environment variables to inherit from host, as "key"
@@ -106,20 +111,13 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		env = append(env, "HTTPS=on")
 	}
 
-	if len(req.Cookie) > 0 {
-		b := new(bytes.Buffer)
-		for idx, c := range req.Cookie {
-			if idx > 0 {
-				b.Write([]byte("; "))
-			}
-			fmt.Fprintf(b, "%s=%s", c.Name, c.Value)
-		}
-		env = append(env, "HTTP_COOKIE="+b.String())
-	}
-
 	for k, v := range req.Header {
 		k = strings.Map(upperCaseAndUnderscore, k)
-		env = append(env, "HTTP_"+k+"="+strings.Join(v, ", "))
+		joinStr := ", "
+		if k == "COOKIE" {
+			joinStr = "; "
+		}
+		env = append(env, "HTTP_"+k+"="+strings.Join(v, joinStr))
 	}
 
 	if req.ContentLength > 0 {
@@ -133,11 +131,11 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		env = append(env, h.Env...)
 	}
 
-	path := os.Getenv("PATH")
-	if path == "" {
-		path = "/bin:/usr/bin:/usr/ucb:/usr/bsd:/usr/local/bin"
+	envPath := os.Getenv("PATH")
+	if envPath == "" {
+		envPath = "/bin:/usr/bin:/usr/ucb:/usr/bsd:/usr/local/bin"
 	}
-	env = append(env, "PATH="+path)
+	env = append(env, "PATH="+envPath)
 
 	for _, e := range h.InheritEnv {
 		if v := os.Getenv(e); v != "" {
@@ -151,7 +149,13 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	cwd, pathBase := filepath.Split(h.Path)
+	var cwd, path string
+	if h.Dir != "" {
+		path = h.Path
+		cwd = h.Dir
+	} else {
+		cwd, path = filepath.Split(h.Path)
+	}
 	if cwd == "" {
 		cwd = "."
 	}
@@ -162,7 +166,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	cmd := &exec.Cmd{
-		Path:   pathBase,
+		Path:   path,
 		Args:   append([]string{h.Path}, h.Args...),
 		Dir:    cwd,
 		Env:    env,
@@ -205,7 +209,7 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		if len(line) == 0 {
 			break
 		}
-		parts := strings.Split(string(line), ":", 2)
+		parts := strings.SplitN(string(line), ":", 2)
 		if len(parts) < 2 {
 			h.printf("cgi: bogus header line: %s", string(line))
 			continue

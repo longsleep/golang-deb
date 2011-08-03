@@ -176,7 +176,7 @@ func main() {
 		list[i] = f
 		i++
 	}
-	sort.SortStrings(list)
+	sort.Strings(list)
 	for _, f := range list {
 		fmt.Printf("%s\n", f)
 	}
@@ -282,7 +282,7 @@ func hgModified() ([]string, os.Error) {
 	if err != nil {
 		return nil, err
 	}
-	return strings.Split(strings.TrimSpace(out), "\n", -1), nil
+	return strings.Split(strings.TrimSpace(out), "\n"), nil
 }
 
 // hgAdd adds name to the repository.
@@ -329,15 +329,14 @@ var lookPathCache = make(map[string]string)
 // It provides input on standard input to the command.
 func run(argv []string, input []byte) (out string, err os.Error) {
 	if len(argv) < 1 {
-		err = os.EINVAL
-		goto Error
+		return "", &runError{dup(argv), os.EINVAL}
 	}
 
 	prog, ok := lookPathCache[argv[0]]
 	if !ok {
 		prog, err = exec.LookPath(argv[0])
 		if err != nil {
-			goto Error
+			return "", &runError{dup(argv), err}
 		}
 		lookPathCache[argv[0]] = prog
 	}
@@ -347,13 +346,10 @@ func run(argv []string, input []byte) (out string, err os.Error) {
 		cmd.Stdin = bytes.NewBuffer(input)
 	}
 	bs, err := cmd.CombinedOutput()
-	if err == nil {
-		return string(bs), nil
+	if err != nil {
+		return "", &runError{dup(argv), err}
 	}
-
-Error:
-	err = &runError{dup(argv), err}
-	return
+	return string(bs), nil
 }
 
 // A runError represents an error that occurred while running a command.

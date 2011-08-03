@@ -155,7 +155,7 @@ func Sleep(ns int64) (errno int) {
 //sys	connect(s int, addr uintptr, addrlen _Socklen) (errno int)
 //sysnb	socket(domain int, typ int, proto int) (fd int, errno int)
 //sys	getsockopt(s int, level int, name int, val uintptr, vallen *_Socklen) (errno int)
-//sys	setsockopt(s int, level int, name int, val uintptr, vallen int) (errno int)
+//sys	setsockopt(s int, level int, name int, val uintptr, vallen uintptr) (errno int)
 //sysnb	getpeername(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
 //sysnb	getsockname(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (errno int)
 //sys	Shutdown(s int, how int) (errno int)
@@ -400,7 +400,7 @@ func SetsockoptIPv6Mreq(fd, level, opt int, mreq *IPv6Mreq) (errno int) {
 }
 
 func SetsockoptString(fd, level, opt int, s string) (errno int) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&[]byte(s)[0])), len(s))
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&[]byte(s)[0])), uintptr(len(s)))
 }
 
 //sys recvfrom(fd int, p []byte, flags int, from *RawSockaddrAny, fromlen *_Socklen) (n int, errno int)
@@ -423,6 +423,80 @@ func Sendto(fd int, p []byte, flags int, to Sockaddr) (errno int) {
 		return err
 	}
 	return sendto(fd, p, flags, ptr, n)
+}
+
+//sys	recvmsg(s int, msg *Msghdr, flags int) (n int, errno int)
+
+func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from Sockaddr, errno int) {
+	var msg Msghdr
+	var rsa RawSockaddrAny
+	msg.Name = (*byte)(unsafe.Pointer(&rsa))
+	msg.Namelen = uint32(SizeofSockaddrAny)
+	var iov Iovec
+	if len(p) > 0 {
+		iov.Base = (*byte)(unsafe.Pointer(&p[0]))
+		iov.SetLen(len(p))
+	}
+	var dummy byte
+	if len(oob) > 0 {
+		// receive at least one normal byte
+		if len(p) == 0 {
+			iov.Base = &dummy
+			iov.SetLen(1)
+		}
+		msg.Control = (*byte)(unsafe.Pointer(&oob[0]))
+		msg.SetControllen(len(oob))
+	}
+	msg.Iov = &iov
+	msg.Iovlen = 1
+	if n, errno = recvmsg(fd, &msg, flags); errno != 0 {
+		return
+	}
+	oobn = int(msg.Controllen)
+	recvflags = int(msg.Flags)
+	// source address is only specified if the socket is unconnected
+	if rsa.Addr.Family != AF_UNSPEC {
+		from, errno = anyToSockaddr(&rsa)
+	}
+	return
+}
+
+//sys	sendmsg(s int, msg *Msghdr, flags int) (errno int)
+
+func Sendmsg(fd int, p, oob []byte, to Sockaddr, flags int) (errno int) {
+	var ptr uintptr
+	var salen _Socklen
+	if to != nil {
+		var err int
+		ptr, salen, err = to.sockaddr()
+		if err != 0 {
+			return err
+		}
+	}
+	var msg Msghdr
+	msg.Name = (*byte)(unsafe.Pointer(ptr))
+	msg.Namelen = uint32(salen)
+	var iov Iovec
+	if len(p) > 0 {
+		iov.Base = (*byte)(unsafe.Pointer(&p[0]))
+		iov.SetLen(len(p))
+	}
+	var dummy byte
+	if len(oob) > 0 {
+		// send at least one normal byte
+		if len(p) == 0 {
+			iov.Base = &dummy
+			iov.SetLen(1)
+		}
+		msg.Control = (*byte)(unsafe.Pointer(&oob[0]))
+		msg.SetControllen(len(oob))
+	}
+	msg.Iov = &iov
+	msg.Iovlen = 1
+	if errno = sendmsg(fd, &msg, flags); errno != 0 {
+		return
+	}
+	return
 }
 
 // TODO:
@@ -451,7 +525,7 @@ func Kevent(kq int, changes, events []Kevent_t, timeout *Timespec) (n int, errno
 
 // Translate "kern.hostname" to []_C_int{0,1,2,3}.
 func nametomib(name string) (mib []_C_int, errno int) {
-	const siz = uintptr(unsafe.Sizeof(mib[0]))
+	const siz = unsafe.Sizeof(mib[0])
 
 	// NOTE(rsc): It seems strange to set the buffer to have
 	// size CTL_MAXNAME+2 but use only CTL_MAXNAME
@@ -539,14 +613,6 @@ func Futimes(fd int, tv []Timeval) (errno int) {
 }
 
 //sys	fcntl(fd int, cmd int, arg int) (val int, errno int)
-
-func Recvmsg(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from Sockaddr, errno int) {
-	return 0, 0, 0, nil, EAFNOSUPPORT
-}
-
-func Sendmsg(fd int, p, oob []byte, to Sockaddr, flags int) (errno int) {
-	return EAFNOSUPPORT
-}
 
 // TODO: wrap
 //	Acct(name nil-string) (errno int)

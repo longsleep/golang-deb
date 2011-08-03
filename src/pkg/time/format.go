@@ -248,7 +248,7 @@ func (t *Time) Format(layout string) string {
 		var p string
 		switch std {
 		case stdYear:
-			p = strconv.Itoa64(t.Year % 100)
+			p = zeroPad(int(t.Year % 100))
 		case stdLongYear:
 			p = strconv.Itoa64(t.Year)
 		case stdMonth:
@@ -355,7 +355,7 @@ func (t *Time) String() string {
 	return t.Format(UnixDate)
 }
 
-var errBad = os.ErrorString("bad") // just a marker; not returned to user
+var errBad = os.NewError("bad") // just a marker; not returned to user
 
 // ParseError describes a problem parsing a time string.
 type ParseError struct {

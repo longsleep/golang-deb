@@ -249,7 +249,7 @@ dynrelocsym(Sym *s)
 			return;
 		for(r=s->r; r<s->r+s->nr; r++) {
 			targ = r->sym;
-			if(r->sym->plt == -2) { // make dynimport JMP table for PE object files.
+			if(r->sym->plt == -2 && r->sym->got != -2) { // make dynimport JMP table for PE object files.
 				targ->plt = rel->size;
 				r->sym = rel;
 				r->add = targ->plt;
@@ -278,6 +278,10 @@ dynreloc(void)
 {
 	Sym *s;
 	
+	// -d supresses dynamic loader format, so we may as well not
+	// compute these sections or mark their symbols as reachable.
+	if(debug['d'] && HEADTYPE != Hwindows)
+		return;
 	if(debug['v'])
 		Bprint(&bso, "%5.2f reloc\n", cputime());
 	Bflush(&bso);
@@ -482,13 +486,13 @@ codeblk(int32 addr, int32 size)
 			q = sym->p;
 			
 			while(n >= 16) {
-				Bprint(&bso, "%.6ux\t%-20.16I\n",  addr, q);
+				Bprint(&bso, "%.6ux\t%-20.16I\n", addr, q);
 				addr += 16;
 				q += 16;
 				n -= 16;
 			}
 			if(n > 0)
-				Bprint(&bso, "%.6ux\t%-20.*I\n", addr, n, q);
+				Bprint(&bso, "%.6ux\t%-20.*I\n", addr, (int)n, q);
 			addr += n;
 			continue;
 		}
@@ -502,7 +506,7 @@ codeblk(int32 addr, int32 size)
 			Bprint(&bso, "%.6ux\t", p->pc);
 			q = sym->p + p->pc - sym->value;
 			n = epc - p->pc;
-			Bprint(&bso, "%-20.*I | %P\n", n, q, p);
+			Bprint(&bso, "%-20.*I | %P\n", (int)n, q, p);
 			addr += n;
 		}
 	}
@@ -543,7 +547,7 @@ datblk(int32 addr, int32 size)
 			Bprint(&bso, "%-20s %.8ux| 00 ...\n", "(pre-pad)", addr);
 			addr = sym->value;
 		}
-		Bprint(&bso, "%-20s %.8ux|", sym->name, addr);
+		Bprint(&bso, "%-20s %.8ux|", sym->name, (uint)addr);
 		p = sym->p;
 		ep = p + sym->np;
 		while(p < ep)
@@ -555,8 +559,8 @@ datblk(int32 addr, int32 size)
 	}
 
 	if(addr < eaddr)
-		Bprint(&bso, "%-20s %.8ux| 00 ...\n", "(post-pad)", addr);
-	Bprint(&bso, "%-20s %.8ux|\n", "", eaddr);
+		Bprint(&bso, "%-20s %.8ux| 00 ...\n", "(post-pad)", (uint)addr);
+	Bprint(&bso, "%-20s %.8ux|\n", "", (uint)eaddr);
 }
 
 void
@@ -781,18 +785,38 @@ dodata(void)
 	 */
 
 	/* read-only data */
-	sect = addsection(&segtext, ".rodata", 06);
+	sect = addsection(&segtext, ".rodata", 04);
 	sect->vaddr = 0;
 	datsize = 0;
 	s = datap;
-	for(; s != nil && s->type < SDATA; s = s->next) {
+	for(; s != nil && s->type < SSYMTAB; s = s->next) {
 		s->type = SRODATA;
 		t = rnd(s->size, PtrSize);
 		s->value = datsize;
 		datsize += t;
 	}
 	sect->len = datsize - sect->vaddr;
-	
+
+	/* gosymtab */
+	sect = addsection(&segtext, ".gosymtab", 04);
+	sect->vaddr = datsize;
+	for(; s != nil && s->type < SPCLNTAB; s = s->next) {
+		s->type = SRODATA;
+		s->value = datsize;
+		datsize += s->size;
+	}
+	sect->len = datsize - sect->vaddr;
+
+	/* gopclntab */
+	sect = addsection(&segtext, ".gopclntab", 04);
+	sect->vaddr = datsize;
+	for(; s != nil && s->type < SDATA; s = s->next) {
+		s->type = SRODATA;
+		s->value = datsize;
+		datsize += s->size;
+	}
+	sect->len = datsize - sect->vaddr;
+
 	/* data */
 	datsize = 0;
 	sect = addsection(&segdata, ".data", 06);
@@ -808,9 +832,9 @@ dodata(void)
 			t = rnd(t, PtrSize);
 		else if(t > 2)
 			t = rnd(t, 4);
-		if(t & 1)
+		if(t & 1) {
 			;
-		else if(t & 2)
+		} else if(t & 2)
 			datsize = rnd(datsize, 2);
 		else if(t & 4)
 			datsize = rnd(datsize, 4);
@@ -834,9 +858,9 @@ dodata(void)
 			t = rnd(t, PtrSize);
 		else if(t > 2)
 			t = rnd(t, 4);
-		if(t & 1)
+		if(t & 1) {
 			;
-		else if(t & 2)
+		} else if(t & 2)
 			datsize = rnd(datsize, 2);
 		else if(t & 4)
 			datsize = rnd(datsize, 4);
@@ -886,7 +910,7 @@ textaddress(void)
 void
 address(void)
 {
-	Section *s, *text, *data, *rodata;
+	Section *s, *text, *data, *rodata, *symtab, *pclntab;
 	Sym *sym, *sub;
 	uvlong va;
 
@@ -917,7 +941,9 @@ address(void)
 	segdata.filelen = segdata.sect->len;	// assume .data is first
 	
 	text = segtext.sect;
-	rodata = segtext.sect->next;
+	rodata = text->next;
+	symtab = rodata->next;
+	pclntab = symtab->next;
 	data = segdata.sect;
 
 	for(sym = datap; sym != nil; sym = sym->next) {
@@ -934,12 +960,11 @@ address(void)
 	xdefine("etext", STEXT, text->vaddr + text->len);
 	xdefine("rodata", SRODATA, rodata->vaddr);
 	xdefine("erodata", SRODATA, rodata->vaddr + rodata->len);
+	xdefine("symtab", SRODATA, symtab->vaddr);
+	xdefine("esymtab", SRODATA, symtab->vaddr + symtab->len);
+	xdefine("pclntab", SRODATA, pclntab->vaddr);
+	xdefine("epclntab", SRODATA, pclntab->vaddr + pclntab->len);
 	xdefine("data", SBSS, data->vaddr);
 	xdefine("edata", SBSS, data->vaddr + data->len);
 	xdefine("end", SBSS, segdata.vaddr + segdata.len);
-
-	sym = lookup("pclntab", 0);
-	xdefine("epclntab", SRODATA, sym->value + sym->size);
-	sym = lookup("symtab", 0);
-	xdefine("esymtab", SRODATA, sym->value + sym->size);
 }

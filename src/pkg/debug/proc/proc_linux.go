@@ -1229,7 +1229,7 @@ func (p *process) attachAllThreads() os.Error {
 					return err
 				}
 
-				statParts := strings.Split(string(statFile), " ", 4)
+				statParts := strings.SplitN(string(statFile), " ", 4)
 				if len(statParts) > 2 && statParts[2] == "Z" {
 					// tid is a zombie
 					p.logTrace("thread %d is a zombie", tid)
@@ -1284,9 +1284,11 @@ func Attach(pid int) (Process, os.Error) {
 // details.
 func StartProcess(argv0 string, argv []string, attr *os.ProcAttr) (Process, os.Error) {
 	sysattr := &syscall.ProcAttr{
-		Dir:    attr.Dir,
-		Env:    attr.Env,
-		Ptrace: true,
+		Dir: attr.Dir,
+		Env: attr.Env,
+		Sys: &syscall.SysProcAttr{
+			Ptrace: true,
+		},
 	}
 	p := newProcess(-1)
 

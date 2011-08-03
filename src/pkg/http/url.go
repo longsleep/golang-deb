@@ -299,7 +299,7 @@ func getscheme(rawurl string) (scheme, path string, err os.Error) {
 			}
 		case c == ':':
 			if i == 0 {
-				return "", "", os.ErrorString("missing protocol scheme")
+				return "", "", os.NewError("missing protocol scheme")
 			}
 			return rawurl[0:i], rawurl[i+1:], nil
 		default:
@@ -348,8 +348,13 @@ func ParseRequestURL(rawurl string) (url *URL, err os.Error) {
 // in which case only absolute URLs or path-absolute relative URLs are allowed.
 // If viaRequest is false, all forms of relative URLs are allowed.
 func parseURL(rawurl string, viaRequest bool) (url *URL, err os.Error) {
+	var (
+		leadingSlash bool
+		path         string
+	)
+
 	if rawurl == "" {
-		err = os.ErrorString("empty url")
+		err = os.NewError("empty url")
 		goto Error
 	}
 	url = new(URL)
@@ -357,12 +362,10 @@ func parseURL(rawurl string, viaRequest bool) (url *URL, err os.Error) {
 
 	// Split off possible leading "http:", "mailto:", etc.
 	// Cannot contain escaped characters.
-	var path string
 	if url.Scheme, path, err = getscheme(rawurl); err != nil {
 		goto Error
 	}
-
-	leadingSlash := strings.HasPrefix(path, "/")
+	leadingSlash = strings.HasPrefix(path, "/")
 
 	if url.Scheme != "" && !leadingSlash {
 		// RFC 2396:
@@ -377,7 +380,7 @@ func parseURL(rawurl string, viaRequest bool) (url *URL, err os.Error) {
 		url.OpaquePath = true
 	} else {
 		if viaRequest && !leadingSlash {
-			err = os.ErrorString("invalid URI for request")
+			err = os.NewError("invalid URI for request")
 			goto Error
 		}
 
@@ -411,7 +414,7 @@ func parseURL(rawurl string, viaRequest bool) (url *URL, err os.Error) {
 
 		if strings.Contains(rawHost, "%") {
 			// Host cannot contain escaped characters.
-			err = os.ErrorString("hexadecimal escape in host")
+			err = os.NewError("hexadecimal escape in host")
 			goto Error
 		}
 		url.Host = rawHost
@@ -505,8 +508,8 @@ func (v Values) Encode() string {
 // resolvePath applies special path segments from refs and applies
 // them to base, per RFC 2396.
 func resolvePath(basepath string, refpath string) string {
-	base := strings.Split(basepath, "/", -1)
-	refs := strings.Split(refpath, "/", -1)
+	base := strings.Split(basepath, "/")
+	refs := strings.Split(refpath, "/")
 	if len(base) == 0 {
 		base = []string{""}
 	}

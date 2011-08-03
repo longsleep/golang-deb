@@ -40,9 +40,6 @@ type Response struct {
 	// Keys in the map are canonicalized (see CanonicalHeaderKey).
 	Header Header
 
-	// SetCookie records the Set-Cookie requests sent with the response.
-	SetCookie []*Cookie
-
 	// Body represents the response body.
 	Body io.ReadCloser
 
@@ -71,6 +68,11 @@ type Response struct {
 	Request *Request
 }
 
+// Cookies parses and returns the cookies set in the Set-Cookie headers.
+func (r *Response) Cookies() []*Cookie {
+	return readSetCookies(r.Header)
+}
+
 // ReadResponse reads and returns an HTTP response from r.  The
 // req parameter specifies the Request that corresponds to
 // this Response.  Clients must call resp.Body.Close when finished
@@ -93,7 +95,7 @@ func ReadResponse(r *bufio.Reader, req *Request) (resp *Response, err os.Error) 
 		}
 		return nil, err
 	}
-	f := strings.Split(line, " ", 3)
+	f := strings.SplitN(line, " ", 3)
 	if len(f) < 2 {
 		return nil, &badStringError{"malformed HTTP response", line}
 	}
@@ -126,8 +128,6 @@ func ReadResponse(r *bufio.Reader, req *Request) (resp *Response, err os.Error) 
 	if err != nil {
 		return nil, err
 	}
-
-	resp.SetCookie = readSetCookies(resp.Header)
 
 	return resp, nil
 }
@@ -197,10 +197,6 @@ func (resp *Response) Write(w io.Writer) os.Error {
 	// Rest of header
 	err = resp.Header.WriteSubset(w, respExcludeHeader)
 	if err != nil {
-		return err
-	}
-
-	if err = writeSetCookies(w, resp.SetCookie); err != nil {
 		return err
 	}
 

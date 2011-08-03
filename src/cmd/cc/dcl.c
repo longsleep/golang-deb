@@ -28,6 +28,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
 #include "cc.h"
 
 Node*
@@ -1378,7 +1379,6 @@ tmerge(Type *t1, Sym *s)
 	Type *ta, *tb, *t2;
 
 	t2 = s->type;
-/*print("merge	%T; %T\n", t1, t2);/**/
 	for(;;) {
 		if(t1 == T || t2 == T || t1 == t2)
 			break;

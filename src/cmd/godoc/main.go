@@ -31,6 +31,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/build"
 	"http"
 	_ "http/pprof" // to serve /debug/pprof/*
 	"io"
@@ -222,6 +223,10 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
+	// Determine file system to use.
+	// TODO(gri) Complete this - for now we only have one.
+	fs = OS
+
 	// Clean goroot: normalize path separator.
 	*goroot = filepath.Clean(*goroot)
 
@@ -328,7 +333,10 @@ func main() {
 	}
 	relpath := path
 	abspath := path
-	if !filepath.IsAbs(path) {
+	if t, pkg, err := build.FindTree(path); err == nil {
+		relpath = pkg
+		abspath = filepath.Join(t.SrcDir(), pkg)
+	} else if !filepath.IsAbs(path) {
 		abspath = absolutePath(path, pkgHandler.fsRoot)
 	} else {
 		relpath = relativeURL(path)

@@ -125,10 +125,13 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 	Sym *s;
 	Reloc *r, *rp;
 	PeSym *sym;
-	
+
+	USED(len);
+	USED(pkg);
 	if(debug['v'])
 		Bprint(&bso, "%5.2f ldpe %s\n", cputime(), pn);
 	
+	sect = nil;
 	version++;
 	base = Boffset(f);
 	
@@ -304,6 +307,8 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 			diag("%s: %s sectnum <0!", pn, s->name, sym->sectnum);
 		}
 
+		if(sect == nil) 
+			return;
 		s->sub = sect->sym->sub;
 		sect->sym->sub = s;
 		s->type = sect->sym->type | SSUB;
@@ -366,12 +371,11 @@ readsym(PeObj *obj, int i, PeSym **y)
 
 	sym = &obj->pesym[i];
 	*y = sym;
-	s = nil;
 	
 	name = sym->name;
 	if(sym->sclass == IMAGE_SYM_CLASS_STATIC && sym->value == 0) // section
 		name = obj->sect[sym->sectnum-1].sym->name;
-	if(strncmp(sym->name, "__imp__", 6) == 0)
+	if(strncmp(sym->name, "__imp__", 7) == 0)
 		name = &sym->name[7]; // __imp__Name => Name
 	else if(sym->name[0] == '_') 
 		name = &sym->name[1]; // _Name => Name
@@ -403,6 +407,8 @@ readsym(PeObj *obj, int i, PeSym **y)
 
 	if(s != nil && s->type == 0 && !(sym->sclass == IMAGE_SYM_CLASS_STATIC && sym->value == 0))
 		s->type = SXREF;
+	if(strncmp(sym->name, "__imp__", 7) == 0)
+		s->got = -2; // flag for __imp__
 	sym->sym = s;
 
 	return 0;

@@ -42,6 +42,8 @@ func cutoff64(base int) uint64 {
 // digits, err.Error = os.EINVAL; if the value corresponding
 // to s cannot be represented by a uint64, err.Error = os.ERANGE.
 func Btoui64(s string, b int) (n uint64, err os.Error) {
+	var cutoff uint64
+
 	s0 := s
 	switch {
 	case len(s) < 1:
@@ -68,12 +70,12 @@ func Btoui64(s string, b int) (n uint64, err os.Error) {
 		}
 
 	default:
-		err = os.ErrorString("invalid base " + Itoa(b))
+		err = os.NewError("invalid base " + Itoa(b))
 		goto Error
 	}
 
 	n = 0
-	cutoff := cutoff64(b)
+	cutoff = cutoff64(b)
 
 	for i := 0; i < len(s); i++ {
 		var v byte

@@ -11,7 +11,7 @@ import (
 	"unsafe"
 )
 
-const ptrSize = uintptr(unsafe.Sizeof((*byte)(nil)))
+const ptrSize = unsafe.Sizeof((*byte)(nil))
 const cannotSet = "cannot set value obtained from unexported struct field"
 
 // TODO: This will have to go away when
@@ -933,7 +933,7 @@ func (v Value) Kind() Kind {
 }
 
 // Len returns v's length.
-// It panics if v's Kind is not Array, Chan, Map, or Slice.
+// It panics if v's Kind is not Array, Chan, Map, Slice, or String.
 func (v Value) Len() int {
 	iv := v.internal()
 	switch iv.kind {
@@ -945,6 +945,8 @@ func (v Value) Len() int {
 		return int(maplen(iv.word))
 	case Slice:
 		return (*SliceHeader)(iv.addr).Len
+	case String:
+		return (*StringHeader)(iv.addr).Len
 	}
 	panic(&ValueError{"reflect.Value.Len", iv.kind})
 }
@@ -1021,6 +1023,23 @@ func (v Value) Method(i int) Value {
 		panic("reflect: Method index out of range")
 	}
 	return Value{v.Internal, i + 1}
+}
+
+// MethodByName returns a function value corresponding to the method
+// of v with the given name.
+// The arguments to a Call on the returned function should not include
+// a receiver; the returned function will always use v as the receiver.
+// It returns the zero Value if no method was found.
+func (v Value) MethodByName(name string) Value {
+	iv := v.internal()
+	if iv.kind == Invalid {
+		panic(&ValueError{"reflect.Value.MethodByName", Invalid})
+	}
+	m, ok := iv.typ.MethodByName(name)
+	if ok {
+		return Value{v.Internal, m.Index + 1}
+	}
+	return Value{}
 }
 
 // NumField returns the number of fields in the struct v.
