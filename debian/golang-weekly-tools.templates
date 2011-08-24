@@ -1,7 +1,7 @@
 Template: golang-weekly-tools/dashboard
 Type: boolean
 Default: true
-_Description: Report installation of public packages to Go Dashboard?
+Description: Report installation of public packages to Go Dashboard?
  goinstall reports the successful installation of the public packages
  to godashboard.appspot.com, which increments a count associated with
  the package and the time of its most recent installation.  This
