@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -e
+
+# purge the config file which is created in the postinst script
+if [ "$1" = purge ] ; then
+        rm -f /etc/golang/goinstall.conf
+	rmdir /etc/golang || true
+fi
+
+if [ "$1" = "purge" ] && [ -e /usr/share/debconf/confmodule ]; then
+    # Source debconf library.
+    . /usr/share/debconf/confmodule
+    # Remove my changes to the db.
+    db_purge
+fi
+
+#DEBHELPER#
+

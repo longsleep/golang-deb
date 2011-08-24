@@ -1,0 +1,75 @@
+#!/bin/sh
+
+# Load debconf variables
+. /usr/share/debconf/confmodule
+
+confdir=/etc/golang
+conffile=$confdir/goinstall.conf
+
+set -e
+
+if [ -e $conffile ] ; then
+    # Fetch current values.
+    . $conffile
+fi
+
+# Get this setting from debconf.  It was set based on the content of
+# /etc/golang/goinstall.conf in the 'config' script, so it should be
+# safe to ignore the value fetched by loading the file above.  This
+# should allow for using debconf to reconfigure the package.
+db_get golang-weekly-tools/dashboard || true
+if [ "$RET" = "yes" ] || [ "$RET" = "YES" ] || [ "$RET" = "true" ]; then
+    DASHBOARD="yes"
+else
+    DASHBOARD="no"
+fi
+
+generate_conffile() {
+	if [ ! -d $confdir ]; then
+		mkdir $confdir
+	fi
+	cat <<-EOF >$conffile
+		# Config file for goinstall tool.
+		#
+		# To change this file, use:
+		#        dpkg-reconfigure golang-weekly-tools
+		#
+		# You can also edit it by hand, if you so choose.
+		
+		DASHBOARD="$DASHBOARD"
+	EOF
+
+	# Make sure user nobody can read the file.
+	chmod a+r $conffile
+}
+
+case "$1" in
+    configure)
+	if [ ! -e $conffile ]; then
+	    generate_conffile
+	else
+	    # Replace only if the content changed, to avoid changing the
+	    # config file date when no change was done.
+
+	    # Commenting out the obsolete addresses, to use the
+	    # default config from /usr/share/ on hosts where
+	    # the old default was unchanged.  Replace the "empty" id.
+
+	    sedopts=" \
+		s/^DASHBOARD=.*$/DASHBOARD=\"$DASHBOARD\"/;   \
+                "
+	    if sed "$sedopts" < $conffile > $conffile.new &&
+		! cmp $conffile $conffile.new > /dev/null; then
+		mv $conffile.new $conffile
+		# Make sure user nobody can read the file.
+		chmod a+r $conffile
+	    else
+		rm $conffile.new
+	    fi
+	fi
+	;;
+    *)
+	;;
+esac
+
+#DEBHELPER#

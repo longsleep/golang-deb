@@ -1,0 +1,16 @@
+Template: golang-weekly-tools/dashboard
+Type: boolean
+Default: true
+_Description: Report installation of public packages to Go Dashboard?
+ goinstall reports the successful installation of the public packages
+ to godashboard.appspot.com, which increments a count associated with
+ the package and the time of its most recent installation.  This
+ mechanism powers the package list at the Go Dashboard, allowing Go
+ programmers to learn about popular packages that might be worth
+ looking at.
+ .
+ If you choose to participate, the goinstall will report each
+ successful installation to the Go Dashboard.
+ .
+ This choice can be later modified by running "dpkg-reconfigure
+ popularity-contest".
