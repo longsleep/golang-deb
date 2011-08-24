@@ -50,11 +50,6 @@ case "$1" in
 	else
 	    # Replace only if the content changed, to avoid changing the
 	    # config file date when no change was done.
-
-	    # Commenting out the obsolete addresses, to use the
-	    # default config from /usr/share/ on hosts where
-	    # the old default was unchanged.  Replace the "empty" id.
-
 	    sedopts=" \
 		s/^DASHBOARD=.*$/DASHBOARD=\"$DASHBOARD\"/;   \
                 "
