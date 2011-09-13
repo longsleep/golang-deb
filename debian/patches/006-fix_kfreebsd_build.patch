@@ -89,12 +89,12 @@
  	echo 'enum {'
 --- a/src/pkg/net/Makefile
 +++ b/src/pkg/net/Makefile
-@@ -36,7 +36,7 @@ GOFILES_freebsd=\
- 	sock_bsd.go\
+@@ -43,7 +43,7 @@ GOFILES_freebsd=\
  
+ ifeq ($(CGO_ENABLED),1)
  CGOFILES_freebsd=\
 -	cgo_bsd.go\
 +	cgo_linux.go\
- 	cgo_unix.go\
- 
- GOFILES_darwin=\
+ 	cgo_unix.go
+ else
+ GOFILES_freebsd+=cgo_stub.go

@@ -1,8 +1,8 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -77,6 +77,10 @@ func main() {
- 		os.Exit(1)
+@@ -87,6 +87,10 @@ func main() {
  	}
+ 	readPackageList()
  
 +	if os.Getuid() != 0 && os.Getenv("GOPATH") == "" {
 +		fmt.Fprintf(os.Stderr, "%s: set $GOPATH to the directory you want packages installed to if you get permission denied error\n", argv0)

@@ -17,6 +17,6 @@
  char linuxdynld[] = "/lib64/ld-linux-x86-64.so.2";
 -char freebsddynld[] = "/libexec/ld-elf.so.1";
 +char freebsddynld[] = "/lib/ld-kfreebsd-x86-64.so.1";
+ char openbsddynld[] = "/usr/libexec/ld.so";
  
  char	zeroes[32];
- 
