@@ -1,0 +1,28 @@
+--- a/src/cmd/goinstall/main.go
++++ b/src/cmd/goinstall/main.go
+@@ -35,7 +35,7 @@ var (
+ 	installedPkgs = make(map[string]bool)
+ 
+ 	allpkg            = flag.Bool("a", false, "install all previously installed packages")
+-	reportToDashboard = flag.Bool("dashboard", true, "report public packages at "+dashboardURL)
++	reportToDashboard *bool
+ 	logPkgs           = flag.Bool("log", true, "log installed packages to $GOROOT/goinstall.log for use by -a")
+ 	update            = flag.Bool("u", false, "update already-downloaded packages")
+ 	doInstall         = flag.Bool("install", true, "build and install")
+@@ -45,6 +45,16 @@ var (
+ 	verbose           = flag.Bool("v", false, "verbose")
+ )
+ 
++func init() {
++	d := true
++	b, err := ioutil.ReadFile("/etc/golang/goinstall.conf")
++	if err == nil {
++		re := regexp.MustCompile(`(^|\n)DASHBOARD="[nN][oO]"($|\n)`)
++		d = !re.Match(b)
++	}
++	reportToDashboard = flag.Bool("dashboard", d, "report public packages at "+dashboardURL)
++}
++
+ type status int // status for visited map
+ const (
+ 	unvisited status = iota
