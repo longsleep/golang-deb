@@ -133,7 +133,7 @@ get-orig-source:
 	hg pull; \
 	hg update "$(REV)"; \
 	VERSION=$$(hg identify -t -r"$(REV)" | perl -e '<> =~ /$(REV)\.r([\d.]+)/; print "$$1"'); \
-	hg archive -tfiles -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../$(PACKAGE)_$$VERSION/"; \
+	hg archive -tfiles -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../$(PACKAGE)-$$VERSION/"; \
 	src/version.bash -save; \
 	cp VERSION "$(CURDIR)/../$(PACKAGE)-$$VERSION/"; \
 	cd ..; \
