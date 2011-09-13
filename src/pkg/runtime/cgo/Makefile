@@ -1,0 +1,60 @@
+# Copyright 2010 The Go Authors.  All rights reserved.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+include ../../../Make.inc
+
+TARG=runtime/cgo
+
+GOFILES=\
+	cgo.go\
+
+ifeq ($(CGO_ENABLED),1)
+
+# Unwarranted chumminess with Make.pkg's cgo rules.
+# Do not try this at home.
+CGO_OFILES=\
+	$(GOARCH).o\
+	$(GOOS)_$(GOARCH).o\
+	util.o\
+
+ifeq ($(GOOS),windows)
+CGO_LDFLAGS=-lm -mthreads
+else
+CGO_LDFLAGS=-lpthread
+CGO_OFILES+=setenv.o\
+
+endif
+
+OFILES=\
+	iscgo.$O\
+	callbacks.$O\
+	_cgo_import.$O\
+	$(CGO_OFILES)\
+
+ifeq ($(GOOS),freebsd)
+OFILES+=\
+	freebsd.$O\
+
+endif
+
+endif
+
+include ../../../Make.pkg
+
+ifeq ($(CGO_ENABLED),1)
+_cgo_defun.c:
+	echo >$@
+
+_cgo_main.c:
+	echo 'int main() { return 0; }' >$@
+endif
+
+$(GOARCH).o: $(GOARCH).S
+	$(HOST_CC) $(_CGO_CFLAGS_$(GOARCH)) -g -O2 -fPIC -o $@ -c $^
+
+$(GOOS)_$(GOARCH).o: $(GOOS)_$(GOARCH).c
+	$(HOST_CC) $(_CGO_CFLAGS_$(GOARCH)) -g -O2 -fPIC -o $@ -c $^
+
+%.o: %.c
+	$(HOST_CC) $(_CGO_CFLAGS_$(GOARCH)) -g -O2 -fPIC -o $@ -c $^

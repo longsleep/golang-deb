@@ -1,0 +1,82 @@
+{{with .PAst}}{{node . $.FSet}}{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .PDoc}}{{if $.IsPkg}}PACKAGE
+
+package {{.PackageName}}
+import "{{.ImportPath}}"
+
+{{else}}COMMAND DOCUMENTATION
+
+{{end}}{{.Doc}}{{/*
+
+---------------------------------------
+
+*/}}{{with .Consts}}
+CONSTANTS
+
+{{range .}}{{node .Decl $.FSet}}
+{{.Doc}}{{end}}
+{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .Vars}}
+VARIABLES
+
+{{range .}}{{node .Decl $.FSet}}
+{{.Doc}}{{end}}
+{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .Funcs}}
+FUNCTIONS
+
+{{range .}}{{node .Decl $.FSet}}
+{{.Doc}}
+{{end}}{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .Types}}
+TYPES
+
+{{range .}}{{node .Decl $.FSet}}
+{{.Doc}}
+{{range .Consts}}{{node .Decl $.FSet}}
+{{.Doc}}
+{{end}}{{range .Vars}}{{node .Decl $.FSet}}
+{{.Doc}}
+{{end}}{{range .Factories}}{{node .Decl $.FSet}}
+{{.Doc}}
+{{end}}{{range .Methods}}{{node .Decl $.FSet}}
+{{.Doc}}
+{{end}}{{end}}{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .Bugs}}
+BUGS
+
+{{range .}}{{.}}
+{{end}}{{end}}{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .PList}}
+OTHER PACKAGES
+
+{{range .}}
+{{.}}{{end}}
+{{end}}{{/*
+
+---------------------------------------
+
+*/}}{{with .Dirs}}
+SUBDIRECTORIES
+
+{{range .List}}
+	{{.Name}}{{end}}
+{{end}}

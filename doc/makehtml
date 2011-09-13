@@ -1,0 +1,17 @@
+#!/bin/sh
+# Copyright 2009 The Go Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+set -e
+
+TMPL=${1:-go_tutorial.tmpl}		# input file
+HTML=$(basename $TMPL .tmpl).html		# output file (basename)
+
+if ! test -w $HTML
+then
+	echo 1>&2 makehtml: cannot open $HTML for write
+	exit 1
+fi
+
+make && ./tmpltohtml $TMPL > $HTML
