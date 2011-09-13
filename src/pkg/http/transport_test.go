@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"url"
 )
 
 // TODO: test 5 pipelined requests with responses: 1) OK, 2) OK, Connection: Close
@@ -77,7 +78,7 @@ func TestTransportConnectionCloseOnResponse(t *testing.T) {
 		fetch := func(n int) string {
 			req := new(Request)
 			var err os.Error
-			req.URL, err = ParseURL(ts.URL + fmt.Sprintf("?close=%v", connectionClose))
+			req.URL, err = url.Parse(ts.URL + fmt.Sprintf("?close=%v", connectionClose))
 			if err != nil {
 				t.Fatalf("URL parse error: %v", err)
 			}
@@ -119,7 +120,7 @@ func TestTransportConnectionCloseOnRequest(t *testing.T) {
 		fetch := func(n int) string {
 			req := new(Request)
 			var err os.Error
-			req.URL, err = ParseURL(ts.URL)
+			req.URL, err = url.Parse(ts.URL)
 			if err != nil {
 				t.Fatalf("URL parse error: %v", err)
 			}
@@ -387,6 +388,68 @@ func TestTransportNilURL(t *testing.T) {
 	}
 }
 
+var roundTripTests = []struct {
+	accept       string
+	expectAccept string
+	compressed   bool
+}{
+	// Requests with no accept-encoding header use transparent compression
+	{"", "gzip", false},
+	// Requests with other accept-encoding should pass through unmodified
+	{"foo", "foo", false},
+	// Requests with accept-encoding == gzip should be passed through
+	{"gzip", "gzip", true}}
+
+// Test that the modification made to the Request by the RoundTripper is cleaned up
+func TestRoundTripGzip(t *testing.T) {
+	const responseBody = "test response body"
+	ts := httptest.NewServer(HandlerFunc(func(rw ResponseWriter, req *Request) {
+		accept := req.Header.Get("Accept-Encoding")
+		if expect := req.FormValue("expect_accept"); accept != expect {
+			t.Errorf("Accept-Encoding = %q, want %q", accept, expect)
+		}
+		if accept == "gzip" {
+			rw.Header().Set("Content-Encoding", "gzip")
+			gz, _ := gzip.NewWriter(rw)
+			gz.Write([]byte(responseBody))
+			gz.Close()
+		} else {
+			rw.Header().Set("Content-Encoding", accept)
+			rw.Write([]byte(responseBody))
+		}
+	}))
+	defer ts.Close()
+
+	for i, test := range roundTripTests {
+		// Test basic request (no accept-encoding)
+		req, _ := NewRequest("GET", ts.URL+"?expect_accept="+test.expectAccept, nil)
+		req.Header.Set("Accept-Encoding", test.accept)
+		res, err := DefaultTransport.RoundTrip(req)
+		var body []byte
+		if test.compressed {
+			gzip, _ := gzip.NewReader(res.Body)
+			body, err = ioutil.ReadAll(gzip)
+			res.Body.Close()
+		} else {
+			body, err = ioutil.ReadAll(res.Body)
+		}
+		if err != nil {
+			t.Errorf("%d. Error: %q", i, err)
+		} else {
+			if g, e := string(body), responseBody; g != e {
+				t.Errorf("%d. body = %q; want %q", i, g, e)
+			}
+			if g, e := req.Header.Get("Accept-Encoding"), test.accept; g != e {
+				t.Errorf("%d. Accept-Encoding = %q; want %q", i, g, e)
+			}
+			if g, e := res.Header.Get("Content-Encoding"), test.accept; g != e {
+				t.Errorf("%d. Content-Encoding = %q; want %q", i, g, e)
+			}
+		}
+	}
+
+}
+
 func TestTransportGzip(t *testing.T) {
 	const testString = "The test string aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const nRandBytes = 1024 * 1024
@@ -490,7 +553,7 @@ func TestTransportProxy(t *testing.T) {
 	}))
 	defer proxy.Close()
 
-	pu, err := ParseURL(proxy.URL)
+	pu, err := url.Parse(proxy.URL)
 	if err != nil {
 		t.Fatal(err)
 	}

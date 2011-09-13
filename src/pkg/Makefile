@@ -68,7 +68,6 @@ DIRS=\
 	debug/elf\
 	debug/gosym\
 	debug/pe\
-	debug/proc\
 	ebnf\
 	encoding/ascii85\
 	encoding/base32\
@@ -79,11 +78,11 @@ DIRS=\
 	encoding/pem\
 	exec\
 	exp/datafmt\
-	exp/eval\
 	exp/gui\
 	exp/gui/x11\
+	exp/norm\
 	exp/regexp/syntax\
-	exp/template\
+	exp/template/html\
 	expvar\
 	flag\
 	fmt\
@@ -130,6 +129,7 @@ DIRS=\
 	net/dict\
 	net/textproto\
 	netchan\
+	old/template\
 	os\
 	os/signal\
 	os/user\
@@ -156,6 +156,7 @@ DIRS=\
 	syslog\
 	tabwriter\
 	template\
+	template/parse\
 	testing\
 	testing/iotest\
 	testing/quick\
@@ -163,6 +164,7 @@ DIRS=\
 	time\
 	try\
 	unicode\
+	url\
 	utf16\
 	utf8\
 	websocket\
@@ -188,7 +190,6 @@ endif
 ifeq ($(GOOS),plan9)
 NOPLAN9BUILD=\
 	crypto/tls\
-	debug/proc\
 	exp/gui/x11\
 	expvar\
 	http\
@@ -219,7 +220,6 @@ NOTEST+=\
 	crypto\
 	crypto/openpgp/error\
 	crypto/x509/pkix\
-	debug/proc\
 	exp/gui\
 	exp/gui/x11\
 	go/ast\
@@ -240,7 +240,6 @@ NOTEST+=\
 	../cmd/cgo\
 	../cmd/ebnflint\
 	../cmd/godoc\
-	../cmd/goinstall\
 	../cmd/gotest\
 	../cmd/goyacc\
 	../cmd/hgpatch\

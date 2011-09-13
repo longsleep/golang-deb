@@ -148,24 +148,23 @@ func newAddr(m *syscall.InterfaceAddrMessage) ([]Addr, os.Error) {
 	}
 
 	for _, s := range sas {
-		var ifa IPAddr
+
 		switch v := s.(type) {
 		case *syscall.SockaddrInet4:
-			ifa.IP = IPv4(v.Addr[0], v.Addr[1], v.Addr[2], v.Addr[3])
+			ifa := &IPAddr{IP: IPv4(v.Addr[0], v.Addr[1], v.Addr[2], v.Addr[3])}
+			ifat = append(ifat, ifa.toAddr())
 		case *syscall.SockaddrInet6:
-			ifa.IP = make(IP, IPv6len)
+			ifa := &IPAddr{IP: make(IP, IPv6len)}
 			copy(ifa.IP, v.Addr[:])
 			// NOTE: KAME based IPv6 protcol stack usually embeds
 			// the interface index in the interface-local or link-
 			// local address as the kernel-internal form.
-			if ifa.IP.IsLinkLocalUnicast() ||
-				ifa.IP.IsInterfaceLocalMulticast() ||
-				ifa.IP.IsLinkLocalMulticast() {
+			if ifa.IP.IsLinkLocalUnicast() {
 				// remove embedded scope zone ID
 				ifa.IP[2], ifa.IP[3] = 0, 0
 			}
+			ifat = append(ifat, ifa.toAddr())
 		}
-		ifat = append(ifat, ifa.toAddr())
 	}
 
 	return ifat, nil

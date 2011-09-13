@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"url"
 )
 
 type stringMultimap map[string][]string
@@ -43,7 +44,7 @@ var parseTests = []parseTest{
 
 func TestParseForm(t *testing.T) {
 	for i, test := range parseTests {
-		form, err := ParseQuery(test.query)
+		form, err := url.ParseQuery(test.query)
 		if err != nil {
 			t.Errorf("test %d: Unexpected error: %v", i, err)
 			continue
@@ -72,7 +73,7 @@ func TestParseForm(t *testing.T) {
 
 func TestQuery(t *testing.T) {
 	req := &Request{Method: "GET"}
-	req.URL, _ = ParseURL("http://www.google.com/search?q=foo&q=bar")
+	req.URL, _ = url.Parse("http://www.google.com/search?q=foo&q=bar")
 	if q := req.FormValue("q"); q != "foo" {
 		t.Errorf(`req.FormValue("q") = %q, want "foo"`, q)
 	}
@@ -80,7 +81,7 @@ func TestQuery(t *testing.T) {
 
 func TestPostQuery(t *testing.T) {
 	req := &Request{Method: "POST"}
-	req.URL, _ = ParseURL("http://www.google.com/search?q=foo&q=bar&both=x")
+	req.URL, _ = url.Parse("http://www.google.com/search?q=foo&q=bar&both=x")
 	req.Header = Header{
 		"Content-Type": {"application/x-www-form-urlencoded; boo!"},
 	}
@@ -217,6 +218,18 @@ func TestEmptyMultipartRequest(t *testing.T) {
 		t.Errorf("NewRequest err = %q", err)
 	}
 	testMissingFile(t, req)
+}
+
+func TestRequestMultipartCallOrder(t *testing.T) {
+	req := newTestMultipartRequest(t)
+	_, err := req.MultipartReader()
+	if err != nil {
+		t.Fatalf("MultipartReader: %v", err)
+	}
+	err = req.ParseMultipartForm(1024)
+	if err == nil {
+		t.Errorf("expected an error from ParseMultipartForm after call to MultipartReader")
+	}
 }
 
 func testMissingFile(t *testing.T, req *Request) {

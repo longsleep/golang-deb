@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	// A generic XML header suitable for use with the output of Marshal and MarshalIndent.
-	// This is not automatically added to any output of this package, it is provided as a
-	// convenience.
-	Header = `<?xml version="1.0" encoding="UTF-8">\n`
+	// A generic XML header suitable for use with the output of Marshal and
+	// MarshalIndent.  This is not automatically added to any output of this
+	// package, it is provided as a convenience.
+	Header = `<?xml version="1.0" encoding="UTF-8"?>` + "\n"
 )
 
 // A Marshaler can produce well-formatted XML representing its internal state.
@@ -177,7 +177,7 @@ func (p *printer) marshalValue(val reflect.Value, name string) os.Error {
 				case "":
 				case "chardata":
 					if tk := f.Type.Kind(); tk == reflect.String {
-						p.Write([]byte(val.Field(i).String()))
+						Escape(p, []byte(val.Field(i).String()))
 					} else if tk == reflect.Slice {
 						if elem, ok := val.Field(i).Interface().([]byte); ok {
 							Escape(p, elem)

@@ -65,32 +65,6 @@ type anyMessage struct {
 	Type    uint8
 }
 
-func (any *anyMessage) toRoutingMessage(buf []byte) RoutingMessage {
-	switch any.Type {
-	case RTM_ADD, RTM_DELETE, RTM_CHANGE, RTM_GET, RTM_LOSING, RTM_REDIRECT, RTM_MISS, RTM_LOCK, RTM_RESOLVE:
-		p := (*RouteMessage)(unsafe.Pointer(any))
-		rtm := &RouteMessage{}
-		rtm.Header = p.Header
-		rtm.Data = buf[SizeofRtMsghdr:any.Msglen]
-		return rtm
-	case RTM_IFINFO:
-		p := (*InterfaceMessage)(unsafe.Pointer(any))
-		ifm := &InterfaceMessage{}
-		ifm.Header = p.Header
-		ifm.Data = buf[SizeofIfMsghdr:any.Msglen]
-		return ifm
-	case RTM_NEWADDR, RTM_DELADDR:
-		p := (*InterfaceAddrMessage)(unsafe.Pointer(any))
-		ifam := &InterfaceAddrMessage{}
-		ifam.Header = p.Header
-		ifam.Data = buf[SizeofIfaMsghdr:any.Msglen]
-		return ifam
-	case RTM_NEWMADDR, RTM_DELMADDR:
-		// TODO: implement this in the near future
-	}
-	return nil
-}
-
 // RouteMessage represents a routing message containing routing
 // entries.
 type RouteMessage struct {
@@ -128,16 +102,16 @@ type InterfaceAddrMessage struct {
 	Data   []byte
 }
 
-const rtaMask = RTA_IFA | RTA_NETMASK | RTA_BRD
+const rtaIfaMask = RTA_IFA | RTA_NETMASK | RTA_BRD
 
 func (m *InterfaceAddrMessage) sockaddr() (sas []Sockaddr) {
-	if m.Header.Addrs&rtaMask == 0 {
+	if m.Header.Addrs&rtaIfaMask == 0 {
 		return nil
 	}
 
 	buf := m.Data[:]
 	for i := uint(0); i < RTAX_MAX; i++ {
-		if m.Header.Addrs&rtaMask&(1<<i) == 0 {
+		if m.Header.Addrs&rtaIfaMask&(1<<i) == 0 {
 			continue
 		}
 		rsa := (*RawSockaddr)(unsafe.Pointer(&buf[0]))

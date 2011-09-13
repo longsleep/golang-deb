@@ -35,6 +35,7 @@ Abhinav Gupta <abhinav.g90@gmail.com>
 Adam Langley <agl@golang.org>
 Adrian O'Grady <elpollouk@gmail.com>
 Albert Strasheim <fullung@gmail.com>
+Aleksandar Dezelin <dezelin@gmail.com>
 Alex Brainman <alex.brainman@gmail.com>
 Alexander Orlov <alexander.orlov@loxal.net>
 Alexey Borzenkov <snaury@gmail.com>
@@ -59,6 +60,7 @@ Ben Olive <sionide21@gmail.com>
 Benny Siegert <bsiegert@gmail.com>
 Berengar Lehr <Berengar.Lehr@gmx.de>
 Bill Neubauer <wcn@golang.org> <wcn@google.com>
+Bobby Powers <bobbypowers@gmail.com>
 Brad Fitzpatrick <bradfitz@golang.org> <bradfitz@gmail.com>
 Brendan O'Dea <bod@golang.org>
 Caine Tighe <arctanofyourface@gmail.com>
@@ -78,6 +80,7 @@ Daniel Fleischman <danielfleischman@gmail.com>
 Daniel Nadasi <dnadasi@google.com>
 Daniel Theophanes <kardianos@gmail.com>
 Dave Cheney <dave@cheney.net>
+Dave Grijalva <dgrijalva@ngmoco.com>
 David Anderson <danderson@google.com>
 David Crawshaw <david.crawshaw@zentus.com>
 David Forsythe <dforsythe@gmail.com>
@@ -94,6 +97,7 @@ Eivind Uggedal <eivind@uggedal.com>
 Eoghan Sherry <ejsherry@gmail.com>
 Eric Clark <zerohp@gmail.com>
 Eric Eisner <eric.d.eisner@gmail.com>
+Evan Martin <evan.martin@gmail.com>
 Evan Shaw <chickencha@gmail.com>
 Fan Hongjian <fan.howard@gmail.com>
 Fazlul Shahriar <fshahriar@gmail.com>
@@ -124,7 +128,9 @@ Jeff Hodges <jeff@somethingsimilar.com>
 Jeff R. Allen <jra@nella.org> <jeff.allen@gmail.com>
 Jim McGrath <jimmc2@gmail.com>
 Joe Poirier <jdpoirier@gmail.com>
+Joel Sing <jsing@google.com>
 Johan Euphrosine <proppy@google.com>
+John Asmuth <jasmuth@gmail.com>
 John DeNero <denero@google.com>
 Jonathan Allie <jonallie@google.com>
 Jonathan Mark <jhmark@xenops.com> <jhmark000@gmail.com>
@@ -155,6 +161,7 @@ Markus Duft <markus.duft@salomon.at>
 Martin Neubauer <m.ne@gmx.net>
 Mathieu Lonjaret <mathieu.lonjaret@gmail.com>
 Matt Jones <mrjones@google.com>
+Matthew Horsnell <matthew.horsnell@gmail.com>
 Maxim Ushakov <ushakov@google.com>
 Micah Stetson <micah.stetson@gmail.com>
 Michael Elkins <michael.elkins@gmail.com>
@@ -162,6 +169,8 @@ Michael Hoisie <hoisie@gmail.com>
 Michael T. Jones <mtj@google.com> <michael.jones@gmail.com>
 Miek Gieben <miek@miek.nl> <remigius.gieben@gmail.com>
 Mikael Tillenius <mikti42@gmail.com>
+Mike Samuel <mikesamuel@gmail.com>
+Mike Solomon <msolo@gmail.com>
 Mikio Hara <mikioh.mikioh@gmail.com>
 Mikkel Krautz <mikkel@krautz.dk> <krautz@gmail.com>
 Moriyoshi Koizumi <mozo@mozo.jp>
@@ -207,6 +216,7 @@ Spring Mc <heresy.mc@gmail.com>
 Stefan Nilsson <snilsson@nada.kth.se>
 Stephen Ma <stephenm@golang.org>
 Stephen Weinberg <stephen@q5comm.com>
+Sugu Sougoumarane <ssougou@gmail.com>
 Sven Almgren <sven@tras.se>
 Tarmigan Casebolt <tarmigan@gmail.com>
 Timo Savola <timo.savola@gmail.com>

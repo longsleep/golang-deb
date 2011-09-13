@@ -31,7 +31,7 @@
 #include	<u.h>
 #include	<libc.h>
 #include	<bio.h>
-#include	"../8l/8.out.h"
+#include	"8.out.h"
 
 #ifndef	EXTERN
 #define	EXTERN	extern
@@ -46,10 +46,6 @@ enum
 #define	P		((Prog*)0)
 #define	S		((Sym*)0)
 #define	TNAME		(cursym?cursym->name:noname)
-#define	cput(c)\
-	{ *cbp++ = c;\
-	if(--cbc <= 0)\
-		cflush(); }
 
 typedef	struct	Adr	Adr;
 typedef	struct	Prog	Prog;
@@ -247,27 +243,14 @@ enum
 	Pb		= 0xfe,	/* byte operands */
 };
 
-EXTERN union
-{
-	struct
-	{
-		char	obuf[MAXIO];			/* output buffer */
-		uchar	ibuf[MAXIO];			/* input buffer */
-	} u;
-	char	dbuf[1];
-} buf;
-
-#define	cbuf	u.obuf
-#define	xbuf	u.ibuf
-
 #pragma	varargck	type	"A"	int
 #pragma	varargck	type	"D"	Adr*
-#pragma	varargck	type	"I"	int
 #pragma	varargck	type	"I"	uchar*
 #pragma	varargck	type	"P"	Prog*
 #pragma	varargck	type	"R"	int
 #pragma	varargck	type	"S"	char*
 #pragma	varargck	type	"Y"	Sym*
+#pragma	varargck	type	"Z"	char*
 #pragma	varargck	type	"i"	char*
 
 EXTERN	int32	HEADR;
@@ -276,10 +259,7 @@ EXTERN	int32	INITRND;
 EXTERN	int32	INITTEXT;
 EXTERN	int32	INITDAT;
 EXTERN	char*	INITENTRY;		/* entry point */
-EXTERN	Biobuf	bso;
 EXTERN	int32	casepc;
-EXTERN	int	cbc;
-EXTERN	char*	cbp;
 EXTERN	char*	pcstr;
 EXTERN	Auto*	curauto;
 EXTERN	Auto*	curhist;

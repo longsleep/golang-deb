@@ -35,8 +35,13 @@ var (
 	Stdout = 1
 	Stderr = 2
 
-	EISDIR = NewError("file is a directory")
+	EAFNOSUPPORT = NewError("address family not supported by protocol")
+	EISDIR       = NewError("file is a directory")
 )
+
+// For testing: clients can set this flag to force
+// creation of IPv6 sockets to return EAFNOSUPPORT.
+var SocketDisableIPv6 bool
 
 func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err string)
 func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err string)
@@ -121,7 +126,6 @@ func Getppid() (ppid int) {
 	return int(n)
 }
 
-
 func Read(fd int, p []byte) (n int, err Error) {
 	return Pread(fd, p, -1)
 }
@@ -163,7 +167,6 @@ func Pipe(p []int) (err Error) {
 	p[1] = int(pp[1])
 	return
 }
-
 
 //sys	sleep(millisecs int32) (err Error)
 func Sleep(nsec int64) (err Error) {

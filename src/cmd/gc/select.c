@@ -108,6 +108,7 @@ walkselect(Node *sel)
 	// optimization: one-case select: single op.
 	if(i == 1) {
 		cas = sel->list->n;
+		setlineno(cas);
 		l = cas->ninit;
 		if(cas->left != N) {  // not default:
 			n = cas->left;
@@ -165,6 +166,7 @@ walkselect(Node *sel)
 	// this rewrite is used by both the general code and the next optimization.
 	for(l=sel->list; l; l=l->next) {
 		cas = l->n;
+		setlineno(cas);
 		n = cas->left;
 		if(n == N)
 			continue;
@@ -238,6 +240,7 @@ walkselect(Node *sel)
 		}
 		
 		n = cas->left;
+		setlineno(n);
 		r = nod(OIF, N, N);
 		r->ninit = cas->ninit;
 		switch(n->op) {
@@ -247,9 +250,8 @@ walkselect(Node *sel)
 		case OSEND:
 			// if c != nil && selectnbsend(c, v) { body } else { default body }
 			ch = cheapexpr(n->left, &r->ninit);
-			r->ntest = nod(OANDAND, nod(ONE, ch, nodnil()),
-				mkcall1(chanfn("selectnbsend", 2, ch->type),
-					types[TBOOL], &r->ninit, ch, n->right));
+			r->ntest = mkcall1(chanfn("selectnbsend", 2, ch->type),
+					types[TBOOL], &r->ninit, typename(ch->type), ch, n->right);
 			break;
 			
 		case OSELRECV:
@@ -257,9 +259,8 @@ walkselect(Node *sel)
 			r = nod(OIF, N, N);
 			r->ninit = cas->ninit;
 			ch = cheapexpr(n->right->left, &r->ninit);
-			r->ntest = nod(OANDAND, nod(ONE, ch, nodnil()),
-				mkcall1(chanfn("selectnbrecv", 2, ch->type),
-					types[TBOOL], &r->ninit, n->left, ch));
+			r->ntest = mkcall1(chanfn("selectnbrecv", 2, ch->type),
+					types[TBOOL], &r->ninit, typename(ch->type), n->left, ch);
 			break;
 
 		case OSELRECV2:
@@ -267,9 +268,8 @@ walkselect(Node *sel)
 			r = nod(OIF, N, N);
 			r->ninit = cas->ninit;
 			ch = cheapexpr(n->right->left, &r->ninit);
-			r->ntest = nod(OANDAND, nod(ONE, ch, nodnil()),
-				mkcall1(chanfn("selectnbrecv2", 2, ch->type),
-					types[TBOOL], &r->ninit, n->left, n->ntest, ch));
+			r->ntest = mkcall1(chanfn("selectnbrecv2", 2, ch->type),
+					types[TBOOL], &r->ninit, typename(ch->type), n->left, n->ntest, ch);
 			break;
 		}
 		typecheck(&r->ntest, Erv);
@@ -283,6 +283,7 @@ walkselect(Node *sel)
 	sel->ninit = nil;
 
 	// generate sel-struct
+	setlineno(sel);
 	var = nod(OXXX, N, N);
 	tempname(var, ptrto(types[TUINT8]));
 	r = nod(OAS, var, mkcall("newselect", var->type, nil, nodintconst(sel->xoffset)));
@@ -292,6 +293,7 @@ walkselect(Node *sel)
 	// register cases
 	for(l=sel->list; l; l=l->next) {
 		cas = l->n;
+		setlineno(cas);
 		n = cas->left;
 		r = nod(OIF, N, N);
 		r->nbody = cas->ninit;
@@ -309,7 +311,12 @@ walkselect(Node *sel)
 				fatal("select %O", n->op);
 	
 			case OSEND:
-				// selectsend(sel *byte, hchan *chan any, elem any) (selected bool);
+				// selectsend(sel *byte, hchan *chan any, elem *any) (selected bool);
+				n->left = safeexpr(n->left, &r->ninit);
+				n->right = localexpr(n->right, n->left->type->type, &r->ninit);
+				n->right = nod(OADDR, n->right, N);
+				n->right->etype = 1;  // pointer does not escape
+				typecheck(&n->right, Erv);
 				r->ntest = mkcall1(chanfn("selectsend", 2, n->left->type), types[TBOOL],
 					&init, var, n->left, n->right);
 				break;
@@ -333,6 +340,7 @@ walkselect(Node *sel)
 	}
 
 	// run the select
+	setlineno(sel);
 	init = list(init, mkcall("selectgo", T, nil, var));
 	sel->nbody = init;
 

@@ -98,11 +98,13 @@ walkrange(Node *n)
 	Node *fn, *tmp;
 	NodeList *body, *init;
 	Type *th, *t;
+	int lno;
 
 	t = n->type;
 	init = nil;
 
 	a = n->right;
+	lno = setlineno(a);
 	if(t->etype == TSTRING && !eqtype(t, types[TSTRING])) {
 		a = nod(OCONV, n->right, N);
 		a->type = types[TSTRING];
@@ -173,7 +175,7 @@ walkrange(Node *n)
 		argtype(fn, t->down);
 		argtype(fn, t->type);
 		argtype(fn, th);
-		init = list(init, mkcall1(fn, T, nil, ha, nod(OADDR, hit, N)));
+		init = list(init, mkcall1(fn, T, nil, typename(t), ha, nod(OADDR, hit, N)));
 		n->ntest = nod(ONE, nod(OINDEX, hit, nodintconst(0)), nodnil());
 
 		fn = syslook("mapiternext", 1);
@@ -248,5 +250,7 @@ walkrange(Node *n)
 	typechecklist(body, Etop);
 	n->nbody = concat(body, n->nbody);
 	walkstmt(&n);
+	
+	lineno = lno;
 }
 

@@ -42,6 +42,37 @@ func TestParseInt64(t *testing.T) {
 	}
 }
 
+type int32Test struct {
+	in  []byte
+	ok  bool
+	out int32
+}
+
+var int32TestData = []int32Test{
+	{[]byte{0x00}, true, 0},
+	{[]byte{0x7f}, true, 127},
+	{[]byte{0x00, 0x80}, true, 128},
+	{[]byte{0x01, 0x00}, true, 256},
+	{[]byte{0x80}, true, -128},
+	{[]byte{0xff, 0x7f}, true, -129},
+	{[]byte{0xff, 0xff, 0xff, 0xff}, true, -1},
+	{[]byte{0xff}, true, -1},
+	{[]byte{0x80, 0x00, 0x00, 0x00}, true, -2147483648},
+	{[]byte{0x80, 0x00, 0x00, 0x00, 0x00}, false, 0},
+}
+
+func TestParseInt32(t *testing.T) {
+	for i, test := range int32TestData {
+		ret, err := parseInt(test.in)
+		if (err == nil) != test.ok {
+			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
+		}
+		if test.ok && int32(ret) != test.out {
+			t.Errorf("#%d: Bad result: %v (expected %v)", i, ret, test.out)
+		}
+	}
+}
+
 var bigIntTests = []struct {
 	in     []byte
 	base10 string
@@ -175,10 +206,10 @@ type timeTest struct {
 }
 
 var utcTestData = []timeTest{
-	{"910506164540-0700", true, &time.Time{1991, 05, 06, 16, 45, 40, 0, -7 * 60 * 60, ""}},
-	{"910506164540+0730", true, &time.Time{1991, 05, 06, 16, 45, 40, 0, 7*60*60 + 30*60, ""}},
-	{"910506234540Z", true, &time.Time{1991, 05, 06, 23, 45, 40, 0, 0, "UTC"}},
-	{"9105062345Z", true, &time.Time{1991, 05, 06, 23, 45, 0, 0, 0, "UTC"}},
+	{"910506164540-0700", true, &time.Time{1991, 05, 06, 16, 45, 40, 0, 0, -7 * 60 * 60, ""}},
+	{"910506164540+0730", true, &time.Time{1991, 05, 06, 16, 45, 40, 0, 0, 7*60*60 + 30*60, ""}},
+	{"910506234540Z", true, &time.Time{1991, 05, 06, 23, 45, 40, 0, 0, 0, "UTC"}},
+	{"9105062345Z", true, &time.Time{1991, 05, 06, 23, 45, 0, 0, 0, 0, "UTC"}},
 	{"a10506234540Z", false, nil},
 	{"91a506234540Z", false, nil},
 	{"9105a6234540Z", false, nil},
@@ -204,10 +235,10 @@ func TestUTCTime(t *testing.T) {
 }
 
 var generalizedTimeTestData = []timeTest{
-	{"20100102030405Z", true, &time.Time{2010, 01, 02, 03, 04, 05, 0, 0, "UTC"}},
+	{"20100102030405Z", true, &time.Time{2010, 01, 02, 03, 04, 05, 0, 0, 0, "UTC"}},
 	{"20100102030405", false, nil},
-	{"20100102030405+0607", true, &time.Time{2010, 01, 02, 03, 04, 05, 0, 6*60*60 + 7*60, ""}},
-	{"20100102030405-0607", true, &time.Time{2010, 01, 02, 03, 04, 05, 0, -6*60*60 - 7*60, ""}},
+	{"20100102030405+0607", true, &time.Time{2010, 01, 02, 03, 04, 05, 0, 0, 6*60*60 + 7*60, ""}},
+	{"20100102030405-0607", true, &time.Time{2010, 01, 02, 03, 04, 05, 0, 0, -6*60*60 - 7*60, ""}},
 }
 
 func TestGeneralizedTime(t *testing.T) {

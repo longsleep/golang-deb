@@ -49,29 +49,24 @@ GOMAXPROCS=10 gomake testshort
 time gomake test
 ) || exit $?
 
-[ "$GOARCH" == arm ] ||
+[ "$CGO_ENABLED" != 1 ] ||
 [ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/stdio
 gomake clean
 ./test.bash
 ) || exit $?
 
-[ "$GOARCH" == arm ] ||
+[ "$CGO_ENABLED" != 1 ] ||
 (xcd ../misc/cgo/life
 gomake clean
 ./test.bash
 ) || exit $?
 
-[ "$GOARCH" == arm ] ||
+[ "$CGO_ENABLED" != 1 ] ||
 [ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/test
 gomake clean
 gotest
-) || exit $?
-
-(xcd pkg/exp/ogle
-gomake clean
-time gomake ogle
 ) || exit $?
 
 (xcd ../doc/progs

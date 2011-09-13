@@ -40,12 +40,14 @@ extern void *runtime·WaitForSingleObject;
 extern void *runtime·WriteFile;
 
 static int64 timerfreq;
+static void destroylock(Lock *l);
 
 void
 runtime·osinit(void)
 {
 	runtime·stdcall(runtime·QueryPerformanceFrequency, 1, &timerfreq);
 	runtime·stdcall(runtime·SetConsoleCtrlHandler, 2, runtime·ctrlhandler, (uintptr)1);
+	runtime·destroylock = destroylock;
 }
 
 void
@@ -154,8 +156,8 @@ runtime·unlock(Lock *l)
 	eventunlock(l);
 }
 
-void
-runtime·destroylock(Lock *l)
+static void
+destroylock(Lock *l)
 {
 	if(l->event != 0)
 		runtime·stdcall(runtime·CloseHandle, 1, l->event);
@@ -345,16 +347,26 @@ static	Callbacks	cbs;
 byte *
 runtime·compilecallback(Eface fn, bool cleanstack)
 {
-	Func *f;
-	int32 argsize, n;
+	FuncType *ft;
+	Type *t;
+	int32 argsize, i, n;
 	byte *p;
 	Callback *c;
 
-	if(fn.type->kind != KindFunc)
-		runtime·panicstring("not a function");
-	if((f = runtime·findfunc((uintptr)fn.data)) == nil)
-		runtime·throw("cannot find function");
-	argsize = (f->args-2) * 4;
+	if(fn.type == nil || fn.type->kind != KindFunc)
+		runtime·panicstring("compilecallback: not a function");
+	ft = (FuncType*)fn.type;
+	if(ft->out.len != 1)
+		runtime·panicstring("compilecallback: function must have one output parameter");
+	if(((Type**)ft->out.array)[0]->size != sizeof(uintptr))
+		runtime·panicstring("compilecallback: output parameter size is wrong");
+	argsize = 0;
+	for(i=0; i<ft->in.len; i++) {
+		t = ((Type**)ft->in.array)[i];
+		if(t->size != sizeof(uintptr))
+			runtime·panicstring("compilecallback: input parameter size is wrong");
+		argsize += t->size;
+	}
 
 	// compute size of new fn.
 	// must match code laid out below.
