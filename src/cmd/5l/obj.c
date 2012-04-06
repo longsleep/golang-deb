@@ -81,7 +81,7 @@ void
 main(int argc, char *argv[])
 {
 	int c, i;
-	char *p;
+	char *p, *name, *val;
 
 	Binit(&bso, 1, OWRITE);
 	listinit();
@@ -92,6 +92,7 @@ main(int argc, char *argv[])
 	INITDAT = -1;
 	INITRND = -1;
 	INITENTRY = 0;
+	nuxiinit();
 	
 	p = getenv("GOARM");
 	if(p != nil && strcmp(p, "5") == 0)
@@ -136,6 +137,11 @@ main(int argc, char *argv[])
 	case 'V':
 		print("%cl version %s\n", thechar, getgoversion());
 		errorexit();
+	case 'X':
+		name = EARGF(usage());
+		val = EARGF(usage());
+		addstrdata(name, val);
+		break;
 	} ARGEND
 
 	USED(argc);
@@ -235,7 +241,6 @@ main(int argc, char *argv[])
 	histgen = 0;
 	pc = 0;
 	dtype = 4;
-	nuxiinit();
 
 	version = 0;
 	cbp = buf.cbuf;
@@ -535,7 +540,7 @@ loop:
 			s->type = SBSS;
 			s->value = 0;
 		}
-		if(s->type != SBSS) {
+		if(s->type != SBSS && s->type != SNOPTRBSS && !s->dupok) {
 			diag("redefinition: %s\n%P", s->name, p);
 			s->type = SBSS;
 			s->value = 0;
@@ -544,6 +549,10 @@ loop:
 			s->size = p->to.offset;
 		if(p->reg & DUPOK)
 			s->dupok = 1;
+		if(p->reg & RODATA)
+			s->type = SRODATA;
+		else if(p->reg & NOPTR)
+			s->type = SNOPTRBSS;
 		break;
 
 	case ADATA:
@@ -553,8 +562,8 @@ loop:
 		// redefinitions.
 		s = p->from.sym;
 		if(s->dupok) {
-			if(debug['v'])
-				Bprint(&bso, "skipping %s in %s: dupok\n", s->name, pn);
+//			if(debug['v'])
+//				Bprint(&bso, "skipping %s in %s: dupok\n", s->name, pn);
 			goto loop;
 		}
 		if(s->file == nil)
@@ -585,6 +594,10 @@ loop:
 			errorexit();
 		}
 		cursym = s;
+		if(s->type != 0 && s->type != SXREF && (p->reg & DUPOK)) {
+			skip = 1;
+			goto casedef;
+		}
 		if(ntext++ == 0 && s->type != 0 && s->type != SXREF) {
 			/* redefinition, so file has probably been seen before */
 			if(debug['v'])
@@ -592,13 +605,8 @@ loop:
 			return;
 		}
 		skip = 0;
-		if(s->type != 0 && s->type != SXREF) {
-			if(p->reg & DUPOK) {
-				skip = 1;
-				goto casedef;
-			}
+		if(s->type != 0 && s->type != SXREF)
 			diag("redefinition: %s\n%P", s->name, p);
-		}
 		if(etextp)
 			etextp->next = s;
 		else

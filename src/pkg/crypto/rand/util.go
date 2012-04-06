@@ -5,16 +5,16 @@
 package rand
 
 import (
-	"big"
+	"errors"
 	"io"
-	"os"
+	"math/big"
 )
 
 // Prime returns a number, p, of the given size, such that p is prime
 // with high probability.
-func Prime(rand io.Reader, bits int) (p *big.Int, err os.Error) {
+func Prime(rand io.Reader, bits int) (p *big.Int, err error) {
 	if bits < 1 {
-		err = os.EINVAL
+		err = errors.New("crypto/rand: prime size must be positive")
 	}
 
 	b := uint(bits % 8)
@@ -39,7 +39,7 @@ func Prime(rand io.Reader, bits int) (p *big.Int, err os.Error) {
 		bytes[len(bytes)-1] |= 1
 
 		p.SetBytes(bytes)
-		if big.ProbablyPrime(p, 20) {
+		if p.ProbablyPrime(20) {
 			return
 		}
 	}
@@ -48,7 +48,7 @@ func Prime(rand io.Reader, bits int) (p *big.Int, err os.Error) {
 }
 
 // Int returns a uniform random value in [0, max).
-func Int(rand io.Reader, max *big.Int) (n *big.Int, err os.Error) {
+func Int(rand io.Reader, max *big.Int) (n *big.Int, err error) {
 	k := (max.BitLen() + 7) / 8
 
 	// b is the number of bits in the most significant byte of max.

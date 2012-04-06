@@ -1,4 +1,4 @@
-// errchk $G $D/$F.go
+// errorcheck
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -12,7 +12,7 @@ func main() {
 	// and worse, compiled the wrong code
 	// for one of them.
 	var x interface{};
-	switch v := x.(type) {
+	switch x.(type) {
 	case func(int):
 	case func(f int):	// ERROR "duplicate"
 	}

@@ -4,12 +4,12 @@
 
 */}}{{with .PDoc}}{{if $.IsPkg}}PACKAGE
 
-package {{.PackageName}}
-import "{{.ImportPath}}"
+package {{.Name}}
+    import "{{.ImportPath}}"
 
 {{else}}COMMAND DOCUMENTATION
 
-{{end}}{{.Doc}}{{/*
+{{end}}{{comment_text .Doc "    " "\t"}}{{/*
 
 ---------------------------------------
 
@@ -17,7 +17,7 @@ import "{{.ImportPath}}"
 CONSTANTS
 
 {{range .}}{{node .Decl $.FSet}}
-{{.Doc}}{{end}}
+{{comment_text .Doc "    " "\t"}}{{end}}
 {{end}}{{/*
 
 ---------------------------------------
@@ -26,7 +26,7 @@ CONSTANTS
 VARIABLES
 
 {{range .}}{{node .Decl $.FSet}}
-{{.Doc}}{{end}}
+{{comment_text .Doc "    " "\t"}}{{end}}
 {{end}}{{/*
 
 ---------------------------------------
@@ -35,7 +35,7 @@ VARIABLES
 FUNCTIONS
 
 {{range .}}{{node .Decl $.FSet}}
-{{.Doc}}
+{{comment_text .Doc "    " "\t"}}
 {{end}}{{end}}{{/*
 
 ---------------------------------------
@@ -44,15 +44,15 @@ FUNCTIONS
 TYPES
 
 {{range .}}{{node .Decl $.FSet}}
-{{.Doc}}
+{{comment_text .Doc "    " "\t"}}
 {{range .Consts}}{{node .Decl $.FSet}}
-{{.Doc}}
+{{comment_text .Doc "    " "\t"}}
 {{end}}{{range .Vars}}{{node .Decl $.FSet}}
-{{.Doc}}
-{{end}}{{range .Factories}}{{node .Decl $.FSet}}
-{{.Doc}}
+{{comment_text .Doc "    " "\t"}}
+{{end}}{{range .Funcs}}{{node .Decl $.FSet}}
+{{comment_text .Doc "    " "\t"}}
 {{end}}{{range .Methods}}{{node .Decl $.FSet}}
-{{.Doc}}
+{{comment_text .Doc "    " "\t"}}
 {{end}}{{end}}{{end}}{{/*
 
 ---------------------------------------
@@ -60,7 +60,7 @@ TYPES
 */}}{{with .Bugs}}
 BUGS
 
-{{range .}}{{.}}
+{{range .}}{{comment_text . "    " "\t"}}
 {{end}}{{end}}{{end}}{{/*
 
 ---------------------------------------
@@ -76,7 +76,8 @@ OTHER PACKAGES
 
 */}}{{with .Dirs}}
 SUBDIRECTORIES
-
-{{range .List}}
-	{{.Name}}{{end}}
-{{end}}
+{{if $.DirFlat}}{{range .List}}{{if .HasPkg}}
+	{{.Path}}{{end}}{{end}}
+{{else}}{{range .List}}
+	{{repeat `. ` .Depth}}{{.Name}}{{end}}
+{{end}}{{end}}

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 /*
@@ -122,6 +124,9 @@ cgen(Node *n, Node *res)
 	case OCAP:
 		if(isslice(n->left->type))
 			n->addable = n->left->addable;
+		break;
+	case OITAB:
+		n->addable = n->left->addable;
 		break;
 	}
 
@@ -257,6 +262,14 @@ cgen(Node *n, Node *res)
 		gmove(&n1, res);
 		regfree(&n1);
 		break;
+	
+	case OITAB:
+		// interface table is first word of interface value
+		igen(nl, &n1, res);
+		n1.type = n->type;
+		gmove(&n1, res);
+		regfree(&n1);
+		break;
 
 	case OLEN:
 		if(istype(nl->type, TMAP) || istype(nl->type, TCHAN)) {
@@ -385,9 +398,9 @@ abop:	// asymmetric binary
 		regalloc(&n2, nr->type, N);
 		cgen(nr, &n2);
 	} else {
-		regalloc(&n2, nr->type, N);
+		regalloc(&n2, nr->type, res);
 		cgen(nr, &n2);
-		regalloc(&n1, nl->type, res);
+		regalloc(&n1, nl->type, N);
 		cgen(nl, &n1);
 	}
 	gins(a, &n2, &n1);
@@ -715,6 +728,7 @@ bgen(Node *n, int true, Prog *to)
 	int et, a;
 	Node *nl, *nr, *l, *r;
 	Node n1, n2, tmp;
+	NodeList *ll;
 	Prog *p1, *p2;
 
 	if(debug['g']) {
@@ -726,9 +740,6 @@ bgen(Node *n, int true, Prog *to)
 
 	if(n->ninit != nil)
 		genlist(n->ninit);
-
-	nl = n->left;
-	nr = n->right;
 
 	if(n->type == T) {
 		convlit(&n, types[TBOOL]);
@@ -742,7 +753,6 @@ bgen(Node *n, int true, Prog *to)
 		patch(gins(AEND, N, N), to);
 		goto ret;
 	}
-	nl = N;
 	nr = N;
 
 	switch(n->op) {
@@ -836,7 +846,10 @@ bgen(Node *n, int true, Prog *to)
 				p1 = gbranch(AJMP, T);
 				p2 = gbranch(AJMP, T);
 				patch(p1, pc);
+				ll = n->ninit;   // avoid re-genning ninit
+				n->ninit = nil;
 				bgen(n, 1, p2);
+				n->ninit = ll;
 				patch(gbranch(AJMP, T), to);
 				patch(p2, pc);
 				goto ret;
@@ -1021,28 +1034,35 @@ stkof(Node *n)
  *	memmove(&ns, &n, w);
  */
 void
-sgen(Node *n, Node *ns, int32 w)
+sgen(Node *n, Node *ns, int64 w)
 {
 	Node nodl, nodr, oldl, oldr, cx, oldcx, tmp;
 	int32 c, q, odst, osrc;
 
 	if(debug['g']) {
-		print("\nsgen w=%d\n", w);
+		print("\nsgen w=%lld\n", w);
 		dump("r", n);
 		dump("res", ns);
 	}
-	if(w == 0)
-		return;
-	if(n->ullman >= UINF && ns->ullman >= UINF) {
+
+	if(n->ullman >= UINF && ns->ullman >= UINF)
 		fatal("sgen UINF");
-	}
 
 	if(w < 0)
-		fatal("sgen copy %d", w);
+		fatal("sgen copy %lld", w);
 
 	if(w == 16)
 		if(componentgen(n, ns))
 			return;
+	
+	if(w == 0) {
+		// evaluate side effects only
+		regalloc(&nodr, types[tptr], N);
+		agen(ns, &nodr);
+		agen(n, &nodr);
+		regfree(&nodr);
+		return;
+	}
 
 	// offset on the stack
 	osrc = stkof(n);

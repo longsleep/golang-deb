@@ -1,4 +1,4 @@
-// errchk $G $D/$F.go
+// errorcheck
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -6,7 +6,7 @@
 
 package main
 import os "os"
-type _ os.Error
+type _ os.FileInfo
 func f() (os int) {
 	 // In the next line "os" should refer to the result variable, not
 	 // to the package.

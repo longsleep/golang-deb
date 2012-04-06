@@ -3,14 +3,48 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
+# Environment variables that control make.bash:
+#
+# GOROOT_FINAL: The expected final Go root, baked into binaries.
+# The default is the location of the Go tree during the build.
+#
+# GOHOSTARCH: The architecture for host tools (compilers and
+# binaries).  Binaries of this type must be executable on the current
+# system, so the only common reason to set this is to set
+# GOHOSTARCH=386 on an amd64 machine.
+#
+# GOARCH: The target architecture for installed packages and tools.
+#
+# GOOS: The target operating system for installed packages and tools.
+#
+# GO_GCFLAGS: Additional 5g/6g/8g arguments to use when
+# building the packages and commands.
+#
+# GO_LDFLAGS: Additional 5l/6l/8l arguments to use when
+# building the commands.
+#
+# CGO_ENABLED: Controls cgo usage during the build. Set it to 1
+# to include all cgo related files, .c and .go file with "cgo"
+# build directive, in the build. Set it to 0 to ignore them.
+
 set -e
-if [ ! -f env.bash ]; then
+if [ ! -f run.bash ]; then
 	echo 'make.bash must be run from $GOROOT/src' 1>&2
 	exit 1
 fi
-. ./env.bash
 
-if ld --version 2>&1 | grep 'gold.*2\.20' >/dev/null; then
+# Test for Windows.
+case "$(uname)" in
+*MINGW* | *WIN32* | *CYGWIN*)
+	echo 'ERROR: Do not use make.bash to build on Windows.'
+	echo 'Use make.bat instead.'
+	echo
+	exit 1
+	;;
+esac
+
+# Test for bad ld.
+if ld --version 2>&1 | grep 'gold.* 2\.20' >/dev/null; then
 	echo 'ERROR: Your system has gold 2.20 installed.'
 	echo 'This version is shipped by Ubuntu even though'
 	echo 'it is known not to work on Ubuntu.'
@@ -21,90 +55,83 @@ if ld --version 2>&1 | grep 'gold.*2\.20' >/dev/null; then
 	exit 1
 fi
 
-# Create target directories
-if [ "$GOBIN" = "$GOROOT/bin" ]; then
-	mkdir -p "$GOROOT/bin"
-fi
-mkdir -p "$GOROOT/pkg"
-
-GOROOT_FINAL=${GOROOT_FINAL:-$GOROOT}
-
-MAKEFLAGS=${MAKEFLAGS:-"-j4"}
-export MAKEFLAGS
-unset CDPATH	# in case user has it set
-
-rm -f "$GOBIN"/quietgcc
-CC=${CC:-gcc}
-export CC
-sed -e "s|@CC@|$CC|" < "$GOROOT"/src/quietgcc.bash > "$GOBIN"/quietgcc
-chmod +x "$GOBIN"/quietgcc
-
-rm -f "$GOBIN"/gomake
-(
-	echo '#!/bin/sh'
-	echo 'export GOROOT=${GOROOT:-'$GOROOT_FINAL'}'
-	echo 'exec '$MAKE' "$@"'
-) >"$GOBIN"/gomake
-chmod +x "$GOBIN"/gomake
-
-# TODO(brainman): delete this after 01/01/2012.
-rm -f "$GOBIN"/gotest	# remove old bash version of gotest on Windows
-
-if [ -d /selinux -a -f /selinux/booleans/allow_execstack -a -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
-	if ! cat /selinux/booleans/allow_execstack | grep -c '^1 1$' >> /dev/null ; then
-		echo "WARNING: the default SELinux policy on, at least, Fedora 12 breaks "
-		echo "Go. You can enable the features that Go needs via the following "
-		echo "command (as root):"
-		echo "  # setsebool -P allow_execstack 1"
-		echo
-		echo "Note that this affects your system globally! "
-		echo
-		echo "The build will continue in five seconds in case we "
-		echo "misdiagnosed the issue..."
-
-		sleep 5
-	fi
-fi
-
-(
-	cd "$GOROOT"/src/pkg;
-	bash deps.bash	# do this here so clean.bash will work in the pkg directory
-)
-bash "$GOROOT"/src/clean.bash
-
-# pkg builds libcgo and the Go programs in cmd.
-for i in lib9 libbio libmach cmd pkg
+# Test for bad SELinux.
+# On Fedora 16 the selinux filesystem is mounted at /sys/fs/selinux,
+# so loop through the possible selinux mount points.
+for se_mount in /selinux /sys/fs/selinux
 do
-	echo; echo; echo %%%% making $i %%%%; echo
-	gomake -C $i install
+	if [ -d $se_mount -a -f $se_mount/booleans/allow_execstack -a -x /usr/sbin/selinuxenabled ] && /usr/sbin/selinuxenabled; then
+		if ! cat $se_mount/booleans/allow_execstack | grep -c '^1 1$' >> /dev/null ; then
+			echo "WARNING: the default SELinux policy on, at least, Fedora 12 breaks "
+			echo "Go. You can enable the features that Go needs via the following "
+			echo "command (as root):"
+			echo "  # setsebool -P allow_execstack 1"
+			echo
+			echo "Note that this affects your system globally! "
+			echo
+			echo "The build will continue in five seconds in case we "
+			echo "misdiagnosed the issue..."
+
+			sleep 5
+		fi
+	fi
 done
 
-# Print post-install messages.
-# Implemented as a function so that all.bash can repeat the output
-# after run.bash finishes running all the tests.
-installed() {
-	eval $(gomake --no-print-directory -f Make.inc go-env)
+# Clean old generated file that will cause problems in the build.
+rm -f ./pkg/runtime/runtime_defs.go
+
+# Finally!  Run the build.
+
+echo '# Building C bootstrap tool.'
+echo cmd/dist
+export GOROOT="$(cd .. && pwd)"
+GOROOT_FINAL="${GOROOT_FINAL:-$GOROOT}"
+DEFGOROOT='-DGOROOT_FINAL="'"$GOROOT_FINAL"'"'
+
+mflag=""
+case "$GOHOSTARCH" in
+386) mflag=-m32;;
+amd64) mflag=-m64;;
+esac
+gcc $mflag -O2 -Wall -Werror -ggdb -o cmd/dist/dist -Icmd/dist "$DEFGOROOT" cmd/dist/*.c
+
+eval $(./cmd/dist/dist env -p)
+echo
+
+if [ "$1" = "--dist-tool" ]; then
+	# Stop after building dist tool.
+	mkdir -p "$GOTOOLDIR"
+	if [ "$2" != "" ]; then
+		cp cmd/dist/dist "$2"
+	fi
+	mv cmd/dist/dist "$GOTOOLDIR"/dist
+	exit 0
+fi
+
+echo "# Building compilers and Go bootstrap tool for host, $GOHOSTOS/$GOHOSTARCH."
+buildall="-a"
+if [ "$1" = "--no-clean" ]; then
+	buildall=""
+fi
+./cmd/dist/dist bootstrap $buildall -v # builds go_bootstrap
+# Delay move of dist tool to now, because bootstrap may clear tool directory.
+mv cmd/dist/dist "$GOTOOLDIR"/dist
+"$GOTOOLDIR"/go_bootstrap clean -i std
+echo
+
+if [ "$GOHOSTARCH" != "$GOARCH" -o "$GOHOSTOS" != "$GOOS" ]; then
+	echo "# Building packages and commands for host, $GOHOSTOS/$GOHOSTARCH."
+	GOOS=$GOHOSTOS GOARCH=$GOHOSTARCH \
+		"$GOTOOLDIR"/go_bootstrap install -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
 	echo
-	echo ---
-	echo Installed Go for $GOOS/$GOARCH in "$GOROOT".
-	echo Installed commands in "$GOBIN".
-	case "$OLDPATH" in
-	"$GOBIN:"* | *":$GOBIN" | *":$GOBIN:"*)
-		;;
-	*)
-		echo '***' "You need to add $GOBIN to your "'$PATH.' '***'
-	esac
-	echo The compiler is $GC.
-	if [ "$(uname)" = "Darwin" ]; then
-		echo
-		echo On OS X the debuggers must be installed setgrp procmod.
-		echo Read and run ./sudo.bash to install the debuggers.
-	fi
-	if [ "$GOROOT_FINAL" != "$GOROOT" ]; then
-		echo
-		echo The binaries expect "$GOROOT" to be copied or moved to "$GOROOT_FINAL".
-	fi
-}
+fi
 
-(installed)  # run in sub-shell to avoid polluting environment
+echo "# Building packages and commands for $GOOS/$GOARCH."
+"$GOTOOLDIR"/go_bootstrap install -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
+echo
 
+rm -f "$GOTOOLDIR"/go_bootstrap
+
+if [ "$1" != "--no-banner" ]; then
+	"$GOTOOLDIR"/dist banner
+fi

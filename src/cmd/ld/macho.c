@@ -413,9 +413,9 @@ asmbmacho(void)
 
 		// must match domacholink below
 		s1 = lookup(".dynsym", 0);
-		s2 = lookup(".dynstr", 0);
-		s3 = lookup(".linkedit.plt", 0);
-		s4 = lookup(".linkedit.got", 0);
+		s2 = lookup(".linkedit.plt", 0);
+		s3 = lookup(".linkedit.got", 0);
+		s4 = lookup(".dynstr", 0);
 
 		ms = newMachoSeg("__LINKEDIT", 0);
 		ms->vaddr = va+v+rnd(segdata.len, INITRND);
@@ -428,8 +428,8 @@ asmbmacho(void)
 		ml = newMachoLoad(2, 4);	/* LC_SYMTAB */
 		ml->data[0] = linkoff;	/* symoff */
 		ml->data[1] = s1->size / (macho64 ? 16 : 12);	/* nsyms */
-		ml->data[2] = linkoff + s1->size;	/* stroff */
-		ml->data[3] = s2->size;	/* strsize */
+		ml->data[2] = linkoff + s1->size + s2->size + s3->size;	/* stroff */
+		ml->data[3] = s4->size;	/* strsize */
 
 		ml = newMachoLoad(11, 18);	/* LC_DYSYMTAB */
 		ml->data[0] = 0;	/* ilocalsym */
@@ -444,8 +444,8 @@ asmbmacho(void)
 		ml->data[9] = 0;	/* nmodtab */
 		ml->data[10] = 0;	/* extrefsymoff */
 		ml->data[11] = 0;	/* nextrefsyms */
-		ml->data[12] = linkoff + s1->size + s2->size;	/* indirectsymoff */
-		ml->data[13] = (s3->size + s4->size) / 4;	/* nindirectsyms */
+		ml->data[12] = linkoff + s1->size;	/* indirectsymoff */
+		ml->data[13] = (s2->size + s3->size) / 4;	/* nindirectsyms */
 		ml->data[14] = 0;	/* extreloff */
 		ml->data[15] = 0;	/* nextrel */
 		ml->data[16] = 0;	/* locreloff */
@@ -495,17 +495,34 @@ domacholink(void)
 	// write data that will be linkedit section
 	s1 = lookup(".dynsym", 0);
 	relocsym(s1);
-	s2 = lookup(".dynstr", 0);
-	s3 = lookup(".linkedit.plt", 0);
-	s4 = lookup(".linkedit.got", 0);
+	s2 = lookup(".linkedit.plt", 0);
+	s3 = lookup(".linkedit.got", 0);
+	s4 = lookup(".dynstr", 0);
 
-	while(s2->size%4)
-		adduint8(s2, 0);
+	// Force the linkedit section to end on a 16-byte
+	// boundary.  This allows pure (non-cgo) Go binaries
+	// to be code signed correctly.
+	//
+	// Apple's codesign_allocate (a helper utility for
+	// the codesign utility) can do this fine itself if
+	// it is run on a dynamic Mach-O binary.  However,
+	// when it is run on a pure (non-cgo) Go binary, where
+	// the linkedit section is mostly empty, it fails to
+	// account for the extra padding that it itself adds
+	// when adding the LC_CODE_SIGNATURE load command
+	// (which must be aligned on a 16-byte boundary).
+	//
+	// By forcing the linkedit section to end on a 16-byte
+	// boundary, codesign_allocate will not need to apply
+	// any alignment padding itself, working around the
+	// issue.
+	while(s4->size%16)
+		adduint8(s4, 0);
 	
 	size = s1->size + s2->size + s3->size + s4->size;
 
 	if(size > 0) {
-		linkoff = rnd(HEADR+segtext.len, INITRND) + rnd(segdata.filelen, INITRND);
+		linkoff = rnd(HEADR+segtext.len, INITRND) + rnd(segdata.filelen, INITRND) + rnd(segdwarf.filelen, INITRND);
 		cseek(linkoff);
 
 		cwrite(s1->p, s1->size);

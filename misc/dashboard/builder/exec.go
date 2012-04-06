@@ -6,19 +6,17 @@ package main
 
 import (
 	"bytes"
-	"exec"
 	"io"
 	"log"
 	"os"
-	"strings"
+	"os/exec"
 )
 
 // run is a simple wrapper for exec.Run/Close
-func run(envv []string, dir string, argv ...string) os.Error {
+func run(envv []string, dir string, argv ...string) error {
 	if *verbose {
 		log.Println("run", argv)
 	}
-	argv = useBash(argv)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = envv
@@ -30,12 +28,11 @@ func run(envv []string, dir string, argv ...string) os.Error {
 // as well as writing it to logfile (if specified). It returns
 // process combined stdout and stderr output, exit status and error.
 // The error returned is nil, if process is started successfully,
-// even if exit status is not 0.
-func runLog(envv []string, logfile, dir string, argv ...string) (string, int, os.Error) {
+// even if exit status is not successful.
+func runLog(envv []string, logfile, dir string, argv ...string) (string, int, error) {
 	if *verbose {
 		log.Println("runLog", argv)
 	}
-	argv = useBash(argv)
 
 	b := new(bytes.Buffer)
 	var w io.Writer = b
@@ -54,21 +51,13 @@ func runLog(envv []string, logfile, dir string, argv ...string) (string, int, os
 	cmd.Stdout = w
 	cmd.Stderr = w
 
-	err := cmd.Run()
-	if err != nil {
-		if ws, ok := err.(*os.Waitmsg); ok {
-			return b.String(), ws.ExitStatus(), nil
-		}
+	startErr := cmd.Start()
+	if startErr != nil {
+		return "", 1, startErr
 	}
-	return b.String(), 0, nil
-}
-
-// useBash prefixes a list of args with 'bash' if the first argument
-// is a bash script.
-func useBash(argv []string) []string {
-	// TODO(brainman): choose a more reliable heuristic here.
-	if strings.HasSuffix(argv[0], ".bash") {
-		argv = append([]string{"bash"}, argv...)
+	exitStatus := 0
+	if err := cmd.Wait(); err != nil {
+		exitStatus = 1 // TODO(bradfitz): this is fake. no callers care, so just return a bool instead.
 	}
-	return argv
+	return b.String(), exitStatus, nil
 }

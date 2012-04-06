@@ -83,7 +83,10 @@ span1(Sym *s)
 						loop++;
 						q->back ^= 2;
 					}
-					s->p[q->pc+1] = v;
+					if(q->as == AJCXZW)
+						s->p[q->pc+2] = v;
+					else
+						s->p[q->pc+1] = v;
 				} else {
 					bp = s->p + q->pc + q->mark - 4;
 					*bp++ = v;
@@ -282,6 +285,8 @@ oclass(Adr *a)
 				}
 				return Yxxx;
 			}
+			//if(a->type == D_INDIR+D_ADDR)
+			//	print("*Ycol\n");
 			return Ycol;
 		}
 		return Ym;
@@ -1056,9 +1061,10 @@ found:
 
 	case Zbr:
 	case Zjmp:
+	case Zloop:
 		q = p->pcond;
 		if(q == nil) {
-			diag("jmp/branch without target");
+			diag("jmp/branch/loop without target");
 			errorexit();
 		}
 		if(q->as == ATEXT) {
@@ -1084,8 +1090,12 @@ found:
 		if(p->back & 1) {
 			v = q->pc - (p->pc + 2);
 			if(v >= -128) {
+				if(p->as == AJCXZW)
+					*andptr++ = 0x67;
 				*andptr++ = op;
 				*andptr++ = v;
+			} else if(t[2] == Zloop) {
+				diag("loop too far: %P", p);
 			} else {
 				v -= 5-2;
 				if(t[2] == Zbr) {
@@ -1105,8 +1115,12 @@ found:
 		p->forwd = q->comefrom;
 		q->comefrom = p;
 		if(p->back & 2)	{ // short
+			if(p->as == AJCXZW)
+				*andptr++ = 0x67;
 			*andptr++ = op;
 			*andptr++ = 0;
+		} else if(t[2] == Zloop) {
+			diag("loop too far: %P", p);
 		} else {
 			if(t[2] == Zbr)
 				*andptr++ = 0x0f;
@@ -1131,18 +1145,17 @@ found:
 		r->add = p->to.offset;
 		put4(0);
 		break;
-
-	case Zloop:
-		q = p->pcond;
-		if(q == nil) {
-			diag("loop without target");
-			errorexit();
-		}
-		v = q->pc - p->pc - 2;
-		if(v < -128 && v > 127)
-			diag("loop too far: %P", p);
+	
+	case Zcallind:
 		*andptr++ = op;
-		*andptr++ = v;
+		*andptr++ = o->op[z+1];
+		r = addrel(cursym);
+		r->off = p->pc + andptr - and;
+		r->type = D_ADDR;
+		r->siz = 4;
+		r->add = p->to.offset;
+		r->sym = p->to.sym;
+		put4(0);
 		break;
 
 	case Zbyte:

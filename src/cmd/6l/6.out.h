@@ -34,6 +34,7 @@
 #define DUPOK	(1<<1)
 #define NOSPLIT	(1<<2)
 #define RODATA	(1<<3)
+#define NOPTR	(1<<4)
 
 /*
  *	amd64
@@ -121,7 +122,7 @@ enum	as
 	AIRETW,
 	AJCC,
 	AJCS,
-	AJCXZ,
+	AJCXZL,
 	AJEQ,
 	AJGE,
 	AJGT,
@@ -487,6 +488,7 @@ enum	as
 	AIDIVQ,
 	AIMULQ,
 	AIRETQ,
+	AJCXZQ,
 	ALEAQ,
 	ALEAVEQ,
 	ALODSQ,
@@ -733,6 +735,7 @@ enum	as
 	AMODE,
 	ACRC32B,
 	ACRC32Q,
+	AIMUL3Q,
 
 	ALAST
 };

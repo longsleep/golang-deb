@@ -13,22 +13,15 @@ package syscall
 
 import "unsafe"
 
-const OS = "plan9"
-
 const ImplementsGetwd = true
-
-// An Error can represent any printable error condition.
-type Error interface {
-	String() string
-}
 
 // ErrorString implements Error's String method by returning itself.
 type ErrorString string
 
-func (e ErrorString) String() string { return string(e) }
+func (e ErrorString) Error() string { return string(e) }
 
 // NewError converts s to an ErrorString, which satisfies the Error interface.
-func NewError(s string) Error { return ErrorString(s) }
+func NewError(s string) error { return ErrorString(s) }
 
 var (
 	Stdin  = 0
@@ -43,8 +36,8 @@ var (
 // creation of IPv6 sockets to return EAFNOSUPPORT.
 var SocketDisableIPv6 bool
 
-func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err string)
-func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err string)
+func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err ErrorString)
+func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err ErrorString)
 func RawSyscall(trap, a1, a2, a3 uintptr) (r1, r2, err uintptr)
 func RawSyscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, err uintptr)
 
@@ -94,7 +87,7 @@ func Exit(code int) {
 	Exits(&msg)
 }
 
-func readnum(path string) (uint, Error) {
+func readnum(path string) (uint, error) {
 	var b [12]byte
 
 	fd, e := Open(path, O_RDONLY)
@@ -126,15 +119,15 @@ func Getppid() (ppid int) {
 	return int(n)
 }
 
-func Read(fd int, p []byte) (n int, err Error) {
+func Read(fd int, p []byte) (n int, err error) {
 	return Pread(fd, p, -1)
 }
 
-func Write(fd int, p []byte) (n int, err Error) {
+func Write(fd int, p []byte) (n int, err error) {
 	return Pwrite(fd, p, -1)
 }
 
-func Getwd() (wd string, err Error) {
+func Getwd() (wd string, err error) {
 	fd, e := Open(".", O_RDONLY)
 
 	if e != nil {
@@ -145,8 +138,8 @@ func Getwd() (wd string, err Error) {
 	return Fd2path(fd)
 }
 
-//sys	fd2path(fd int, buf []byte) (err Error)
-func Fd2path(fd int) (path string, err Error) {
+//sys	fd2path(fd int, buf []byte) (err error)
+func Fd2path(fd int) (path string, err error) {
 	var buf [512]byte
 
 	e := fd2path(fd, buf[:])
@@ -156,8 +149,8 @@ func Fd2path(fd int) (path string, err Error) {
 	return cstring(buf[:]), nil
 }
 
-//sys	pipe(p *[2]_C_int) (err Error)
-func Pipe(p []int) (err Error) {
+//sys	pipe(p *[2]_C_int) (err error)
+func Pipe(p []int) (err error) {
 	if len(p) != 2 {
 		return NewError("bad arg in system call")
 	}
@@ -168,26 +161,20 @@ func Pipe(p []int) (err Error) {
 	return
 }
 
-//sys	sleep(millisecs int32) (err Error)
-func Sleep(nsec int64) (err Error) {
-	return sleep(int32((nsec + 999) / 1e6)) // round up to microsecond
-}
-
 // Underlying system call writes to newoffset via pointer.
 // Implemented in assembly to avoid allocation.
 func seek(placeholder uintptr, fd int, offset int64, whence int) (newoffset int64, err string)
 
-func Seek(fd int, offset int64, whence int) (newoffset int64, err Error) {
+func Seek(fd int, offset int64, whence int) (newoffset int64, err error) {
 	newoffset, e := seek(0, fd, offset, whence)
 
-	err = nil
 	if newoffset == -1 {
 		err = NewError(e)
 	}
 	return
 }
 
-func Mkdir(path string, mode uint32) (err Error) {
+func Mkdir(path string, mode uint32) (err error) {
 	fd, err := Create(path, O_RDONLY, DMDIR|mode)
 
 	if fd != -1 {
@@ -214,8 +201,8 @@ func (w Waitmsg) ExitStatus() int {
 	return 1
 }
 
-//sys	await(s []byte) (n int, err Error)
-func Await(w *Waitmsg) (err Error) {
+//sys	await(s []byte) (n int, err error)
+func Await(w *Waitmsg) (err error) {
 	var buf [512]byte
 	var f [5][]byte
 
@@ -245,14 +232,18 @@ func Await(w *Waitmsg) (err Error) {
 	w.Time[1] = uint32(atoi(f[2]))
 	w.Time[2] = uint32(atoi(f[3]))
 	w.Msg = cstring(f[4])
+	if w.Msg == "''" {
+		// await() returns '' for no error
+		w.Msg = ""
+	}
 	return
 }
 
-func Unmount(name, old string) (err Error) {
+func Unmount(name, old string) (err error) {
 	oldp := uintptr(unsafe.Pointer(StringBytePtr(old)))
 
 	var r0 uintptr
-	var e string
+	var e ErrorString
 
 	// bind(2) man page: If name is zero, everything bound or mounted upon old is unbound or unmounted.
 	if name == "" {
@@ -261,14 +252,13 @@ func Unmount(name, old string) (err Error) {
 		r0, _, e = Syscall(SYS_UNMOUNT, uintptr(unsafe.Pointer(StringBytePtr(name))), oldp, 0)
 	}
 
-	err = nil
 	if int(r0) == -1 {
-		err = NewError(e)
+		err = e
 	}
 	return
 }
 
-func Fchdir(fd int) (err Error) {
+func Fchdir(fd int) (err error) {
 	path, err := Fd2path(fd)
 
 	if err != nil {
@@ -276,6 +266,11 @@ func Fchdir(fd int) (err Error) {
 	}
 
 	return Chdir(path)
+}
+
+type Timespec struct {
+	Sec  int32
+	Nsec int32
 }
 
 type Timeval struct {
@@ -290,11 +285,10 @@ func NsecToTimeval(nsec int64) (tv Timeval) {
 	return
 }
 
-func DecodeBintime(b []byte) (nsec int64, err Error) {
+func DecodeBintime(b []byte) (nsec int64, err error) {
 	if len(b) != 8 {
 		return -1, NewError("bad /dev/bintime format")
 	}
-	err = nil
 	nsec = int64(b[0])<<56 |
 		int64(b[1])<<48 |
 		int64(b[2])<<40 |
@@ -306,7 +300,7 @@ func DecodeBintime(b []byte) (nsec int64, err Error) {
 	return
 }
 
-func Gettimeofday(tv *Timeval) (err Error) {
+func Gettimeofday(tv *Timeval) (err error) {
 	// TODO(paulzhol): 
 	// avoid reopening a file descriptor for /dev/bintime on each call,
 	// use lower-level calls to avoid allocation.
@@ -337,21 +331,29 @@ func Geteuid() (euid int) { return -1 }
 func Getgid() (gid int)   { return -1 }
 func Getuid() (uid int)   { return -1 }
 
-func Getgroups() (gids []int, err Error) {
+func Getgroups() (gids []int, err error) {
 	return make([]int, 0), nil
 }
 
-//sys	Dup(oldfd int, newfd int) (fd int, err Error)
-//sys	Open(path string, mode int) (fd int, err Error)
-//sys	Create(path string, mode int, perm uint32) (fd int, err Error)
-//sys	Remove(path string) (err Error)
-//sys	Pread(fd int, p []byte, offset int64) (n int, err Error)
-//sys	Pwrite(fd int, p []byte, offset int64) (n int, err Error)
-//sys	Close(fd int) (err Error)
-//sys	Chdir(path string) (err Error)
-//sys	Bind(name string, old string, flag int) (err Error)
-//sys	Mount(fd int, afd int, old string, flag int, aname string) (err Error)
-//sys	Stat(path string, edir []byte) (n int, err Error)
-//sys	Fstat(fd int, edir []byte) (n int, err Error)
-//sys	Wstat(path string, edir []byte) (err Error)
-//sys	Fwstat(fd int, edir []byte) (err Error)
+type Signal int
+
+func (s Signal) Signal() {}
+
+func (s Signal) String() string {
+	return ""
+}
+
+//sys	Dup(oldfd int, newfd int) (fd int, err error)
+//sys	Open(path string, mode int) (fd int, err error)
+//sys	Create(path string, mode int, perm uint32) (fd int, err error)
+//sys	Remove(path string) (err error)
+//sys	Pread(fd int, p []byte, offset int64) (n int, err error)
+//sys	Pwrite(fd int, p []byte, offset int64) (n int, err error)
+//sys	Close(fd int) (err error)
+//sys	Chdir(path string) (err error)
+//sys	Bind(name string, old string, flag int) (err error)
+//sys	Mount(fd int, afd int, old string, flag int, aname string) (err error)
+//sys	Stat(path string, edir []byte) (n int, err error)
+//sys	Fstat(fd int, edir []byte) (n int, err error)
+//sys	Wstat(path string, edir []byte) (err error)
+//sys	Fwstat(fd int, edir []byte) (err error)

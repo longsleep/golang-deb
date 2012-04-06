@@ -1,4 +1,4 @@
-// $G $D/$F.go || echo BUG: bug354
+// compile
 
 // Copyright 2011 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -7,14 +7,10 @@
 // issue 2086
 // was calling makeclosure twice on the closure
 
-package main
-
-import (
-	"os"
-)
+package bug354
 
 type Inner struct {
-	F func() os.Error
+	F func() error
 }
 
 type Outer struct {
@@ -23,4 +19,4 @@ type Outer struct {
 
 // calls makeclosure twice on same closure
 
-var Foo = Outer{[]Inner{Inner{func() os.Error{ return nil }}}}
+var Foo = Outer{[]Inner{Inner{func() error { return nil }}}}

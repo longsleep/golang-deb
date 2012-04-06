@@ -9,19 +9,11 @@ package zip
 import (
 	"bytes"
 	"fmt"
-	"os"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
-
-type stringReaderAt string
-
-func (s stringReaderAt) ReadAt(p []byte, off int64) (n int, err os.Error) {
-	if off >= int64(len(s)) {
-		return 0, os.EOF
-	}
-	n = copy(p, s[off:])
-	return
-}
 
 func TestOver65kFiles(t *testing.T) {
 	if testing.Short() {
@@ -40,8 +32,8 @@ func TestOver65kFiles(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatalf("Writer.Close: %v", err)
 	}
-	rat := stringReaderAt(buf.String())
-	zr, err := NewReader(rat, int64(len(rat)))
+	s := buf.String()
+	zr, err := NewReader(strings.NewReader(s), int64(len(s)))
 	if err != nil {
 		t.Fatalf("NewReader: %v", err)
 	}
@@ -53,5 +45,37 @@ func TestOver65kFiles(t *testing.T) {
 		if zr.File[i].Name != want {
 			t.Fatalf("File(%d) = %q, want %q", i, zr.File[i].Name, want)
 		}
+	}
+}
+
+func TestModTime(t *testing.T) {
+	var testTime = time.Date(2009, time.November, 10, 23, 45, 58, 0, time.UTC)
+	fh := new(FileHeader)
+	fh.SetModTime(testTime)
+	outTime := fh.ModTime()
+	if !outTime.Equal(testTime) {
+		t.Errorf("times don't match: got %s, want %s", outTime, testTime)
+	}
+}
+
+func TestFileHeaderRoundTrip(t *testing.T) {
+	fh := &FileHeader{
+		Name:             "foo.txt",
+		UncompressedSize: 987654321,
+		ModifiedTime:     1234,
+		ModifiedDate:     5678,
+	}
+	fi := fh.FileInfo()
+	fh2, err := FileInfoHeader(fi)
+
+	// Ignore these fields:
+	fh2.CreatorVersion = 0
+	fh2.ExternalAttrs = 0
+
+	if !reflect.DeepEqual(fh, fh2) {
+		t.Errorf("mismatch\n input=%#v\noutput=%#v\nerr=%v", fh, fh2, err)
+	}
+	if sysfh, ok := fi.Sys().(*FileHeader); !ok && sysfh != fh {
+		t.Errorf("Sys didn't return original *FileHeader")
 	}
 }

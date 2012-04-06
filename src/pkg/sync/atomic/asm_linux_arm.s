@@ -50,6 +50,9 @@ cascheck:
 TEXT ·CompareAndSwapUintptr(SB),7,$0
 	B	·CompareAndSwapUint32(SB)
 
+TEXT ·CompareAndSwapPointer(SB),7,$0
+	B	·CompareAndSwapUint32(SB)
+
 TEXT ·AddInt32(SB),7,$0
 	B	·AddUint32(SB)
 
@@ -96,3 +99,39 @@ loadloop1:
 	BCC	loadloop1
 	MOVW	R1, val+4(FP)
 	RET
+
+TEXT ·LoadInt64(SB),7,$0
+	B	·armLoadUint64(SB)
+
+TEXT ·LoadUint64(SB),7,$0
+	B	·armLoadUint64(SB)
+
+TEXT ·LoadUintptr(SB),7,$0
+	B	·LoadUint32(SB)
+
+TEXT ·LoadPointer(SB),7,$0
+	B	·LoadUint32(SB)
+
+TEXT ·StoreInt32(SB),7,$0
+	B	·StoreUint32(SB)
+
+TEXT ·StoreUint32(SB),7,$0
+	MOVW	addrptr+0(FP), R2
+	MOVW	val+4(FP), R1
+storeloop1:
+	MOVW	0(R2), R0
+	BL	cas<>(SB)
+	BCC	storeloop1
+	RET
+
+TEXT ·StoreInt64(SB),7,$0
+	B	·armStoreUint64(SB)
+
+TEXT ·StoreUint64(SB),7,$0
+	B	·armStoreUint64(SB)
+
+TEXT ·StoreUintptr(SB),7,$0
+	B	·StoreUint32(SB)
+
+TEXT ·StorePointer(SB),7,$0
+	B	·StoreUint32(SB)

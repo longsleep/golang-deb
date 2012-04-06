@@ -4,58 +4,35 @@
 
 package os
 
-import syscall "syscall"
-
-// SyscallError records an error from a specific system call.
-type SyscallError struct {
-	Syscall string
-	Err     string
-}
-
-func (e *SyscallError) String() string { return e.Syscall + ": " + e.Err }
-
-// Note: If the name of the function NewSyscallError changes,
-// pkg/go/doc/doc.go should be adjusted since it hardwires
-// this name in a heuristic.
-
-// NewSyscallError returns, as an Error, a new SyscallError
-// with the given system call name and error details.
-// As a convenience, if err is nil, NewSyscallError returns nil.
-func NewSyscallError(syscall string, err syscall.Error) Error {
-	if err == nil {
-		return nil
+func isExist(err error) bool {
+	if pe, ok := err.(*PathError); ok {
+		err = pe.Err
 	}
-	return &SyscallError{syscall, err.String()}
+	return contains(err.Error(), " exists")
 }
 
-var (
-	Eshortstat = NewError("stat buffer too small")
-	Ebadstat   = NewError("malformed stat buffer")
-	Ebadfd     = NewError("fd out of range or not open")
-	Ebadarg    = NewError("bad arg in system call")
-	Enotdir    = NewError("not a directory")
-	Enonexist  = NewError("file does not exist")
-	Eexist     = NewError("file already exists")
-	Eio        = NewError("i/o error")
-	Eperm      = NewError("permission denied")
-
-	EINVAL  = Ebadarg
-	ENOTDIR = Enotdir
-	ENOENT  = Enonexist
-	EEXIST  = Eexist
-	EIO     = Eio
-	EACCES  = Eperm
-	EPERM   = Eperm
-	EISDIR  = syscall.EISDIR
-
-	ENAMETOOLONG = NewError("file name too long")
-	ERANGE       = NewError("math result not representable")
-	EPIPE        = NewError("Broken Pipe")
-	EPLAN9       = NewError("not supported by plan 9")
-)
-
-func iserror(err syscall.Error) bool {
-	return err != nil
+func isNotExist(err error) bool {
+	if pe, ok := err.(*PathError); ok {
+		err = pe.Err
+	}
+	return contains(err.Error(), "does not exist")
 }
 
-func Errno(e syscall.Error) syscall.Error { return e }
+func isPermission(err error) bool {
+	if pe, ok := err.(*PathError); ok {
+		err = pe.Err
+	}
+	return contains(err.Error(), "permission denied")
+}
+
+// contains is a local version of strings.Contains. It knows len(sep) > 1.
+func contains(s, sep string) bool {
+	n := len(sep)
+	c := sep[0]
+	for i := 0; i+n <= len(s); i++ {
+		if s[i] == c && s[i:i+n] == sep {
+			return true
+		}
+	}
+	return false
+}

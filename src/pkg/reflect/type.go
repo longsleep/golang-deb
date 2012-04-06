@@ -12,11 +12,10 @@
 // for that type.
 //
 // See "The Laws of Reflection" for an introduction to reflection in Go:
-// http://blog.golang.org/2011/09/laws-of-reflection.html
+// http://golang.org/doc/articles/laws_of_reflection.html
 package reflect
 
 import (
-	"runtime"
 	"strconv"
 	"sync"
 	"unsafe"
@@ -67,9 +66,10 @@ type Type interface {
 	// It returns an empty string for unnamed types.
 	Name() string
 
-	// PkgPath returns the type's package path.
-	// The package path is a full package import path like "container/vector".
-	// PkgPath returns an empty string for unnamed types.
+	// PkgPath returns a named type's package path, that is, the import path
+	// that uniquely identifies the package, such as "encoding/base64".
+	// If the type was predeclared (string, error) or unnamed (*T, struct{}, []int),
+	// the package path will be the empty string.
 	PkgPath() string
 
 	// Size returns the number of bytes needed to store
@@ -78,7 +78,7 @@ type Type interface {
 
 	// String returns a string representation of the type.
 	// The string representation may use shortened package names
-	// (e.g., vector instead of "container/vector") and is not
+	// (e.g., base64 instead of "encoding/base64") and is not
 	// guaranteed to be unique among types.  To test for equality,
 	// compare the Types directly.
 	String() string
@@ -181,14 +181,14 @@ type Type interface {
 	// It panics if i is not in the range [0, NumOut()).
 	Out(i int) Type
 
-	runtimeType() *runtime.Type
+	runtimeType() *runtimeType
 	common() *commonType
 	uncommon() *uncommonType
 }
 
 // A Kind represents the specific kind of type that a Type represents.
 // The zero Kind is not a valid kind.
-type Kind uint8
+type Kind uint
 
 const (
 	Invalid Kind = iota
@@ -221,127 +221,131 @@ const (
 )
 
 /*
- * Copy of data structures from ../runtime/type.go.
- * For comments, see the ones in that file.
- *
- * These data structures are known to the compiler and the runtime.
- *
- * Putting these types in runtime instead of reflect means that
- * reflect doesn't need to be autolinked into every binary, which
- * simplifies bootstrapping and package dependencies.
- * Unfortunately, it also means that reflect needs its own
- * copy in order to access the private fields.
+ * These data structures are known to the compiler (../../cmd/gc/reflect.c).
+ * A few are known to ../runtime/type.go to convey to debuggers.
  */
+
+// The compiler can only construct empty interface values at
+// compile time; non-empty interface values get created
+// during initialization.  Type is an empty interface
+// so that the compiler can lay out references as data.
+// The underlying type is *reflect.ArrayType and so on.
+type runtimeType interface{}
 
 // commonType is the common implementation of most values.
 // It is embedded in other, public struct types, but always
 // with a unique tag like `reflect:"array"` or `reflect:"ptr"`
 // so that code cannot convert from, say, *arrayType to *ptrType.
-
 type commonType struct {
-	size       uintptr
-	hash       uint32
-	alg        uint8
-	align      uint8
-	fieldAlign uint8
-	kind       uint8
-	string     *string
-	*uncommonType
-	ptrToThis *runtime.Type
+	size          uintptr      // size in bytes
+	hash          uint32       // hash of type; avoids computation in hash tables
+	_             uint8        // unused/padding
+	align         uint8        // alignment of variable with this type
+	fieldAlign    uint8        // alignment of struct field with this type
+	kind          uint8        // enumeration for C
+	alg           *uintptr     // algorithm table (../runtime/runtime.h:/Alg)
+	string        *string      // string form; unnecessary but undeniably useful
+	*uncommonType              // (relatively) uncommon fields
+	ptrToThis     *runtimeType // pointer to this type, if used in binary or has methods
 }
 
+// Method on non-interface type
 type method struct {
-	name    *string
-	pkgPath *string
-	mtyp    *runtime.Type
-	typ     *runtime.Type
-	ifn     unsafe.Pointer
-	tfn     unsafe.Pointer
+	name    *string        // name of method
+	pkgPath *string        // nil for exported Names; otherwise import path
+	mtyp    *runtimeType   // method type (without receiver)
+	typ     *runtimeType   // .(*FuncType) underneath (with receiver)
+	ifn     unsafe.Pointer // fn used in interface call (one-word receiver)
+	tfn     unsafe.Pointer // fn used for normal method call
 }
 
+// uncommonType is present only for types with names or methods
+// (if T is a named type, the uncommonTypes for T and *T have methods).
+// Using a pointer to this struct reduces the overall size required
+// to describe an unnamed type with no methods.
 type uncommonType struct {
-	name    *string
-	pkgPath *string
-	methods []method
+	name    *string  // name of type
+	pkgPath *string  // import path; nil for built-in types like int, string
+	methods []method // methods associated with type
 }
 
 // ChanDir represents a channel type's direction.
 type ChanDir int
 
 const (
-	RecvDir ChanDir = 1 << iota
-	SendDir
-	BothDir = RecvDir | SendDir
+	RecvDir ChanDir             = 1 << iota // <-chan
+	SendDir                                 // chan<-
+	BothDir = RecvDir | SendDir             // chan
 )
 
 // arrayType represents a fixed array type.
 type arrayType struct {
 	commonType `reflect:"array"`
-	elem       *runtime.Type
-	slice      *runtime.Type
+	elem       *runtimeType // array element type
+	slice      *runtimeType // slice type
 	len        uintptr
 }
 
 // chanType represents a channel type.
 type chanType struct {
 	commonType `reflect:"chan"`
-	elem       *runtime.Type
-	dir        uintptr
+	elem       *runtimeType // channel element type
+	dir        uintptr      // channel direction (ChanDir)
 }
 
 // funcType represents a function type.
 type funcType struct {
 	commonType `reflect:"func"`
-	dotdotdot  bool
-	in         []*runtime.Type
-	out        []*runtime.Type
+	dotdotdot  bool           // last input parameter is ...
+	in         []*runtimeType // input parameter types
+	out        []*runtimeType // output parameter types
 }
 
 // imethod represents a method on an interface type
 type imethod struct {
-	name    *string
-	pkgPath *string
-	typ     *runtime.Type
+	name    *string      // name of method
+	pkgPath *string      // nil for exported Names; otherwise import path
+	typ     *runtimeType // .(*FuncType) underneath
 }
 
 // interfaceType represents an interface type.
 type interfaceType struct {
 	commonType `reflect:"interface"`
-	methods    []imethod
+	methods    []imethod // sorted by hash
 }
 
 // mapType represents a map type.
 type mapType struct {
 	commonType `reflect:"map"`
-	key        *runtime.Type
-	elem       *runtime.Type
+	key        *runtimeType // map key type
+	elem       *runtimeType // map element (value) type
 }
 
 // ptrType represents a pointer type.
 type ptrType struct {
 	commonType `reflect:"ptr"`
-	elem       *runtime.Type
+	elem       *runtimeType // pointer element (pointed at) type
 }
 
 // sliceType represents a slice type.
 type sliceType struct {
 	commonType `reflect:"slice"`
-	elem       *runtime.Type
+	elem       *runtimeType // slice element type
 }
 
 // Struct field
 type structField struct {
-	name    *string
-	pkgPath *string
-	typ     *runtime.Type
-	tag     *string
-	offset  uintptr
+	name    *string      // nil for embedded fields
+	pkgPath *string      // nil for exported Names; otherwise import path
+	typ     *runtimeType // type of field
+	tag     *string      // nil if no tag
+	offset  uintptr      // byte offset of field within struct
 }
 
 // structType represents a struct type.
 type structType struct {
 	commonType `reflect:"struct"`
-	fields     []structField
+	fields     []structField // sorted by offset
 }
 
 /*
@@ -351,11 +355,18 @@ type structType struct {
 
 // Method represents a single method.
 type Method struct {
-	PkgPath string // empty for uppercase Name
+	// Name is the method name.
+	// PkgPath is the package path that qualifies a lower case (unexported)
+	// method name.  It is empty for upper case (exported) method names.
+	// The combination of PkgPath and Name uniquely identifies a method
+	// in a method set. 
+	// See http://golang.org/ref/spec#Uniqueness_of_identifiers
 	Name    string
-	Type    Type
-	Func    Value
-	Index   int
+	PkgPath string
+
+	Type  Type  // method type
+	Func  Value // func with receiver as first argument
+	Index int   // index for Type.Method
 }
 
 // High bit says whether type has
@@ -455,14 +466,15 @@ func (t *uncommonType) Method(i int) (m Method) {
 	if p.name != nil {
 		m.Name = *p.name
 	}
-	flag := uint32(0)
+	fl := flag(Func) << flagKindShift
 	if p.pkgPath != nil {
 		m.PkgPath = *p.pkgPath
-		flag |= flagRO
+		fl |= flagRO
 	}
-	m.Type = toType(p.typ)
+	mt := toCommonType(p.typ)
+	m.Type = mt
 	fn := p.tfn
-	m.Func = valueFromIword(flag, m.Type, iword(fn))
+	m.Func = Value{mt, fn, fl}
 	m.Index = i
 	return
 }
@@ -557,7 +569,7 @@ func (t *commonType) Elem() Type {
 		tt := (*sliceType)(unsafe.Pointer(t))
 		return toType(tt.elem)
 	}
-	panic("reflect; Elem of invalid type")
+	panic("reflect: Elem of invalid type")
 }
 
 func (t *commonType) Field(i int) StructField {
@@ -626,7 +638,7 @@ func (t *commonType) NumField() int {
 
 func (t *commonType) NumIn() int {
 	if t.Kind() != Func {
-		panic("reflect; NumIn of non-func type")
+		panic("reflect: NumIn of non-func type")
 	}
 	tt := (*funcType)(unsafe.Pointer(t))
 	return len(tt.in)
@@ -634,7 +646,7 @@ func (t *commonType) NumIn() int {
 
 func (t *commonType) NumOut() int {
 	if t.Kind() != Func {
-		panic("reflect; NumOut of non-func type")
+		panic("reflect: NumOut of non-func type")
 	}
 	tt := (*funcType)(unsafe.Pointer(t))
 	return len(tt.out)
@@ -693,14 +705,20 @@ func (t *interfaceType) MethodByName(name string) (m Method, ok bool) {
 	return
 }
 
+// A StructField describes a single field in a struct.
 type StructField struct {
-	PkgPath   string // empty for uppercase Name
-	Name      string
-	Type      Type
-	Tag       StructTag
-	Offset    uintptr
-	Index     []int
-	Anonymous bool
+	// Name is the field name.
+	// PkgPath is the package path that qualifies a lower case (unexported)
+	// field name.  It is empty for upper case (exported) field names.
+	// See http://golang.org/ref/spec#Uniqueness_of_identifiers
+	Name    string
+	PkgPath string
+
+	Type      Type      // field type
+	Tag       StructTag // field tag string
+	Offset    uintptr   // offset within struct, in bytes
+	Index     []int     // index sequence for Type.FieldByIndex
+	Anonymous bool      // is an anonymous field
 }
 
 // A StructTag is the tag string in a struct field.
@@ -716,7 +734,7 @@ type StructTag string
 // Get returns the value associated with key in the tag string.
 // If there is no such key in the tag, Get returns the empty string.
 // If the tag does not have the conventional format, the value
-// returned by Get is unspecified, 
+// returned by Get is unspecified.
 func (tag StructTag) Get(key string) string {
 	for tag != "" {
 		// skip leading space
@@ -768,7 +786,7 @@ func (t *structType) Field(i int) (f StructField) {
 	if i < 0 || i >= len(t.fields) {
 		return
 	}
-	p := t.fields[i]
+	p := &t.fields[i]
 	f.Type = toType(p.typ)
 	if p.name != nil {
 		f.Name = *p.name
@@ -787,6 +805,14 @@ func (t *structType) Field(i int) (f StructField) {
 		f.Tag = StructTag(*p.tag)
 	}
 	f.Offset = p.offset
+
+	// NOTE(rsc): This is the only allocation in the interface
+	// presented by a reflect.Type.  It would be nice to avoid,
+	// at least in the common cases, but we need to make sure
+	// that misbehaving clients of reflect cannot affect other
+	// uses of reflect.  One possibility is CL 5371098, but we
+	// postponed that ugliness until there is a demonstrated
+	// need for the performance.  This is issue 2320.
 	f.Index = []int{i}
 	return
 }
@@ -867,16 +893,18 @@ L:
 
 	if n == 1 {
 		// Found matching field.
-		if len(ff.Index) <= depth {
+		if depth >= len(ff.Index) {
 			ff.Index = make([]int, depth+1)
 		}
-		ff.Index[depth] = fi
+		if len(ff.Index) > 1 {
+			ff.Index[depth] = fi
+		}
 	} else {
 		// None or more than one matching field found.
 		fd = inf
 	}
 
-	mark[t] = false, false
+	delete(mark, t)
 	return
 }
 
@@ -897,26 +925,18 @@ func (t *structType) FieldByNameFunc(match func(string) bool) (f StructField, pr
 }
 
 // Convert runtime type to reflect type.
-func toCommonType(p *runtime.Type) *commonType {
+func toCommonType(p *runtimeType) *commonType {
 	if p == nil {
 		return nil
 	}
-	type hdr struct {
-		x interface{}
-		t commonType
-	}
-	x := unsafe.Pointer(p)
-	if uintptr(x)&reflectFlags != 0 {
-		panic("reflect: invalid interface value")
-	}
-	return &(*hdr)(x).t
+	return (*p).(*commonType)
 }
 
-func toType(p *runtime.Type) Type {
+func toType(p *runtimeType) Type {
 	if p == nil {
 		return nil
 	}
-	return toCommonType(p).toType()
+	return (*p).(*commonType)
 }
 
 // TypeOf returns the reflection Type of the value in the interface{}.
@@ -931,23 +951,25 @@ var ptrMap struct {
 	m map[*commonType]*ptrType
 }
 
-func (t *commonType) runtimeType() *runtime.Type {
-	// The runtime.Type always precedes the commonType in memory.
+func (t *commonType) runtimeType() *runtimeType {
+	// The runtimeType always precedes the commonType in memory.
 	// Adjust pointer to find it.
 	var rt struct {
-		i  runtime.Type
+		i  runtimeType
 		ct commonType
 	}
-	return (*runtime.Type)(unsafe.Pointer(uintptr(unsafe.Pointer(t)) - unsafe.Offsetof(rt.ct)))
+	return (*runtimeType)(unsafe.Pointer(uintptr(unsafe.Pointer(t)) - unsafe.Offsetof(rt.ct)))
 }
 
 // PtrTo returns the pointer type with element t.
 // For example, if t represents type Foo, PtrTo(t) represents *Foo.
 func PtrTo(t Type) Type {
-	// If t records its pointer-to type, use it.
-	ct := t.(*commonType)
+	return t.(*commonType).ptrTo()
+}
+
+func (ct *commonType) ptrTo() *commonType {
 	if p := ct.ptrToThis; p != nil {
-		return toType(p)
+		return toCommonType(p)
 	}
 
 	// Otherwise, synthesize one.
@@ -959,7 +981,7 @@ func PtrTo(t Type) Type {
 	if m := ptrMap.m; m != nil {
 		if p := m[ct]; p != nil {
 			ptrMap.RUnlock()
-			return p.commonType.toType()
+			return &p.commonType
 		}
 	}
 	ptrMap.RUnlock()
@@ -971,20 +993,19 @@ func PtrTo(t Type) Type {
 	if p != nil {
 		// some other goroutine won the race and created it
 		ptrMap.Unlock()
-		return p
+		return &p.commonType
 	}
 
 	var rt struct {
-		i runtime.Type
+		i runtimeType
 		ptrType
 	}
-	rt.i = (*runtime.PtrType)(unsafe.Pointer(&rt.ptrType))
+	rt.i = &rt.commonType
 
 	// initialize p using *byte's ptrType as a prototype.
-	// have to do assignment as ptrType, not runtime.PtrType,
-	// in order to write to unexported fields.
 	p = &rt.ptrType
-	bp := (*ptrType)(unsafe.Pointer(unsafe.Typeof((*byte)(nil)).(*runtime.PtrType)))
+	var ibyte interface{} = (*byte)(nil)
+	bp := (*ptrType)(unsafe.Pointer((**(**runtimeType)(unsafe.Pointer(&ibyte))).(*commonType)))
 	*p = *bp
 
 	s := "*" + *ct.string
@@ -999,11 +1020,11 @@ func PtrTo(t Type) Type {
 
 	p.uncommonType = nil
 	p.ptrToThis = nil
-	p.elem = (*runtime.Type)(unsafe.Pointer(uintptr(unsafe.Pointer(ct)) - unsafe.Offsetof(rt.ptrType)))
+	p.elem = (*runtimeType)(unsafe.Pointer(uintptr(unsafe.Pointer(ct)) - unsafe.Offsetof(rt.ptrType)))
 
 	ptrMap.m[ct] = p
 	ptrMap.Unlock()
-	return p.commonType.toType()
+	return &p.commonType
 }
 
 func (t *commonType) Implements(u Type) bool {

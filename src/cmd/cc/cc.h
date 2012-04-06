@@ -31,8 +31,6 @@
 #include <libc.h>
 #include <bio.h>
 
-#pragma	lib	"../cc/cc.a$O"
-
 #ifndef	EXTERN
 #define EXTERN	extern
 #endif
@@ -124,6 +122,7 @@ struct	Sym
 	uchar	sym;
 	uchar	aused;
 	uchar	sig;
+	uchar	dataflag;
 };
 #define	S	((Sym*)0)
 
@@ -518,14 +517,15 @@ EXTERN	int	thechar;
 EXTERN	char*	thestring;
 EXTERN	Type*	thisfn;
 EXTERN	int32	thunk;
-EXTERN	Type*	types[NTYPE];
-EXTERN	Type*	fntypes[NTYPE];
+EXTERN	Type*	types[NALLTYPES];
+EXTERN	Type*	fntypes[NALLTYPES];
 EXTERN	Node*	initlist;
 EXTERN	Term	term[NTERM];
 EXTERN	int	nterm;
 EXTERN	int	packflg;
 EXTERN	int	fproundflg;
 EXTERN	int	textflag;
+EXTERN	int	dataflag;
 EXTERN	int	ncontin;
 EXTERN	int	canreach;
 EXTERN	int	warnreach;
@@ -768,6 +768,7 @@ void	arginit(void);
 void	pragvararg(void);
 void	pragpack(void);
 void	pragfpround(void);
+void	pragdataflag(void);
 void	pragtextflag(void);
 void	pragincomplete(void);
 void	pragdynimport(void);

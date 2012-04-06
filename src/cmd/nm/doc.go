@@ -14,8 +14,8 @@ Plan 9 C compiler.
 This implementation adds the flag -S, which prints each symbol's size 
 in decimal after its address.
 
-For reasons of disambiguation it is installed as 6nm although it also serves
-as an 8nm and a 5nm.
+Usage:
+	go tool nm [-aghnsTu] file
 
 */
 package documentation

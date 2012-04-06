@@ -7,9 +7,9 @@ package hex
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
-	"os"
-	"strconv"
 )
 
 const hextable = "0123456789abcdef"
@@ -30,16 +30,14 @@ func Encode(dst, src []byte) int {
 	return len(src) * 2
 }
 
-// OddLengthInputError results from decoding an odd length slice.
-type OddLengthInputError struct{}
+// ErrLength results from decoding an odd length slice.
+var ErrLength = errors.New("encoding/hex: odd length hex string")
 
-func (OddLengthInputError) String() string { return "odd length hex string" }
+// InvalidByteError values describe errors resulting from an invalid byte in a hex string.
+type InvalidByteError byte
 
-// InvalidHexCharError results from finding an invalid character in a hex string.
-type InvalidHexCharError byte
-
-func (e InvalidHexCharError) String() string {
-	return "invalid hex char: " + strconv.Itoa(int(e))
+func (e InvalidByteError) Error() string {
+	return fmt.Sprintf("encoding/hex: invalid byte: %#U", rune(e))
 }
 
 func DecodedLen(x int) int { return x / 2 }
@@ -47,21 +45,20 @@ func DecodedLen(x int) int { return x / 2 }
 // Decode decodes src into DecodedLen(len(src)) bytes, returning the actual
 // number of bytes written to dst.
 //
-// If Decode encounters invalid input, it returns an OddLengthInputError or an
-// InvalidHexCharError.
-func Decode(dst, src []byte) (int, os.Error) {
+// If Decode encounters invalid input, it returns an error describing the failure.
+func Decode(dst, src []byte) (int, error) {
 	if len(src)%2 == 1 {
-		return 0, OddLengthInputError{}
+		return 0, ErrLength
 	}
 
 	for i := 0; i < len(src)/2; i++ {
 		a, ok := fromHexChar(src[i*2])
 		if !ok {
-			return 0, InvalidHexCharError(src[i*2])
+			return 0, InvalidByteError(src[i*2])
 		}
 		b, ok := fromHexChar(src[i*2+1])
 		if !ok {
-			return 0, InvalidHexCharError(src[i*2+1])
+			return 0, InvalidByteError(src[i*2+1])
 		}
 		dst[i] = (a << 4) | b
 	}
@@ -91,7 +88,7 @@ func EncodeToString(src []byte) string {
 }
 
 // DecodeString returns the bytes represented by the hexadecimal string s.
-func DecodeString(s string) ([]byte, os.Error) {
+func DecodeString(s string) ([]byte, error) {
 	src := []byte(s)
 	dst := make([]byte, DecodedLen(len(src)))
 	_, err := Decode(dst, src)
@@ -104,8 +101,8 @@ func DecodeString(s string) ([]byte, os.Error) {
 // Dump returns a string that contains a hex dump of the given data. The format
 // of the hex dump matches the output of `hexdump -C` on the command line.
 func Dump(data []byte) string {
-	buf := bytes.NewBuffer(nil)
-	dumper := Dumper(buf)
+	var buf bytes.Buffer
+	dumper := Dumper(&buf)
 	dumper.Write(data)
 	dumper.Close()
 	return string(buf.Bytes())
@@ -133,7 +130,7 @@ func toChar(b byte) byte {
 	return b
 }
 
-func (h *dumper) Write(data []byte) (n int, err os.Error) {
+func (h *dumper) Write(data []byte) (n int, err error) {
 	// Output lines look like:
 	// 00000010  2e 2f 30 31 32 33 34 35  36 37 38 39 3a 3b 3c 3d  |./0123456789:;<=|
 	// ^ offset                          ^ extra space              ^ ASCII of line.
@@ -185,7 +182,7 @@ func (h *dumper) Write(data []byte) (n int, err os.Error) {
 	return
 }
 
-func (h *dumper) Close() (err os.Error) {
+func (h *dumper) Close() (err error) {
 	// See the comments in Write() for the details of this format.
 	if h.used == 0 {
 		return

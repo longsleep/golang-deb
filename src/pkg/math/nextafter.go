@@ -8,13 +8,11 @@ package math
 // If x == y, then x is returned.
 //
 // Special cases are:
-//	Nextafter(NaN, y) = NaN
-//	Nextafter(x, NaN) = NaN
+//      Nextafter(NaN, y) = NaN
+//      Nextafter(x, NaN) = NaN
 func Nextafter(x, y float64) (r float64) {
-	// TODO(rsc): Remove manual inlining of IsNaN
-	// when compiler does it for us
 	switch {
-	case x != x || y != y: // IsNaN(x) || IsNaN(y): // special case
+	case IsNaN(x) || IsNaN(y): // special case
 		r = NaN()
 	case x == y:
 		r = x
@@ -25,5 +23,5 @@ func Nextafter(x, y float64) (r float64) {
 	default:
 		r = Float64frombits(Float64bits(x) - 1)
 	}
-	return r
+	return
 }

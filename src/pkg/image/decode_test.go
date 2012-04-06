@@ -7,14 +7,13 @@ package image_test
 import (
 	"bufio"
 	"image"
+	"image/color"
 	"os"
 	"testing"
 
-	_ "image/bmp"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	_ "image/tiff"
 )
 
 type imageTest struct {
@@ -24,7 +23,7 @@ type imageTest struct {
 }
 
 var imageTests = []imageTest{
-	{"testdata/video-001.png", "testdata/video-001.bmp", 0},
+	{"testdata/video-001.png", "testdata/video-001.png", 0},
 	// GIF images are restricted to a 256-color palette and the conversion
 	// to GIF loses significant image quality.
 	{"testdata/video-001.png", "testdata/video-001.gif", 64 << 8},
@@ -32,15 +31,12 @@ var imageTests = []imageTest{
 	{"testdata/video-001.png", "testdata/video-001.5bpp.gif", 128 << 8},
 	// JPEG is a lossy format and hence needs a non-zero tolerance.
 	{"testdata/video-001.png", "testdata/video-001.jpeg", 8 << 8},
-	{"testdata/video-001.png", "testdata/video-001.png", 0},
-	{"testdata/video-001.png", "testdata/video-001.tiff", 0},
-
-	// Test grayscale images.
+	// Grayscale images.
 	{"testdata/video-005.gray.png", "testdata/video-005.gray.jpeg", 8 << 8},
 	{"testdata/video-005.gray.png", "testdata/video-005.gray.png", 0},
 }
 
-func decode(filename string) (image.Image, string, os.Error) {
+func decode(filename string) (image.Image, string, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, "", err
@@ -49,7 +45,7 @@ func decode(filename string) (image.Image, string, os.Error) {
 	return image.Decode(bufio.NewReader(f))
 }
 
-func decodeConfig(filename string) (image.Config, string, os.Error) {
+func decodeConfig(filename string) (image.Config, string, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return image.Config{}, "", err
@@ -66,7 +62,7 @@ func delta(u0, u1 uint32) int {
 	return d
 }
 
-func withinTolerance(c0, c1 image.Color, tolerance int) bool {
+func withinTolerance(c0, c1 color.Color, tolerance int) bool {
 	r0, g0, b0, a0 := c0.RGBA()
 	r1, g1, b1, a1 := c1.RGBA()
 	r := delta(r0, r1)
@@ -82,7 +78,7 @@ loop:
 	for _, it := range imageTests {
 		g := golden[it.goldenFilename]
 		if g == nil {
-			var err os.Error
+			var err error
 			g, _, err = decode(it.goldenFilename)
 			if err != nil {
 				t.Errorf("%s: %v", it.goldenFilename, err)

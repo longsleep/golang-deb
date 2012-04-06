@@ -1,4 +1,6 @@
-<!-- FAQ -->
+<!--{
+	"Title": "FAQ"
+}-->
 
 <h2 id="Origins">Origins</h2>
 
@@ -72,20 +74,6 @@ T-shirt design some years ago.
 The logo and mascot are covered by the
 <a href="http://creativecommons.org/licenses/by/3.0/">Creative Commons Attribution 3.0</a>
 license.
-</p>
-
-<h3 id="What_kind_of_a_name_is_6g">
-What kind of a name is 6g?</h3>
-
-<p>
-The <code>6g</code> (and <code>8g</code> and <code>5g</code>) compiler is named in the
-tradition of the Plan 9 C compilers, described in
-<a href="http://plan9.bell-labs.com/sys/doc/compiler.html">
-http://plan9.bell-labs.com/sys/doc/compiler.html</a>
-(see the table in section 2).
-
-<code>6</code> is the architecture letter for amd64 (or x86-64, if you prefer), while
-<code>g</code> stands for Go.
 </p>
 
 <h3 id="history">
@@ -188,18 +176,19 @@ easier to understand what happens when things combine.
 
 <p>
 Yes. There are now several Go programs deployed in 
-production inside Google.  For instance, the server behind
-<a href="http://golang.org">http://golang.org</a> is a Go program; 
-in fact it's just the <a href="/cmd/godoc"><code>godoc</code></a>
-document server running in a production configuration.
+production inside Google.  A public example is the server behind
+<a href="http://golang.org">http://golang.org</a>.
+It's just the <a href="/cmd/godoc"><code>godoc</code></a>
+document server running in a production configuration on
+<a href="http://code.google.com/appengine/">Google App Engine</a>.
 </p>
 
 <h3 id="Do_Go_programs_link_with_Cpp_programs">
 Do Go programs link with C/C++ programs?</h3>
 
 <p>
-There are two Go compiler implementations, <code>6g</code> and friends, 
-generically called <code>gc</code>, and <code>gccgo</code>.
+There are two Go compiler implementations, <code>gc</code>
+(the <code>6g</code> program and friends) and <code>gccgo</code>.
 <code>Gc</code> uses a different calling convention and linker and can
 therefore only be linked with C programs using the same convention.
 There is such a C compiler but no C++ compiler. 
@@ -317,10 +306,9 @@ exceptional.
 <p>
 Go takes a different approach.  For plain error handling, Go's multi-value
 returns make it easy to report an error without overloading the return value.
-<a href="http://blog.golang.org/2011/07/error-handling-and-go.html">A
-canonical error type, coupled
-with Go's other features</a>, makes error
-handling pleasant but quite different from that in other languages.
+<a href="/doc/articles/error_handling.html">A canonical error type, coupled
+with Go's other features</a>, makes error handling pleasant but quite different
+from that in other languages.
 </p>
 
 <p>
@@ -333,7 +321,7 @@ when used well, can result in clean error-handling code.
 </p>
 
 <p>
-See the <a href="http://blog.golang.org/2010/08/defer-panic-and-recover.html">Defer, Panic, and Recover</a> article for details.
+See the <a href="/doc/articles/defer_panic_recover.html">Defer, Panic, and Recover</a> article for details.
 </p>
 
 <h3 id="assertions">
@@ -351,26 +339,6 @@ not familiar with the code.
 </p>
 
 <p>
-The same arguments apply to the use of <code>assert()</code> in test programs. Proper
-error handling means letting other tests run after one has failed, so
-that the person debugging the failure gets a complete picture of what is
-wrong. It is more useful for a test to report that
-<code>isPrime</code> gives the wrong answer for 2, 3, 5, and 7 (or for
-2, 4, 8, and 16) than to report that <code>isPrime</code> gives the wrong
-answer for 2 and therefore no more tests were run. The programmer who
-triggers the test failure may not be familiar with the code that fails.
-Time invested writing a good error message now pays off later when the
-test breaks.
-</p>
-
-<p>
-In testing, if the amount of extra code required to write
-good errors seems repetitive and overwhelming, it might work better as a
-table-driven test instead.
-Go has excellent support for data structure literals.
-</p>
-
-<p>
 We understand that this is a point of contention. There are many things in
 the Go language and libraries that differ from modern practices, simply
 because we feel it's sometimes worth trying a different approach.
@@ -380,7 +348,7 @@ because we feel it's sometimes worth trying a different approach.
 Why build concurrency on the ideas of CSP?</h3>
 <p>
 Concurrency and multi-threaded programming have a reputation
-for difficulty.  We believe the problem is due partly to complex
+for difficulty.  We believe this is due partly to complex
 designs such as pthreads and partly to overemphasis on low-level details
 such as mutexes, condition variables, and memory barriers.
 Higher-level interfaces enable much simpler code, even if there are still
@@ -451,7 +419,9 @@ we believe is easy to use and in some ways more general. There are
 also ways to embed types in other types to provide something
 analogous&mdash;but not identical&mdash;to subclassing.
 Moreover, methods in Go are more general than in C++ or Java:
-they can be defined for any sort of data, not just structs.
+they can be defined for any sort of data, even built-in types such
+as plain, &ldquo;unboxed&rdquo; integers.
+They are not restricted to structs (classes).
 </p>
 
 <p>
@@ -464,7 +434,7 @@ How do I get dynamic dispatch of methods?</h3>
 
 <p>
 The only way to have dynamically dispatched methods is through an
-interface. Methods on structs or other types are always resolved statically.
+interface. Methods on a struct or any other concrete type are always resolved statically.
 </p>
 
 <h3 id="inheritance">
@@ -496,10 +466,11 @@ It's possible to use these ideas to construct something analogous to
 type-safe Unix pipes.  For instance, see how <code>fmt.Fprintf</code>
 enables formatted printing to any output, not just a file, or how the
 <code>bufio</code> package can be completely separate from file I/O,
-or how the <code>crypto</code> packages stitch together block and
-stream ciphers.  All these ideas stem from a single interface
+or how the <code>image</code> packages generate compressed
+image files.  All these ideas stem from a single interface
 (<code>io.Writer</code>) representing a single method
 (<code>Write</code>).  And that's only scratching the surface.
+Go's interfaces have a profound influence on how programs are structured.
 </p>
 
 <p>
@@ -559,7 +530,7 @@ interface <code>I</code> by attempting an assignment:
 
 <pre>
 type T struct{}
-var _ I = T{}
+var _ I = T{}   // Verify that T implements I.
 </pre>
 
 <p>
@@ -575,8 +546,8 @@ For example:
 
 <pre>
 type Fooer interface {
-	Foo()
-	ImplementsFooer()
+    Foo()
+    ImplementsFooer()
 }
 </pre>
 
@@ -608,7 +579,7 @@ itself with another value:
 
 <pre>
 type Equaler interface {
-	Equal(Equaler) bool
+    Equal(Equaler) bool
 }
 </pre>
 
@@ -681,7 +652,7 @@ examples and also have them be statically checked.
 Can I convert a []T to an []interface{}?</h3>
 
 <p>
-Not directly because they do not have the same representation in memory.
+Not directly, because they do not have the same representation in memory.
 It is necessary to copy the elements individually to the destination
 slice. This example converts a slice of <code>int</code> to a slice of
 <code>interface{}</code>:
@@ -691,9 +662,88 @@ slice. This example converts a slice of <code>int</code> to a slice of
 t := []int{1, 2, 3, 4}
 s := make([]interface{}, len(t))
 for i, v := range t {
-	s[i] = v
+    s[i] = v
 }
 </pre>
+
+<h3 id="nil_error">
+Why is my nil error value not equal to nil?
+</h3>
+
+<p>
+Under the covers, interfaces are implemented as two elements, a type and a value.
+The value, called the interface's dynamic value,
+is an arbitrary concrete value and the type is that of the value.
+For the <code>int</code> value 3, an interface value contains,
+schematically, (<code>int</code>, <code>3</code>).
+</p>
+
+<p>
+An interface value is <code>nil</code> only if the inner value and type are both unset,
+(<code>nil</code>, <code>nil</code>).
+In particular, a <code>nil</code> interface will always hold a <code>nil</code> type.
+If we store a pointer of type <code>*int</code> inside
+an interface value, the inner type will be <code>*int</code> regardless of the value of the pointer:
+(<code>*int</code>, <code>nil</code>).
+Such an interface value will therefore be non-<code>nil</code>
+<em>even when the pointer inside is</em> <code>nil</code>.
+</p>
+
+<p>
+This situation can be confusing, and often arises when a <code>nil</code> value is
+stored inside an interface value such as an <code>error</code> return:
+</p>
+
+<pre>
+func returnsError() error {
+	var p *MyError = nil
+	if bad() {
+		p = ErrBad
+	}
+	return p // Will always return a non-nil error.
+}
+</pre>
+
+<p>
+If all goes well, the function returns a <code>nil</code> <code>p</code>,
+so the return value is an <code>error</code> interface
+value holding (<code>*MyError</code>, <code>nil</code>).
+This means that if the caller compares the returned error to <code>nil</code>,
+it will always look as if there was an error even if nothing bad happened.
+To return a proper <code>nil</code> <code>error</code> to the caller,
+the function must return an explicit <code>nil</code>:
+</p>
+
+
+<pre>
+func returnsError() error {
+	if bad() {
+		return ErrBad
+	}
+	return nil
+}
+</pre>
+
+<p>
+It's a good idea for functions
+that return errors always to use the <code>error</code> type in
+their signature (as we did above) rather than a concrete type such
+as <code>*MyError</code>, to help guarantee the error is
+created correctly. As an example,
+<a href="/pkg/os/#Open"><code>os.Open</code></a>
+returns an <code>error</code> even though, if not <code>nil</code>,
+it's always of concrete type
+<a href="/pkg/os/#PathError"><code>*os.PathError</code></a>.
+</p>
+
+<p>
+Similar situations to those described here can arise whenever interfaces are used.
+Just keep in mind that if any concrete value
+has been stored in the interface, the interface will not be <code>nil</code>.
+For more information, see
+<a href="/doc/articles/laws_of_reflection.html">The Laws of Reflection</a>.
+</p>
+
 
 <h3 id="unions">
 Why are there no untagged unions, as in C?</h3>
@@ -768,15 +818,20 @@ to write one but it will not be as convenient syntactically; this seems a reason
 </p>
 
 <h3 id="map_keys">
-Why don't maps allow structs and arrays as keys?</h3>
+Why don't maps allow slices as keys?</h3>
 <p>
-Map lookup requires an equality operator, which structs and arrays do not implement.
+Map lookup requires an equality operator, which slices do not implement.
 They don't implement equality because equality is not well defined on such types;
 there are multiple considerations involving shallow vs. deep comparison, pointer vs.
-value comparison, how to deal with recursive structures, and so on.
-We may revisit this issue&mdash;and implementing equality for structs and arrays
+value comparison, how to deal with recursive types, and so on.
+We may revisit this issue&mdash;and implementing equality for slices
 will not invalidate any existing programs&mdash;but without a clear idea of what
-equality of structs and arrays should mean, it was simpler to leave it out for now.
+equality of slices should mean, it was simpler to leave it out for now.
+</p>
+
+<p>
+In Go 1, unlike prior releases, equality is defined for structs and arrays, so such
+types can be used as map keys. Slices still do not have a definition of equality, though.
 </p>
 
 <h3 id="references">
@@ -841,14 +896,17 @@ for more information about how to proceed.
 When are function parameters passed by value?</h3>
 
 <p>
-Everything in Go is passed by value.  A function always gets a copy of the
+As in all languages in the C family, everything in Go is passed by value.
+That is, a function always gets a copy of the
 thing being passed, as if there were an assignment statement assigning the
-value to the parameter.  For instance, copying a pointer value makes a copy of
-the pointer, not the data it points to. 
+value to the parameter.  For instance, passing an <code>int</code> value
+to a function makes a copy of the <code>int</code>, and passing a pointer
+value makes a copy of the pointer, but not the data it points to.
+(See the next section for a discussion of how this affects method receivers.)
 </p>
 
 <p>
-Map and slice values behave like pointers; they are descriptors that
+Map and slice values behave like pointers: they are descriptors that
 contain pointers to the underlying map or slice data.  Copying a map or
 slice value doesn't copy the data it points to.  Copying an interface value
 makes a copy of the thing stored in the interface value.  If the interface
@@ -869,7 +927,7 @@ func (s MyStruct)  valueMethod()   { } // method on value
 For programmers unaccustomed to pointers, the distinction between these
 two examples can be confusing, but the situation is actually very simple.
 When defining a method on a type, the receiver (<code>s</code> in the above
-example) behaves exactly as if it were an argument to the method.
+examples) behaves exactly as if it were an argument to the method.
 Whether to define the receiver as a value or as a pointer is the same
 question, then, as whether a function argument should be a value or
 a pointer.
@@ -936,7 +994,7 @@ Why is <code>int</code> 32 bits on 64 bit machines?</h3>
 <p>
 The sizes of <code>int</code> and <code>uint</code> are implementation-specific
 but the same as each other on a given platform.
-The 64 bit Go compilers (both 6g and gccgo) use a 32 bit representation for
+The 64 bit Go compilers (both gc and gccgo) use a 32 bit representation for
 <code>int</code>.  Code that relies on a particular
 size of value should use an explicitly sized type, like <code>int64</code>.
 On the other hand, floating-point scalars and complex
@@ -944,6 +1002,12 @@ numbers are always sized: <code>float32</code>, <code>complex64</code>,
 etc., because programmers should be aware of precision when using
 floating-point numbers.
 The default size of a floating-point constant is <code>float64</code>.
+</p>
+
+<p>
+At the moment, all implementations use 32-bit ints, an essentially arbitrary decision.
+However, we expect that <code>int</code> will be increased to 64 bits on 64-bit
+architectures in a future release of Go.
 </p>
 
 <h3 id="stack_or_heap">
@@ -963,12 +1027,15 @@ local to a function in that function's stack frame.  However, if the
 compiler cannot prove that the variable is not referenced after the
 function returns, then the compiler must allocate the variable on the
 garbage-collected heap to avoid dangling pointer errors.
+Also, if a local variable is very large, it might make more sense
+to store it on the heap rather than the stack.
 </p>
 
 <p>
-In the current compilers, the analysis is crude: if a variable has its address
-taken, that variable is allocated on the heap. We are working to improve this
-analysis so that more data is kept on the stack. 
+In the current compilers, if a variable has its address taken, that variable
+is a candidate for allocation on the heap. However, a basic <em>escape
+analysis</em> recognizes some cases when such variables will not
+live past the return from the function and can reside on the stack.
 </p>
 
 <h2 id="Concurrency">Concurrency</h2>
@@ -978,7 +1045,7 @@ What operations are atomic? What about mutexes?</h3>
 
 <p>
 We haven't fully defined it all yet, but some details about atomicity are
-available in the <a href="go_mem.html">Go Memory Model specification</a>.
+available in the <a href="/ref/mem">Go Memory Model specification</a>.
 </p>
 
 <p>
@@ -1001,17 +1068,15 @@ See the <a href="/doc/codewalk/sharemem/">Share Memory By Communicating</a> code
 Why doesn't my multi-goroutine program use multiple CPUs?</h3>
 
 <p>
-Under the gc compilers you must set <code>GOMAXPROCS</code> to allow the
-run-time support to utilise more than one OS thread. Under <code>gccgo</code> an OS
-thread will be created for each goroutine, and <code>GOMAXPROCS</code> is
-effectively equal to the number of running goroutines.  
+You must set the <code>GOMAXPROCS</code> shell environment variable
+or use the similarly-named <a href="/pkg/runtime/#GOMAXPROCS"><code>function</code></a>
+of the runtime package to allow the
+run-time support to utilize more than one OS thread. 
 </p>
 
 <p>
-Programs that perform concurrent computation should benefit from an increase in
-<code>GOMAXPROCS</code>. (See the <a
-href="http://golang.org/pkg/runtime/#GOMAXPROCS"><code>runtime</code> package's
-documentation</a>.)
+Programs that perform parallel computation should benefit from an increase in
+<code>GOMAXPROCS</code>.
 </p>
 
 <h3 id="Why_GOMAXPROCS">
@@ -1019,15 +1084,24 @@ Why does using <code>GOMAXPROCS</code> &gt; 1 sometimes make my program
 slower?</h3>
 
 <p>
-(This is specific to the gc compilers. See above.)
+It depends on the nature of your program. 
+Problems that are intrinsically sequential cannot be sped up by adding
+more goroutines.
+Concurrency only becomes parallelism when the problem is
+intrinsically parallel.
 </p>
 
 <p>
-It depends on the nature of your program. 
-Programs that contain several goroutines that spend a lot of time
-communicating on channels will experience performance degradation when using
-multiple OS threads. This is because of the significant context-switching
-penalty involved in sending data between threads.
+In practical terms, programs that spend more time
+communicating on channels than doing computation
+will experience performance degradation when using
+multiple OS threads.
+This is because sending data between threads involves switching
+contexts, which has significant cost.
+For instance, the <a href="/ref/spec#An_example_package">prime sieve example</a>
+from the Go specification has no significant parallelism although it launches many
+goroutines; increasing <code>GOMAXPROCS</code> is more likely to slow it down than
+to speed it up.
 </p>
 
 <p>
@@ -1042,7 +1116,7 @@ should recognize such cases and optimize its use of OS threads. For now,
 Why do T and *T have different method sets?</h3>
 
 <p>
-From the <a href="http://golang.org/doc/go_spec.html#Types">Go Spec</a>:
+From the <a href="/ref/spec#Types">Go Spec</a>:
 </p>
 
 <blockquote>
@@ -1060,7 +1134,10 @@ there is no useful way for a method call to obtain a pointer.
 </p>
 
 <p>
-If not for this restriction, this code:
+Even in cases where the compiler could take the address of a value
+to pass to the method, if the method modifies the value the changes
+will be lost in the caller.
+As a common example, this code:
 </p>
 
 <pre>
@@ -1075,7 +1152,7 @@ This is almost never the desired behavior.
 </p>
 
 <h3 id="closures_and_goroutines">
-Why am I confused by the way my closures behave as goroutines?</h3>
+What happens with closures running as goroutines?</h3>
 
 <p>
 Some confusion may arise when using closures with concurrency.
@@ -1084,29 +1161,30 @@ Consider the following program:
 
 <pre>
 func main() {
-	done := make(chan bool)
+    done := make(chan bool)
 
-	values := []string{ "a", "b", "c" }
-	for _, v := range values {
-		go func() {
-			fmt.Println(v)
-			done &lt;- true
-		}()
-	}
+    values := []string{"a", "b", "c"}
+    for _, v := range values {
+        go func() {
+            fmt.Println(v)
+            done &lt;- true
+        }()
+    }
 
-	// wait for all goroutines to complete before exiting
-	for _ = range values {
-		&lt;-done 
-	}
+    // wait for all goroutines to complete before exiting
+    for _ = range values {
+        &lt;-done 
+    }
 }
 </pre>
 
 <p>
 One might mistakenly expect to see <code>a, b, c</code> as the output. 
 What you'll probably see instead is <code>c, c, c</code>.  This is because 
-each closure shares the same variable <code>v</code>. Each closure prints the 
-value of <code>v</code> at the time <code>fmt.Println</code> is executed, 
-rather than the value of <code>v</code> when the goroutine was launched. 
+each iteration of the loop uses the same instance of the variable <code>v</code>, so
+each closure shares that single variable. When the closure runs, it prints the 
+value of <code>v</code> at the time <code>fmt.Println</code> is executed,
+but <code>v</code> may have been modified since the goroutine was launched. 
 </p>
 
 <p>
@@ -1115,12 +1193,12 @@ could modify the inner loop to read:
 </p>
 
 <pre>
-	for _, v := range values {
-		go func(<b>u</b> string) {
-			fmt.Println(<b>u</b>)
-			done &lt;- true
-		}(<b>v</b>)
-	}
+    for _, v := range values {
+        go func(<b>u</b> string) {
+            fmt.Println(<b>u</b>)
+            done &lt;- true
+        }(<b>v</b>)
+    }
 </pre>
 
 <p>
@@ -1141,9 +1219,9 @@ result:
 
 <pre>
 if expr {
-	n = trueVal
+    n = trueVal
 } else {
-	n = falseVal
+    n = falseVal
 }
 </pre>
 
@@ -1179,12 +1257,53 @@ func TestFoo(t *testing.T) {
 </pre>
 
 <p>
-Run <code>gotest</code> in that directory.
+Run <code>go test</code> in that directory.
 That script finds the <code>Test</code> functions,
 builds a test binary, and runs it.
 </p>
 
-<p>See the <a href="/doc/code.html">How to Write Go Code</a> document for more details.</p>
+<p>See the <a href="/doc/code.html">How to Write Go Code</a> document,
+the <a href="/pkg/testing/"><code>testing</code></a> package
+and the <a href="/cmd/go/#Test_packages"><code>go test</code></a> subcommand for more details.
+</p>
+
+<h3 id="testing_framework">
+Where is my favorite helper function for testing?</h3>
+
+<p>
+Go's standard <a href="/pkg/testing/"><code>testing</code></a> package makes it easy to write unit tests, but it lacks
+features provided in other language's testing frameworks such as assertion functions.
+An <a href="#assertions">earlier section</a> of this document explained why Go
+doesn't have assertions, and
+the same arguments apply to the use of <code>assert</code> in tests.
+Proper error handling means letting other tests run after one has failed, so
+that the person debugging the failure gets a complete picture of what is
+wrong. It is more useful for a test to report that
+<code>isPrime</code> gives the wrong answer for 2, 3, 5, and 7 (or for
+2, 4, 8, and 16) than to report that <code>isPrime</code> gives the wrong
+answer for 2 and therefore no more tests were run. The programmer who
+triggers the test failure may not be familiar with the code that fails.
+Time invested writing a good error message now pays off later when the
+test breaks.
+</p>
+
+<p>
+A related point is that testing frameworks tend to develop into mini-languages
+of their own, with conditionals and controls and printing mechanisms,
+but Go already has all those capabilities; why recreate them?
+We'd rather write tests in Go; it's one fewer language to learn and the
+approach keeps the tests straightforward and easy to understand.
+</p>
+
+<p>
+If the amount of extra code required to write
+good errors seems repetitive and overwhelming, the test might work better if
+table-driven, iterating over a list of inputs and outputs defined
+in a data structure (Go has excellent support for data structure literals).
+The work to write a good test and good error messages will then be amortized over many
+test cases. The standard Go library is full of illustrative examples, such as in
+<a href="/src/pkg/fmt/fmt_test.go">the formatting tests for the <code>fmt</code> package</a>.
+</p>
 
 
 <h2 id="Implementation">Implementation</h2>
@@ -1198,21 +1317,21 @@ standard GCC back end. <code>Gc</code> is written in C using
 <code>yacc</code>/<code>bison</code> for the parser.
 Although it's a new program, it fits in the Plan 9 C compiler suite
 (<a href="http://plan9.bell-labs.com/sys/doc/compiler.html">http://plan9.bell-labs.com/sys/doc/compiler.html</a>)
-and uses a variant of the Plan 9 loader to generate ELF binaries.
+and uses a variant of the Plan 9 loader to generate ELF/Mach-O/PE binaries.
 </p>
 
 <p>
-We considered writing <code>6g</code>, the original Go compiler, in Go itself but
+We considered writing <code>gc</code>, the original Go compiler, in Go itself but
 elected not to do so because of the difficulties of bootstrapping and
 especially of open source distribution&mdash;you'd need a Go compiler to
 set up a Go environment. <code>Gccgo</code>, which came later, makes it possible to
 consider writing a compiler in Go, which might well happen. (Go would be a
 fine language in which to implement a compiler; a native lexer and
-parser are already available in <a href="/pkg/go/"><code>/pkg/go</code></a>.)
+parser are already available in the <a href="/pkg/go/"><code>go</code></a> package.)
 </p>
 
 <p>
-We also considered using LLVM for <code>6g</code> but we felt it was too large and
+We also considered using LLVM for <code>gc</code> but we felt it was too large and
 slow to meet our performance goals.
 </p>
 
@@ -1227,25 +1346,27 @@ it now. <code>Gccgo</code>'s run-time support uses <code>glibc</code>.
 control; it is
 compiled with a version of the Plan 9 C compiler that supports
 segmented stacks for goroutines.
-Work is underway to provide the same stack management in
-<code>gccgo</code>.
+The <code>gccgo</code> compiler implements segmented
+stacks on Linux only, supported by recent modifications to the gold linker.
 </p>
 
 <h3 id="Why_is_my_trivial_program_such_a_large_binary">
 Why is my trivial program such a large binary?</h3>
 
 <p>
-The gc tool chain (<code>5l</code>, <code>6l</code>, and <code>8l</code>) only
-generate statically linked binaries.  All Go binaries therefore include the Go
+The linkers in the gc tool chain (<code>5l</code>, <code>6l</code>, and <code>8l</code>)
+do static linking.  All Go binaries therefore include the Go
 run-time, along with the run-time type information necessary to support dynamic
 type checks, reflection, and even panic-time stack traces.
 </p>
 
 <p>
-A trivial C "hello, world" program compiled and linked statically using gcc
-on Linux is around 750 kB.  An equivalent Go program is around 1.1 MB, but
-that includes more powerful run-time support.  We believe that with some effort
-the size of Go binaries can be reduced.
+A simple C "hello, world" program compiled and linked statically using gcc
+on Linux is around 750 kB,
+including an implementation of <code>printf</code>.
+An equivalent Go program using <code>fmt.Printf</code>
+is around 1.2 MB, but
+that includes more powerful run-time support.
 </p>
 
 <h3 id="unused_variables_and_imports">
@@ -1296,9 +1417,9 @@ import "unused"
 var _ = unused.Item  // TODO: Delete before committing!
 
 func main() {
-	debugData := debug.Profile()
-	_ = debugData // Used only during debugging.
-	....
+    debugData := debug.Profile()
+    _ = debugData // Used only during debugging.
+    ....
 }
 </pre>
 
@@ -1310,20 +1431,23 @@ Why does Go perform badly on benchmark X?</h3>
 <p>
 One of Go's design goals is to approach the performance of C for comparable
 programs, yet on some benchmarks it does quite poorly, including several 
-in <a href="/test/bench/">test/bench</a>. The slowest depend on libraries 
+in <a href="/test/bench/shootout/">test/bench/shootout</a>. The slowest depend on libraries 
 for which versions of comparable performance are not available in Go. 
-For instance, pidigits depends on a multi-precision math package, and the C
+For instance, <a href="/test/bench/shootout/pidigits.go">pidigits.go</a>
+depends on a multi-precision math package, and the C
 versions, unlike Go's, use <a href="http://gmplib.org/">GMP</a> (which is
 written in optimized assembler). 
-Benchmarks that depend on regular expressions (regex-dna, for instance) are
-essentially comparing Go's stopgap <a href="/pkg/regexp">regexp package</a> to
+Benchmarks that depend on regular expressions
+(<a href="/test/bench/shootout/regex-dna.go">regex-dna.go</a>, for instance) are
+essentially comparing Go's native <a href="/pkg/regexp">regexp package</a> to
 mature, highly optimized regular expression libraries like PCRE.
 </p>
 
 <p>
 Benchmark games are won by extensive tuning and the Go versions of most
 of the benchmarks need attention.  If you measure comparable C
-and Go programs (reverse-complement is one example), you'll see the two
+and Go programs
+(<a href="/test/bench/shootout/reverse-complement.go">reverse-complement.go</a> is one example), you'll see the two
 languages are much closer in raw performance than this suite would
 indicate.
 </p>
@@ -1331,12 +1455,15 @@ indicate.
 <p>
 Still, there is room for improvement. The compilers are good but could be
 better, many libraries need major performance work, and the garbage collector
-isn't fast enough yet (even if it were, taking care not to generate unnecessary 
-garbage can have a huge effect).
+isn't fast enough yet. (Even if it were, taking care not to generate unnecessary 
+garbage can have a huge effect.)
 </p>
 
 <p>
-In any case, Go can often be very competitive. See the blog post about
+In any case, Go can often be very competitive.
+There has been significant improvement in the performance of many programs
+as the language and tools have developed.
+See the blog post about
 <a href="http://blog.golang.org/2011/06/profiling-go-programs.html">profiling
 Go programs</a> for an informative example.
 
@@ -1367,13 +1494,13 @@ prefix <code>*</code> for pointers is an exception that proves the rule).  In C,
 the declaration
 </p>
 <pre>
-	int* a, b;
+    int* a, b;
 </pre>
 <p>
 declares <code>a</code> to be a pointer but not <code>b</code>; in Go
 </p>
 <pre>
-	var a, b *int;
+    var a, b *int
 </pre>
 <p>
 declares both to be pointers.  This is clearer and more regular.
@@ -1381,11 +1508,13 @@ Also, the <code>:=</code> short declaration form argues that a full variable
 declaration should present the same order as <code>:=</code> so
 </p>
 <pre>
-	var a uint64 = 1;
+    var a uint64 = 1
 </pre>
+<p>
 has the same effect as
+</p>
 <pre>
-	a := uint64(1);
+    a := uint64(1)
 </pre>
 <p>
 Parsing is also simplified by having a distinct grammar for types that
@@ -1395,7 +1524,7 @@ and <code>chan</code> keep things clear.
 
 <p>
 See the article about
-<a href="http://blog.golang.org/2010/07/gos-declaration-syntax.html">Go's Declaration Syntax</a>
+<a href="/doc/articles/gos_declaration_syntax.html">Go's Declaration Syntax</a>
 for more details.
 </p>
 
@@ -1445,7 +1574,7 @@ appear on a line by itself.
 Some have argued that the lexer should do lookahead to permit the
 brace to live on the next line.  We disagree.  Since Go code is meant
 to be formatted automatically by
-<a href="http://golang.org/cmd/gofmt/"><code>gofmt</code></a>,
+<a href="/cmd/gofmt/"><code>gofmt</code></a>,
 <i>some</i> style must be chosen.  That style may differ from what
 you've used in C or Java, but Go is a new language and
 <code>gofmt</code>'s style is as good as any other.  More
@@ -1464,8 +1593,7 @@ memory management.  We feel it's critical to eliminate that
 programmer overhead, and advances in garbage collection
 technology in the last few years give us confidence that we can
 implement it with low enough overhead and no significant
-latency.  (The current implementation is a plain mark-and-sweep
-collector but a replacement is in the works.)
+latency.
 </p>
 
 <p>
@@ -1482,6 +1610,11 @@ program helps everyone.
 <p>
 Finally, concurrency aside, garbage collection makes interfaces
 simpler because they don't need to specify how memory is managed across them.
+</p>
+
+<p>
+The current implementation is a parallel mark-and-sweep
+collector but a future version might take a different approach.
 </p>
 
 <p>

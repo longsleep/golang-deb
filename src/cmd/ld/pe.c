@@ -32,6 +32,11 @@ static char dosstub[] =
 	0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+// Note: currently only up to 8 chars plus \0.
+static char *symlabels[] = {
+	"symtab", "esymtab", "pclntab", "epclntab"
+};
+
 static Sym *rsrcsym;
 
 static char symnames[256]; 
@@ -44,6 +49,7 @@ static int pe64;
 static int nsect;
 static int nextsectoff;
 static int nextfileoff;
+static int textsect;
 
 static IMAGE_FILE_HEADER fh;
 static IMAGE_OPTIONAL_HEADER oh;
@@ -449,20 +455,29 @@ addsymtable(void)
 {
 	IMAGE_SECTION_HEADER *h;
 	int i, size;
+	Sym *s;
 	
-	if(nextsymoff == 0)
-		return;
-	
-	size  = nextsymoff + 4 + 18;
+	fh.NumberOfSymbols = sizeof(symlabels)/sizeof(symlabels[0]);
+	size = nextsymoff + 4 + 18*fh.NumberOfSymbols;
 	h = addpesection(".symtab", size, size);
 	h->Characteristics = IMAGE_SCN_MEM_READ|
 		IMAGE_SCN_MEM_DISCARDABLE;
 	chksectoff(h, cpos());
 	fh.PointerToSymbolTable = cpos();
-	fh.NumberOfSymbols = 1;
-	strnput("", 18); // one empty symbol
-	// put symbol string table
-	lputl(size);
+	
+	// put COFF symbol table
+	for (i=0; i<fh.NumberOfSymbols; i++) {
+		s = rlookup(symlabels[i], 0);
+		strnput(s->name, 8);
+		lputl(datoff(s->value));
+		wputl(textsect);
+		wputl(0x0308);  // "array of structs"
+		cput(2);        // storage class: external
+		cput(0);        // no aux entries
+	}
+
+	// put COFF string table
+	lputl(nextsymoff + 4);
 	for (i=0; i<nextsymoff; i++)
 		cput(symnames[i]);
 	strnput("", h->SizeOfRawData - size);
@@ -510,6 +525,48 @@ addpersrc(void)
 	dd[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size = h->VirtualSize;
 }
 
+static void
+addexcept(IMAGE_SECTION_HEADER *text)
+{
+	IMAGE_SECTION_HEADER *pdata, *xdata;
+	vlong startoff;
+	uvlong n;
+	Sym *sym;
+
+	if(thechar != '6')
+		return;
+
+	// write unwind info
+	sym = lookup("runtime.sigtramp", 0);
+	startoff = cpos();
+	lputl(9);	// version=1, flags=UNW_FLAG_EHANDLER, rest 0
+	lputl(sym->value - PEBASE);
+	lputl(0);
+
+	n = cpos() - startoff;
+	xdata = addpesection(".xdata", n, n);
+	xdata->Characteristics = IMAGE_SCN_MEM_READ|
+		IMAGE_SCN_CNT_INITIALIZED_DATA;
+	chksectoff(xdata, startoff);
+	strnput("", xdata->SizeOfRawData - n);
+
+	// write a function table entry for the whole text segment
+	startoff = cpos();
+	lputl(text->VirtualAddress);
+	lputl(text->VirtualAddress + text->VirtualSize);
+	lputl(xdata->VirtualAddress);
+
+	n = cpos() - startoff;
+	pdata = addpesection(".pdata", n, n);
+	pdata->Characteristics = IMAGE_SCN_MEM_READ|
+		IMAGE_SCN_CNT_INITIALIZED_DATA;
+	chksectoff(pdata, startoff);
+	strnput("", pdata->SizeOfRawData - n);
+
+	dd[IMAGE_DIRECTORY_ENTRY_EXCEPTION].VirtualAddress = pdata->VirtualAddress;
+	dd[IMAGE_DIRECTORY_ENTRY_EXCEPTION].Size = pdata->VirtualSize;
+}
+
 void
 asmbpe(void)
 {
@@ -532,6 +589,7 @@ asmbpe(void)
 		IMAGE_SCN_CNT_INITIALIZED_DATA|
 		IMAGE_SCN_MEM_EXECUTE|IMAGE_SCN_MEM_READ;
 	chksectseg(t, &segtext);
+	textsect = nsect;
 
 	d = addpesection(".data", segdata.len, segdata.filelen);
 	d->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|
@@ -546,7 +604,8 @@ asmbpe(void)
 	addexports();
 	addsymtable();
 	addpersrc();
-	
+	addexcept(t);
+
 	fh.NumberOfSections = nsect;
 	fh.TimeDateStamp = time(0);
 	fh.Characteristics = IMAGE_FILE_RELOCS_STRIPPED|
@@ -561,7 +620,7 @@ asmbpe(void)
 		set(Magic, 0x10b);	// PE32
 		oh.BaseOfData = d->VirtualAddress;
 	}
-	set(MajorLinkerVersion, 1);
+	set(MajorLinkerVersion, 3);
 	set(MinorLinkerVersion, 0);
 	set(SizeOfCode, t->SizeOfRawData);
 	set(SizeOfInitializedData, d->SizeOfRawData);
@@ -583,8 +642,29 @@ asmbpe(void)
 		set(Subsystem, IMAGE_SUBSYSTEM_WINDOWS_GUI);
 	else
 		set(Subsystem, IMAGE_SUBSYSTEM_WINDOWS_CUI);
-	set(SizeOfStackReserve, 0x0040000);
-	set(SizeOfStackCommit, 0x00001000);
+
+	// Disable stack growth as we don't want Windows to
+	// fiddle with the thread stack limits, which we set
+	// ourselves to circumvent the stack checks in the
+	// Windows exception dispatcher.
+	// Commit size must be strictly less than reserve
+	// size otherwise reserve will be rounded up to a
+	// larger size, as verified with VMMap.
+
+	// Go code would be OK with 64k stacks, but we need larger stacks for cgo.
+	// That default stack reserve size affects only the main thread,
+	// for other threads we specify stack size in runtime explicitly
+	// (runtime knows whether cgo is enabled or not).
+	// If you change stack reserve sizes here,
+	// change them in runtime/cgo/windows_386/amd64.c as well.
+	if(!iscgo) {
+		set(SizeOfStackReserve, 0x00010000);
+		set(SizeOfStackCommit, 0x0000ffff);
+	} else {
+		set(SizeOfStackReserve, pe64 ? 0x00200000 : 0x00100000);
+		// account for 2 guard pages
+		set(SizeOfStackCommit, (pe64 ? 0x00200000 : 0x00100000) - 0x2000);
+	}
 	set(SizeOfHeapReserve, 0x00100000);
 	set(SizeOfHeapCommit, 0x00001000);
 	set(NumberOfRvaAndSizes, 16);

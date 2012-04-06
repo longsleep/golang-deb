@@ -2,13 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build darwin freebsd linux
+// +build cgo
+
 package user
 
 import (
 	"fmt"
-	"os"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"unsafe"
 )
 
@@ -25,23 +29,28 @@ static int mygetpwuid_r(int uid, struct passwd *pwd,
 */
 import "C"
 
-func init() {
-	implemented = true
+// Current returns the current user. 
+func Current() (*User, error) {
+	return lookup(syscall.Getuid(), "", false)
 }
 
 // Lookup looks up a user by username. If the user cannot be found,
 // the returned error is of type UnknownUserError.
-func Lookup(username string) (*User, os.Error) {
+func Lookup(username string) (*User, error) {
 	return lookup(-1, username, true)
 }
 
 // LookupId looks up a user by userid. If the user cannot be found,
 // the returned error is of type UnknownUserIdError.
-func LookupId(uid int) (*User, os.Error) {
-	return lookup(uid, "", false)
+func LookupId(uid string) (*User, error) {
+	i, e := strconv.Atoi(uid)
+	if e != nil {
+		return nil, e
+	}
+	return lookup(i, "", false)
 }
 
-func lookup(uid int, username string, lookupByName bool) (*User, os.Error) {
+func lookup(uid int, username string, lookupByName bool) (*User, error) {
 	var pwd C.struct_passwd
 	var result *C.struct_passwd
 
@@ -69,7 +78,7 @@ func lookup(uid int, username string, lookupByName bool) (*User, os.Error) {
 			C.size_t(bufSize),
 			&result)
 		if rv != 0 {
-			return nil, fmt.Errorf("user: lookup username %s: %s", username, os.Errno(rv))
+			return nil, fmt.Errorf("user: lookup username %s: %s", username, syscall.Errno(rv))
 		}
 		if result == nil {
 			return nil, UnknownUserError(username)
@@ -84,15 +93,15 @@ func lookup(uid int, username string, lookupByName bool) (*User, os.Error) {
 			C.size_t(bufSize),
 			&result)
 		if rv != 0 {
-			return nil, fmt.Errorf("user: lookup userid %d: %s", uid, os.Errno(rv))
+			return nil, fmt.Errorf("user: lookup userid %d: %s", uid, syscall.Errno(rv))
 		}
 		if result == nil {
 			return nil, UnknownUserIdError(uid)
 		}
 	}
 	u := &User{
-		Uid:      int(pwd.pw_uid),
-		Gid:      int(pwd.pw_gid),
+		Uid:      strconv.Itoa(int(pwd.pw_uid)),
+		Gid:      strconv.Itoa(int(pwd.pw_gid)),
 		Username: C.GoString(pwd.pw_name),
 		Name:     C.GoString(pwd.pw_gecos),
 		HomeDir:  C.GoString(pwd.pw_dir),

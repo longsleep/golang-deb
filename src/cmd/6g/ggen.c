@@ -4,6 +4,8 @@
 
 #undef	EXTERN
 #define	EXTERN
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 #include "opt.h"
 
@@ -24,10 +26,10 @@ markautoused(Prog* p)
 {
 	for (; p; p = p->link) {
 		if (p->from.type == D_AUTO && p->from.node)
-			p->from.node->used++;
+			p->from.node->used = 1;
 
 		if (p->to.type == D_AUTO && p->to.node)
-			p->to.node->used++;
+			p->to.node->used = 1;
 	}
 }
 
@@ -446,8 +448,8 @@ dodiv(int op, Node *nl, Node *nr, Node *res)
 {
 	int a, check;
 	Node n3, n4, n5;
-	Type *t;
-	Node ax, dx, oldax, olddx;
+	Type *t, *t0;
+	Node ax, dx, ax1, n31, oldax, olddx;
 	Prog *p1, *p2, *p3;
 
 	// Have to be careful about handling
@@ -459,6 +461,7 @@ dodiv(int op, Node *nl, Node *nr, Node *res)
 	// For int32 and int64, use explicit test.
 	// Could use int64 hw for int32.
 	t = nl->type;
+	t0 = t;
 	check = 0;
 	if(issigned[t->etype]) {
 		check = 1;
@@ -476,18 +479,28 @@ dodiv(int op, Node *nl, Node *nr, Node *res)
 	}
 	a = optoas(op, t);
 
-	regalloc(&n3, t, N);
+	regalloc(&n3, t0, N);
 	if(nl->ullman >= nr->ullman) {
-		savex(D_AX, &ax, &oldax, res, t);
+		savex(D_AX, &ax, &oldax, res, t0);
 		cgen(nl, &ax);
-		regalloc(&ax, t, &ax);	// mark ax live during cgen
+		regalloc(&ax, t0, &ax);	// mark ax live during cgen
 		cgen(nr, &n3);
 		regfree(&ax);
 	} else {
 		cgen(nr, &n3);
-		savex(D_AX, &ax, &oldax, res, t);
+		savex(D_AX, &ax, &oldax, res, t0);
 		cgen(nl, &ax);
 	}
+	if(t != t0) {
+		// Convert
+		ax1 = ax;
+		n31 = n3;
+		ax.type = t;
+		n3.type = t;
+		gmove(&ax1, &ax);
+		gmove(&n31, &n3);
+	}
+
 	p3 = P;
 	if(check) {
 		nodconst(&n4, t, -1);

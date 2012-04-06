@@ -260,6 +260,7 @@ uchar	yloop[] =
 uchar	ycall[] =
 {
 	Ynone,	Yml,	Zo_m,	2,
+	Ynone,	Ycol,	Zcallind,	2,
 	Ynone,	Ybr,	Zcall,	0,
 	Ynone,	Yi32,	Zcallcon,	1,
 	0
@@ -383,7 +384,7 @@ Optab optab[] =
 	{ ABTSL,	yml_rl,	Pm, 0xab },
 	{ ABTSW,	yml_rl,	Pq, 0xab },
 	{ ABYTE,	ybyte,	Px, 1 },
-	{ ACALL,	ycall,	Px, 0xff,(02),0xe8 },
+	{ ACALL,	ycall,	Px, 0xff,(02),0xff,(0x15),0xe8 },
 	{ ACLC,		ynone,	Px, 0xf8 },
 	{ ACLD,		ynone,	Px, 0xfc },
 	{ ACLI,		ynone,	Px, 0xfa },
@@ -430,7 +431,8 @@ Optab optab[] =
 	{ AIRETW,	ynone,	Pe, 0xcf },
 	{ AJCC,		yjcond,	Px, 0x73,0x83,(00) },
 	{ AJCS,		yjcond,	Px, 0x72,0x82 },
-	{ AJCXZ,	yloop,	Px, 0xe3 },
+	{ AJCXZL,	yloop,	Px, 0xe3 },
+	{ AJCXZW,	yloop,	Px, 0xe3 },
 	{ AJEQ,		yjcond,	Px, 0x74,0x84 },
 	{ AJGE,		yjcond,	Px, 0x7d,0x8d },
 	{ AJGT,		yjcond,	Px, 0x7f,0x8f },
@@ -705,6 +707,8 @@ Optab optab[] =
 	{ ACMPXCHGW,	yrl_ml,	Pm, 0xb1 },
 	{ ACMPXCHG8B,	yscond,	Pm, 0xc7,(01) },
 
+	{ ARDTSC,	ynone,	Pm, 0x31 },
+
 	{ AXADDB,	yrb_mb,	Pb, 0x0f,0xc0 },
 	{ AXADDL,	yrl_ml,	Pm, 0xc1 },
 	{ AXADDW,	yrl_ml,	Pe, 0x0f,0xc1 },
@@ -750,6 +754,12 @@ Optab optab[] =
 	{ AFCMOVNE,	yfcmv,	Px, 0xdb,(01) },
 	{ AFCMOVNU,	yfcmv,	Px, 0xdb,(03) },
 	{ AFCMOVUN,	yfcmv,	Px, 0xda,(03) },
+
+	{ ALFENCE, ynone, Pm, 0xae,0xe8 },
+	{ AMFENCE, ynone, Pm, 0xae,0xf0 },
+	{ ASFENCE, ynone, Pm, 0xae,0xf8 },
+
+	{ AEMMS, ynone, Pm, 0x77 },
 
 	0
 };

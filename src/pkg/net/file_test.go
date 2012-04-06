@@ -8,27 +8,27 @@ import (
 	"os"
 	"reflect"
 	"runtime"
-	"syscall"
 	"testing"
 )
 
 type listenerFile interface {
 	Listener
-	File() (f *os.File, err os.Error)
+	File() (f *os.File, err error)
 }
 
 type packetConnFile interface {
 	PacketConn
-	File() (f *os.File, err os.Error)
+	File() (f *os.File, err error)
 }
 
 type connFile interface {
 	Conn
-	File() (f *os.File, err os.Error)
+	File() (f *os.File, err error)
 }
 
 func testFileListener(t *testing.T, net, laddr string) {
-	if net == "tcp" {
+	switch net {
+	case "tcp", "tcp4", "tcp6":
 		laddr += ":0" // any available port
 	}
 	l, err := Listen(net, laddr)
@@ -56,24 +56,56 @@ func testFileListener(t *testing.T, net, laddr string) {
 	}
 }
 
+var fileListenerTests = []struct {
+	net   string
+	laddr string
+	ipv6  bool // test with underlying AF_INET6 socket
+	linux bool // test with abstract unix domain socket, a Linux-ism
+}{
+	{net: "tcp", laddr: ""},
+	{net: "tcp", laddr: "0.0.0.0"},
+	{net: "tcp", laddr: "[::ffff:0.0.0.0]"},
+	{net: "tcp", laddr: "[::]", ipv6: true},
+
+	{net: "tcp", laddr: "127.0.0.1"},
+	{net: "tcp", laddr: "[::ffff:127.0.0.1]"},
+	{net: "tcp", laddr: "[::1]", ipv6: true},
+
+	{net: "tcp4", laddr: ""},
+	{net: "tcp4", laddr: "0.0.0.0"},
+	{net: "tcp4", laddr: "[::ffff:0.0.0.0]"},
+
+	{net: "tcp4", laddr: "127.0.0.1"},
+	{net: "tcp4", laddr: "[::ffff:127.0.0.1]"},
+
+	{net: "tcp6", laddr: "", ipv6: true},
+	{net: "tcp6", laddr: "[::]", ipv6: true},
+
+	{net: "tcp6", laddr: "[::1]", ipv6: true},
+
+	{net: "unix", laddr: "@gotest/net", linux: true},
+	{net: "unixpacket", laddr: "@gotest/net", linux: true},
+}
+
 func TestFileListener(t *testing.T) {
-	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+	switch runtime.GOOS {
+	case "plan9", "windows":
+		t.Logf("skipping test on %q", runtime.GOOS)
 		return
 	}
-	testFileListener(t, "tcp", "127.0.0.1")
-	testFileListener(t, "tcp", "127.0.0.1")
-	if supportsIPv6 && supportsIPv4map {
-		testFileListener(t, "tcp", "[::ffff:127.0.0.1]")
-		testFileListener(t, "tcp", "127.0.0.1")
-		testFileListener(t, "tcp", "[::ffff:127.0.0.1]")
-	}
-	if syscall.OS == "linux" {
-		testFileListener(t, "unix", "@gotest/net")
-		testFileListener(t, "unixpacket", "@gotest/net")
+
+	for _, tt := range fileListenerTests {
+		if skipServerTest(tt.net, "unix", tt.laddr, tt.ipv6, false, tt.linux) {
+			continue
+		}
+		if skipServerTest(tt.net, "unixpacket", tt.laddr, tt.ipv6, false, tt.linux) {
+			continue
+		}
+		testFileListener(t, tt.net, tt.laddr)
 	}
 }
 
-func testFilePacketConn(t *testing.T, pcf packetConnFile) {
+func testFilePacketConn(t *testing.T, pcf packetConnFile, listen bool) {
 	f, err := pcf.File()
 	if err != nil {
 		t.Fatalf("File failed: %v", err)
@@ -85,6 +117,11 @@ func testFilePacketConn(t *testing.T, pcf packetConnFile) {
 	if !reflect.DeepEqual(pcf.LocalAddr(), c.LocalAddr()) {
 		t.Fatalf("LocalAddrs not equal: %#v != %#v", pcf.LocalAddr(), c.LocalAddr())
 	}
+	if listen {
+		if _, err := c.WriteTo([]byte{}, c.LocalAddr()); err != nil {
+			t.Fatalf("WriteTo failed: %v", err)
+		}
+	}
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
@@ -94,40 +131,71 @@ func testFilePacketConn(t *testing.T, pcf packetConnFile) {
 }
 
 func testFilePacketConnListen(t *testing.T, net, laddr string) {
+	switch net {
+	case "udp", "udp4", "udp6":
+		laddr += ":0" // any available port
+	}
 	l, err := ListenPacket(net, laddr)
 	if err != nil {
-		t.Fatalf("Listen failed: %v", err)
+		t.Fatalf("ListenPacket failed: %v", err)
 	}
-	testFilePacketConn(t, l.(packetConnFile))
+	testFilePacketConn(t, l.(packetConnFile), true)
 	if err := l.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
 }
 
 func testFilePacketConnDial(t *testing.T, net, raddr string) {
+	switch net {
+	case "udp", "udp4", "udp6":
+		raddr += ":12345"
+	}
 	c, err := Dial(net, raddr)
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
-	testFilePacketConn(t, c.(packetConnFile))
+	testFilePacketConn(t, c.(packetConnFile), false)
 	if err := c.Close(); err != nil {
 		t.Fatalf("Close failed: %v", err)
 	}
 }
 
+var filePacketConnTests = []struct {
+	net   string
+	addr  string
+	ipv6  bool // test with underlying AF_INET6 socket
+	linux bool // test with abstract unix domain socket, a Linux-ism
+}{
+	{net: "udp", addr: "127.0.0.1"},
+	{net: "udp", addr: "[::ffff:127.0.0.1]"},
+	{net: "udp", addr: "[::1]", ipv6: true},
+
+	{net: "udp4", addr: "127.0.0.1"},
+	{net: "udp4", addr: "[::ffff:127.0.0.1]"},
+
+	{net: "udp6", addr: "[::1]", ipv6: true},
+
+	{net: "unixgram", addr: "@gotest3/net", linux: true},
+}
+
 func TestFilePacketConn(t *testing.T) {
-	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+	switch runtime.GOOS {
+	case "plan9", "windows":
+		t.Logf("skipping test on %q", runtime.GOOS)
 		return
 	}
-	testFilePacketConnListen(t, "udp", "127.0.0.1:0")
-	testFilePacketConnDial(t, "udp", "127.0.0.1:12345")
-	if supportsIPv6 {
-		testFilePacketConnListen(t, "udp", "[::1]:0")
-	}
-	if supportsIPv6 && supportsIPv4map {
-		testFilePacketConnDial(t, "udp", "[::ffff:127.0.0.1]:12345")
-	}
-	if syscall.OS == "linux" {
-		testFilePacketConnListen(t, "unixgram", "@gotest1/net")
+
+	for _, tt := range filePacketConnTests {
+		if skipServerTest(tt.net, "unixgram", tt.addr, tt.ipv6, false, tt.linux) {
+			continue
+		}
+		testFilePacketConnListen(t, tt.net, tt.addr)
+		switch tt.addr {
+		case "", "0.0.0.0", "[::ffff:0.0.0.0]", "[::]":
+		default:
+			if tt.net != "unixgram" {
+				testFilePacketConnDial(t, tt.net, tt.addr)
+			}
+		}
 	}
 }

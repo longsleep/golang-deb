@@ -1,4 +1,4 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -6,8 +6,8 @@
 
 package main
 
-// check for correct heap-moving of escaped variables.
-// it is hard to check for the allocations, but it is easy
+// Test for correct heap-moving of escaped variables.
+// It is hard to check for the allocations, but it is easy
 // to check that if you call the function twice at the
 // same stack level, the pointers returned should be
 // different.

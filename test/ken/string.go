@@ -1,9 +1,10 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// cmpout
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Test string operations including printing.
 
 package main
 
@@ -71,16 +72,14 @@ func main() {
 	/* create string with integer constant */
 	c = string('x')
 	if c != "x" {
-		print("create int ", c)
-		panic("fail")
+		panic("create int " + c)
 	}
 
 	/* create string with integer variable */
 	v := 'x'
 	c = string(v)
 	if c != "x" {
-		print("create int ", c)
-		panic("fail")
+		panic("create int " + c)
 	}
 
 	/* create string with byte array */
@@ -90,19 +89,17 @@ func main() {
 	z1[2] = 'c'
 	c = string(z1[0:])
 	if c != "abc" {
-		print("create byte array ", c)
-		panic("fail")
+		panic("create byte array " + c)
 	}
 
 	/* create string with int array */
-	var z2 [3]int
+	var z2 [3]rune
 	z2[0] = 'a'
 	z2[1] = '\u1234'
 	z2[2] = 'c'
 	c = string(z2[0:])
 	if c != "a\u1234c" {
-		print("create int array ", c)
-		panic("fail")
+		panic("create int array " + c)
 	}
 
 	/* create string with byte array pointer */
@@ -112,7 +109,6 @@ func main() {
 	z3[2] = 'c'
 	c = string(z3[0:])
 	if c != "abc" {
-		print("create array pointer ", c)
-		panic("fail")
+		panic("create array pointer " + c)
 	}
 }

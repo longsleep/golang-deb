@@ -7,7 +7,6 @@ package gzip
 import (
 	"bytes"
 	"io"
-	"os"
 	"testing"
 )
 
@@ -16,7 +15,7 @@ type gunzipTest struct {
 	desc string
 	raw  string
 	gzip []byte
-	err  os.Error
+	err  error
 }
 
 var gunzipTests = []gunzipTest{
@@ -233,7 +232,7 @@ var gunzipTests = []gunzipTest{
 			0x02, 0x00, 0x2d, 0x3b, 0x08, 0xaf, 0x0c, 0x00,
 			0x00, 0x00, 'g', 'a', 'r', 'b', 'a', 'g', 'e', '!', '!', '!',
 		},
-		HeaderError,
+		ErrHeader,
 	},
 	{ // has 1 non-empty fixed huffman block not enough header
 		"hello.txt",
@@ -261,7 +260,7 @@ var gunzipTests = []gunzipTest{
 			0x02, 0x00, 0xff, 0xff, 0xff, 0xff, 0x0c, 0x00,
 			0x00, 0x00,
 		},
-		ChecksumError,
+		ErrChecksum,
 	},
 	{ // has 1 non-empty fixed huffman block but corrupt size
 		"hello.txt",
@@ -275,7 +274,7 @@ var gunzipTests = []gunzipTest{
 			0x02, 0x00, 0x2d, 0x3b, 0x08, 0xaf, 0xff, 0x00,
 			0x00, 0x00,
 		},
-		ChecksumError,
+		ErrChecksum,
 	},
 }
 

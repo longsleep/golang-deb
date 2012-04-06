@@ -6,14 +6,10 @@
 
 package net
 
-import (
-	"os"
-)
-
 var supportsIPv6, supportsIPv4map = probeIPv6Stack()
 
 func firstFavoriteAddr(filter func(IP) IP, addrs []string) (addr IP) {
-	if filter == anyaddr {
+	if filter == nil {
 		// We'll take any IP address, but since the dialing code
 		// does not yet try multiple addresses, prefer to use
 		// an IPv4 address if possible.  This is especially relevant
@@ -61,14 +57,14 @@ func ipv6only(x IP) IP {
 
 type InvalidAddrError string
 
-func (e InvalidAddrError) String() string  { return string(e) }
+func (e InvalidAddrError) Error() string   { return string(e) }
 func (e InvalidAddrError) Timeout() bool   { return false }
 func (e InvalidAddrError) Temporary() bool { return false }
 
 // SplitHostPort splits a network address of the form
 // "host:port" or "[host]:port" into host and port.
 // The latter form must be used when host contains a colon.
-func SplitHostPort(hostport string) (host, port string, err os.Error) {
+func SplitHostPort(hostport string) (host, port string, err error) {
 	// The port starts after the last colon.
 	i := last(hostport, ':')
 	if i < 0 {
@@ -102,22 +98,18 @@ func JoinHostPort(host, port string) string {
 }
 
 // Convert "host:port" into IP address and port.
-func hostPortToIP(net, hostport string) (ip IP, iport int, err os.Error) {
-	var (
-		addr IP
-		p, i int
-		ok   bool
-	)
+func hostPortToIP(net, hostport string) (ip IP, iport int, err error) {
 	host, port, err := SplitHostPort(hostport)
 	if err != nil {
-		goto Error
+		return nil, 0, err
 	}
 
+	var addr IP
 	if host != "" {
 		// Try as an IP address.
 		addr = ParseIP(host)
 		if addr == nil {
-			filter := anyaddr
+			var filter func(IP) IP
 			if net != "" && net[len(net)-1] == '4' {
 				filter = ipv4only
 			}
@@ -125,34 +117,29 @@ func hostPortToIP(net, hostport string) (ip IP, iport int, err os.Error) {
 				filter = ipv6only
 			}
 			// Not an IP address.  Try as a DNS name.
-			addrs, err1 := LookupHost(host)
-			if err1 != nil {
-				err = err1
-				goto Error
+			addrs, err := LookupHost(host)
+			if err != nil {
+				return nil, 0, err
 			}
 			addr = firstFavoriteAddr(filter, addrs)
 			if addr == nil {
 				// should not happen
-				err = &AddrError{"LookupHost returned no suitable address", addrs[0]}
-				goto Error
+				return nil, 0, &AddrError{"LookupHost returned no suitable address", addrs[0]}
 			}
 		}
 	}
 
-	p, i, ok = dtoi(port, 0)
+	p, i, ok := dtoi(port, 0)
 	if !ok || i != len(port) {
 		p, err = LookupPort(net, port)
 		if err != nil {
-			goto Error
+			return nil, 0, err
 		}
 	}
 	if p < 0 || p > 0xFFFF {
-		err = &AddrError{"invalid port", port}
-		goto Error
+		return nil, 0, &AddrError{"invalid port", port}
 	}
 
 	return addr, p, nil
 
-Error:
-	return nil, 0, err
 }

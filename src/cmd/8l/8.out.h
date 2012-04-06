@@ -34,6 +34,7 @@
 #define DUPOK	(1<<1)
 #define NOSPLIT	(1<<2)
 #define RODATA	(1<<3)
+#define NOPTR	(1<<4)
 
 enum	as
 {
@@ -115,7 +116,8 @@ enum	as
 	AIRETW,
 	AJCC,
 	AJCS,
-	AJCXZ,
+	AJCXZL,
+	AJCXZW,
 	AJEQ,
 	AJGE,
 	AJGT,
@@ -394,7 +396,9 @@ enum	as
 	ACMPXCHGL,
 	ACMPXCHGW,
 	ACMPXCHG8B,
-	
+
+	ARDTSC,
+
 	AXADDB,
 	AXADDL,
 	AXADDW,
@@ -441,6 +445,12 @@ enum	as
 	AFCMOVNE,
 	AFCMOVNU,
 	AFCMOVUN,
+
+	ALFENCE,
+	AMFENCE,
+	ASFENCE,
+
+	AEMMS,
 
 	ALAST
 };

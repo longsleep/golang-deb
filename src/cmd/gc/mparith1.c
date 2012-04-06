@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include	<u.h>
+#include	<libc.h>
 #include	"go.h"
 
 /// uses arithmetic
@@ -70,7 +72,7 @@ void
 mpsubfixfix(Mpint *a, Mpint *b)
 {
 	mpnegfix(a);
-	mpaddfixfix(a, b);
+	mpaddfixfix(a, b, 0);
 	mpnegfix(a);
 }
 
@@ -88,7 +90,7 @@ mpaddcfix(Mpint *a, vlong c)
 	Mpint b;
 
 	mpmovecfix(&b, c);
-	mpaddfixfix(a, &b);
+	mpaddfixfix(a, &b, 0);
 }
 
 void
@@ -300,7 +302,7 @@ mpatoflt(Mpflt *a, char *as)
 				if(c >= '0' && c <= '9') {
 					ex = ex*10 + (c-'0');
 					if(ex > 1e8) {
-						yyerror("exponent out of range");
+						yyerror("constant exponent out of range: %s", as);
 						errorexit();
 					}
 					continue;
@@ -341,7 +343,7 @@ out:
 	return;
 
 bad:
-	yyerror("set ovf in mpatof");
+	yyerror("constant too large: %s", as);
 	mpmovecflt(a, 0.0);
 }
 
@@ -429,7 +431,7 @@ out:
 	return;
 
 bad:
-	yyerror("set ovf in mpatov: %s", as);
+	yyerror("constant too large: %s", as);
 	mpmovecfix(a, 0);
 }
 

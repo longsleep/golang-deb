@@ -1,3 +1,0 @@
-enum {
-	thechar = '6'
-};

@@ -25,6 +25,9 @@ my $cmdline = "mksyscall.pl " . join(' ', @ARGV);
 my $errors = 0;
 my $_32bit = "";
 my $plan9 = 0;
+my $openbsd = 0;
+my $netbsd = 0;
+my $arm = 0; # 64-bit value should use (even, odd)-pair
 
 if($ARGV[0] eq "-b32") {
 	$_32bit = "big-endian";
@@ -35,6 +38,18 @@ if($ARGV[0] eq "-b32") {
 }
 if($ARGV[0] eq "-plan9") {
 	$plan9 = 1;
+	shift;
+}
+if($ARGV[0] eq "-openbsd") {
+	$openbsd = 1;
+	shift;
+}
+if($ARGV[0] eq "-netbsd") {
+	$netbsd = 1;
+	shift;
+}
+if($ARGV[0] eq "-arm") {
+	$arm = 1;
 	shift;
 }
 
@@ -73,7 +88,7 @@ while(<>) {
 	next if !/^\/\/sys / && !$nonblock;
 
 	# Line must be of the form
-	#	func Open(path string, mode int, perm int) (fd int, errno int)
+	#	func Open(path string, mode int, perm int) (fd int, errno error)
 	# Split into name, in params, out params.
 	if(!/^\/\/sys(nb)? (\w+)\(([^()]*)\)\s*(?:\(([^()]+)\))?\s*(?:=\s*(SYS_[A-Z0-9_]+))?$/) {
 		print STDERR "$ARGV:$.: malformed //sys declaration\n";
@@ -115,7 +130,21 @@ while(<>) {
 			$text .= "\n";
 			push @args, "uintptr(_p$n)", "uintptr(len($name))";
 			$n++;
+		} elsif($type eq "int64" && ($openbsd || $netbsd)) {
+			push @args, "0";
+			if($_32bit eq "big-endian") {
+				push @args, "uintptr($name>>32)", "uintptr($name)";
+			} elsif($_32bit eq "little-endian") {
+				push @args, "uintptr($name)", "uintptr($name>>32)";
+			} else {
+				push @args, "uintptr($name)";
+			}
 		} elsif($type eq "int64" && $_32bit ne "") {
+			if(@args % 2 && $arm) {
+				# arm abi specifies 64-bit argument uses 
+				# (even, odd) pair
+				push @args, "0"
+			}
 			if($_32bit eq "big-endian") {
 				push @args, "uintptr($name>>32)", "uintptr($name)";
 			} else {
@@ -163,15 +192,17 @@ while(<>) {
 	# Assign return values.
 	my $body = "";
 	my @ret = ("_", "_", "_");
+	my $do_errno = 0;
 	for(my $i=0; $i<@out; $i++) {
 		my $p = $out[$i];
 		my ($name, $type) = parseparam($p);
 		my $reg = "";
-		if($name eq "errno" && !$plan9) {
+		if($name eq "err" && !$plan9) {
 			$reg = "e1";
 			$ret[2] = $reg;
-		} elsif ($name eq "err" && $plan9) {
-			$ret[0] = "r0";			
+			$do_errno = 1;
+		} elsif($name eq "err" && $plan9) {
+			$ret[0] = "r0";
 			$ret[2] = "e1";
 			next;
 		} else {
@@ -194,7 +225,9 @@ while(<>) {
 			$ret[$i] = sprintf("r%d", $i);
 			$ret[$i+1] = sprintf("r%d", $i+1);
 		}
-		$body .= "\t$name = $type($reg)\n";
+		if($reg ne "e1" || $plan9) {
+			$body .= "\t$name = $type($reg)\n";
+		}
 	}
 	if ($ret[0] eq "_" && $ret[1] eq "_" && $ret[2] eq "_") {
 		$text .= "\t$call\n";
@@ -204,12 +237,14 @@ while(<>) {
 	$text .= $body;
 	
 	if ($plan9 && $ret[2] eq "e1") {
-		$text .= "\terr = nil\n";
 		$text .= "\tif int(r0) == -1 {\n";
-		$text .= "\t\terr = NewError(e1)\n";
+		$text .= "\t\terr = e1\n";
+		$text .= "\t}\n";
+	} elsif ($do_errno) {
+		$text .= "\tif e1 != 0 {\n";
+		$text .= "\t\terr = e1\n";
 		$text .= "\t}\n";
 	}
-
 	$text .= "\treturn\n";
 	$text .= "}\n\n";
 }

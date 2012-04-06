@@ -6,7 +6,8 @@
 
 Cgo enables the creation of Go packages that call C code.
 
-Usage: cgo [compiler options] file.go
+Usage:
+	go tool cgo [compiler options] file.go
 
 The compiler options are passed through uninterpreted when
 invoking gcc to compile the C parts of the package.
@@ -16,8 +17,8 @@ the pseudo-package "C" and then refers to types such as C.size_t,
 variables such as C.stdout, or functions such as C.putchar.
 
 If the import of "C" is immediately preceded by a comment, that
-comment is used as a header when compiling the C parts of
-the package.  For example:
+comment, called the preamble, is used as a header when compiling
+the C parts of the package.  For example:
 
 	// #include <stdio.h>
 	// #include <errno.h>
@@ -43,6 +44,11 @@ For example:
 	// #include <png.h>
 	import "C"
 
+The CGO_CFLAGS and CGO_LDFLAGS environment variables are added
+to the flags derived from these directives.  Package-specific flags should
+be set using the directives, not the environment variables, so that builds
+work in unmodified environments.
+
 Within the Go file, C identifiers or field names that are keywords in Go
 can be accessed by prefixing them with an underscore: if x points at a C
 struct with a field named "type", x._type accesses the field.
@@ -57,9 +63,11 @@ The C type void* is represented by Go's unsafe.Pointer.
 To access a struct, union, or enum type directly, prefix it with
 struct_, union_, or enum_, as in C.struct_stat.
 
+Go structs cannot embed fields with C types.
+
 Any C function that returns a value may be called in a multiple
 assignment context to retrieve both the return value and the
-C errno variable as an os.Error.  For example:
+C errno variable as an error.  For example:
 
 	n, err := C.atoi("abc")
 
@@ -73,6 +81,9 @@ A few special functions convert between Go and C types
 by making copies of the data.  In pseudo-Go definitions:
 
 	// Go string to C string
+	// The C string is allocated in the C heap using malloc.
+	// It is the caller's responsibility to arrange for it to be
+	// freed, such as by calling C.free.
 	func C.CString(string) *C.char
 
 	// C string to Go string
@@ -84,16 +95,34 @@ by making copies of the data.  In pseudo-Go definitions:
 	// C pointer, length to Go []byte
 	func C.GoBytes(unsafe.Pointer, C.int) []byte
 
+Go functions can be exported for use by C code in the following way:
+
+	//export MyFunction
+	func MyFunction(arg1, arg2 int, arg3 string) int64 {...}
+
+	//export MyFunction2
+	func MyFunction2(arg1, arg2 int, arg3 string) (int64, *C.char) {...}
+
+They will be available in the C code as:
+
+	extern int64 MyFunction(int arg1, int arg2, GoString arg3);
+	extern struct MyFunction2_return MyFunction2(int arg1, int arg2, GoString arg3);
+
+found in _cgo_export.h generated header, after any preambles
+copied from the cgo input files. Functions with multiple
+return values are mapped to functions returning a struct.
+Not all Go types can be mapped to C types in a useful way.
+
 Cgo transforms the input file into four output files: two Go source
 files, a C file for 6c (or 8c or 5c), and a C file for gcc.
 
-The standard package makefile rules in Make.pkg automate the
-process of using cgo.  See $GOROOT/misc/cgo/stdio and
-$GOROOT/misc/cgo/gmp for examples.
+The standard package construction rules of the go command
+automate the process of using cgo.  See $GOROOT/misc/cgo/stdio
+and $GOROOT/misc/cgo/gmp for examples.
 
 Cgo does not yet work with gccgo.
 
 See "C? Go? Cgo!" for an introduction to using cgo:
-http://blog.golang.org/2011/03/c-go-cgo.html
+http://golang.org/doc/articles/c_go_cgo.html
 */
 package documentation

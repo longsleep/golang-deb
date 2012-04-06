@@ -1,4 +1,4 @@
-// errchk $G $D/$F.go
+// errorcheck
 
 // Copyright 2011 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -12,11 +12,11 @@
 package main
 
 type S struct {
-	err os.Error  // ERROR "undefined"
+	err foo.Bar // ERROR "undefined|expected package"
 	Num int
 }
 
 func main() {
 	s := S{}
-	_ = s.Num  // no error here please
+	_ = s.Num // no error here please
 }

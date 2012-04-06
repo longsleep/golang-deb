@@ -1,3 +1,7 @@
+// Copyright 2010 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file
+
 package main
 
 import (
@@ -80,7 +84,7 @@ func main() {
 		case 2:
 			i = 3.14
 		}
-		switch k := i.(type) {
+		switch i.(type) {
 		case p0.T:
 			if j != 0 {
 				println("type switch p0.T")

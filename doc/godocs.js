@@ -18,13 +18,6 @@ function bindEvent(el, e, fn) {
     el.attachEvent('on'+e, fn);
   }
 }
-bindEvent(window, 'load', godocs_onload);
-
-function godocs_onload() {
-  godocs_bindSearchEvents();
-  godocs_generateTOC();
-  godocs_addTopLinks();
-}
 
 function godocs_bindSearchEvents() {
   var search = document.getElementById('search');
@@ -39,7 +32,7 @@ function godocs_bindSearchEvents() {
     }
   }
   function restoreInactive() {
-    if (search.value != "") {
+    if (search.value !== "") {
       return;
     }
     if (search.type != "search") {
@@ -52,56 +45,72 @@ function godocs_bindSearchEvents() {
   bindEvent(search, 'blur', restoreInactive);
 }
 
+/* Returns the "This sweet header" from <h2>This <i>sweet</i> header</h2>.
+ * Takes a node, returns a string.
+ */
+function godocs_nodeToText(node) {
+  var TEXT_NODE = 3; // Defined in Mozilla but not MSIE :(
+
+  var text = '';
+  for (var j = 0; j != node.childNodes.length; j++) {
+    var child = node.childNodes[j];
+    if (child.nodeType == TEXT_NODE) {
+      if (child.nodeValue != '[Top]') { //ok, that's a hack, but it works.
+        text = text + child.nodeValue;
+      }
+    } else {
+      text = text + godocs_nodeToText(child);
+    }
+  }
+  return text;
+}
+
 /* Generates a table of contents: looks for h2 and h3 elements and generates
  * links.  "Decorates" the element with id=="nav" with this table of contents.
  */
 function godocs_generateTOC() {
+  if (document.getElementById('manual-nav')) { return; }
   var navbar = document.getElementById('nav');
   if (!navbar) { return; }
 
   var toc_items = [];
 
   var i;
+  var seenNav = false;
   for (i = 0; i < navbar.parentNode.childNodes.length; i++) {
     var node = navbar.parentNode.childNodes[i];
+    if (!seenNav) { 
+      if (node.id == 'nav') {
+        seenNav = true;
+      }
+      continue;
+    }
+    if ((node.tagName != 'h2') && (node.tagName != 'H2') &&
+        (node.tagName != 'h3') && (node.tagName != 'H3')) {
+      continue;
+    }
+    if (!node.id) {
+      node.id = 'tmp_' + i;
+    }
+    var text = godocs_nodeToText(node);
+    if (!text) { continue; }
+
+    var textNode = document.createTextNode(text);
+
+    var link = document.createElement('a');
+    link.href = '#' + node.id;
+    link.appendChild(textNode);
+
+    // Then create the item itself
+    var item;
     if ((node.tagName == 'h2') || (node.tagName == 'H2')) {
-      if (!node.id) {
-        node.id = 'tmp_' + i;
-      }
-      var text = godocs_nodeToText(node);
-      if (!text) { continue; }
-
-      var textNode = document.createTextNode(text);
-
-      var link = document.createElement('a');
-      link.href = '#' + node.id;
-      link.appendChild(textNode);
-
-      // Then create the item itself
-      var item = document.createElement('dt');
-
-      item.appendChild(link);
-      toc_items.push(item);
+      item = document.createElement('dt');
+    } else { // h3
+      item = document.createElement('dd');
     }
-    if ((node.tagName == 'h3') || (node.tagName == 'H3')) {
-      if (!node.id) {
-        node.id = 'tmp_' + i;
-      }
-      var text = godocs_nodeToText(node);
-      if (!text) { continue; }
 
-      var textNode = document.createTextNode(text);
-
-      var link = document.createElement('a');
-      link.href = '#' + node.id;
-      link.appendChild(textNode);
-
-      // Then create the item itself
-      var item = document.createElement('dd');
-
-      item.appendChild(link);
-      toc_items.push(item);
-    }
+    item.appendChild(link);
+    toc_items.push(item);
   }
 
   if (toc_items.length <= 1) { return; }
@@ -142,49 +151,63 @@ function godocs_generateTOC() {
   tocCell.appendChild(dl2);
 }
 
-/* Returns the "This sweet header" from <h2>This <i>sweet</i> header</h2>.
- * Takes a node, returns a string.
- */
-function godocs_nodeToText(node) {
-  var TEXT_NODE = 3; // Defined in Mozilla but not MSIE :(
-
-  var text = '';
-  for (var j = 0; j != node.childNodes.length; j++) {
-    var child = node.childNodes[j];
-    if (child.nodeType == TEXT_NODE) {
-      if (child.nodeValue != '[Top]') { //ok, that's a hack, but it works.
-        text = text + child.nodeValue;
-      }
-    } else {
-      text = text + godocs_nodeToText(child);
+function getElementsByClassName(base, clazz) {
+  if (base.getElementsByClassName) {
+    return base.getElementsByClassName(clazz);
+  }
+  var elements = base.getElementsByTagName('*'), foundElements = [];
+  for (var n in elements) {
+    if (clazz == elements[n].className) {
+      foundElements.push(elements[n]);
     }
   }
-  return text;
+  return foundElements;
 }
 
-/* For each H2 heading, add a link up to the #top of the document.
- * (As part of this: ensure existence of 'top' named anchor link
- * (theoretically at doc's top).)
- */
-function godocs_addTopLinks() {
-  /* Make sure there's a "top" to link to. */
-  var top = document.getElementById('top');
-  if (!top) {
-    document.body.id = 'top';
-  }
-
-  if (!document.getElementsByTagName) return; // no browser support
-
-  var headers = document.getElementsByTagName('h2');
-
-  for (var i = 0; i < headers.length; i++) {
-    var span = document.createElement('span');
-    span.className = 'navtop';
-    var link = document.createElement('a');
-    span.appendChild(link);
-    link.href = '#top';
-    var textNode = document.createTextNode('[Top]');
-    link.appendChild(textNode);
-    headers[i].appendChild(span);
+function godocs_bindToggle(el) {
+  var button = getElementsByClassName(el, "toggleButton");
+  var callback = function() {
+    if (el.className == "toggle") {
+      el.className = "toggleVisible";
+    } else {
+      el.className = "toggle";
+    }
+  };
+  for (var i = 0; i < button.length; i++) {
+    bindEvent(button[i], "click", callback);
   }
 }
+function godocs_bindToggles(className) {
+  var els = getElementsByClassName(document, className);
+  for (var i = 0; i < els.length; i++) {
+    godocs_bindToggle(els[i]);
+  }
+}
+function godocs_bindToggleLink(l, prefix) {
+  bindEvent(l, "click", function() {
+    var i = l.href.indexOf("#"+prefix);
+    if (i < 0) {
+      return;
+    }
+    var id = prefix + l.href.slice(i+1+prefix.length);
+    var eg = document.getElementById(id);
+    eg.className = "toggleVisible";
+  });
+}
+function godocs_bindToggleLinks(className, prefix) {
+  var links = getElementsByClassName(document, className);
+  for (i = 0; i < links.length; i++) {
+    godocs_bindToggleLink(links[i], prefix);
+  }
+}
+
+function godocs_onload() {
+  godocs_bindSearchEvents();
+  godocs_generateTOC();
+  godocs_bindToggles("toggle");
+  godocs_bindToggles("toggleVisible");
+  godocs_bindToggleLinks("exampleLink", "example_");
+  godocs_bindToggleLinks("overviewLink", "");
+}
+
+bindEvent(window, 'load', godocs_onload);

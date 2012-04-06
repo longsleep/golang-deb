@@ -28,9 +28,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
-#undef	EXTERN
-#define	EXTERN
 #include "opt.h"
 
 #define	NREGVAR	32	/* 16 general + 16 floating */
@@ -89,8 +89,8 @@ setoutvar(void)
 			ovar.b[z] |= bit.b[z];
 		t = structnext(&save);
 	}
-//if(bany(b))
-//print("ovars = %Q\n", &ovar);
+//if(bany(&ovar))
+//print("ovars = %Q\n", ovar);
 }
 
 static void
@@ -98,19 +98,19 @@ setaddrs(Bits bit)
 {
 	int i, n;
 	Var *v;
-	Sym *s;
+	Node *node;
 
 	while(bany(&bit)) {
 		// convert each bit to a variable
 		i = bnum(bit);
-		s = var[i].sym;
+		node = var[i].node;
 		n = var[i].name;
 		bit.b[i/32] &= ~(1L<<(i%32));
 
 		// disable all pieces of that variable
 		for(i=0; i<nvar; i++) {
 			v = var+i;
-			if(v->sym == s && v->name == n)
+			if(v->node == node && v->name == n)
 				v->addr = 2;
 		}
 	}
@@ -151,6 +151,8 @@ static char* regname[] = {
 	".X15",
 };
 
+static void fixjmp(Prog*);
+
 void
 regopt(Prog *firstp)
 {
@@ -166,6 +168,8 @@ regopt(Prog *firstp)
 		first = 0;
 	}
 
+	fixjmp(firstp);
+
 	// count instructions
 	nr = 0;
 	for(p=firstp; p!=P; p=p->link)
@@ -179,7 +183,6 @@ regopt(Prog *firstp)
 	r1 = R;
 	firstr = R;
 	lastr = R;
-	nvar = 0;
 
 	/*
 	 * control flow is more complicated in generated go code
@@ -189,7 +192,7 @@ regopt(Prog *firstp)
 	nvar = NREGVAR;
 	memset(var, 0, NREGVAR*sizeof var[0]);
 	for(i=0; i<NREGVAR; i++)
-		var[i].sym = lookup(regname[i]);
+		var[i].node = newname(lookup(regname[i]));
 
 	regbits = RtoB(D_SP);
 	for(z=0; z<BITS; z++) {
@@ -801,9 +804,9 @@ brk:
 		if(ostats.ndelmov)
 			print("	%4d delmov\n", ostats.ndelmov);
 		if(ostats.nvar)
-			print("	%4d delmov\n", ostats.nvar);
+			print("	%4d var\n", ostats.nvar);
 		if(ostats.naddr)
-			print("	%4d delmov\n", ostats.naddr);
+			print("	%4d addr\n", ostats.naddr);
 
 		memset(&ostats, 0, sizeof(ostats));
 	}
@@ -832,12 +835,12 @@ addmove(Reg *r, int bn, int rn, int f)
 	v = var + bn;
 
 	a = &p1->to;
-	a->sym = v->sym;
 	a->offset = v->offset;
 	a->etype = v->etype;
 	a->type = v->name;
 	a->gotype = v->gotype;
 	a->node = v->node;
+	a->sym = v->node->sym;
 
 	// need to clean this up with wptr and
 	// some of the defaults
@@ -933,7 +936,7 @@ mkvar(Reg *r, Adr *a)
 	uint32 regu;
 	int32 o;
 	Bits bit;
-	Sym *s;
+	Node *node;
 
 	/*
 	 * mark registers used
@@ -969,10 +972,14 @@ mkvar(Reg *r, Adr *a)
 		n = t;
 		break;
 	}
-	s = a->sym;
-	if(s == S)
+
+	node = a->node;
+	if(node == N || node->op != ONAME || node->orig == N)
 		goto none;
-	if(s->name[0] == '.')
+	node = node->orig;
+	if(node->orig != node)
+		fatal("%D: bad node", a);
+	if(node->sym == S || node->sym->name[0] == '.')
 		goto none;
 	et = a->etype;
 	o = a->offset;
@@ -981,7 +988,7 @@ mkvar(Reg *r, Adr *a)
 	flag = 0;
 	for(i=0; i<nvar; i++) {
 		v = var+i;
-		if(v->sym == s && v->name == n) {
+		if(v->node == node && v->name == n) {
 			if(v->offset == o)
 			if(v->etype == et)
 			if(v->width == w)
@@ -995,11 +1002,6 @@ mkvar(Reg *r, Adr *a)
 			}
 		}
 	}
-	if(a->pun) {
-//		print("disable pun %s\n", s->name);
-		flag = 1;
-
-	}
 	switch(et) {
 	case 0:
 	case TFUNC:
@@ -1007,25 +1009,24 @@ mkvar(Reg *r, Adr *a)
 	}
 
 	if(nvar >= NVAR) {
-		if(debug['w'] > 1 && s)
-			fatal("variable not optimized: %D", a);
+		if(debug['w'] > 1 && node != N)
+			fatal("variable not optimized: %#N", node);
 		goto none;
 	}
 
 	i = nvar;
 	nvar++;
 	v = var+i;
-	v->sym = s;
 	v->offset = o;
 	v->name = n;
 	v->gotype = a->gotype;
 	v->etype = et;
 	v->width = w;
 	v->addr = flag;		// funny punning
-	v->node = a->node;
+	v->node = node;
 
 	if(debug['R'])
-		print("bit=%2d et=%2d w=%d %S %D\n", i, et, w, s, a);
+		print("bit=%2d et=%2d w=%d %#N %D\n", i, et, w, node, a);
 	ostats.nvar++;
 
 	bit = blsh(i);
@@ -1083,6 +1084,13 @@ prop(Reg *r, Bits ref, Bits cal)
 				cal.b[z] = externs.b[z] | ovar.b[z];
 				ref.b[z] = 0;
 			}
+			break;
+
+		default:
+			// Work around for issue 1304:
+			// flush modified globals before each instruction.
+			for(z=0; z<BITS; z++)
+				cal.b[z] |= externs.b[z];
 			break;
 		}
 		for(z=0; z<BITS; z++) {
@@ -1220,10 +1228,12 @@ loopit(Reg *r, int32 nr)
 		r1 = rpo2r[i];
 		me = r1->rpo;
 		d = -1;
-		if(r1->p1 != R && r1->p1->rpo < me)
+		// rpo2r[r->rpo] == r protects against considering dead code,
+		// which has r->rpo == 0.
+		if(r1->p1 != R && rpo2r[r1->p1->rpo] == r1->p1 && r1->p1->rpo < me)
 			d = r1->p1->rpo;
 		for(r1 = r1->p2; r1 != nil; r1 = r1->p2link)
-			if(r1->rpo < me)
+			if(rpo2r[r1->rpo] == r1 && r1->rpo < me)
 				d = rpolca(idom, d, r1->rpo);
 		idom[i] = d;
 	}
@@ -1628,7 +1638,7 @@ dumpone(Reg *r)
 		if(bany(&r->refahead))
 			print(" ra:%Q ", r->refahead);
 		if(bany(&r->calbehind))
-			print("cb:%Q ", r->calbehind);
+			print(" cb:%Q ", r->calbehind);
 		if(bany(&r->calahead))
 			print(" ca:%Q ", r->calahead);
 		if(bany(&r->regdiff))
@@ -1687,4 +1697,124 @@ noreturn(Prog *p)
 		if(s == symlist[i])
 			return 1;
 	return 0;
+}
+
+/*
+ * the code generator depends on being able to write out JMP
+ * instructions that it can jump to now but fill in later.
+ * the linker will resolve them nicely, but they make the code
+ * longer and more difficult to follow during debugging.
+ * remove them.
+ */
+
+/* what instruction does a JMP to p eventually land on? */
+static Prog*
+chasejmp(Prog *p, int *jmploop)
+{
+	int n;
+
+	n = 0;
+	while(p != P && p->as == AJMP && p->to.type == D_BRANCH) {
+		if(++n > 10) {
+			*jmploop = 1;
+			break;
+		}
+		p = p->to.branch;
+	}
+	return p;
+}
+
+/*
+ * reuse reg pointer for mark/sweep state.
+ * leave reg==nil at end because alive==nil.
+ */
+#define alive ((void*)0)
+#define dead ((void*)1)
+
+/* mark all code reachable from firstp as alive */
+static void
+mark(Prog *firstp)
+{
+	Prog *p;
+	
+	for(p=firstp; p; p=p->link) {
+		if(p->reg != dead)
+			break;
+		p->reg = alive;
+		if(p->as != ACALL && p->to.type == D_BRANCH && p->to.branch)
+			mark(p->to.branch);
+		if(p->as == AJMP || p->as == ARET || (p->as == ACALL && noreturn(p)))
+			break;
+	}
+}
+
+static void
+fixjmp(Prog *firstp)
+{
+	int jmploop;
+	Prog *p, *last;
+	
+	if(debug['R'] && debug['v'])
+		print("\nfixjmp\n");
+
+	// pass 1: resolve jump to AJMP, mark all code as dead.
+	jmploop = 0;
+	for(p=firstp; p; p=p->link) {
+		if(debug['R'] && debug['v'])
+			print("%P\n", p);
+		if(p->as != ACALL && p->to.type == D_BRANCH && p->to.branch && p->to.branch->as == AJMP) {
+			p->to.branch = chasejmp(p->to.branch, &jmploop);
+			if(debug['R'] && debug['v'])
+				print("->%P\n", p);
+		}
+		p->reg = dead;
+	}
+	if(debug['R'] && debug['v'])
+		print("\n");
+
+	// pass 2: mark all reachable code alive
+	mark(firstp);
+	
+	// pass 3: delete dead code (mostly JMPs).
+	last = nil;
+	for(p=firstp; p; p=p->link) {
+		if(p->reg == dead) {
+			if(p->link == P && p->as == ARET && last && last->as != ARET) {
+				// This is the final ARET, and the code so far doesn't have one.
+				// Let it stay.
+			} else {
+				if(debug['R'] && debug['v'])
+					print("del %P\n", p);
+				continue;
+			}
+		}
+		if(last)
+			last->link = p;
+		last = p;
+	}
+	last->link = P;
+	
+	// pass 4: elide JMP to next instruction.
+	// only safe if there are no jumps to JMPs anymore.
+	if(!jmploop) {
+		last = nil;
+		for(p=firstp; p; p=p->link) {
+			if(p->as == AJMP && p->to.type == D_BRANCH && p->to.branch == p->link) {
+				if(debug['R'] && debug['v'])
+					print("del %P\n", p);
+				continue;
+			}
+			if(last)
+				last->link = p;
+			last = p;
+		}
+		last->link = P;
+	}
+	
+	if(debug['R'] && debug['v']) {
+		print("\n");
+		for(p=firstp; p; p=p->link)
+			print("%P\n", p);
+		print("\n");
+	}
 }

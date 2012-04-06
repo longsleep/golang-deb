@@ -5,16 +5,18 @@
 package main
 
 import (
-	"exec"
+	"bytes"
 	"flag"
-	"http"
-	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
-	"template"
+	"text/template"
 )
 
 var (
@@ -25,24 +27,10 @@ var (
 var (
 	// a source of numbers, for naming temporary files
 	uniq = make(chan int)
-	// the architecture-identifying character of the tool chain, 5, 6, or 8
-	archChar string
 )
 
 func main() {
 	flag.Parse()
-
-	// set archChar
-	switch runtime.GOARCH {
-	case "arm":
-		archChar = "5"
-	case "amd64":
-		archChar = "6"
-	case "386":
-		archChar = "8"
-	default:
-		log.Fatalln("unrecognized GOARCH:", runtime.GOARCH)
-	}
 
 	// source of unique numbers
 	go func() {
@@ -69,53 +57,13 @@ func FrontPage(w http.ResponseWriter, req *http.Request) {
 }
 
 // Compile is an HTTP handler that reads Go source code from the request,
-// compiles and links the code (returning any errors), runs the program, 
+// runs the program (returning any errors),
 // and sends the program's output as the HTTP response.
 func Compile(w http.ResponseWriter, req *http.Request) {
-	// x is the base name for .go, .6, executable files
-	x := os.TempDir() + "/compile" + strconv.Itoa(<-uniq)
-	src := x + ".go"
-	obj := x + "." + archChar
-	bin := x
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
-
-	// write request Body to x.go
-	f, err := os.Create(src)
+	out, err := compile(req)
 	if err != nil {
-		error(w, nil, err)
+		error_(w, out, err)
 		return
-	}
-	defer os.Remove(src)
-	defer f.Close()
-	_, err = io.Copy(f, req.Body)
-	if err != nil {
-		error(w, nil, err)
-		return
-	}
-	f.Close()
-
-	// build x.go, creating x.6
-	out, err := run(archChar+"g", "-o", obj, src)
-	defer os.Remove(obj)
-	if err != nil {
-		error(w, out, err)
-		return
-	}
-
-	// link x.6, creating x (the program binary)
-	out, err = run(archChar+"l", "-o", bin, obj)
-	defer os.Remove(bin)
-	if err != nil {
-		error(w, out, err)
-		return
-	}
-
-	// run x
-	out, err = run(bin)
-	if err != nil {
-		error(w, out, err)
 	}
 
 	// write the output of x as the http response
@@ -126,20 +74,80 @@ func Compile(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+var (
+	commentRe = regexp.MustCompile(`(?m)^#.*\n`)
+	tmpdir    string
+)
+
+func init() {
+	// find real temporary directory (for rewriting filename in output)
+	var err error
+	tmpdir, err = filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func compile(req *http.Request) (out []byte, err error) {
+	// x is the base name for .go, .6, executable files
+	x := filepath.Join(tmpdir, "compile"+strconv.Itoa(<-uniq))
+	src := x + ".go"
+	bin := x
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+
+	// rewrite filename in error output
+	defer func() {
+		if err != nil {
+			// drop messages from the go tool like '# _/compile0'
+			out = commentRe.ReplaceAll(out, nil)
+		}
+		out = bytes.Replace(out, []byte(src+":"), []byte("main.go:"), -1)
+	}()
+
+	// write body to x.go
+	body := new(bytes.Buffer)
+	if _, err = body.ReadFrom(req.Body); err != nil {
+		return
+	}
+	defer os.Remove(src)
+	if err = ioutil.WriteFile(src, body.Bytes(), 0666); err != nil {
+		return
+	}
+
+	// build x.go, creating x
+	dir, file := filepath.Split(src)
+	out, err = run(dir, "go", "build", "-o", bin, file)
+	defer os.Remove(bin)
+	if err != nil {
+		return
+	}
+
+	// run x
+	return run("", bin)
+}
+
 // error writes compile, link, or runtime errors to the HTTP connection.
 // The JavaScript interface uses the 404 status code to identify the error.
-func error(w http.ResponseWriter, out []byte, err os.Error) {
+func error_(w http.ResponseWriter, out []byte, err error) {
 	w.WriteHeader(404)
 	if out != nil {
 		output.Execute(w, out)
 	} else {
-		output.Execute(w, err.String())
+		output.Execute(w, err.Error())
 	}
 }
 
 // run executes the specified command and returns its output and an error.
-func run(cmd ...string) ([]byte, os.Error) {
-	return exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
+func run(dir string, args ...string) ([]byte, error) {
+	var buf bytes.Buffer
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = dir
+	cmd.Stdout = &buf
+	cmd.Stderr = cmd.Stdout
+	err := cmd.Run()
+	return buf.Bytes(), err
 }
 
 var frontPage = template.Must(template.New("frontPage").Parse(frontPageText)) // HTML template
@@ -201,17 +209,25 @@ function autoindent(el) {
 	}, 1);
 }
 
+function preventDefault(e) {
+	if (e.preventDefault) {
+		e.preventDefault();
+	} else {
+		e.cancelBubble = true;
+	}
+}
+
 function keyHandler(event) {
 	var e = window.event || event;
 	if (e.keyCode == 9) { // tab
 		insertTabs(1);
-		e.preventDefault();
+		preventDefault(e);
 		return false;
 	}
 	if (e.keyCode == 13) { // enter
 		if (e.shiftKey) { // +shift
 			compile(e.target);
-			e.preventDefault();
+			preventDefault(e);
 			return false;
 		} else {
 			autoindent(e.target);

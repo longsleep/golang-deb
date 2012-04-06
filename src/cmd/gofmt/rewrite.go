@@ -13,7 +13,7 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
-	"utf8"
+	"unicode/utf8"
 )
 
 func initRewrite() {
@@ -36,7 +36,7 @@ func initRewrite() {
 // but there are problems with preserving formatting and also
 // with what a wildcard for a statement looks like.
 func parseExpr(s string, what string) ast.Expr {
-	x, err := parser.ParseExpr(fset, "input", s)
+	x, err := parser.ParseExpr(s)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "parsing %s %s: %s\n", what, s, err)
 		os.Exit(2)
@@ -65,7 +65,7 @@ func rewriteFile(pattern, replace ast.Expr, p *ast.File) *ast.File {
 			return reflect.Value{}
 		}
 		for k := range m {
-			m[k] = reflect.Value{}, false
+			delete(m, k)
 		}
 		val = apply(f, val)
 		if match(m, pat, val) {
@@ -85,7 +85,8 @@ func setValue(x, y reflect.Value) {
 	}
 	defer func() {
 		if x := recover(); x != nil {
-			if s, ok := x.(string); ok && strings.HasPrefix(s, "type mismatch") {
+			if s, ok := x.(string); ok &&
+				(strings.Contains(s, "type mismatch") || strings.Contains(s, "not assignable")) {
 				// x cannot be set to y - ignore this rewrite
 				return
 			}
@@ -158,8 +159,8 @@ func match(m map[string]reflect.Value, pattern, val reflect.Value) bool {
 	if m != nil && pattern.IsValid() && pattern.Type() == identType {
 		name := pattern.Interface().(*ast.Ident).Name
 		if isWildcard(name) && val.IsValid() {
-			// wildcards only match expressions
-			if _, ok := val.Interface().(ast.Expr); ok {
+			// wildcards only match valid (non-nil) expressions.
+			if _, ok := val.Interface().(ast.Expr); ok && !val.IsNil() {
 				if old, ok := m[name]; ok {
 					return match(nil, old, val)
 				}

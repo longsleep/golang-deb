@@ -4,30 +4,59 @@
 
 // Package image implements a basic 2-D image library.
 //
-// See "The Go image package" for an introduction to this package:
-// http://blog.golang.org/2011/09/go-image-package.html
+// The fundamental interface is called Image. An Image contains colors, which
+// are described in the image/color package.
+//
+// Values of the Image interface are created either by calling functions such
+// as NewRGBA and NewPaletted, or by calling Decode on an io.Reader containing
+// image data in a format such as GIF, JPEG or PNG. Decoding any particular
+// image format requires the prior registration of a decoder function.
+// Registration is typically automatic as a side effect of initializing that
+// format's package so that, to decode a PNG image, it suffices to have
+//	import _ "image/png"
+// in a program's main package. The _ means to import a package purely for its
+// initialization side effects.
+//
+// See "The Go image package" for more details:
+// http://golang.org/doc/articles/image_package.html
 package image
+
+import (
+	"image/color"
+)
 
 // Config holds an image's color model and dimensions.
 type Config struct {
-	ColorModel    ColorModel
+	ColorModel    color.Model
 	Width, Height int
 }
 
-// Image is a finite rectangular grid of Colors drawn from a ColorModel.
+// Image is a finite rectangular grid of color.Color values taken from a color
+// model.
 type Image interface {
-	// ColorModel returns the Image's ColorModel.
-	ColorModel() ColorModel
+	// ColorModel returns the Image's color model.
+	ColorModel() color.Model
 	// Bounds returns the domain for which At can return non-zero color.
 	// The bounds do not necessarily contain the point (0, 0).
 	Bounds() Rectangle
 	// At returns the color of the pixel at (x, y).
 	// At(Bounds().Min.X, Bounds().Min.Y) returns the upper-left pixel of the grid.
 	// At(Bounds().Max.X-1, Bounds().Max.Y-1) returns the lower-right one.
-	At(x, y int) Color
+	At(x, y int) color.Color
 }
 
-// RGBA is an in-memory image of RGBAColor values.
+// PalettedImage is an image whose colors may come from a limited palette.
+// If m is a PalettedImage and m.ColorModel() returns a PalettedColorModel p,
+// then m.At(x, y) should be equivalent to p[m.ColorIndexAt(x, y)]. If m's
+// color model is not a PalettedColorModel, then ColorIndexAt's behavior is
+// undefined.
+type PalettedImage interface {
+	// ColorIndexAt returns the palette index of the pixel at (x, y).
+	ColorIndexAt(x, y int) uint8
+	Image
+}
+
+// RGBA is an in-memory image whose At method returns color.RGBA values.
 type RGBA struct {
 	// Pix holds the image's pixels, in R, G, B, A order. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*4].
@@ -38,35 +67,41 @@ type RGBA struct {
 	Rect Rectangle
 }
 
-func (p *RGBA) ColorModel() ColorModel { return RGBAColorModel }
+func (p *RGBA) ColorModel() color.Model { return color.RGBAModel }
 
 func (p *RGBA) Bounds() Rectangle { return p.Rect }
 
-func (p *RGBA) At(x, y int) Color {
+func (p *RGBA) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return RGBAColor{}
+		return color.RGBA{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
-	return RGBAColor{p.Pix[i+0], p.Pix[i+1], p.Pix[i+2], p.Pix[i+3]}
+	i := p.PixOffset(x, y)
+	return color.RGBA{p.Pix[i+0], p.Pix[i+1], p.Pix[i+2], p.Pix[i+3]}
 }
 
-func (p *RGBA) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *RGBA) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
+}
+
+func (p *RGBA) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
-	c1 := toRGBAColor(c).(RGBAColor)
+	i := p.PixOffset(x, y)
+	c1 := color.RGBAModel.Convert(c).(color.RGBA)
 	p.Pix[i+0] = c1.R
 	p.Pix[i+1] = c1.G
 	p.Pix[i+2] = c1.B
 	p.Pix[i+3] = c1.A
 }
 
-func (p *RGBA) SetRGBA(x, y int, c RGBAColor) {
+func (p *RGBA) SetRGBA(x, y int, c color.RGBA) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
+	i := p.PixOffset(x, y)
 	p.Pix[i+0] = c.R
 	p.Pix[i+1] = c.G
 	p.Pix[i+2] = c.B
@@ -83,7 +118,7 @@ func (p *RGBA) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &RGBA{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*4
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &RGBA{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -109,13 +144,14 @@ func (p *RGBA) Opaque() bool {
 	return true
 }
 
-// NewRGBA returns a new RGBA with the given width and height.
-func NewRGBA(w, h int) *RGBA {
+// NewRGBA returns a new RGBA with the given bounds.
+func NewRGBA(r Rectangle) *RGBA {
+	w, h := r.Dx(), r.Dy()
 	buf := make([]uint8, 4*w*h)
-	return &RGBA{buf, 4 * w, Rectangle{ZP, Point{w, h}}}
+	return &RGBA{buf, 4 * w, r}
 }
 
-// RGBA64 is an in-memory image of RGBA64Color values.
+// RGBA64 is an in-memory image whose At method returns color.RGBA64 values.
 type RGBA64 struct {
 	// Pix holds the image's pixels, in R, G, B, A order and big-endian format. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*8].
@@ -126,16 +162,16 @@ type RGBA64 struct {
 	Rect Rectangle
 }
 
-func (p *RGBA64) ColorModel() ColorModel { return RGBA64ColorModel }
+func (p *RGBA64) ColorModel() color.Model { return color.RGBA64Model }
 
 func (p *RGBA64) Bounds() Rectangle { return p.Rect }
 
-func (p *RGBA64) At(x, y int) Color {
+func (p *RGBA64) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return RGBA64Color{}
+		return color.RGBA64{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
-	return RGBA64Color{
+	i := p.PixOffset(x, y)
+	return color.RGBA64{
 		uint16(p.Pix[i+0])<<8 | uint16(p.Pix[i+1]),
 		uint16(p.Pix[i+2])<<8 | uint16(p.Pix[i+3]),
 		uint16(p.Pix[i+4])<<8 | uint16(p.Pix[i+5]),
@@ -143,12 +179,18 @@ func (p *RGBA64) At(x, y int) Color {
 	}
 }
 
-func (p *RGBA64) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *RGBA64) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
+}
+
+func (p *RGBA64) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
-	c1 := toRGBA64Color(c).(RGBA64Color)
+	i := p.PixOffset(x, y)
+	c1 := color.RGBA64Model.Convert(c).(color.RGBA64)
 	p.Pix[i+0] = uint8(c1.R >> 8)
 	p.Pix[i+1] = uint8(c1.R)
 	p.Pix[i+2] = uint8(c1.G >> 8)
@@ -159,11 +201,11 @@ func (p *RGBA64) Set(x, y int, c Color) {
 	p.Pix[i+7] = uint8(c1.A)
 }
 
-func (p *RGBA64) SetRGBA64(x, y int, c RGBA64Color) {
+func (p *RGBA64) SetRGBA64(x, y int, c color.RGBA64) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
+	i := p.PixOffset(x, y)
 	p.Pix[i+0] = uint8(c.R >> 8)
 	p.Pix[i+1] = uint8(c.R)
 	p.Pix[i+2] = uint8(c.G >> 8)
@@ -184,7 +226,7 @@ func (p *RGBA64) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &RGBA64{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*8
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &RGBA64{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -210,13 +252,14 @@ func (p *RGBA64) Opaque() bool {
 	return true
 }
 
-// NewRGBA64 returns a new RGBA64 with the given width and height.
-func NewRGBA64(w, h int) *RGBA64 {
+// NewRGBA64 returns a new RGBA64 with the given bounds.
+func NewRGBA64(r Rectangle) *RGBA64 {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 8*w*h)
-	return &RGBA64{pix, 8 * w, Rectangle{ZP, Point{w, h}}}
+	return &RGBA64{pix, 8 * w, r}
 }
 
-// NRGBA is an in-memory image of NRGBAColor values.
+// NRGBA is an in-memory image whose At method returns color.NRGBA values.
 type NRGBA struct {
 	// Pix holds the image's pixels, in R, G, B, A order. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*4].
@@ -227,35 +270,41 @@ type NRGBA struct {
 	Rect Rectangle
 }
 
-func (p *NRGBA) ColorModel() ColorModel { return NRGBAColorModel }
+func (p *NRGBA) ColorModel() color.Model { return color.NRGBAModel }
 
 func (p *NRGBA) Bounds() Rectangle { return p.Rect }
 
-func (p *NRGBA) At(x, y int) Color {
+func (p *NRGBA) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return NRGBAColor{}
+		return color.NRGBA{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
-	return NRGBAColor{p.Pix[i+0], p.Pix[i+1], p.Pix[i+2], p.Pix[i+3]}
+	i := p.PixOffset(x, y)
+	return color.NRGBA{p.Pix[i+0], p.Pix[i+1], p.Pix[i+2], p.Pix[i+3]}
 }
 
-func (p *NRGBA) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *NRGBA) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
+}
+
+func (p *NRGBA) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
-	c1 := toNRGBAColor(c).(NRGBAColor)
+	i := p.PixOffset(x, y)
+	c1 := color.NRGBAModel.Convert(c).(color.NRGBA)
 	p.Pix[i+0] = c1.R
 	p.Pix[i+1] = c1.G
 	p.Pix[i+2] = c1.B
 	p.Pix[i+3] = c1.A
 }
 
-func (p *NRGBA) SetNRGBA(x, y int, c NRGBAColor) {
+func (p *NRGBA) SetNRGBA(x, y int, c color.NRGBA) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*4
+	i := p.PixOffset(x, y)
 	p.Pix[i+0] = c.R
 	p.Pix[i+1] = c.G
 	p.Pix[i+2] = c.B
@@ -272,7 +321,7 @@ func (p *NRGBA) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &NRGBA{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*4
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &NRGBA{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -298,13 +347,14 @@ func (p *NRGBA) Opaque() bool {
 	return true
 }
 
-// NewNRGBA returns a new NRGBA with the given width and height.
-func NewNRGBA(w, h int) *NRGBA {
+// NewNRGBA returns a new NRGBA with the given bounds.
+func NewNRGBA(r Rectangle) *NRGBA {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 4*w*h)
-	return &NRGBA{pix, 4 * w, Rectangle{ZP, Point{w, h}}}
+	return &NRGBA{pix, 4 * w, r}
 }
 
-// NRGBA64 is an in-memory image of NRGBA64Color values.
+// NRGBA64 is an in-memory image whose At method returns color.NRGBA64 values.
 type NRGBA64 struct {
 	// Pix holds the image's pixels, in R, G, B, A order and big-endian format. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*8].
@@ -315,16 +365,16 @@ type NRGBA64 struct {
 	Rect Rectangle
 }
 
-func (p *NRGBA64) ColorModel() ColorModel { return NRGBA64ColorModel }
+func (p *NRGBA64) ColorModel() color.Model { return color.NRGBA64Model }
 
 func (p *NRGBA64) Bounds() Rectangle { return p.Rect }
 
-func (p *NRGBA64) At(x, y int) Color {
+func (p *NRGBA64) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return NRGBA64Color{}
+		return color.NRGBA64{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
-	return NRGBA64Color{
+	i := p.PixOffset(x, y)
+	return color.NRGBA64{
 		uint16(p.Pix[i+0])<<8 | uint16(p.Pix[i+1]),
 		uint16(p.Pix[i+2])<<8 | uint16(p.Pix[i+3]),
 		uint16(p.Pix[i+4])<<8 | uint16(p.Pix[i+5]),
@@ -332,12 +382,18 @@ func (p *NRGBA64) At(x, y int) Color {
 	}
 }
 
-func (p *NRGBA64) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *NRGBA64) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
+}
+
+func (p *NRGBA64) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
-	c1 := toNRGBA64Color(c).(NRGBA64Color)
+	i := p.PixOffset(x, y)
+	c1 := color.NRGBA64Model.Convert(c).(color.NRGBA64)
 	p.Pix[i+0] = uint8(c1.R >> 8)
 	p.Pix[i+1] = uint8(c1.R)
 	p.Pix[i+2] = uint8(c1.G >> 8)
@@ -348,11 +404,11 @@ func (p *NRGBA64) Set(x, y int, c Color) {
 	p.Pix[i+7] = uint8(c1.A)
 }
 
-func (p *NRGBA64) SetNRGBA64(x, y int, c NRGBA64Color) {
+func (p *NRGBA64) SetNRGBA64(x, y int, c color.NRGBA64) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*8
+	i := p.PixOffset(x, y)
 	p.Pix[i+0] = uint8(c.R >> 8)
 	p.Pix[i+1] = uint8(c.R)
 	p.Pix[i+2] = uint8(c.G >> 8)
@@ -373,7 +429,7 @@ func (p *NRGBA64) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &NRGBA64{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*8
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &NRGBA64{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -399,13 +455,14 @@ func (p *NRGBA64) Opaque() bool {
 	return true
 }
 
-// NewNRGBA64 returns a new NRGBA64 with the given width and height.
-func NewNRGBA64(w, h int) *NRGBA64 {
+// NewNRGBA64 returns a new NRGBA64 with the given bounds.
+func NewNRGBA64(r Rectangle) *NRGBA64 {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 8*w*h)
-	return &NRGBA64{pix, 8 * w, Rectangle{ZP, Point{w, h}}}
+	return &NRGBA64{pix, 8 * w, r}
 }
 
-// Alpha is an in-memory image of AlphaColor values.
+// Alpha is an in-memory image whose At method returns color.Alpha values.
 type Alpha struct {
 	// Pix holds the image's pixels, as alpha values. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*1].
@@ -416,31 +473,37 @@ type Alpha struct {
 	Rect Rectangle
 }
 
-func (p *Alpha) ColorModel() ColorModel { return AlphaColorModel }
+func (p *Alpha) ColorModel() color.Model { return color.AlphaModel }
 
 func (p *Alpha) Bounds() Rectangle { return p.Rect }
 
-func (p *Alpha) At(x, y int) Color {
+func (p *Alpha) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return AlphaColor{}
+		return color.Alpha{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
-	return AlphaColor{p.Pix[i]}
+	i := p.PixOffset(x, y)
+	return color.Alpha{p.Pix[i]}
 }
 
-func (p *Alpha) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *Alpha) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*1
+}
+
+func (p *Alpha) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
-	p.Pix[i] = toAlphaColor(c).(AlphaColor).A
+	i := p.PixOffset(x, y)
+	p.Pix[i] = color.AlphaModel.Convert(c).(color.Alpha).A
 }
 
-func (p *Alpha) SetAlpha(x, y int, c AlphaColor) {
+func (p *Alpha) SetAlpha(x, y int, c color.Alpha) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
+	i := p.PixOffset(x, y)
 	p.Pix[i] = c.A
 }
 
@@ -454,7 +517,7 @@ func (p *Alpha) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &Alpha{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*1
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &Alpha{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -480,13 +543,14 @@ func (p *Alpha) Opaque() bool {
 	return true
 }
 
-// NewAlpha returns a new Alpha with the given width and height.
-func NewAlpha(w, h int) *Alpha {
+// NewAlpha returns a new Alpha with the given bounds.
+func NewAlpha(r Rectangle) *Alpha {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 1*w*h)
-	return &Alpha{pix, 1 * w, Rectangle{ZP, Point{w, h}}}
+	return &Alpha{pix, 1 * w, r}
 }
 
-// Alpha16 is an in-memory image of Alpha16Color values.
+// Alpha16 is an in-memory image whose At method returns color.Alpha64 values.
 type Alpha16 struct {
 	// Pix holds the image's pixels, as alpha values in big-endian format. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*2].
@@ -497,33 +561,39 @@ type Alpha16 struct {
 	Rect Rectangle
 }
 
-func (p *Alpha16) ColorModel() ColorModel { return Alpha16ColorModel }
+func (p *Alpha16) ColorModel() color.Model { return color.Alpha16Model }
 
 func (p *Alpha16) Bounds() Rectangle { return p.Rect }
 
-func (p *Alpha16) At(x, y int) Color {
+func (p *Alpha16) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return Alpha16Color{}
+		return color.Alpha16{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
-	return Alpha16Color{uint16(p.Pix[i+0])<<8 | uint16(p.Pix[i+1])}
+	i := p.PixOffset(x, y)
+	return color.Alpha16{uint16(p.Pix[i+0])<<8 | uint16(p.Pix[i+1])}
 }
 
-func (p *Alpha16) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *Alpha16) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
+}
+
+func (p *Alpha16) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
-	c1 := toAlpha16Color(c).(Alpha16Color)
+	i := p.PixOffset(x, y)
+	c1 := color.Alpha16Model.Convert(c).(color.Alpha16)
 	p.Pix[i+0] = uint8(c1.A >> 8)
 	p.Pix[i+1] = uint8(c1.A)
 }
 
-func (p *Alpha16) SetAlpha16(x, y int, c Alpha16Color) {
+func (p *Alpha16) SetAlpha16(x, y int, c color.Alpha16) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
+	i := p.PixOffset(x, y)
 	p.Pix[i+0] = uint8(c.A >> 8)
 	p.Pix[i+1] = uint8(c.A)
 }
@@ -538,7 +608,7 @@ func (p *Alpha16) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &Alpha16{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*2
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &Alpha16{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -564,13 +634,14 @@ func (p *Alpha16) Opaque() bool {
 	return true
 }
 
-// NewAlpha16 returns a new Alpha16 with the given width and height.
-func NewAlpha16(w, h int) *Alpha16 {
+// NewAlpha16 returns a new Alpha16 with the given bounds.
+func NewAlpha16(r Rectangle) *Alpha16 {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 2*w*h)
-	return &Alpha16{pix, 2 * w, Rectangle{ZP, Point{w, h}}}
+	return &Alpha16{pix, 2 * w, r}
 }
 
-// Gray is an in-memory image of GrayColor values.
+// Gray is an in-memory image whose At method returns color.Gray values.
 type Gray struct {
 	// Pix holds the image's pixels, as gray values. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*1].
@@ -581,31 +652,37 @@ type Gray struct {
 	Rect Rectangle
 }
 
-func (p *Gray) ColorModel() ColorModel { return GrayColorModel }
+func (p *Gray) ColorModel() color.Model { return color.GrayModel }
 
 func (p *Gray) Bounds() Rectangle { return p.Rect }
 
-func (p *Gray) At(x, y int) Color {
+func (p *Gray) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return GrayColor{}
+		return color.Gray{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
-	return GrayColor{p.Pix[i]}
+	i := p.PixOffset(x, y)
+	return color.Gray{p.Pix[i]}
 }
 
-func (p *Gray) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *Gray) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*1
+}
+
+func (p *Gray) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
-	p.Pix[i] = toGrayColor(c).(GrayColor).Y
+	i := p.PixOffset(x, y)
+	p.Pix[i] = color.GrayModel.Convert(c).(color.Gray).Y
 }
 
-func (p *Gray) SetGray(x, y int, c GrayColor) {
+func (p *Gray) SetGray(x, y int, c color.Gray) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
+	i := p.PixOffset(x, y)
 	p.Pix[i] = c.Y
 }
 
@@ -619,7 +696,7 @@ func (p *Gray) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &Gray{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*1
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &Gray{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -632,13 +709,14 @@ func (p *Gray) Opaque() bool {
 	return true
 }
 
-// NewGray returns a new Gray with the given width and height.
-func NewGray(w, h int) *Gray {
+// NewGray returns a new Gray with the given bounds.
+func NewGray(r Rectangle) *Gray {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 1*w*h)
-	return &Gray{pix, 1 * w, Rectangle{ZP, Point{w, h}}}
+	return &Gray{pix, 1 * w, r}
 }
 
-// Gray16 is an in-memory image of Gray16Color values.
+// Gray16 is an in-memory image whose At method returns color.Gray16 values.
 type Gray16 struct {
 	// Pix holds the image's pixels, as gray values in big-endian format. The pixel at
 	// (x, y) starts at Pix[(y-Rect.Min.Y)*Stride + (x-Rect.Min.X)*2].
@@ -649,33 +727,39 @@ type Gray16 struct {
 	Rect Rectangle
 }
 
-func (p *Gray16) ColorModel() ColorModel { return Gray16ColorModel }
+func (p *Gray16) ColorModel() color.Model { return color.Gray16Model }
 
 func (p *Gray16) Bounds() Rectangle { return p.Rect }
 
-func (p *Gray16) At(x, y int) Color {
+func (p *Gray16) At(x, y int) color.Color {
 	if !(Point{x, y}.In(p.Rect)) {
-		return Gray16Color{}
+		return color.Gray16{}
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
-	return Gray16Color{uint16(p.Pix[i+0])<<8 | uint16(p.Pix[i+1])}
+	i := p.PixOffset(x, y)
+	return color.Gray16{uint16(p.Pix[i+0])<<8 | uint16(p.Pix[i+1])}
 }
 
-func (p *Gray16) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *Gray16) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
+}
+
+func (p *Gray16) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
-	c1 := toGray16Color(c).(Gray16Color)
+	i := p.PixOffset(x, y)
+	c1 := color.Gray16Model.Convert(c).(color.Gray16)
 	p.Pix[i+0] = uint8(c1.Y >> 8)
 	p.Pix[i+1] = uint8(c1.Y)
 }
 
-func (p *Gray16) SetGray16(x, y int, c Gray16Color) {
+func (p *Gray16) SetGray16(x, y int, c color.Gray16) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
+	i := p.PixOffset(x, y)
 	p.Pix[i+0] = uint8(c.Y >> 8)
 	p.Pix[i+1] = uint8(c.Y)
 }
@@ -690,7 +774,7 @@ func (p *Gray16) SubImage(r Rectangle) Image {
 	if r.Empty() {
 		return &Gray16{}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*2
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &Gray16{
 		Pix:    p.Pix[i:],
 		Stride: p.Stride,
@@ -703,51 +787,11 @@ func (p *Gray16) Opaque() bool {
 	return true
 }
 
-// NewGray16 returns a new Gray16 with the given width and height.
-func NewGray16(w, h int) *Gray16 {
+// NewGray16 returns a new Gray16 with the given bounds.
+func NewGray16(r Rectangle) *Gray16 {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 2*w*h)
-	return &Gray16{pix, 2 * w, Rectangle{ZP, Point{w, h}}}
-}
-
-// A PalettedColorModel represents a fixed palette of at most 256 colors.
-type PalettedColorModel []Color
-
-func diff(a, b uint32) uint32 {
-	if a > b {
-		return a - b
-	}
-	return b - a
-}
-
-// Convert returns the palette color closest to c in Euclidean R,G,B space.
-func (p PalettedColorModel) Convert(c Color) Color {
-	if len(p) == 0 {
-		return nil
-	}
-	return p[p.Index(c)]
-}
-
-// Index returns the index of the palette color closest to c in Euclidean
-// R,G,B space.
-func (p PalettedColorModel) Index(c Color) int {
-	cr, cg, cb, _ := c.RGBA()
-	// Shift by 1 bit to avoid potential uint32 overflow in sum-squared-difference.
-	cr >>= 1
-	cg >>= 1
-	cb >>= 1
-	ret, bestSSD := 0, uint32(1<<32-1)
-	for i, v := range p {
-		vr, vg, vb, _ := v.RGBA()
-		vr >>= 1
-		vg >>= 1
-		vb >>= 1
-		dr, dg, db := diff(cr, vr), diff(cg, vg), diff(cb, vb)
-		ssd := (dr * dr) + (dg * dg) + (db * db)
-		if ssd < bestSSD {
-			ret, bestSSD = i, ssd
-		}
-	}
-	return ret
+	return &Gray16{pix, 2 * w, r}
 }
 
 // Paletted is an in-memory image of uint8 indices into a given palette.
@@ -760,29 +804,35 @@ type Paletted struct {
 	// Rect is the image's bounds.
 	Rect Rectangle
 	// Palette is the image's palette.
-	Palette PalettedColorModel
+	Palette color.Palette
 }
 
-func (p *Paletted) ColorModel() ColorModel { return p.Palette }
+func (p *Paletted) ColorModel() color.Model { return p.Palette }
 
 func (p *Paletted) Bounds() Rectangle { return p.Rect }
 
-func (p *Paletted) At(x, y int) Color {
+func (p *Paletted) At(x, y int) color.Color {
 	if len(p.Palette) == 0 {
 		return nil
 	}
 	if !(Point{x, y}.In(p.Rect)) {
 		return p.Palette[0]
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
+	i := p.PixOffset(x, y)
 	return p.Palette[p.Pix[i]]
 }
 
-func (p *Paletted) Set(x, y int, c Color) {
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+func (p *Paletted) PixOffset(x, y int) int {
+	return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*1
+}
+
+func (p *Paletted) Set(x, y int, c color.Color) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
+	i := p.PixOffset(x, y)
 	p.Pix[i] = uint8(p.Palette.Index(c))
 }
 
@@ -790,7 +840,7 @@ func (p *Paletted) ColorIndexAt(x, y int) uint8 {
 	if !(Point{x, y}.In(p.Rect)) {
 		return 0
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
+	i := p.PixOffset(x, y)
 	return p.Pix[i]
 }
 
@@ -798,7 +848,7 @@ func (p *Paletted) SetColorIndex(x, y int, index uint8) {
 	if !(Point{x, y}.In(p.Rect)) {
 		return
 	}
-	i := (y-p.Rect.Min.Y)*p.Stride + (x - p.Rect.Min.X)
+	i := p.PixOffset(x, y)
 	p.Pix[i] = index
 }
 
@@ -814,7 +864,7 @@ func (p *Paletted) SubImage(r Rectangle) Image {
 			Palette: p.Palette,
 		}
 	}
-	i := (r.Min.Y-p.Rect.Min.Y)*p.Stride + (r.Min.X-p.Rect.Min.X)*1
+	i := p.PixOffset(r.Min.X, r.Min.Y)
 	return &Paletted{
 		Pix:     p.Pix[i:],
 		Stride:  p.Stride,
@@ -847,7 +897,8 @@ func (p *Paletted) Opaque() bool {
 }
 
 // NewPaletted returns a new Paletted with the given width, height and palette.
-func NewPaletted(w, h int, m PalettedColorModel) *Paletted {
+func NewPaletted(r Rectangle, p color.Palette) *Paletted {
+	w, h := r.Dx(), r.Dy()
 	pix := make([]uint8, 1*w*h)
-	return &Paletted{pix, 1 * w, Rectangle{ZP, Point{w, h}}, m}
+	return &Paletted{pix, 1 * w, r, p}
 }

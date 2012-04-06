@@ -1,4 +1,4 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -10,6 +10,6 @@ var c chan int
 
 func main() {
 	c = make(chan int);
-	go func() { print("ok\n"); c <- 0 } ();
+	go func() { c <- 0 } ();
 	<-c
 }

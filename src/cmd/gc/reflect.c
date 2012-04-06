@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 /*
@@ -11,6 +13,7 @@
 static	NodeList*	signatlist;
 static	Sym*	dtypesym(Type*);
 static	Sym*	weaktypesym(Type*);
+static	Sym*	dalgsym(Type*);
 
 static int
 sigcmp(Sig *a, Sig *b)
@@ -140,13 +143,12 @@ methods(Type *t)
 	Type *f, *mt, *it, *this;
 	Sig *a, *b;
 	Sym *method;
-	Prog *oldlist;
 
-	// named method type
-	mt = methtype(t);
+	// method type
+	mt = methtype(t, 0);
 	if(mt == T)
 		return nil;
-	expandmeth(mt->sym, mt);
+	expandmeth(mt);
 
 	// type stored in interface word
 	it = t;
@@ -156,12 +158,14 @@ methods(Type *t)
 	// make list of methods for t,
 	// generating code if necessary.
 	a = nil;
-	oldlist = nil;
 	for(f=mt->xmethod; f; f=f->down) {
-		if(f->type->etype != TFUNC)
-			continue;
 		if(f->etype != TFIELD)
-			fatal("methods: not field");
+			fatal("methods: not field %T", f);
+		if (f->type->etype != TFUNC || f->type->thistuple == 0)
+			fatal("non-method on %T method %S %T\n", mt, f->sym, f);
+		if (!getthisx(f->type)->type)
+			fatal("receiver with no type on %T method %S %T\n", mt, f->sym, f);
+
 		method = f->sym;
 		if(method == nil)
 			continue;
@@ -195,8 +199,6 @@ methods(Type *t)
 		if(!(a->isym->flags & SymSiggen)) {
 			a->isym->flags |= SymSiggen;
 			if(!eqtype(this, it) || this->width < types[tptr]->width) {
-				if(oldlist == nil)
-					oldlist = pc;
 				// Is okay to call genwrapper here always,
 				// but we can generate more efficient code
 				// using genembedtramp if all that is necessary
@@ -212,8 +214,6 @@ methods(Type *t)
 		if(!(a->tsym->flags & SymSiggen)) {
 			a->tsym->flags |= SymSiggen;
 			if(!eqtype(this, t)) {
-				if(oldlist == nil)
-					oldlist = pc;
 				if(isptr[t->etype] && isptr[this->etype]
 				&& f->embedded && !isifacemethod(f->type))
 					genembedtramp(t, f, a->tsym, 0);
@@ -221,16 +221,6 @@ methods(Type *t)
 					genwrapper(t, f, a->tsym, 0);
 			}
 		}
-	}
-
-	// restore data output
-	if(oldlist) {
-		// old list ended with AEND; change to ANOP
-		// so that the trampolines that follow can be found.
-		nopout(oldlist);
-
-		// start new data list
-		newplist();
 	}
 
 	return lsort(a, sigcmp);
@@ -245,11 +235,9 @@ imethods(Type *t)
 	Sig *a, *all, *last;
 	Type *f;
 	Sym *method, *isym;
-	Prog *oldlist;
 
 	all = nil;
 	last = nil;
-	oldlist = nil;
 	for(f=t->type; f; f=f->down) {
 		if(f->etype != TFIELD)
 			fatal("imethods: not field");
@@ -287,21 +275,9 @@ imethods(Type *t)
 		isym = methodsym(method, t, 0);
 		if(!(isym->flags & SymSiggen)) {
 			isym->flags |= SymSiggen;
-			if(oldlist == nil)
-				oldlist = pc;
 			genwrapper(t, f, isym, 0);
 		}
 	}
-
-	if(oldlist) {
-		// old list ended with AEND; change to ANOP
-		// so that the trampolines that follow can be found.
-		nopout(oldlist);
-
-		// start new data list
-		newplist();
-	}
-
 	return all;
 }
 
@@ -381,7 +357,7 @@ dextratype(Sym *sym, int off, Type *t, int ptroff)
 	s = sym;
 	if(t->sym) {
 		ot = dgostringptr(s, ot, t->sym->name);
-		if(t != types[t->etype])
+		if(t != types[t->etype] && t != errortype)
 			ot = dgopkgpath(s, ot, t->sym->pkg);
 		else
 			ot = dgostringptr(s, ot, nil);
@@ -478,57 +454,20 @@ kinds[] =
 	[TUNSAFEPTR]	= KindUnsafePointer,
 };
 
-static char*
-structnames[] =
-{
-	[TINT]		= "*runtime.IntType",
-	[TUINT]		= "*runtime.UintType",
-	[TINT8]		= "*runtime.IntType",
-	[TUINT8]	= "*runtime.UintType",
-	[TINT16]	= "*runtime.IntType",
-	[TUINT16]	= "*runtime.UintType",
-	[TINT32]	= "*runtime.IntType",
-	[TUINT32]	= "*runtime.UintType",
-	[TINT64]	= "*runtime.IntType",
-	[TUINT64]	= "*runtime.UintType",
-	[TUINTPTR]	= "*runtime.UintType",
-	[TCOMPLEX64]	= "*runtime.ComplexType",
-	[TCOMPLEX128]	= "*runtime.ComplexType",
-	[TFLOAT32]	= "*runtime.FloatType",
-	[TFLOAT64]	= "*runtime.FloatType",
-	[TBOOL]		= "*runtime.BoolType",
-	[TSTRING]	= "*runtime.StringType",
-	[TUNSAFEPTR] =	"*runtime.UnsafePointerType",
-
-	[TPTR32]	= "*runtime.PtrType",
-	[TPTR64]	= "*runtime.PtrType",
-	[TSTRUCT]	= "*runtime.StructType",
-	[TINTER]	= "*runtime.InterfaceType",
-	[TCHAN]		= "*runtime.ChanType",
-	[TMAP]		= "*runtime.MapType",
-	[TARRAY]	= "*runtime.ArrayType",
-	[TFUNC]		= "*runtime.FuncType",
-};
-
 static Sym*
 typestruct(Type *t)
 {
-	char *name;
-	int et;
-
-	et = t->etype;
-	if(et < 0 || et >= nelem(structnames) || (name = structnames[et]) == nil) {
-		fatal("typestruct %lT", t);
-		return nil;	// silence gcc
-	}
-
-	if(isslice(t))
-		name = "*runtime.SliceType";
-
-	return pkglookup(name, typepkg);
+	// We use a weak reference to the reflect type
+	// to avoid requiring package reflect in every binary.
+	// If package reflect is available, the interface{} holding
+	// a runtime type will contain a *reflect.commonType.
+	// Otherwise it will use a nil type word but still be usable
+	// by package runtime (because we always use the memory
+	// after the interface value, not the interface value itself).
+	return pkglookup("*reflect.commonType", weaktypepkg);
 }
 
-static int
+int
 haspointers(Type *t)
 {
 	Type *t1;
@@ -578,13 +517,20 @@ haspointers(Type *t)
 static int
 dcommontype(Sym *s, int ot, Type *t)
 {
-	int i;
-	Sym *sptr;
+	int i, alg, sizeofAlg;
+	Sym *sptr, *algsym;
+	static Sym *algarray;
 	char *p;
 
+	sizeofAlg = 4*widthptr;
+	if(algarray == nil)
+		algarray = pkglookup("algarray", runtimepkg);
+	alg = algtype(t);
+	algsym = S;
+	if(alg < 0)
+		algsym = dalgsym(t);
+
 	dowidth(t);
-	
-	sptr = nil;
 	if(t->sym != nil && !isptr[t->etype])
 		sptr = dtypesym(ptrto(t));
 	else
@@ -597,7 +543,7 @@ dcommontype(Sym *s, int ot, Type *t)
 	ot = dsymptr(s, ot, typestruct(t), 0);
 	ot = dsymptr(s, ot, s, 2*widthptr);
 
-	// ../../pkg/runtime/type.go:/commonType
+	// ../../pkg/reflect/type.go:/^type.commonType
 	// actual type structure
 	//	type commonType struct {
 	//		size uintptr;
@@ -612,7 +558,7 @@ dcommontype(Sym *s, int ot, Type *t)
 	//	}
 	ot = duintptr(s, ot, t->width);
 	ot = duint32(s, ot, typehash(t));
-	ot = duint8(s, ot, algtype(t));
+	ot = duint8(s, ot, 0);	// unused
 	ot = duint8(s, ot, t->align);	// align
 	ot = duint8(s, ot, t->align);	// fieldAlign
 	i = kinds[t->etype];
@@ -621,9 +567,12 @@ dcommontype(Sym *s, int ot, Type *t)
 	if(!haspointers(t))
 		i |= KindNoPointers;
 	ot = duint8(s, ot, i);  // kind
-	longsymnames = 1;
-	p = smprint("%-T", t);
-	longsymnames = 0;
+	if(alg >= 0)
+		ot = dsymptr(s, ot, algarray, alg*sizeofAlg);
+	else
+		ot = dsymptr(s, ot, algsym, 0);
+	p = smprint("%-uT", t);
+	//print("dcommontype: %s\n", p);
 	ot = dgostringptr(s, ot, p);	// string
 	free(p);
 	
@@ -643,8 +592,22 @@ typesym(Type *t)
 	char *p;
 	Sym *s;
 
-	p = smprint("%#-T", t);
+	p = smprint("%-T", t);
 	s = pkglookup(p, typepkg);
+	//print("typesym: %s -> %+S\n", p, s);
+	free(p);
+	return s;
+}
+
+Sym*
+typesymprefix(char *prefix, Type *t)
+{
+	char *p;
+	Sym *s;
+
+	p = smprint("%s.%-T", prefix, t);
+	s = pkglookup(p, typepkg);
+	//print("algsym: %s -> %+S\n", p, s);
 	free(p);
 	return s;
 }
@@ -683,16 +646,10 @@ weaktypesym(Type *t)
 {
 	char *p;
 	Sym *s;
-	static Pkg *weak;
-	
-	if(weak == nil) {
-		weak = mkpkg(strlit("weak.type"));
-		weak->name = "weak.type";
-		weak->prefix = "weak.type";  // not weak%2etype
-	}
-	
-	p = smprint("%#-T", t);
-	s = pkglookup(p, weak);
+
+	p = smprint("%-T", t);
+	s = pkglookup(p, weaktypepkg);
+	//print("weaktypesym: %s -> %+S\n", p, s);
 	free(p);
 	return s;
 }
@@ -721,8 +678,13 @@ dtypesym(Type *t)
 		tbase = t->type;
 	dupok = tbase->sym == S;
 
-	if(compiling_runtime && tbase == types[tbase->etype])	// int, float, etc
+	if(compiling_runtime && 
+			(tbase == types[tbase->etype] ||
+			tbase == bytetype ||
+			tbase == runetype ||
+			tbase == errortype)) { // int, float, etc
 		goto ok;
+	}
 
 	// named types from other files are defined only by those files
 	if(tbase->sym && !tbase->local)
@@ -931,9 +893,56 @@ dumptypestructs(void)
 			dtypesym(ptrto(types[i]));
 		dtypesym(ptrto(types[TSTRING]));
 		dtypesym(ptrto(types[TUNSAFEPTR]));
+
+		// emit type structs for error and func(error) string.
+		// The latter is the type of an auto-generated wrapper.
+		dtypesym(ptrto(errortype));
+		dtypesym(functype(nil, 
+			list1(nod(ODCLFIELD, N, typenod(errortype))),
+			list1(nod(ODCLFIELD, N, typenod(types[TSTRING])))));
 		
 		// add paths for runtime and main, which 6l imports implicitly.
 		dimportpath(runtimepkg);
 		dimportpath(mkpkg(strlit("main")));
 	}
 }
+
+static Sym*
+dalgsym(Type *t)
+{
+	int ot;
+	Sym *s, *hash, *eq;
+	char buf[100];
+
+	// dalgsym is only called for a type that needs an algorithm table,
+	// which implies that the type is comparable (or else it would use ANOEQ).
+
+	s = typesymprefix(".alg", t);
+	hash = typesymprefix(".hash", t);
+	genhash(hash, t);
+	eq = typesymprefix(".eq", t);
+	geneq(eq, t);
+
+	// ../../pkg/runtime/runtime.h:/Alg
+	ot = 0;
+	ot = dsymptr(s, ot, hash, 0);
+	ot = dsymptr(s, ot, eq, 0);
+	ot = dsymptr(s, ot, pkglookup("memprint", runtimepkg), 0);
+	switch(t->width) {
+	default:
+		ot = dsymptr(s, ot, pkglookup("memcopy", runtimepkg), 0);
+		break;
+	case 1:
+	case 2:
+	case 4:
+	case 8:
+	case 16:
+		snprint(buf, sizeof buf, "memcopy%d", (int)t->width*8);
+		ot = dsymptr(s, ot, pkglookup(buf, runtimepkg), 0);
+		break;
+	}
+
+	ggloblsym(s, ot, 1);
+	return s;
+}
+

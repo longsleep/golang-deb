@@ -71,13 +71,13 @@ func StringSlicePtr(ss []string) []*byte {
 	return bb
 }
 
-// gbit16 reads a 16-bit numeric value from a 9P protocol message strored in b,
+// gbit16 reads a 16-bit numeric value from a 9P protocol message stored in b,
 // returning the value and the remaining slice of b.
 func gbit16(b []byte) (uint16, []byte) {
 	return uint16(b[0]) | uint16(b[1])<<8, b[2:]
 }
 
-// gstring reads a string from a 9P protocol message strored in b,
+// gstring reads a string from a 9P protocol message stored in b,
 // returning the value as a Go string and the remaining slice of b.
 func gstring(b []byte) (string, []byte) {
 	n, b := gbit16(b)
@@ -85,7 +85,7 @@ func gstring(b []byte) (string, []byte) {
 }
 
 // readdirnames returns the names of files inside the directory represented by dirfd.
-func readdirnames(dirfd int) (names []string, err Error) {
+func readdirnames(dirfd int) (names []string, err error) {
 	result := make([]string, 0, 100)
 	var buf [STATMAX]byte
 
@@ -117,7 +117,7 @@ func readdirnames(dirfd int) (names []string, err Error) {
 
 // readdupdevice returns a list of currently opened fds (excluding stdin, stdout, stderr) from the dup device #d.
 // ForkLock should be write locked before calling, so that no new fds would be created while the fd list is being read.
-func readdupdevice() (fds []int, err Error) {
+func readdupdevice() (fds []int, err error) {
 	dupdevfd, err := Open("#d", O_RDONLY)
 
 	if err != nil {
@@ -169,7 +169,7 @@ func init() {
 // no rescheduling, no malloc calls, and no new stack segments.
 // The calls to RawSyscall are okay because they are assembly
 // functions that do not grow the stack.
-func forkAndExecInChild(argv0 *byte, argv []*byte, envv []envItem, dir *byte, attr *ProcAttr, fdsToClose []int, pipe int, rflag int) (pid int, err Error) {
+func forkAndExecInChild(argv0 *byte, argv []*byte, envv []envItem, dir *byte, attr *ProcAttr, fdsToClose []int, pipe int, rflag int) (pid int, err error) {
 	// Declare all variables at top in case any
 	// declarations require heap allocation (e.g., errbuf).
 	var (
@@ -182,7 +182,10 @@ func forkAndExecInChild(argv0 *byte, argv []*byte, envv []envItem, dir *byte, at
 	)
 
 	// guard against side effects of shuffling fds below.
-	fd := append([]int(nil), attr.Files...)
+	fd := make([]int, len(attr.Files))
+	for i, ufd := range attr.Files {
+		fd[i] = int(ufd)
+	}
 
 	if envv != nil {
 		clearenv = RFCENVG
@@ -314,7 +317,7 @@ childerror:
 	panic("unreached")
 }
 
-func cexecPipe(p []int) Error {
+func cexecPipe(p []int) error {
 	e := Pipe(p)
 	if e != nil {
 		return e
@@ -338,9 +341,9 @@ type envItem struct {
 }
 
 type ProcAttr struct {
-	Dir   string   // Current working directory.
-	Env   []string // Environment.
-	Files []int    // File descriptors.
+	Dir   string    // Current working directory.
+	Env   []string  // Environment.
+	Files []uintptr // File descriptors.
 	Sys   *SysProcAttr
 }
 
@@ -351,7 +354,7 @@ type SysProcAttr struct {
 var zeroProcAttr ProcAttr
 var zeroSysProcAttr SysProcAttr
 
-func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err Error) {
+func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err error) {
 	var (
 		p      [2]int
 		n      int
@@ -423,7 +426,7 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err Error) 
 	for _, fd := range openFds {
 		isReserved := false
 		for _, reservedFd := range attr.Files {
-			if fd == reservedFd {
+			if fd == int(reservedFd) {
 				isReserved = true
 				break
 			}
@@ -478,18 +481,18 @@ func forkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err Error) 
 }
 
 // Combination of fork and exec, careful to be thread safe.
-func ForkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err Error) {
+func ForkExec(argv0 string, argv []string, attr *ProcAttr) (pid int, err error) {
 	return forkExec(argv0, argv, attr)
 }
 
 // StartProcess wraps ForkExec for package os.
-func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid, handle int, err Error) {
+func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle uintptr, err error) {
 	pid, err = forkExec(argv0, argv, attr)
 	return pid, 0, err
 }
 
 // Ordinary exec.
-func Exec(argv0 string, argv []string, envv []string) (err Error) {
+func Exec(argv0 string, argv []string, envv []string) (err error) {
 	if envv != nil {
 		r1, _, _ := RawSyscall(SYS_RFORK, RFCENVG, 0, 0)
 		if int(r1) == -1 {
@@ -516,10 +519,10 @@ func Exec(argv0 string, argv []string, envv []string) (err Error) {
 		}
 	}
 
-	_, _, e := Syscall(SYS_EXEC,
+	_, _, e1 := Syscall(SYS_EXEC,
 		uintptr(unsafe.Pointer(StringBytePtr(argv0))),
 		uintptr(unsafe.Pointer(&StringSlicePtr(argv)[0])),
 		0)
 
-	return NewError(e)
+	return e1
 }

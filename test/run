@@ -3,8 +3,8 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-eval $(gomake --no-print-directory -f ../src/Make.inc go-env)
-
+eval $(go tool dist env)
+export GOARCH GOOS GOROOT
 export E=
 
 case X"$GOARCH" in
@@ -23,19 +23,24 @@ Xarm)
 	exit 1
 esac
 
-export G=${A}g
+export G="${A}g ${GCFLAGS}"
 export L=${A}l
 export GOTRACEBACK=0
 export LANG=C
 unset GREP_OPTIONS	# in case user has a non-standard set
 
+unset GOROOT_FINAL  # breaks ./ imports
+
 failed=0
 
-PATH=/bin:/usr/bin:/usr/local/bin:${GOBIN:-$GOROOT/bin}:`pwd`
+PATH=${GOBIN:-$GOROOT/bin}:`pwd`:/bin:/usr/bin:/usr/local/bin
 
-RUNFILE="/tmp/gorun-$$-$USER"
-TMP1FILE="/tmp/gotest1-$$-$USER"
-TMP2FILE="/tmp/gotest2-$$-$USER"
+# TODO: We add the tool directory to the PATH to avoid thinking about a better way.
+PATH="$GOTOOLDIR:$PATH"
+
+RUNFILE="${TMPDIR:-/tmp}/gorun-$$-$USER"
+TMP1FILE="${TMPDIR:-/tmp}/gotest1-$$-$USER"
+TMP2FILE="${TMPDIR:-/tmp}/gotest2-$$-$USER"
 
 # don't run the machine out of memory: limit individual processes to 4GB.
 # on thresher, 3GB suffices to run the tests; with 2GB, peano fails.
@@ -53,7 +58,7 @@ filterout() {
 	grep '^'"$2"'$' $1 >/dev/null
 }
 
-for dir in . ken chan interface nilptr syntax dwarf fixedbugs bugs
+for dir in . ken chan interface syntax dwarf safe fixedbugs bugs
 do
 	echo
 	echo '==' $dir'/'
@@ -64,7 +69,8 @@ do
 		fi
 		export F=$(basename $i .go)
 		export D=$dir
-		sed '/^\/\//!q' $i | sed 's@//@@; $d' |sed 's|./\$A.out|$E &|g' >"$RUNFILE"
+		echo '. ./testlib' >"$RUNFILE"
+		sed '/^\/\//!q' $i | sed 's@//@@; $d' |sed 's|./\$A.out|$E &|g' >>"$RUNFILE"
 		if ! { time -p bash -c "bash '$RUNFILE' >'$TMP1FILE' 2>&1" ; } 2>"$TMP2FILE"
 		then
 			echo

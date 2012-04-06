@@ -6,8 +6,8 @@ package base64
 
 import (
 	"bytes"
+	"io"
 	"io/ioutil"
-	"os"
 	"testing"
 )
 
@@ -82,11 +82,11 @@ func TestEncoderBuffering(t *testing.T) {
 				end = len(input)
 			}
 			n, err := encoder.Write(input[pos:end])
-			testEqual(t, "Write(%q) gave error %v, want %v", input[pos:end], err, os.Error(nil))
+			testEqual(t, "Write(%q) gave error %v, want %v", input[pos:end], err, error(nil))
 			testEqual(t, "Write(%q) gave length %v, want %v", input[pos:end], n, end-pos)
 		}
 		err := encoder.Close()
-		testEqual(t, "Close gave error %v, want %v", err, os.Error(nil))
+		testEqual(t, "Close gave error %v, want %v", err, error(nil))
 		testEqual(t, "Encoding/%d of %q = %q, want %q", bs, bigtest.decoded, bb.String(), bigtest.encoded)
 	}
 }
@@ -95,7 +95,7 @@ func TestDecode(t *testing.T) {
 	for _, p := range pairs {
 		dbuf := make([]byte, StdEncoding.DecodedLen(len(p.encoded)))
 		count, end, err := StdEncoding.decode(dbuf, []byte(p.encoded))
-		testEqual(t, "Decode(%q) = error %v, want %v", p.encoded, err, os.Error(nil))
+		testEqual(t, "Decode(%q) = error %v, want %v", p.encoded, err, error(nil))
 		testEqual(t, "Decode(%q) = length %v, want %v", p.encoded, count, len(p.decoded))
 		if len(p.encoded) > 0 {
 			testEqual(t, "Decode(%q) = end %v, want %v", p.encoded, end, (p.encoded[len(p.encoded)-1] == '='))
@@ -103,7 +103,7 @@ func TestDecode(t *testing.T) {
 		testEqual(t, "Decode(%q) = %q, want %q", p.encoded, string(dbuf[0:count]), p.decoded)
 
 		dbuf, err = StdEncoding.DecodeString(p.encoded)
-		testEqual(t, "DecodeString(%q) = error %v, want %v", p.encoded, err, os.Error(nil))
+		testEqual(t, "DecodeString(%q) = error %v, want %v", p.encoded, err, error(nil))
 		testEqual(t, "DecodeString(%q) = %q, want %q", string(dbuf), p.decoded)
 	}
 }
@@ -113,15 +113,15 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(StdEncoding, bytes.NewBufferString(p.encoded))
 		dbuf := make([]byte, StdEncoding.DecodedLen(len(p.encoded)))
 		count, err := decoder.Read(dbuf)
-		if err != nil && err != os.EOF {
+		if err != nil && err != io.EOF {
 			t.Fatal("Read failed", err)
 		}
 		testEqual(t, "Read from %q = length %v, want %v", p.encoded, count, len(p.decoded))
 		testEqual(t, "Decoding of %q = %q, want %q", p.encoded, string(dbuf[0:count]), p.decoded)
-		if err != os.EOF {
+		if err != io.EOF {
 			count, err = decoder.Read(dbuf)
 		}
-		testEqual(t, "Read from %q = %v, want %v", p.encoded, err, os.EOF)
+		testEqual(t, "Read from %q = %v, want %v", p.encoded, err, io.EOF)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestDecoderBuffering(t *testing.T) {
 		var total int
 		for total = 0; total < len(bigtest.decoded); {
 			n, err := decoder.Read(buf[total : total+bs])
-			testEqual(t, "Read from %q at pos %d = %d, %v, want _, %v", bigtest.encoded, total, n, err, os.Error(nil))
+			testEqual(t, "Read from %q at pos %d = %d, %v, want _, %v", bigtest.encoded, total, n, err, error(nil))
 			total += n
 		}
 		testEqual(t, "Decoding/%d of %q = %q, want %q", bs, bigtest.encoded, string(buf[0:total]), bigtest.decoded)
@@ -195,5 +195,31 @@ func TestBig(t *testing.T) {
 			}
 		}
 		t.Errorf("Decode(Encode(%d-byte string)) failed at offset %d", n, i)
+	}
+}
+
+func TestNewLineCharacters(t *testing.T) {
+	// Each of these should decode to the string "sure", without errors.
+	const expected = "sure"
+	examples := []string{
+		"c3VyZQ==",
+		"c3VyZQ==\r",
+		"c3VyZQ==\n",
+		"c3VyZQ==\r\n",
+		"c3VyZ\r\nQ==",
+		"c3V\ryZ\nQ==",
+		"c3V\nyZ\rQ==",
+		"c3VyZ\nQ==",
+		"c3VyZQ\n==",
+	}
+	for _, e := range examples {
+		buf, err := StdEncoding.DecodeString(e)
+		if err != nil {
+			t.Errorf("Decode(%q) failed: %v", e, err)
+			continue
+		}
+		if s := string(buf); s != expected {
+			t.Errorf("Decode(%q) = %q, want %q", e, s, expected)
+		}
 	}
 }

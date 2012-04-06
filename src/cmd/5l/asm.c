@@ -73,6 +73,9 @@ enum {
 	ElfStrShstrtab,
 	ElfStrRelPlt,
 	ElfStrPlt,
+	ElfStrNoteNetbsdIdent,
+	ElfStrNoPtrData,
+	ElfStrNoPtrBss,
 	NElfStr
 };
 
@@ -90,6 +93,7 @@ needlib(char *name)
 	/* reuse hash code in symbol table */
 	p = smprint(".dynlib.%s", name);
 	s = lookup(p, 0);
+	free(p);
 	if(s->type == 0) {
 		s->type = 100;	// avoid SDATA, etc.
 		return 1;
@@ -162,8 +166,12 @@ doelf(void)
 
 	elfstr[ElfStrEmpty] = addstring(shstrtab, "");
 	elfstr[ElfStrText] = addstring(shstrtab, ".text");
+	elfstr[ElfStrNoPtrData] = addstring(shstrtab, ".noptrdata");
 	elfstr[ElfStrData] = addstring(shstrtab, ".data");
 	elfstr[ElfStrBss] = addstring(shstrtab, ".bss");
+	elfstr[ElfStrNoPtrBss] = addstring(shstrtab, ".noptrbss");
+	if(HEADTYPE == Hnetbsd)
+		elfstr[ElfStrNoteNetbsdIdent] = addstring(shstrtab, ".note.netbsd.ident");
 	addstring(shstrtab, ".rodata");
 	addstring(shstrtab, ".gosymtab");
 	addstring(shstrtab, ".gopclntab");
@@ -232,7 +240,7 @@ doelf(void)
 		/* define dynamic elf table */
 		s = lookup(".dynamic", 0);
 		s->reachable = 1;
-		s->type = SELFROSECT;
+		s->type = SELFSECT; // writable
 
 		/*
 		 * .dynamic table
@@ -251,6 +259,7 @@ doelf(void)
 		elfwritedynent(s, DT_PLTREL, DT_REL);
 		elfwritedynentsymsize(s, DT_PLTRELSZ, lookup(".rel.plt", 0));
 		elfwritedynentsym(s, DT_JMPREL, lookup(".rel.plt", 0));
+		elfwritedynent(s, DT_DEBUG, 0);
 		elfwritedynent(s, DT_NULL, 0);
 	}
 }
@@ -293,7 +302,7 @@ asmb(void)
 {
 	int32 t;
 	int a, dynsym;
-	uint32 fo, symo, startva;
+	uint32 fo, symo, startva, resoff;
 	ElfEhdr *eh;
 	ElfPhdr *ph, *pph;
 	ElfShdr *sh;
@@ -321,11 +330,6 @@ asmb(void)
 	cseek(segdata.fileoff);
 	datblk(segdata.vaddr, segdata.filelen);
 
-	/* output read-only data in text segment */
-	sect = segtext.sect->next;
-	cseek(sect->vaddr - segtext.vaddr + segtext.fileoff);
-	datblk(sect->vaddr, sect->len);
-
 	if(iself) {
 		/* index of elf text section; needed by asmelfsym, double-checked below */
 		/* !debug['d'] causes extra sections before the .text section */
@@ -335,6 +339,8 @@ asmb(void)
 			if(elfverneed)
 				elftextsh += 2;
 		}
+		if(HEADTYPE == Hnetbsd)
+			elftextsh += 1;
 	}
 
 	/* output symbol table */
@@ -370,7 +376,7 @@ asmb(void)
 		cseek(symo);
 		if(iself) {
 			if(debug['v'])
-			       Bprint(&bso, "%5.2f elfsym\n", cputime());
+				Bprint(&bso, "%5.2f elfsym\n", cputime());
 			asmelfsym();
 			cflush();
 			cwrite(elfstrdat, elfstrsize);
@@ -454,6 +460,7 @@ asmb(void)
 		eh = getElfEhdr();
 		fo = HEADR;
 		startva = INITTEXT - fo;	/* va of byte 0 of file */
+		resoff = ELFRESERVE;
 		
 		/* This null SHdr must appear before all others */
 		newElfShdr(elfstr[ElfStrEmpty]);
@@ -486,10 +493,23 @@ asmb(void)
 			sh->addralign = 1;
 			if(interpreter == nil)
 				interpreter = linuxdynld;
-			elfinterp(sh, startva, interpreter);
+			resoff -= elfinterp(sh, startva, resoff, interpreter);
 
 			ph = newElfPhdr();
 			ph->type = PT_INTERP;
+			ph->flags = PF_R;
+			phsh(ph, sh);
+		}
+
+		if(HEADTYPE == Hnetbsd) {
+			sh = newElfShdr(elfstr[ElfStrNoteNetbsdIdent]);
+			sh->type = SHT_NOTE;
+			sh->flags = SHF_ALLOC;
+			sh->addralign = 4;
+			resoff -= elfnetbsdsig(sh, startva, resoff);
+
+			ph = newElfPhdr();
+			ph->type = PT_NOTE;
 			ph->flags = PF_R;
 			phsh(ph, sh);
 		}
@@ -498,7 +518,7 @@ asmb(void)
 		elfphload(&segdata);
 
 		/* Dynamic linking sections */
-		if (!debug['d']) {	/* -d suppresses dynamic loader format */
+		if(!debug['d']) {	/* -d suppresses dynamic loader format */
 			/* S headers for dynamic linking */
 			sh = newElfShdr(elfstr[ElfStrGot]);
 			sh->type = SHT_PROGBITS;
@@ -589,7 +609,7 @@ asmb(void)
 		for(sect=segdata.sect; sect!=nil; sect=sect->next)
 			elfshbits(sect);
 
-		if (!debug['s']) {
+		if(!debug['s']) {
 			sh = newElfShdr(elfstr[ElfStrSymtab]);
 			sh->type = SHT_SYMTAB;
 			sh->off = symo;
@@ -631,8 +651,10 @@ asmb(void)
 		a += elfwritehdr();
 		a += elfwritephdrs();
 		a += elfwriteshdrs();
-		cflush();
-		if(a+elfwriteinterp() > ELFRESERVE)	
+		a += elfwriteinterp(elfstr[ElfStrInterp]);
+		if(HEADTYPE == Hnetbsd)
+			a += elfwritenetbsdsig(elfstr[ElfStrNoteNetbsdIdent]);
+		if(a > ELFRESERVE)	
 			diag("ELFRESERVE too small: %d > %d", a, ELFRESERVE);
 		break;
 	}
@@ -1827,14 +1849,20 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 			case STYPE:
 			case SSTRING:
 			case SGOSTRING:
+			case SNOPTRDATA:
+			case SSYMTAB:
+			case SPCLNTAB:
 				if(!s->reachable)
 					continue;
 				put(s, s->name, 'D', s->value, s->size, s->version, s->gotype);
 				continue;
 
 			case SBSS:
+			case SNOPTRBSS:
 				if(!s->reachable)
 					continue;
+				if(s->np > 0)
+					diag("%s should not be bss (size=%d type=%d special=%d)", s->name, (int)s->np, s->type, s->special);
 				put(s, s->name, 'B', s->value, s->size, s->version, s->gotype);
 				continue;
 

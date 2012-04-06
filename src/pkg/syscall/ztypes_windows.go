@@ -1,19 +1,25 @@
+// Copyright 2011 The Go Authors.  All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package syscall
 
 const (
 	// Windows errors.
-	ERROR_FILE_NOT_FOUND      = 2
-	ERROR_PATH_NOT_FOUND      = 3
-	ERROR_NO_MORE_FILES       = 18
-	ERROR_BROKEN_PIPE         = 109
-	ERROR_BUFFER_OVERFLOW     = 111
-	ERROR_INSUFFICIENT_BUFFER = 122
-	ERROR_MOD_NOT_FOUND       = 126
-	ERROR_PROC_NOT_FOUND      = 127
-	ERROR_ENVVAR_NOT_FOUND    = 203
-	ERROR_DIRECTORY           = 267
-	ERROR_OPERATION_ABORTED   = 995
-	ERROR_IO_PENDING          = 997
+	ERROR_FILE_NOT_FOUND      Errno = 2
+	ERROR_PATH_NOT_FOUND      Errno = 3
+	ERROR_ACCESS_DENIED       Errno = 5
+	ERROR_NO_MORE_FILES       Errno = 18
+	ERROR_FILE_EXISTS         Errno = 80
+	ERROR_BROKEN_PIPE         Errno = 109
+	ERROR_BUFFER_OVERFLOW     Errno = 111
+	ERROR_INSUFFICIENT_BUFFER Errno = 122
+	ERROR_MOD_NOT_FOUND       Errno = 126
+	ERROR_PROC_NOT_FOUND      Errno = 127
+	ERROR_ALREADY_EXISTS      Errno = 183
+	ERROR_ENVVAR_NOT_FOUND    Errno = 203
+	ERROR_OPERATION_ABORTED   Errno = 995
+	ERROR_IO_PENDING          Errno = 997
 )
 
 const (
@@ -34,20 +40,38 @@ const (
 
 const (
 	// More invented values for signals
-	SIGHUP  = 0x1
-	SIGINT  = 0x2
-	SIGQUIT = 0x3
-	SIGILL  = 0x4
-	SIGTRAP = 0x5
-	SIGABRT = 0x6
-	SIGBUS  = 0x7
-	SIGFPE  = 0x8
-	SIGKILL = 0x9
-	SIGSEGV = 0xb
-	SIGPIPE = 0xd
-	SIGALRM = 0xe
-	SIGTERM = 0xf
+	SIGHUP  = Signal(0x1)
+	SIGINT  = Signal(0x2)
+	SIGQUIT = Signal(0x3)
+	SIGILL  = Signal(0x4)
+	SIGTRAP = Signal(0x5)
+	SIGABRT = Signal(0x6)
+	SIGBUS  = Signal(0x7)
+	SIGFPE  = Signal(0x8)
+	SIGKILL = Signal(0x9)
+	SIGSEGV = Signal(0xb)
+	SIGPIPE = Signal(0xd)
+	SIGALRM = Signal(0xe)
+	SIGTERM = Signal(0xf)
 )
+
+var signals = [...]string{
+	1:  "hangup",
+	2:  "interrupt",
+	3:  "quit",
+	4:  "illegal instruction",
+	5:  "trace/breakpoint trap",
+	6:  "aborted",
+	7:  "bus error",
+	8:  "floating point exception",
+	9:  "killed",
+	10: "user defined signal 1",
+	11: "segmentation fault",
+	12: "user defined signal 2",
+	13: "broken pipe",
+	14: "alarm clock",
+	15: "terminated",
+}
 
 const (
 	GENERIC_READ    = 0x80000000
@@ -55,6 +79,7 @@ const (
 	GENERIC_EXECUTE = 0x20000000
 	GENERIC_ALL     = 0x10000000
 
+	FILE_LIST_DIRECTORY   = 0x00000001
 	FILE_APPEND_DATA      = 0x00000004
 	FILE_WRITE_ATTRIBUTES = 0x00000100
 
@@ -76,6 +101,9 @@ const (
 	OPEN_ALWAYS       = 4
 	TRUNCATE_EXISTING = 5
 
+	FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+	FILE_FLAG_OVERLAPPED       = 0x40000000
+
 	HANDLE_FLAG_INHERIT    = 0x00000001
 	STARTF_USESTDHANDLES   = 0x00000100
 	STARTF_USESHOWWINDOW   = 0x00000001
@@ -89,6 +117,9 @@ const (
 	FILE_BEGIN   = 0
 	FILE_CURRENT = 1
 	FILE_END     = 2
+
+	LANG_ENGLISH       = 0x09
+	SUBLANG_ENGLISH_US = 0x01
 
 	FORMAT_MESSAGE_ALLOCATE_BUFFER = 256
 	FORMAT_MESSAGE_IGNORE_INSERTS  = 512
@@ -117,7 +148,6 @@ const (
 
 	CREATE_UNICODE_ENVIRONMENT = 0x00000400
 
-	STANDARD_RIGHTS_READ      = 0x00020000
 	PROCESS_QUERY_INFORMATION = 0x00000400
 	SYNCHRONIZE               = 0x00100000
 
@@ -132,6 +162,26 @@ const (
 	FILE_MAP_WRITE   = 0x02
 	FILE_MAP_READ    = 0x04
 	FILE_MAP_EXECUTE = 0x20
+)
+
+const (
+	// do not reorder
+	FILE_NOTIFY_CHANGE_FILE_NAME = 1 << iota
+	FILE_NOTIFY_CHANGE_DIR_NAME
+	FILE_NOTIFY_CHANGE_ATTRIBUTES
+	FILE_NOTIFY_CHANGE_SIZE
+	FILE_NOTIFY_CHANGE_LAST_WRITE
+	FILE_NOTIFY_CHANGE_LAST_ACCESS
+	FILE_NOTIFY_CHANGE_CREATION
+)
+
+const (
+	// do not reorder
+	FILE_ACTION_ADDED = iota + 1
+	FILE_ACTION_REMOVED
+	FILE_ACTION_MODIFIED
+	FILE_ACTION_RENAMED_OLD_NAME
+	FILE_ACTION_RENAMED_NEW_NAME
 )
 
 const (
@@ -160,6 +210,63 @@ const (
 	CRYPT_MACHINE_KEYSET             = 0x00000020
 	CRYPT_SILENT                     = 0x00000040
 	CRYPT_DEFAULT_CONTAINER_OPTIONAL = 0x00000080
+
+	USAGE_MATCH_TYPE_AND = 0
+	USAGE_MATCH_TYPE_OR  = 1
+
+	X509_ASN_ENCODING   = 0x00000001
+	PKCS_7_ASN_ENCODING = 0x00010000
+
+	CERT_STORE_PROV_MEMORY = 2
+
+	CERT_STORE_ADD_ALWAYS = 4
+
+	CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG = 0x00000004
+
+	CERT_TRUST_NO_ERROR                          = 0x00000000
+	CERT_TRUST_IS_NOT_TIME_VALID                 = 0x00000001
+	CERT_TRUST_IS_REVOKED                        = 0x00000004
+	CERT_TRUST_IS_NOT_SIGNATURE_VALID            = 0x00000008
+	CERT_TRUST_IS_NOT_VALID_FOR_USAGE            = 0x00000010
+	CERT_TRUST_IS_UNTRUSTED_ROOT                 = 0x00000020
+	CERT_TRUST_REVOCATION_STATUS_UNKNOWN         = 0x00000040
+	CERT_TRUST_IS_CYCLIC                         = 0x00000080
+	CERT_TRUST_INVALID_EXTENSION                 = 0x00000100
+	CERT_TRUST_INVALID_POLICY_CONSTRAINTS        = 0x00000200
+	CERT_TRUST_INVALID_BASIC_CONSTRAINTS         = 0x00000400
+	CERT_TRUST_INVALID_NAME_CONSTRAINTS          = 0x00000800
+	CERT_TRUST_HAS_NOT_SUPPORTED_NAME_CONSTRAINT = 0x00001000
+	CERT_TRUST_HAS_NOT_DEFINED_NAME_CONSTRAINT   = 0x00002000
+	CERT_TRUST_HAS_NOT_PERMITTED_NAME_CONSTRAINT = 0x00004000
+	CERT_TRUST_HAS_EXCLUDED_NAME_CONSTRAINT      = 0x00008000
+	CERT_TRUST_IS_OFFLINE_REVOCATION             = 0x01000000
+	CERT_TRUST_NO_ISSUANCE_CHAIN_POLICY          = 0x02000000
+	CERT_TRUST_IS_EXPLICIT_DISTRUST              = 0x04000000
+	CERT_TRUST_HAS_NOT_SUPPORTED_CRITICAL_EXT    = 0x08000000
+
+	CERT_CHAIN_POLICY_BASE              = 1
+	CERT_CHAIN_POLICY_AUTHENTICODE      = 2
+	CERT_CHAIN_POLICY_AUTHENTICODE_TS   = 3
+	CERT_CHAIN_POLICY_SSL               = 4
+	CERT_CHAIN_POLICY_BASIC_CONSTRAINTS = 5
+	CERT_CHAIN_POLICY_NT_AUTH           = 6
+	CERT_CHAIN_POLICY_MICROSOFT_ROOT    = 7
+	CERT_CHAIN_POLICY_EV                = 8
+
+	CERT_E_EXPIRED       = 0x800B0101
+	CERT_E_ROLE          = 0x800B0103
+	CERT_E_PURPOSE       = 0x800B0106
+	CERT_E_UNTRUSTEDROOT = 0x800B0109
+	CERT_E_CN_NO_MATCH   = 0x800B010F
+
+	AUTHTYPE_CLIENT = 1
+	AUTHTYPE_SERVER = 2
+)
+
+var (
+	OID_PKIX_KP_SERVER_AUTH = []byte("1.3.6.1.5.5.7.3.1\x00")
+	OID_SERVER_GATED_CRYPTO = []byte("1.3.6.1.4.1.311.10.3.3\x00")
+	OID_SGC_NETSCAPE        = []byte("2.16.840.1.113730.4.1\x00")
 )
 
 // Invented values to support what package os expects.
@@ -192,11 +299,20 @@ type Overlapped struct {
 	HEvent       Handle
 }
 
+type FileNotifyInformation struct {
+	NextEntryOffset uint32
+	Action          uint32
+	FileNameLength  uint32
+	FileName        uint16
+}
+
 type Filetime struct {
 	LowDateTime  uint32
 	HighDateTime uint32
 }
 
+// Nanoseconds returns Filetime ft in nanoseconds
+// since Epoch (00:00:00 UTC, January 1, 1970).
 func (ft *Filetime) Nanoseconds() int64 {
 	// 100-nanosecond intervals since January 1, 1601
 	nsec := int64(ft.HighDateTime)<<32 + int64(ft.LowDateTime)
@@ -242,6 +358,20 @@ type ByHandleFileInformation struct {
 	NumberOfLinks      uint32
 	FileIndexHigh      uint32
 	FileIndexLow       uint32
+}
+
+const (
+	GetFileExInfoStandard = 0
+	GetFileExMaxInfoLevel = 1
+)
+
+type Win32FileAttributeData struct {
+	FileAttributes uint32
+	CreationTime   Filetime
+	LastAccessTime Filetime
+	LastWriteTime  Filetime
+	FileSizeHigh   uint32
+	FileSizeLow    uint32
 }
 
 // ShowWindow constants
@@ -291,12 +421,6 @@ type ProcessInformation struct {
 	ThreadId  uint32
 }
 
-// Invented values to support what package os expects.
-type Stat_t struct {
-	Windata Win32finddata
-	Mode    uint32
-}
-
 type Systemtime struct {
 	Year         uint16
 	Month        uint16
@@ -332,9 +456,10 @@ const (
 	SOCK_RAW       = 3
 	SOCK_SEQPACKET = 5
 
-	IPPROTO_IP  = 0
-	IPPROTO_TCP = 6
-	IPPROTO_UDP = 17
+	IPPROTO_IP   = 0
+	IPPROTO_IPV6 = 0x29
+	IPPROTO_TCP  = 6
+	IPPROTO_UDP  = 17
 
 	SOL_SOCKET               = 0xffff
 	SO_REUSEADDR             = 4
@@ -346,10 +471,25 @@ const (
 	SO_SNDBUF                = 0x1001
 	SO_UPDATE_ACCEPT_CONTEXT = 0x700b
 
-	IPPROTO_IPV6 = 0x29
-	IPV6_V6ONLY  = 0x1b
+	// cf. http://support.microsoft.com/default.aspx?scid=kb;en-us;257460
 
-	SOMAXCONN = 5
+	IP_TOS             = 0x3
+	IP_TTL             = 0x4
+	IP_MULTICAST_IF    = 0x9
+	IP_MULTICAST_TTL   = 0xa
+	IP_MULTICAST_LOOP  = 0xb
+	IP_ADD_MEMBERSHIP  = 0xc
+	IP_DROP_MEMBERSHIP = 0xd
+
+	IPV6_V6ONLY         = 0x1b
+	IPV6_UNICAST_HOPS   = 0x4
+	IPV6_MULTICAST_IF   = 0x9
+	IPV6_MULTICAST_HOPS = 0xa
+	IPV6_MULTICAST_LOOP = 0xb
+	IPV6_JOIN_GROUP     = 0xc
+	IPV6_LEAVE_GROUP    = 0xd
+
+	SOMAXCONN = 0x7fffffff
 
 	TCP_NODELAY = 1
 
@@ -399,6 +539,12 @@ type Hostent struct {
 	AddrType uint16
 	Length   uint16
 	AddrList **byte
+}
+
+type Protoent struct {
+	Name    *byte
+	Aliases **byte
+	Proto   uint16
 }
 
 const (
@@ -482,6 +628,11 @@ type DNSMXData struct {
 	NameExchange *uint16
 	Preference   uint16
 	Pad          uint16
+}
+
+type DNSTXTData struct {
+	StringCount uint16
+	StringArray [1]*uint16
 }
 
 type DNSRecord struct {
@@ -601,3 +752,140 @@ type MibIfRow struct {
 	DescrLen        uint32
 	Descr           [MAXLEN_IFDESCR]byte
 }
+
+type CertContext struct {
+	EncodingType uint32
+	EncodedCert  *byte
+	Length       uint32
+	CertInfo     uintptr
+	Store        Handle
+}
+
+type CertChainContext struct {
+	Size                       uint32
+	TrustStatus                CertTrustStatus
+	ChainCount                 uint32
+	Chains                     **CertSimpleChain
+	LowerQualityChainCount     uint32
+	LowerQualityChains         **CertChainContext
+	HasRevocationFreshnessTime uint32
+	RevocationFreshnessTime    uint32
+}
+
+type CertSimpleChain struct {
+	Size                       uint32
+	TrustStatus                CertTrustStatus
+	NumElements                uint32
+	Elements                   **CertChainElement
+	TrustListInfo              uintptr
+	HasRevocationFreshnessTime uint32
+	RevocationFreshnessTime    uint32
+}
+
+type CertChainElement struct {
+	Size              uint32
+	CertContext       *CertContext
+	TrustStatus       CertTrustStatus
+	RevocationInfo    *CertRevocationInfo
+	IssuanceUsage     *CertEnhKeyUsage
+	ApplicationUsage  *CertEnhKeyUsage
+	ExtendedErrorInfo *uint16
+}
+
+type CertRevocationInfo struct {
+	Size             uint32
+	RevocationResult uint32
+	RevocationOid    *byte
+	OidSpecificInfo  uintptr
+	HasFreshnessTime uint32
+	FreshnessTime    uint32
+	CrlInfo          uintptr // *CertRevocationCrlInfo
+}
+
+type CertTrustStatus struct {
+	ErrorStatus uint32
+	InfoStatus  uint32
+}
+
+type CertUsageMatch struct {
+	Type  uint32
+	Usage CertEnhKeyUsage
+}
+
+type CertEnhKeyUsage struct {
+	Length           uint32
+	UsageIdentifiers **byte
+}
+
+type CertChainPara struct {
+	Size                         uint32
+	RequestedUsage               CertUsageMatch
+	RequstedIssuancePolicy       CertUsageMatch
+	URLRetrievalTimeout          uint32
+	CheckRevocationFreshnessTime uint32
+	RevocationFreshnessTime      uint32
+	CacheResync                  *Filetime
+}
+
+type CertChainPolicyPara struct {
+	Size            uint32
+	Flags           uint32
+	ExtraPolicyPara uintptr
+}
+
+type SSLExtraCertChainPolicyPara struct {
+	Size       uint32
+	AuthType   uint32
+	Checks     uint32
+	ServerName *uint16
+}
+
+type CertChainPolicyStatus struct {
+	Size              uint32
+	Error             uint32
+	ChainIndex        uint32
+	ElementIndex      uint32
+	ExtraPolicyStatus uintptr
+}
+
+const (
+	// do not reorder
+	HKEY_CLASSES_ROOT = 0x80000000 + iota
+	HKEY_CURRENT_USER
+	HKEY_LOCAL_MACHINE
+	HKEY_USERS
+	HKEY_PERFORMANCE_DATA
+	HKEY_CURRENT_CONFIG
+	HKEY_DYN_DATA
+
+	KEY_QUERY_VALUE        = 1
+	KEY_SET_VALUE          = 2
+	KEY_CREATE_SUB_KEY     = 4
+	KEY_ENUMERATE_SUB_KEYS = 8
+	KEY_NOTIFY             = 16
+	KEY_CREATE_LINK        = 32
+	KEY_WRITE              = 0x20006
+	KEY_EXECUTE            = 0x20019
+	KEY_READ               = 0x20019
+	KEY_WOW64_64KEY        = 0x0100
+	KEY_WOW64_32KEY        = 0x0200
+	KEY_ALL_ACCESS         = 0xf003f
+)
+
+const (
+	// do not reorder
+	REG_NONE = iota
+	REG_SZ
+	REG_EXPAND_SZ
+	REG_BINARY
+	REG_DWORD_LITTLE_ENDIAN
+	REG_DWORD_BIG_ENDIAN
+	REG_LINK
+	REG_MULTI_SZ
+	REG_RESOURCE_LIST
+	REG_FULL_RESOURCE_DESCRIPTOR
+	REG_RESOURCE_REQUIREMENTS_LIST
+	REG_QWORD_LITTLE_ENDIAN
+	REG_DWORD = REG_DWORD_LITTLE_ENDIAN
+	REG_QWORD = REG_QWORD_LITTLE_ENDIAN
+)

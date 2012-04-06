@@ -276,7 +276,7 @@ patch(void)
 			// Convert
 			//   op	  n(GS), reg
 			// to
-			//   MOVL 0x58(GS), reg
+			//   MOVL 0x28(GS), reg
 			//   op	  n(reg), reg
 			// The purpose of this patch is to fix some accesses
 			// to extern register variables (TLS) on Windows, as
@@ -291,11 +291,11 @@ patch(void)
 				q->as = p->as;
 				p->as = AMOVQ;
 				p->from.type = D_INDIR+D_GS;
-				p->from.offset = 0x58;
+				p->from.offset = 0x28;
 			}
 		}
 		if(HEADTYPE == Hlinux || HEADTYPE == Hfreebsd
-		|| HEADTYPE == Hopenbsd) {
+		|| HEADTYPE == Hopenbsd || HEADTYPE == Hnetbsd) {
 			// ELF uses FS instead of GS.
 			if(p->from.type == D_INDIR+D_GS)
 				p->from.type = D_INDIR+D_FS;
@@ -421,18 +421,18 @@ dostkoff(void)
 			p = appendp(p);	// load g into CX
 			p->as = AMOVQ;
 			if(HEADTYPE == Hlinux || HEADTYPE == Hfreebsd
-			|| HEADTYPE == Hopenbsd)	// ELF uses FS
+			|| HEADTYPE == Hopenbsd || HEADTYPE == Hnetbsd)	// ELF uses FS
 				p->from.type = D_INDIR+D_FS;
 			else
 				p->from.type = D_INDIR+D_GS;
 			p->from.offset = tlsoffset+0;
 			p->to.type = D_CX;
 			if(HEADTYPE == Hwindows) {
-				// movq %gs:0x58, %rcx
+				// movq %gs:0x28, %rcx
 				// movq (%rcx), %rcx
 				p->as = AMOVQ;
 				p->from.type = D_INDIR+D_GS;
-				p->from.offset = 0x58;
+				p->from.offset = 0x28;
 				p->to.type = D_CX;
 
 			
@@ -501,10 +501,17 @@ dostkoff(void)
 				q = p;
 			}
 
-			/* 160 comes from 3 calls (3*8) 4 safes (4*8) and 104 guard */
+			// If we ask for more stack, we'll get a minimum of StackMin bytes.
+			// We need a stack frame large enough to hold the top-of-stack data,
+			// the function arguments+results, our caller's PC, our frame,
+			// a word for the return PC of the next call, and then the StackLimit bytes
+			// that must be available on entry to any function called from a function
+			// that did a stack check.  If StackMin is enough, don't ask for a specific
+			// amount: then we can use the custom functions and save a few
+			// instructions.
 			moreconst1 = 0;
-			if(autoffset+160+textarg > 4096)
-				moreconst1 = (autoffset+160) & ~7LL;
+			if(StackTop + textarg + PtrSize + autoffset + PtrSize + StackLimit >= StackMin)
+				moreconst1 = autoffset;
 			moreconst2 = textarg;
 
 			// 4 varieties varieties (const1==0 cross const2==0)

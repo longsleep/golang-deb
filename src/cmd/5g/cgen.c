@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 /*
@@ -61,6 +63,9 @@ cgen(Node *n, Node *res)
 	case OCAP:
 		if(isslice(n->left->type))
 			n->addable = n->left->addable;
+		break;
+	case OITAB:
+		n->addable = n->left->addable;
 		break;
 	}
 
@@ -211,11 +216,11 @@ cgen(Node *n, Node *res)
 		goto ret;
 
 	case OMINUS:
+		regalloc(&n1, nl->type, N);
+		cgen(nl, &n1);
 		nodconst(&n3, nl->type, 0);
 		regalloc(&n2, nl->type, res);
-		regalloc(&n1, nl->type, N);
 		gmove(&n3, &n2);
-		cgen(nl, &n1);
 		gins(optoas(OSUB, nl->type), &n1, &n2);
 		gmove(&n2, res);
 		regfree(&n1);
@@ -276,6 +281,20 @@ cgen(Node *n, Node *res)
 		igen(n, &n1, res);
 		gmove(&n1, res);
 		regfree(&n1);
+		break;
+
+	case OITAB:
+		// itable of interface value
+		igen(nl, &n1, res);
+		n1.op = OREGISTER;	// was OINDREG
+		regalloc(&n2, n->type, &n1);
+		n1.op = OINDREG;
+		n1.type = n->type;
+		n1.xoffset = 0;
+		gmove(&n1, &n2);
+		gmove(&n2, res);
+		regfree(&n1);
+		regfree(&n2);
 		break;
 
 	case OLEN:
@@ -400,9 +419,9 @@ abop:	// asymmetric binary
 		regalloc(&n2, nr->type, N);
 		cgen(nr, &n2);
 	} else {
-		regalloc(&n2, nr->type, N);
+		regalloc(&n2, nr->type, res);
 		cgen(nr, &n2);
-		regalloc(&n1, nl->type, res);
+		regalloc(&n1, nl->type, N);
 		cgen(nl, &n1);
 	}
 	gins(a, &n2, &n1);
@@ -848,8 +867,10 @@ bgen(Node *n, int true, Prog *to)
 	int et, a;
 	Node *nl, *nr, *r;
 	Node n1, n2, n3, n4, tmp;
+	NodeList *ll;
 	Prog *p1, *p2;
 
+	USED(n4);			// in unreachable code below
 	if(debug['g']) {
 		dump("\nbgen", n);
 	}
@@ -859,9 +880,6 @@ bgen(Node *n, int true, Prog *to)
 
 	if(n->ninit != nil)
 		genlist(n->ninit);
-
-	nl = n->left;
-	nr = n->right;
 
 	if(n->type == T) {
 		convlit(&n, types[TBOOL]);
@@ -875,7 +893,6 @@ bgen(Node *n, int true, Prog *to)
 		patch(gins(AEND, N, N), to);
 		goto ret;
 	}
-	nl = N;
 	nr = N;
 
 	switch(n->op) {
@@ -951,7 +968,10 @@ bgen(Node *n, int true, Prog *to)
 				p1 = gbranch(AB, T);
 				p2 = gbranch(AB, T);
 				patch(p1, pc);
+				ll = n->ninit;
+				n->ninit = nil;
 				bgen(n, 1, p2);
+				n->ninit = ll;
 				patch(gbranch(AB, T), to);
 				patch(p2, pc);
 				goto ret;
@@ -984,6 +1004,7 @@ bgen(Node *n, int true, Prog *to)
 			regfree(&n1);
 			break;
 
+#ifdef	NOTDEF
 			a = optoas(a, types[tptr]);
 			regalloc(&n1, types[tptr], N);
 			regalloc(&n3, types[tptr], N);
@@ -1001,6 +1022,7 @@ bgen(Node *n, int true, Prog *to)
 			regfree(&n3);
 			regfree(&n1);
 			break;
+#endif
 		}
 
 		if(isinter(nl->type)) {
@@ -1019,6 +1041,7 @@ bgen(Node *n, int true, Prog *to)
 			regfree(&n1);
 			break;
 
+#ifdef	NOTDEF
 			a = optoas(a, types[tptr]);
 			regalloc(&n1, types[tptr], N);
 			regalloc(&n3, types[tptr], N);
@@ -1036,6 +1059,7 @@ bgen(Node *n, int true, Prog *to)
 			regfree(&n3);
 			regfree(&n4);
 			break;
+#endif
 		}
 
 		if(iscomplex[nl->type->etype]) {
@@ -1059,7 +1083,7 @@ bgen(Node *n, int true, Prog *to)
 		}
 
 		if(nr->op == OLITERAL) {
-			if(nr->val.ctype == CTINT &&  mpgetfix(nr->val.u.xval) == 0) {
+			if(isconst(nr, CTINT) &&  mpgetfix(nr->val.u.xval) == 0) {
 				gencmp0(nl, nl->type, a, to);
 				break;
 			}
@@ -1186,7 +1210,7 @@ stkof(Node *n)
  * NB: character copy assumed little endian architecture
  */
 void
-sgen(Node *n, Node *res, int32 w)
+sgen(Node *n, Node *res, int64 w)
 {
 	Node dst, src, tmp, nend;
 	int32 c, odst, osrc;
@@ -1194,25 +1218,34 @@ sgen(Node *n, Node *res, int32 w)
 	Prog *p, *ploop;
 
 	if(debug['g']) {
-		print("\nsgen w=%d\n", w);
+		print("\nsgen w=%lld\n", w);
 		dump("r", n);
 		dump("res", res);
 	}
-	if(w == 0)
-		return;
-	if(w < 0)
-		fatal("sgen copy %d", w);
+
 	if(n->ullman >= UINF && res->ullman >= UINF)
 		fatal("sgen UINF");
+
+	if(w < 0 || (int32)w != w)
+		fatal("sgen copy %lld", w);
+
 	if(n->type == T)
 		fatal("sgen: missing type");
+
+	if(w == 0) {
+		// evaluate side effects only.
+		regalloc(&dst, types[tptr], N);
+		agen(res, &dst);
+		agen(n, &dst);
+		regfree(&dst);
+		return;
+	}
 
 	// determine alignment.
 	// want to avoid unaligned access, so have to use
 	// smaller operations for less aligned types.
 	// for example moving [4]byte must use 4 MOVB not 1 MOVW.
 	align = n->type->align;
-	op = 0;
 	switch(align) {
 	default:
 		fatal("sgen: invalid alignment %d for %T", align, n->type);
@@ -1227,7 +1260,7 @@ sgen(Node *n, Node *res, int32 w)
 		break;
 	}
 	if(w%align)
-		fatal("sgen: unaligned size %d (align=%d) for %T", w, align, n->type);
+		fatal("sgen: unaligned size %lld (align=%d) for %T", w, align, n->type);
 	c = w / align;
 
 	// offset on the stack
@@ -1313,7 +1346,6 @@ sgen(Node *n, Node *res, int32 w)
 			p->from.type = D_OREG;
 			p->from.offset = dir;
 			p->scond |= C_PBIT;
-			ploop = p;
 	
 			p = gins(op, &tmp, &dst);
 			p->to.type = D_OREG;

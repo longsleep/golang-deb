@@ -1,4 +1,7 @@
-<!-- Effective Go -->
+<!--{
+	"Title": "Effective Go",
+	"Template": true
+}-->
 
 <h2 id="introduction">Introduction</h2>
 
@@ -24,8 +27,10 @@ will be easy for other Go programmers to understand.
 
 <p>
 This document gives tips for writing clear, idiomatic Go code.
-It augments the <a href="go_spec.html">language specification</a>
-and the <a href="go_tutorial.html">tutorial</a>, both of which you
+It augments the <a href="/ref/spec">language specification</a>,
+the <a href="http://tour.golang.org/">Tour of Go</a>,
+and <a href="/doc/code.html">How to Write Go Code</a>,
+all of which you
 should read first.
 </p>
 
@@ -59,7 +64,10 @@ prescriptive style guide.
 With Go we take an unusual
 approach and let the machine
 take care of most formatting issues.
-The <code>gofmt</code> tool reads a Go program
+The <code>gofmt</code> program
+(also available as <code>go fmt</code>, which
+operates at the package level rather than source file level)
+reads a Go program
 and emits the source in a standard style of indentation
 and vertical alignment, retaining and if necessary
 reformatting comments.
@@ -221,7 +229,7 @@ starts with the name being declared.
 <pre>
 // Compile parses a regular expression and returns, if successful, a Regexp
 // object that can be used to match against text.
-func Compile(str string) (regexp *Regexp, error os.Error) {
+func Compile(str string) (regexp *Regexp, err error) {
 </pre>
 
 <p>
@@ -233,9 +241,9 @@ Since the whole declaration is presented, such a comment can often be perfunctor
 <pre>
 // Error codes returned by failures to parse an expression.
 var (
-    ErrInternal      = os.NewError("regexp: internal error")
-    ErrUnmatchedLpar = os.NewError("regexp: unmatched '('")
-    ErrUnmatchedRpar = os.NewError("regexp: unmatched ')'")
+    ErrInternal      = errors.New("regexp: internal error")
+    ErrUnmatchedLpar = errors.New("regexp: unmatched '('")
+    ErrUnmatchedRpar = errors.New("regexp: unmatched ')'")
     ...
 )
 </pre>
@@ -526,11 +534,61 @@ if err != nil {
 }
 d, err := f.Stat()
 if err != nil {
+    f.Close()
     return err
 }
 codeUsing(f, d)
 </pre>
 
+
+<h3 id="redeclaration">Redeclaration</h3>
+
+<p>
+An aside: The last example in the previous section demonstrates a detail of how the
+<code>:=</code> short declaration form works.
+The declaration that calls <code>os.Open</code> reads,
+</p>
+
+<pre>
+f, err := os.Open(name)
+</pre>
+
+<p>
+This statement declares two variables, <code>f</code> and <code>err</code>.
+A few lines later, the call to <code>f.Stat</code> reads,
+</p>
+
+<pre>
+d, err := f.Stat()
+</pre>
+
+<p>
+which looks as if it declares <code>d</code> and <code>err</code>.
+Notice, though, that <code>err</code> appears in both statements.
+This duplication is legal: <code>err</code> is declared by the first statement,
+but only <em>re-assigned</em> in the second.
+This means that the call to <code>f.Stat</code> uses the existing
+<code>err</code> variable declared above, and just gives it a new value.
+</p>
+
+<p>
+In a <code>:=</code> declaration a variable <code>v</code> may appear even
+if it has already been declared, provided:
+</p>
+
+<ul>
+<li>this declaration is in the same scope as the existing declaration of <code>v</code>
+(if <code>v</code> is already declared in an outer scope, the declaration will create a new variable),</li>
+<li>the corresponding value in the initialization is assignable to <code>v</code>, and</li>
+<li>there is at least one other variable in the declaration that is being declared anew.</li>
+</ul>
+
+<p>
+This unusual property is pure pragmatism,
+making it easy to use a single <code>err</code> value, for example,
+in a long <code>if-else</code> chain.
+You'll see it used often.
+</p>
 
 <h3 id="for">For</h3>
 
@@ -567,9 +625,28 @@ or reading from a channel, a <code>range</code> clause can
 manage the loop.
 </p>
 <pre>
-var m map[string]int
+for key, value := range oldMap {
+    newMap[key] = value
+}
+</pre>
+
+<p>
+If you only need the first item in the range (the key or index), drop the second:
+</p>
+<pre>
+for key := range m {
+    if expired(key) {
+        delete(m, key)
+    }
+}
+</pre>
+
+<p>
+If you only need the second item in the range (the value), use the <em>blank identifier</em>, an underscore, to discard the first:
+</p>
+<pre>
 sum := 0
-for _, value := range m {  // key is unused
+for _, value := range array {
     sum += value
 }
 </pre>
@@ -651,7 +728,7 @@ func shouldEscape(c byte) bool {
 Here's a comparison routine for byte arrays that uses two
 <code>switch</code> statements:
 <pre>
-// Compare returns an integer comparing the two byte arrays
+// Compare returns an integer comparing the two byte arrays,
 // lexicographically.
 // The result will be 0 if a == b, -1 if a &lt; b, and +1 if a &gt; b
 func Compare(a, b []byte) int {
@@ -713,16 +790,16 @@ error code secreted away in a volatile location.
 In Go, <code>Write</code>
 can return a count <i>and</i> an error: &ldquo;Yes, you wrote some
 bytes but not all of them because you filled the device&rdquo;.
-The signature of <code>*File.Write</code> in package <code>os</code> is:
+The signature of <code>File.Write</code> in package <code>os</code> is:
 </p>
 
 <pre>
-func (file *File) Write(b []byte) (n int, err Error)
+func (file *File) Write(b []byte) (n int, err error)
 </pre>
 
 <p>
 and as the documentation says, it returns the number of bytes
-written and a non-nil <code>Error</code> when <code>n</code>
+written and a non-nil <code>error</code> when <code>n</code>
 <code>!=</code> <code>len(b)</code>.
 This is a common style; see the section on error handling for more examples.
 </p>
@@ -788,12 +865,12 @@ of <code>io.ReadFull</code> that uses them well:
 </p>
 
 <pre>
-func ReadFull(r Reader, buf []byte) (n int, err os.Error) {
+func ReadFull(r Reader, buf []byte) (n int, err error) {
     for len(buf) &gt; 0 &amp;&amp; err == nil {
         var nr int
         nr, err = r.Read(buf)
         n += nr
-        buf = buf[nr:len(buf)]
+        buf = buf[nr:]
     }
     return
 }
@@ -812,7 +889,7 @@ canonical examples are unlocking a mutex or closing a file.
 
 <pre>
 // Contents returns the file's contents as a string.
-func Contents(filename string) (string, os.Error) {
+func Contents(filename string) (string, error) {
     f, err := os.Open(filename)
     if err != nil {
         return "", err
@@ -825,7 +902,7 @@ func Contents(filename string) (string, os.Error) {
         n, err := f.Read(buf[0:])
         result = append(result, buf[0:n]...) // append is discussed later.
         if err != nil {
-            if err == os.EOF {
+            if err == io.EOF {
                 break
             }
             return "", err  // f will be closed if we return here.
@@ -945,7 +1022,7 @@ but the rules are simple.
 Let's talk about <code>new</code> first.
 It's a built-in function that allocates memory, but unlike its namesakes
 in some other languages it does not <em>initialize</em> the memory,
-it only <em>zeroes</em> it.
+it only <em>zeros</em> it.
 That is,
 <code>new(T)</code> allocates zeroed storage for a new item of type
 <code>T</code> and returns its address, a value of type <code>*T</code>.
@@ -954,8 +1031,9 @@ In Go terminology, it returns a pointer to a newly allocated zero value of type
 </p>
 
 <p>
-Since the memory returned by <code>new</code> is zeroed, it's helpful to arrange that the
-zeroed object can be used without further initialization.  This means a user of
+Since the memory returned by <code>new</code> is zeroed, it's helpful to arrange
+when designing your data structures that the
+zero value of each type can be used without further initialization.  This means a user of
 the data structure can create one with <code>new</code> and get right to
 work.
 For example, the documentation for <code>bytes.Buffer</code> states that
@@ -1075,8 +1153,9 @@ m := map[int]string{Enone: "no error", Eio: "Eio", Einval: "invalid argument"}
 Back to allocation.
 The built-in function <code>make(T, </code><i>args</i><code>)</code> serves
 a purpose different from <code>new(T)</code>.
-It creates slices, maps, and channels only, and it returns an initialized (not zero)
-value of type <code>T</code>, not <code>*T</code>.
+It creates slices, maps, and channels only, and it returns an <em>initialized</em>
+(not <em>zeroed</em>)
+value of type <code>T</code> (not <code>*T</code>).
 The reason for the distinction
 is that these three types are, under the covers, references to data structures that
 must be initialized before use.
@@ -1193,7 +1272,7 @@ limit of how much data to read.  Here is the signature of the
 <code>os</code>:
 </p>
 <pre>
-func (file *File) Read(buf []byte) (n int, err os.Error)
+func (file *File) Read(buf []byte) (n int, err error)
 </pre>
 <p>
 The method returns the number of bytes read and an error value, if
@@ -1205,11 +1284,11 @@ any.  To read into the first 32 bytes of a larger buffer
 </pre>
 <p>
 Such slicing is common and efficient.  In fact, leaving efficiency aside for
-the moment, this snippet would also read the first 32 bytes of the buffer.
+the moment, the following snippet would also read the first 32 bytes of the buffer.
 </p>
 <pre>
     var n int
-    var err os.Error
+    var err error
     for i := 0; i &lt; 32; i++ {
         nbytes, e := f.Read(buf[i:i+1])  // Read one byte.
         if nbytes == 0 || e != nil {
@@ -1267,9 +1346,9 @@ values of different types.
 The key can be of any type for which the equality operator is defined,
 such as integers,
 floating point and complex numbers,
-strings, pointers, and interfaces (as long as the dynamic type
-supports equality).  Structs, arrays and slices cannot be used as map keys,
-because equality is not defined on those types.
+strings, pointers, interfaces (as long as the dynamic type
+supports equality), structs and arrays. Slices cannot be used as map keys,
+because equality is not defined on them.
 Like slices, maps are a reference type. If you pass a map to a function
 that changes the contents of the map, the changes will be visible
 in the caller.
@@ -1347,7 +1426,7 @@ func offset(tz string) int {
 </pre>
 <p>
 To test for presence in the map without worrying about the actual value,
-you can use the <em>blank identifier</em>, a simple underscore (<code>_</code>).
+you can use the blank identifier (<code>_</code>).
 The blank identifier can be assigned or declared with any value of any type, with the
 value discarded harmlessly.  For testing just presence in a map, use the blank
 identifier in place of the usual variable for the value.
@@ -1356,13 +1435,13 @@ identifier in place of the usual variable for the value.
 _, present := timeZone[tz]
 </pre>
 <p>
-To delete a map entry, turn the multiple assignment around by placing
-an extra boolean on the right; if the boolean is false, the entry
-is deleted. It's safe to do this even if the key is already absent
+To delete a map entry, use the <code>delete</code>
+built-in function, whose arguments are the map and the key to be deleted.
+It's safe to do this this even if the key is already absent
 from the map.
 </p>
 <pre>
-timeZone["PDT"] = 0, false  // Now on Standard Time
+delete(timeZone, "PDT")  // Now on Standard Time
 </pre>
 
 <h3 id="printing">Printing</h3>
@@ -1392,7 +1471,7 @@ fmt.Println(fmt.Sprint("Hello ", 23))
 </pre>
 <p>
 As mentioned in
-the <a href="go_tutorial.html">tutorial</a>, <code>fmt.Fprint</code>
+the <a href="http://tour.golang.org">Tour</a>, <code>fmt.Fprint</code>
 and friends take as a first argument any object
 that implements the <code>io.Writer</code> interface; the variables <code>os.Stdout</code>
 and <code>os.Stderr</code> are familiar instances.
@@ -1437,7 +1516,7 @@ format <code>%#v</code> prints the value in full Go syntax.
 <pre>
 type T struct {
     a int
-    b float
+    b float64
     c string
 }
 t := &amp;T{ 7, -2.35, "abc\tdef" }
@@ -1507,7 +1586,7 @@ for its final argument to specify that an arbitrary number of parameters (of arb
 can appear after the format.
 </p>
 <pre>
-func Printf(format string, v ...interface{}) (n int, errno os.Error) {
+func Printf(format string, v ...interface{}) (n int, err error) {
 </pre>
 <p>
 Within the function <code>Printf</code>, <code>v</code> acts like a variable of type
@@ -1553,40 +1632,49 @@ Now we have the missing piece we needed to explain the design of
 the <code>append</code> built-in function.  The signature of <code>append</code>
 is different from our custom <code>Append</code> function above.
 Schematically, it's like this:
+</p>
 <pre>
 func append(slice []<i>T</i>, elements...T) []<i>T</i>
 </pre>
+<p>
 where <i>T</i> is a placeholder for any given type.  You can't
 actually write a function in Go where the type <code>T</code>
 is determined by the caller.
 That's why <code>append</code> is built in: it needs support from the
 compiler.
+</p>
 <p>
 What <code>append</code> does is append the elements to the end of
 the slice and return the result.  The result needs to be returned
 because, as with our hand-written <code>Append</code>, the underlying
 array may change.  This simple example
+</p>
 <pre>
 x := []int{1,2,3}
 x = append(x, 4, 5, 6)
 fmt.Println(x)
 </pre>
+<p>
 prints <code>[1 2 3 4 5 6]</code>.  So <code>append</code> works a
 little like <code>Printf</code>, collecting an arbitrary number of
 arguments.
+</p>
 <p>
 But what if we wanted to do what our <code>Append</code> does and
 append a slice to a slice?  Easy: use <code>...</code> at the call
 site, just as we did in the call to <code>Output</code> above.  This
 snippet produces identical output to the one above.
+</p>
 <pre>
 x := []int{1,2,3}
 y := []int{4,5,6}
 x = append(x, y...)
 fmt.Println(x)
 </pre>
+<p>
 Without that <code>...</code>, it wouldn't compile because the types
 would be wrong; <code>y</code> is not of type <code>int</code>.
+</p>
 
 <h2 id="initialization">Initialization</h2>
 
@@ -1620,54 +1708,26 @@ enumerator.  Since <code>iota</code> can be part of an expression and
 expressions can be implicitly repeated, it is easy to build intricate
 sets of values.
 </p>
-<pre>
-type ByteSize float64
-const (
-    _ = iota  // ignore first value by assigning to blank identifier
-    KB ByteSize = 1&lt;&lt;(10*iota)
-    MB
-    GB
-    TB
-    PB
-    EB
-    ZB
-    YB
-)
-</pre>
+{{code "/doc/progs/eff_bytesize.go" `/^type ByteSize/` `/^\)/`}}
 <p>
 The ability to attach a method such as <code>String</code> to a
 type makes it possible for such values to format themselves
 automatically for printing, even as part of a general type.
 </p>
-<pre>
-func (b ByteSize) String() string {
-    switch {
-    case b &gt;= YB:
-        return fmt.Sprintf("%.2fYB", float64(b/YB))
-    case b &gt;= ZB:
-        return fmt.Sprintf("%.2fZB", float64(b/ZB))
-    case b &gt;= EB:
-        return fmt.Sprintf("%.2fEB", float64(b/EB))
-    case b &gt;= PB:
-        return fmt.Sprintf("%.2fPB", float64(b/PB))
-    case b &gt;= TB:
-        return fmt.Sprintf("%.2fTB", float64(b/TB))
-    case b &gt;= GB:
-        return fmt.Sprintf("%.2fGB", float64(b/GB))
-    case b &gt;= MB:
-        return fmt.Sprintf("%.2fMB", float64(b/MB))
-    case b &gt;= KB:
-        return fmt.Sprintf("%.2fKB", float64(b/KB))
-    }
-    return fmt.Sprintf("%.2fB", float64(b))
-}
-</pre>
+{{code "/doc/progs/eff_bytesize.go" `/^func.*ByteSize.*String/` `/^}/`}}
 <p>
-(The <code>float64</code> conversions prevent <code>Sprintf</code> 
-from recurring back through the <code>String</code> method for 
-<code>ByteSize</code>.)
 The expression <code>YB</code> prints as <code>1.00YB</code>,
 while <code>ByteSize(1e13)</code> prints as <code>9.09TB</code>.
+</p>
+
+<p>
+Note that it's fine to call <code>Sprintf</code> and friends in the
+implementation of <code>String</code> methods, but beware of
+recurring into the <code>String</code> method through the nested
+<code>Sprintf</code> call using a string format
+(<code>%s</code>, <code>%q</code>, <code>%v</code>, <code>%x</code> or <code>%X</code>).
+The <code>ByteSize</code> implementation of <code>String</code> is safe
+because it calls <code>Sprintf</code> with <code>%f</code>.
 </p>
 
 <h3 id="variables">Variables</h3>
@@ -1689,10 +1749,7 @@ var (
 <p>
 Finally, each source file can define its own niladic <code>init</code> function to
 set up whatever state is required.  (Actually each file can have multiple
-<code>init</code> functions.) The only restriction is that, although
-goroutines can be launched during initialization, they will not begin
-execution until it completes; initialization always runs as a single thread
-of execution.
+<code>init</code> functions.)
 And finally means finally: <code>init</code> is called after all the
 variable declarations in the package have evaluated their initializers,
 and those are evaluated only after all the imported packages have been
@@ -1757,7 +1814,7 @@ In fact, we can do even better.  If we modify our function so it looks
 like a standard <code>Write</code> method, like this,
 </p>
 <pre>
-func (p *ByteSlice) Write(data []byte) (n int, err os.Error) {
+func (p *ByteSlice) Write(data []byte) (n int, err error) {
     slice := *p
     // Again as above.
     *p = slice
@@ -1810,33 +1867,7 @@ by the routines in package <code>sort</code> if it implements
 and it could also have a custom formatter.
 In this contrived example <code>Sequence</code> satisfies both.
 </p>
-<pre>
-type Sequence []int
-
-// Methods required by sort.Interface.
-func (s Sequence) Len() int {
-    return len(s)
-}
-func (s Sequence) Less(i, j int) bool {
-    return s[i] &lt; s[j]
-}
-func (s Sequence) Swap(i, j int) {
-    s[i], s[j] = s[j], s[i]
-}
-
-// Method for printing - sorts the elements before printing.
-func (s Sequence) String() string {
-    sort.Sort(s)
-    str := "["
-    for i, elem := range s {
-        if i &gt; 0 {
-            str += " "
-        }
-        str += fmt.Sprint(elem)
-    }
-    return str + "]"
-}
-</pre>
+{{code "/doc/progs/eff_sequence.go" `/^type/` "$"}}
 
 <h3 id="conversions">Conversions</h3>
 
@@ -1868,7 +1899,7 @@ do create a new value.)
 It's an idiom in Go programs to convert the
 type of an expression to access a different
 set of methods. As an example, we could use the existing
-type <code>sort.IntArray</code> to reduce the entire example
+type <code>sort.IntSlice</code> to reduce the entire example
 to this:
 </p>
 <pre>
@@ -1876,14 +1907,14 @@ type Sequence []int
 
 // Method for printing - sorts the elements before printing
 func (s Sequence) String() string {
-    sort.IntArray(s).Sort()
+    sort.IntSlice(s).Sort()
     return fmt.Sprint([]int(s))
 }
 </pre>
 <p>
 Now, instead of having <code>Sequence</code> implement multiple
 interfaces (sorting and printing), we're using the ability of a data item to be
-converted to multiple types (<code>Sequence</code>, <code>sort.IntArray</code>
+converted to multiple types (<code>Sequence</code>, <code>sort.IntSlice</code>
 and <code>[]int</code>), each of which does some part of the job.
 That's more unusual in practice but can be effective.
 </p>
@@ -1912,42 +1943,53 @@ the rest of the code is unaffected by the change of algorithm.
 </p>
 <p>
 A similar approach allows the streaming cipher algorithms
-in the <code>crypto/block</code> package to be
+in the various <code>crypto</code> packages to be
 separated from the block ciphers they chain together.
-By analogy with the <code>bufio</code> package,
-they wrap a <code>Cipher</code> interface
-and return <code>hash.Hash</code>,
-<code>io.Reader</code>, or <code>io.Writer</code>
-interface values, not specific implementations.
+The <code>Block</code> interface
+in the <code>crypto/cipher</code> package specifies the
+behavior of a block cipher, which provides encryption
+of a single block of data.
+Then, by analogy with the <code>bufio</code> package,
+cipher packages that implement this interface
+can be used to construct streaming ciphers, represented
+by the <code>Stream</code> interface, without
+knowing the details of the block encryption.
 </p>
 <p>
-The interface to <code>crypto/block</code> includes:
+The  <code>crypto/cipher</code> interfaces look like this:
 </p>
 <pre>
-type Cipher interface {
+type Block interface {
     BlockSize() int
     Encrypt(src, dst []byte)
     Decrypt(src, dst []byte)
 }
 
-// NewECBDecrypter returns a reader that reads data
-// from r and decrypts it using c in electronic codebook (ECB) mode.
-func NewECBDecrypter(c Cipher, r io.Reader) io.Reader
+type Stream interface {
+    XORKeyStream(dst, src []byte)
+}
+</pre>
 
-// NewCBCDecrypter returns a reader that reads data
-// from r and decrypts it using c in cipher block chaining (CBC) mode
-// with the initialization vector iv.
-func NewCBCDecrypter(c Cipher, iv []byte, r io.Reader) io.Reader
+<p>
+Here's the definition of the counter mode (CTR) stream,
+which turns a block cipher into a streaming cipher; notice
+that the block cipher's details are abstracted away:
+</p>
+
+<pre>
+// NewCTR returns a Stream that encrypts/decrypts using the given Block in
+// counter mode. The length of iv must be the same as the Block's block size.
+func NewCTR(block Block, iv []byte) Stream
 </pre>
 <p>
-<code>NewECBDecrypter</code> and <code>NewCBCReader</code> apply not
+<code>NewCTR</code> applies not
 just to one specific encryption algorithm and data source but to any
-implementation of the <code>Cipher</code> interface and any
-<code>io.Reader</code>.  Because they return <code>io.Reader</code>
-interface values, replacing ECB
-encryption with CBC encryption is a localized change.  The constructor
+implementation of the <code>Block</code> interface and any
+<code>Stream</code>.  Because they return
+interface values, replacing CTR
+encryption with other encryption modes is a localized change.  The constructor
 calls must be edited, but because the surrounding code must treat the result only
-as an <code>io.Reader</code>, it won't notice the difference.
+as a <code>Stream</code>, it won't notice the difference.
 </p>
 
 <h3 id="interface_methods">Interfaces and methods</h3>
@@ -1993,7 +2035,7 @@ func (ctr *Counter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 <code>http.ResponseWriter</code>.)
 For reference, here's how to attach such a server to a node on the URL tree.
 <pre>
-import "http"
+import "net/http"
 ...
 ctr := new(Counter)
 http.Handle("/counter", ctr)
@@ -2032,7 +2074,7 @@ It's easy to write a function to print the arguments.
 </p>
 <pre>
 func ArgServer() {
-    for i, s := range os.Args {
+    for _, s := range os.Args {
         fmt.Println(s)
     }
 }
@@ -2070,7 +2112,7 @@ to have the right signature.
 <pre>
 // Argument server.
 func ArgServer(w http.ResponseWriter, req *http.Request) {
-    for i, s := range os.Args {
+    for _, s := range os.Args {
         fmt.Fprintln(w, s)
     }
 }
@@ -2078,8 +2120,8 @@ func ArgServer(w http.ResponseWriter, req *http.Request) {
 <p>
 <code>ArgServer</code> now has same signature as <code>HandlerFunc</code>,
 so it can be converted to that type to access its methods,
-just as we converted <code>Sequence</code> to <code>IntArray</code>
-to access <code>IntArray.Sort</code>.
+just as we converted <code>Sequence</code> to <code>IntSlice</code>
+to access <code>IntSlice.Sort</code>.
 The code to set it up is concise:
 </p>
 <pre>
@@ -2116,11 +2158,11 @@ here are their definitions.
 </p>
 <pre>
 type Reader interface {
-    Read(p []byte) (n int, err os.Error)
+    Read(p []byte) (n int, err error)
 }
 
 type Writer interface {
-    Write(p []byte) (n int, err os.Error)
+    Write(p []byte) (n int, err error)
 }
 </pre>
 <p>
@@ -2182,7 +2224,7 @@ satisfy the <code>io</code> interfaces, we would also need
 to provide forwarding methods, like this:
 </p>
 <pre>
-func (rw *ReadWriter) Read(p []byte) (n int, err os.Error) {
+func (rw *ReadWriter) Read(p []byte) (n int, err error) {
     return rw.reader.Read(p)
 }
 </pre>
@@ -2315,7 +2357,7 @@ it can also be seen as a type-safe generalization of Unix pipes.
 They're called <em>goroutines</em> because the existing
 terms&mdash;threads, coroutines, processes, and so on&mdash;convey
 inaccurate connotations.  A goroutine has a simple model: it is a
-function executing in parallel with other goroutines in the same
+function executing concurrently with other goroutines in the same
 address space.  It is lightweight, costing little more than the
 allocation of stack space.
 And the stacks start small, so they are cheap, and grow
@@ -2336,12 +2378,12 @@ exits, silently.  (The effect is similar to the Unix shell's
 background.)
 </p>
 <pre>
-go list.Sort()  // run list.Sort in parallel; don't wait for it. 
+go list.Sort()  // run list.Sort concurrently; don't wait for it. 
 </pre>
 <p>
 A function literal can be handy in a goroutine invocation.
 <pre>
-func Announce(message string, delay int64) {
+func Announce(message string, delay time.Duration) {
     go func() {
         time.Sleep(delay)
         fmt.Println(message)
@@ -2504,8 +2546,8 @@ system, and there's not a mutex in sight.
 <p>
 Another application of these ideas is to parallelize a calculation
 across multiple CPU cores.  If the calculation can be broken into
-separate pieces, it can be parallelized, with a channel to signal
-when each piece completes.
+separate pieces that can execute independently, it can be parallelized,
+with a channel to signal when each piece completes.
 </p>
 <p>
 Let's say we have an expensive operation to perform on a vector of items,
@@ -2547,7 +2589,7 @@ func (v Vector) DoAll(u Vector) {
 </pre>
 
 <p>
-The current implementation of <code>gc</code> (<code>6g</code>, etc.)
+The current implementation of the Go runtime
 will not parallelize this code by default.
 It dedicates only a single core to user-level processing.  An
 arbitrary number of goroutines can be blocked in system calls, but
@@ -2557,8 +2599,10 @@ is if you want CPU parallelism you must tell the run-time
 how many goroutines you want executing code simultaneously.  There
 are two related ways to do this.  Either run your job with environment
 variable <code>GOMAXPROCS</code> set to the number of cores to use
-(default 1); or import the <code>runtime</code> package and call
+or import the <code>runtime</code> package and call
 <code>runtime.GOMAXPROCS(NCPU)</code>.
+A helpful value might be <code>runtime.NumCPU()</code>, which reports the number
+of logical CPUs on the local machine.
 Again, this requirement is expected to be retired as the scheduling and run-time improve.
 </p>
 
@@ -2634,12 +2678,12 @@ the garbage collector for bookkeeping.
 Library routines must often return some sort of error indication to
 the caller.  As mentioned earlier, Go's multivalue return makes it
 easy to return a detailed error description alongside the normal
-return value.  By convention, errors have type <code>os.Error</code>,
-a simple interface.
+return value.  By convention, errors have type <code>error</code>,
+a simple built-in interface.
 </p>
 <pre>
-type Error interface {
-    String() string
+type error interface {
+    Error() string
 }
 </pre>
 <p>
@@ -2654,15 +2698,15 @@ For example, <code>os.Open</code> returns an <code>os.PathError</code>.
 type PathError struct {
     Op string    // "open", "unlink", etc.
     Path string  // The associated file.
-    Error Error  // Returned by the system call.
+    Err error    // Returned by the system call.
 }
 
-func (e *PathError) String() string {
-    return e.Op + " " + e.Path + ": " + e.Error.String()
+func (e *PathError) Error() string {
+    return e.Op + " " + e.Path + ": " + e.Err.Error()
 }
 </pre>
 <p>
-<code>PathError</code>'s <code>String</code> generates
+<code>PathError</code>'s <code>Error</code> generates
 a string like this:
 </p>
 <pre>
@@ -2679,25 +2723,25 @@ it is much more informative than the plain
 <p>
 When feasible, error strings should identify their origin, such as by having
 a prefix naming the package that generated the error.  For example, in package
-image, the string representation for a decoding error due to an unknown format
-is "image: unknown format".
+<code>image</code>, the string representation for a decoding error due to an
+unknown format is "image: unknown format".
 </p>
 
 <p>
 Callers that care about the precise error details can
 use a type switch or a type assertion to look for specific
 errors and extract details.  For <code>PathErrors</code>
-this might include examining the internal <code>Error</code>
+this might include examining the internal <code>Err</code>
 field for recoverable failures.
 </p>
 
 <pre>
 for try := 0; try &lt; 2; try++ {
-    file, err = os.Open(filename)
+    file, err = os.Create(filename)
     if err == nil {
         return
     }
-    if e, ok := err.(*os.PathError); ok &amp;&amp; e.Error == os.ENOSPC {
+    if e, ok := err.(*os.PathError); ok &amp;&amp; e.Err == syscall.ENOSPC {
         deleteTempFiles()  // Recover some space.
         continue
     }
@@ -2705,13 +2749,25 @@ for try := 0; try &lt; 2; try++ {
 }
 </pre>
 
+<p>
+The second <code>if</code> statement here is idiomatic Go.
+The type assertion <code>err.(*os.PathError)</code> is
+checked with the "comma ok" idiom (mentioned <a href="#maps">earlier</a>
+in the context of examining maps).
+If the type assertion fails, <code>ok</code> will be false, and <code>e</code>
+will be <code>nil</code>.
+If it succeeds,  <code>ok</code> will be true, which means the
+error was of type <code>*os.PathError</code>, and then so is <code>e</code>,
+which we can examine for more information about the error.
+</p>
+
 <h3 id="panic">Panic</h3>
 
 <p>
 The usual way to report an error to a caller is to return an
-<code>os.Error</code> as an extra return value.  The canonical
+<code>error</code> as an extra return value.  The canonical
 <code>Read</code> method is a well-known instance; it returns a byte
-count and an <code>os.Error</code>.  But what if the error is
+count and an <code>error</code>.  But what if the error is
 unrecoverable?  Sometimes the program simply cannot continue.
 </p>
 
@@ -2827,14 +2883,14 @@ cleanly by calling <code>panic</code>.  We can use that idea to
 simplify error handling in complex software.  Let's look at an
 idealized excerpt from the <code>regexp</code> package, which reports
 parsing errors by calling <code>panic</code> with a local
-<code>Error</code> type.  Here's the definition of <code>Error</code>,
+error type.  Here's the definition of <code>Error</code>,
 an <code>error</code> method, and the <code>Compile</code> function.
 </p>
 
 <pre>
-// Error is the type of a parse error; it satisfies os.Error.
+// Error is the type of a parse error; it satisfies the error interface.
 type Error string
-func (e Error) String() string {
+func (e Error) Error() string {
     return string(e)
 }
 
@@ -2845,7 +2901,7 @@ func (regexp *Regexp) error(err string) {
 }
 
 // Compile returns a parsed representation of the regular expression.
-func Compile(str string) (regexp *Regexp, err os.Error) {
+func Compile(str string) (regexp *Regexp, err error) {
     regexp = new(Regexp)
     // doParse will panic if there is a parse error.
     defer func() {
@@ -2863,7 +2919,7 @@ If <code>doParse</code> panics, the recovery block will set the
 return value to <code>nil</code>&mdash;deferred functions can modify
 named return values.  It then will then check, in the assignment
 to <code>err</code>, that the problem was a parse error by asserting
-that it has type <code>Error</code>.
+that it has the local type <code>Error</code>.
 If it does not, the type assertion will fail, causing a run-time error
 that continues the stack unwinding as though nothing had interrupted
 it.  This check means that if something unexpected happens, such
@@ -2881,7 +2937,7 @@ the parse stack by hand.
 <p>
 Useful though this pattern is, it should be used only within a package.
 <code>Parse</code> turns its internal <code>panic</code> calls into
-<code>os.Error</code> values; it does not expose <code>panics</code>
+<code>error</code> values; it does not expose <code>panics</code>
 to its client.  That is a good rule to follow.
 </p>
 
@@ -2917,66 +2973,7 @@ for instance, a URL, saving you typing the URL into the phone's tiny keyboard.
 Here's the complete program.
 An explanation follows.
 </p>
-
-<pre>
-package main
-
-import (
-    "flag"
-    "http"
-    "io"
-    "log"
-    "old/template" // New template package coming soon...
-)
-
-var addr = flag.String("addr", ":1718", "http service address") // Q=17, R=18
-var fmap = template.FormatterMap{
-    "html": template.HTMLFormatter,
-    "url+html": UrlHtmlFormatter,
-}
-var templ = template.MustParse(templateStr, fmap)
-
-func main() {
-    flag.Parse()
-    http.Handle("/", http.HandlerFunc(QR))
-    err := http.ListenAndServe(*addr, nil)
-    if err != nil {
-        log.Fatal("ListenAndServe:", err)
-    }
-}
-
-func QR(w http.ResponseWriter, req *http.Request) {
-    templ.Execute(w, req.FormValue("s"))
-}
-
-func UrlHtmlFormatter(w io.Writer, fmt string, v ...interface{}) {
-    template.HTMLEscape(w, []byte(http.URLEscape(v[0].(string))))
-}
-
-
-const templateStr = `
-&lt;html&gt;
-&lt;head&gt;
-&lt;title&gt;QR Link Generator&lt;/title&gt;
-&lt;/head&gt;
-&lt;body&gt;
-{.section @}
-&lt;img src="http://chart.apis.google.com/chart?chs=300x300&amp;cht=qr&amp;choe=UTF-8&amp;chl={@|url+html}"
-/&gt;
-&lt;br&gt;
-{@|html}
-&lt;br&gt;
-&lt;br&gt;
-{.end}
-&lt;form action="/" name=f method="GET"&gt;&lt;input maxLength=1024 size=70
-name=s value="" title="Text to QR Encode"&gt;&lt;input type=submit
-value="Show QR" name=qr&gt;
-&lt;/form&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-`
-</pre>
-
+{{code "/doc/progs/eff_qr.go"}}
 <p>
 The pieces up to <code>main</code> should be easy to follow.
 The one flag sets a default HTTP port for our server.  The template
@@ -2995,34 +2992,30 @@ server; it blocks while the server runs.
 executes the template on the data in the form value named <code>s</code>.
 </p>
 <p>
-The template package, inspired by <a
-href="http://code.google.com/p/json-template">json-template</a>, is
-powerful;
+The template package is powerful;
 this program just touches on its capabilities.
 In essence, it rewrites a piece of text on the fly by substituting elements derived
 from data items passed to <code>templ.Execute</code>, in this case the
 form value.  
 Within the template text (<code>templateStr</code>),
-brace-delimited pieces denote template actions.
-The piece from the <code>{.section @}</code>
-to <code>{.end}</code> executes with the value of the data item <code>@</code>,
-which is a shorthand for &ldquo;the current item&rdquo;, which is the form value.
-(When the string is empty, this piece of the template is suppressed.)
+double-brace-delimited pieces denote template actions.
+The piece from <code>{{html "{{if .}}"}}</code>
+to <code>{{html "{{end}}"}}</code> executes only if the value of the current data item, called <code>.</code> (dot),
+is non-empty.
+That is, when the string is empty, this piece of the template is suppressed.
 </p>
 <p>
-The snippet <code>{@|url+html}</code> says to run the data through the formatter
-installed in the formatter map (<code>fmap</code>)
-under the name <code>"url+html"</code>.
-That is the function <code>UrlHtmlFormatter</code>, which sanitizes the string
+The snippet <code>{{html "{{urlquery .}}"}}</code> says to process the data with the function
+<code>urlquery</code>, which sanitizes the query string
 for safe display on the web page.
 </p>
 <p>
 The rest of the template string is just the HTML to show when the page loads.
-If this is too quick an explanation, see the <a href="/pkg/template/">documentation</a>
+If this is too quick an explanation, see the <a href="/pkg/text/template/">documentation</a>
 for the template package for a more thorough discussion.
 </p>
 <p>
-And there you have it: a useful webserver in a few lines of code plus some
+And there you have it: a useful web server in a few lines of code plus some
 data-driven HTML text.
 Go is powerful enough to make a lot happen in a few lines.
 </p>

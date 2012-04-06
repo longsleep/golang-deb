@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 void
@@ -266,54 +268,6 @@ dumpfuncs(void)
 	}
 }
 
-/* deferred DATA output */
-static Prog *strdat;
-static Prog *estrdat;
-static int gflag;
-static Prog *savepc;
-
-void
-data(void)
-{
-	gflag = debug['g'];
-	debug['g'] = 0;
-
-	if(estrdat == nil) {
-		strdat = mal(sizeof(*pc));
-		clearp(strdat);
-		estrdat = strdat;
-	}
-	if(savepc)
-		fatal("data phase error");
-	savepc = pc;
-	pc = estrdat;
-}
-
-void
-text(void)
-{
-	if(!savepc)
-		fatal("text phase error");
-	debug['g'] = gflag;
-	estrdat = pc;
-	pc = savepc;
-	savepc = nil;
-}
-
-void
-dumpdata(void)
-{
-	Prog *p;
-
-	if(estrdat == nil)
-		return;
-	*pc = *strdat;
-	if(gflag)
-		for(p=pc; p!=estrdat; p=p->link)
-			print("%P\n", p);
-	pc = estrdat;
-}
-
 int
 dsname(Sym *sym, int off, char *t, int n)
 {
@@ -353,6 +307,7 @@ datastring(char *s, int len, Addr *a)
 	a->offset = widthptr+4;  // skip header
 	a->reg = NREG;
 	a->sym = sym;
+	a->node = sym->def;
 }
 
 /*
@@ -371,6 +326,7 @@ datagostring(Strlit *sval, Addr *a)
 	a->offset = 0;  // header
 	a->reg = NREG;
 	a->sym = sym;
+	a->node = sym->def;
 }
 
 void
@@ -378,6 +334,17 @@ gdata(Node *nam, Node *nr, int wid)
 {
 	Prog *p;
 	vlong v;
+
+	if(nr->op == OLITERAL) {
+		switch(nr->val.ctype) {
+		case CTCPLX:
+			gdatacomplex(nam, nr->val.u.cval);
+			return;
+		case CTSTR:
+			gdatastring(nam, nr->val.u.sval);
+			return;
+		}
+	}
 
 	if(wid == 8 && is64(nr->type)) {
 		v = mpgetfix(nr->val.u.xval);

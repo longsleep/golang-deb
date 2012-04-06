@@ -1,29 +1,15 @@
+// Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package regexp implements a simple regular expression library.
+// Package regexp implements regular expression search.
 //
-// The syntax of the regular expressions accepted is:
+// The syntax of the regular expressions accepted is the same
+// general syntax used by Perl, Python, and other languages.
+// More precisely, it is the syntax accepted by RE2 and described at
+// http://code.google.com/p/re2/wiki/Syntax, except for \C.
 //
-//	regexp:
-//		concatenation { '|' concatenation }
-//	concatenation:
-//		{ closure }
-//	closure:
-//		term [ '*' | '+' | '?' ]
-//	term:
-//		'^'
-//		'$'
-//		'.'
-//		character
-//		'[' [ '^' ] { character-range } ']'
-//		'(' regexp ')'
-//	character-range:
-//		character [ '-' character ]
-//
-// All characters are UTF-8-encoded code points.  Backslashes escape special
-// characters, including inside character classes.  The standard Go character
-// escapes are also recognized: \a \b \f \n \r \t \v.
+// All characters are UTF-8-encoded code points.
 //
 // There are 16 methods of Regexp that match a regular expression and identify
 // the matched text.  Their names are matched by this regular expression:
@@ -71,542 +57,35 @@ package regexp
 import (
 	"bytes"
 	"io"
-	"os"
+	"regexp/syntax"
+	"strconv"
 	"strings"
-	"utf8"
+	"sync"
+	"unicode"
+	"unicode/utf8"
 )
 
 var debug = false
-
-// Error is the local type for a parsing error.
-type Error string
-
-func (e Error) String() string {
-	return string(e)
-}
-
-// Error codes returned by failures to parse an expression.
-var (
-	ErrInternal            = Error("regexp: internal error")
-	ErrUnmatchedLpar       = Error("regexp: unmatched '('")
-	ErrUnmatchedRpar       = Error("regexp: unmatched ')'")
-	ErrUnmatchedLbkt       = Error("regexp: unmatched '['")
-	ErrUnmatchedRbkt       = Error("regexp: unmatched ']'")
-	ErrBadRange            = Error("regexp: bad range in character class")
-	ErrExtraneousBackslash = Error("regexp: extraneous backslash")
-	ErrBadClosure          = Error("regexp: repeated closure (**, ++, etc.)")
-	ErrBareClosure         = Error("regexp: closure applies to nothing")
-	ErrBadBackslash        = Error("regexp: illegal backslash escape")
-)
-
-const (
-	iStart     = iota // beginning of program
-	iEnd              // end of program: success
-	iBOT              // '^' beginning of text
-	iEOT              // '$' end of text
-	iChar             // 'a' regular character
-	iCharClass        // [a-z] character class
-	iAny              // '.' any character including newline
-	iNotNL            // [^\n] special case: any character but newline
-	iBra              // '(' parenthesized expression: 2*braNum for left, 2*braNum+1 for right
-	iAlt              // '|' alternation
-	iNop              // do nothing; makes it easy to link without patching
-)
-
-// An instruction executed by the NFA
-type instr struct {
-	kind  int    // the type of this instruction: iChar, iAny, etc.
-	index int    // used only in debugging; could be eliminated
-	next  *instr // the instruction to execute after this one
-	// Special fields valid only for some items.
-	char   int        // iChar
-	braNum int        // iBra, iEbra
-	cclass *charClass // iCharClass
-	left   *instr     // iAlt, other branch
-}
-
-func (i *instr) print() {
-	switch i.kind {
-	case iStart:
-		print("start")
-	case iEnd:
-		print("end")
-	case iBOT:
-		print("bot")
-	case iEOT:
-		print("eot")
-	case iChar:
-		print("char ", string(i.char))
-	case iCharClass:
-		i.cclass.print()
-	case iAny:
-		print("any")
-	case iNotNL:
-		print("notnl")
-	case iBra:
-		if i.braNum&1 == 0 {
-			print("bra", i.braNum/2)
-		} else {
-			print("ebra", i.braNum/2)
-		}
-	case iAlt:
-		print("alt(", i.left.index, ")")
-	case iNop:
-		print("nop")
-	}
-}
 
 // Regexp is the representation of a compiled regular expression.
 // The public interface is entirely through methods.
 // A Regexp is safe for concurrent use by multiple goroutines.
 type Regexp struct {
-	expr        string // the original expression
-	prefix      string // initial plain text string
-	prefixBytes []byte // initial plain text bytes
-	inst        []*instr
-	start       *instr // first instruction of machine
-	prefixStart *instr // where to start if there is a prefix
-	nbra        int    // number of brackets in expression, for subexpressions
-}
+	// read-only after Compile
+	expr           string         // as passed to Compile
+	prog           *syntax.Prog   // compiled program
+	prefix         string         // required prefix in unanchored matches
+	prefixBytes    []byte         // prefix, as a []byte
+	prefixComplete bool           // prefix is the entire regexp
+	prefixRune     rune           // first rune in prefix
+	cond           syntax.EmptyOp // empty-width conditions required at start of match
+	numSubexp      int
+	subexpNames    []string
+	longest        bool
 
-type charClass struct {
-	negate bool // is character class negated? ([^a-z])
-	// slice of int, stored pairwise: [a-z] is (a,z); x is (x,x):
-	ranges     []int
-	cmin, cmax int
-}
-
-func (cclass *charClass) print() {
-	print("charclass")
-	if cclass.negate {
-		print(" (negated)")
-	}
-	for i := 0; i < len(cclass.ranges); i += 2 {
-		l := cclass.ranges[i]
-		r := cclass.ranges[i+1]
-		if l == r {
-			print(" [", string(l), "]")
-		} else {
-			print(" [", string(l), "-", string(r), "]")
-		}
-	}
-}
-
-func (cclass *charClass) addRange(a, b int) {
-	// range is a through b inclusive
-	cclass.ranges = append(cclass.ranges, a, b)
-	if a < cclass.cmin {
-		cclass.cmin = a
-	}
-	if b > cclass.cmax {
-		cclass.cmax = b
-	}
-}
-
-func (cclass *charClass) matches(c int) bool {
-	if c < cclass.cmin || c > cclass.cmax {
-		return cclass.negate
-	}
-	ranges := cclass.ranges
-	for i := 0; i < len(ranges); i = i + 2 {
-		if ranges[i] <= c && c <= ranges[i+1] {
-			return !cclass.negate
-		}
-	}
-	return cclass.negate
-}
-
-func newCharClass() *instr {
-	i := &instr{kind: iCharClass}
-	i.cclass = new(charClass)
-	i.cclass.ranges = make([]int, 0, 4)
-	i.cclass.cmin = 0x10FFFF + 1 // MaxRune + 1
-	i.cclass.cmax = -1
-	return i
-}
-
-func (re *Regexp) add(i *instr) *instr {
-	i.index = len(re.inst)
-	re.inst = append(re.inst, i)
-	return i
-}
-
-type parser struct {
-	re    *Regexp
-	nlpar int // number of unclosed lpars
-	pos   int
-	ch    int
-}
-
-func (p *parser) error(err Error) {
-	panic(err)
-}
-
-const endOfText = -1
-
-func (p *parser) c() int { return p.ch }
-
-func (p *parser) nextc() int {
-	if p.pos >= len(p.re.expr) {
-		p.ch = endOfText
-	} else {
-		c, w := utf8.DecodeRuneInString(p.re.expr[p.pos:])
-		p.ch = c
-		p.pos += w
-	}
-	return p.ch
-}
-
-func newParser(re *Regexp) *parser {
-	p := new(parser)
-	p.re = re
-	p.nextc() // load p.ch
-	return p
-}
-
-func special(c int) bool {
-	for _, r := range `\.+*?()|[]^$` {
-		if c == r {
-			return true
-		}
-	}
-	return false
-}
-
-func ispunct(c int) bool {
-	for _, r := range "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~" {
-		if c == r {
-			return true
-		}
-	}
-	return false
-}
-
-var escapes = []byte("abfnrtv")
-var escaped = []byte("\a\b\f\n\r\t\v")
-
-func escape(c int) int {
-	for i, b := range escapes {
-		if int(b) == c {
-			return i
-		}
-	}
-	return -1
-}
-
-func (p *parser) checkBackslash() int {
-	c := p.c()
-	if c == '\\' {
-		c = p.nextc()
-		switch {
-		case c == endOfText:
-			p.error(ErrExtraneousBackslash)
-		case ispunct(c):
-			// c is as delivered
-		case escape(c) >= 0:
-			c = int(escaped[escape(c)])
-		default:
-			p.error(ErrBadBackslash)
-		}
-	}
-	return c
-}
-
-func (p *parser) charClass() *instr {
-	i := newCharClass()
-	cc := i.cclass
-	if p.c() == '^' {
-		cc.negate = true
-		p.nextc()
-	}
-	left := -1
-	for {
-		switch c := p.c(); c {
-		case ']', endOfText:
-			if left >= 0 {
-				p.error(ErrBadRange)
-			}
-			// Is it [^\n]?
-			if cc.negate && len(cc.ranges) == 2 &&
-				cc.ranges[0] == '\n' && cc.ranges[1] == '\n' {
-				nl := &instr{kind: iNotNL}
-				p.re.add(nl)
-				return nl
-			}
-			// Special common case: "[a]" -> "a"
-			if !cc.negate && len(cc.ranges) == 2 && cc.ranges[0] == cc.ranges[1] {
-				c := &instr{kind: iChar, char: cc.ranges[0]}
-				p.re.add(c)
-				return c
-			}
-			p.re.add(i)
-			return i
-		case '-': // do this before backslash processing
-			p.error(ErrBadRange)
-		default:
-			c = p.checkBackslash()
-			p.nextc()
-			switch {
-			case left < 0: // first of pair
-				if p.c() == '-' { // range
-					p.nextc()
-					left = c
-				} else { // single char
-					cc.addRange(c, c)
-				}
-			case left <= c: // second of pair
-				cc.addRange(left, c)
-				left = -1
-			default:
-				p.error(ErrBadRange)
-			}
-		}
-	}
-	panic("unreachable")
-}
-
-func (p *parser) term() (start, end *instr) {
-	switch c := p.c(); c {
-	case '|', endOfText:
-		return nil, nil
-	case '*', '+', '?':
-		p.error(ErrBareClosure)
-	case ')':
-		if p.nlpar == 0 {
-			p.error(ErrUnmatchedRpar)
-		}
-		return nil, nil
-	case ']':
-		p.error(ErrUnmatchedRbkt)
-	case '^':
-		p.nextc()
-		start = p.re.add(&instr{kind: iBOT})
-		return start, start
-	case '$':
-		p.nextc()
-		start = p.re.add(&instr{kind: iEOT})
-		return start, start
-	case '.':
-		p.nextc()
-		start = p.re.add(&instr{kind: iAny})
-		return start, start
-	case '[':
-		p.nextc()
-		start = p.charClass()
-		if p.c() != ']' {
-			p.error(ErrUnmatchedLbkt)
-		}
-		p.nextc()
-		return start, start
-	case '(':
-		p.nextc()
-		p.nlpar++
-		p.re.nbra++ // increment first so first subexpr is \1
-		nbra := p.re.nbra
-		start, end = p.regexp()
-		if p.c() != ')' {
-			p.error(ErrUnmatchedLpar)
-		}
-		p.nlpar--
-		p.nextc()
-		bra := &instr{kind: iBra, braNum: 2 * nbra}
-		p.re.add(bra)
-		ebra := &instr{kind: iBra, braNum: 2*nbra + 1}
-		p.re.add(ebra)
-		if start == nil {
-			if end == nil {
-				p.error(ErrInternal)
-				return
-			}
-			start = ebra
-		} else {
-			end.next = ebra
-		}
-		bra.next = start
-		return bra, ebra
-	default:
-		c = p.checkBackslash()
-		p.nextc()
-		start = &instr{kind: iChar, char: c}
-		p.re.add(start)
-		return start, start
-	}
-	panic("unreachable")
-}
-
-func (p *parser) closure() (start, end *instr) {
-	start, end = p.term()
-	if start == nil {
-		return
-	}
-	switch p.c() {
-	case '*':
-		// (start,end)*:
-		alt := &instr{kind: iAlt}
-		p.re.add(alt)
-		end.next = alt   // after end, do alt
-		alt.left = start // alternate brach: return to start
-		start = alt      // alt becomes new (start, end)
-		end = alt
-	case '+':
-		// (start,end)+:
-		alt := &instr{kind: iAlt}
-		p.re.add(alt)
-		end.next = alt   // after end, do alt
-		alt.left = start // alternate brach: return to start
-		end = alt        // start is unchanged; end is alt
-	case '?':
-		// (start,end)?:
-		alt := &instr{kind: iAlt}
-		p.re.add(alt)
-		nop := &instr{kind: iNop}
-		p.re.add(nop)
-		alt.left = start // alternate branch is start
-		alt.next = nop   // follow on to nop
-		end.next = nop   // after end, go to nop
-		start = alt      // start is now alt
-		end = nop        // end is nop pointed to by both branches
-	default:
-		return
-	}
-	switch p.nextc() {
-	case '*', '+', '?':
-		p.error(ErrBadClosure)
-	}
-	return
-}
-
-func (p *parser) concatenation() (start, end *instr) {
-	for {
-		nstart, nend := p.closure()
-		switch {
-		case nstart == nil: // end of this concatenation
-			if start == nil { // this is the empty string
-				nop := p.re.add(&instr{kind: iNop})
-				return nop, nop
-			}
-			return
-		case start == nil: // this is first element of concatenation
-			start, end = nstart, nend
-		default:
-			end.next = nstart
-			end = nend
-		}
-	}
-	panic("unreachable")
-}
-
-func (p *parser) regexp() (start, end *instr) {
-	start, end = p.concatenation()
-	for {
-		switch p.c() {
-		default:
-			return
-		case '|':
-			p.nextc()
-			nstart, nend := p.concatenation()
-			alt := &instr{kind: iAlt}
-			p.re.add(alt)
-			alt.left = start
-			alt.next = nstart
-			nop := &instr{kind: iNop}
-			p.re.add(nop)
-			end.next = nop
-			nend.next = nop
-			start, end = alt, nop
-		}
-	}
-	panic("unreachable")
-}
-
-func unNop(i *instr) *instr {
-	for i.kind == iNop {
-		i = i.next
-	}
-	return i
-}
-
-func (re *Regexp) eliminateNops() {
-	for _, inst := range re.inst {
-		if inst.kind == iEnd {
-			continue
-		}
-		inst.next = unNop(inst.next)
-		if inst.kind == iAlt {
-			inst.left = unNop(inst.left)
-		}
-	}
-}
-
-func (re *Regexp) dump() {
-	print("prefix <", re.prefix, ">\n")
-	for _, inst := range re.inst {
-		print(inst.index, ": ")
-		inst.print()
-		if inst.kind != iEnd {
-			print(" -> ", inst.next.index)
-		}
-		print("\n")
-	}
-}
-
-func (re *Regexp) doParse() {
-	p := newParser(re)
-	start := &instr{kind: iStart}
-	re.add(start)
-	s, e := p.regexp()
-	start.next = s
-	re.start = start
-	e.next = re.add(&instr{kind: iEnd})
-
-	if debug {
-		re.dump()
-		println()
-	}
-
-	re.eliminateNops()
-	if debug {
-		re.dump()
-		println()
-	}
-	re.setPrefix()
-	if debug {
-		re.dump()
-		println()
-	}
-}
-
-// Extract regular text from the beginning of the pattern,
-// possibly after a leading iBOT.
-// That text can be used by doExecute to speed up matching.
-func (re *Regexp) setPrefix() {
-	var b []byte
-	var utf = make([]byte, utf8.UTFMax)
-	var inst *instr
-	// First instruction is start; skip that.  Also skip any initial iBOT.
-	inst = re.inst[0].next
-	for inst.kind == iBOT {
-		inst = inst.next
-	}
-Loop:
-	for ; inst.kind != iEnd; inst = inst.next {
-		// stop if this is not a char
-		if inst.kind != iChar {
-			break
-		}
-		// stop if this char can be followed by a match for an empty string,
-		// which includes closures, ^, and $.
-		switch inst.next.kind {
-		case iBOT, iEOT, iAlt:
-			break Loop
-		}
-		n := utf8.EncodeRune(utf, inst.char)
-		b = append(b, utf[0:n]...)
-	}
-	// point prefixStart instruction to first non-CHAR after prefix
-	re.prefixStart = inst
-	re.prefixBytes = b
-	re.prefix = string(b)
+	// cache of machines for running regexp
+	mu      sync.Mutex
+	machine []*machine
 }
 
 // String returns the source text used to compile the regular expression.
@@ -614,21 +93,99 @@ func (re *Regexp) String() string {
 	return re.expr
 }
 
-// Compile parses a regular expression and returns, if successful, a Regexp
-// object that can be used to match against text.
-func Compile(str string) (regexp *Regexp, error os.Error) {
-	regexp = new(Regexp)
-	// doParse will panic if there is a parse error.
-	defer func() {
-		if e := recover(); e != nil {
-			regexp = nil
-			error = e.(Error) // Will re-panic if error was not an Error, e.g. nil-pointer exception
-		}
-	}()
-	regexp.expr = str
-	regexp.inst = make([]*instr, 0, 10)
-	regexp.doParse()
-	return
+// Compile parses a regular expression and returns, if successful,
+// a Regexp object that can be used to match against text.
+//
+// When matching against text, the regexp returns a match that
+// begins as early as possible in the input (leftmost), and among those
+// it chooses the one that a backtracking search would have found first.
+// This so-called leftmost-first matching is the same semantics
+// that Perl, Python, and other implementations use, although this
+// package implements it without the expense of backtracking.
+// For POSIX leftmost-longest matching, see CompilePOSIX.
+func Compile(expr string) (*Regexp, error) {
+	return compile(expr, syntax.Perl, false)
+}
+
+// CompilePOSIX is like Compile but restricts the regular expression
+// to POSIX ERE (egrep) syntax and changes the match semantics to
+// leftmost-longest.
+//
+// That is, when matching against text, the regexp returns a match that
+// begins as early as possible in the input (leftmost), and among those
+// it chooses a match that is as long as possible.
+// This so-called leftmost-longest matching is the same semantics
+// that early regular expression implementations used and that POSIX
+// specifies.
+//
+// However, there can be multiple leftmost-longest matches, with different
+// submatch choices, and here this package diverges from POSIX.
+// Among the possible leftmost-longest matches, this package chooses
+// the one that a backtracking search would have found first, while POSIX
+// specifies that the match be chosen to maximize the length of the first
+// subexpression, then the second, and so on from left to right.
+// The POSIX rule is computationally prohibitive and not even well-defined.
+// See http://swtch.com/~rsc/regexp/regexp2.html#posix for details.
+func CompilePOSIX(expr string) (*Regexp, error) {
+	return compile(expr, syntax.POSIX, true)
+}
+
+func compile(expr string, mode syntax.Flags, longest bool) (*Regexp, error) {
+	re, err := syntax.Parse(expr, mode)
+	if err != nil {
+		return nil, err
+	}
+	maxCap := re.MaxCap()
+	capNames := re.CapNames()
+
+	re = re.Simplify()
+	prog, err := syntax.Compile(re)
+	if err != nil {
+		return nil, err
+	}
+	regexp := &Regexp{
+		expr:        expr,
+		prog:        prog,
+		numSubexp:   maxCap,
+		subexpNames: capNames,
+		cond:        prog.StartCond(),
+		longest:     longest,
+	}
+	regexp.prefix, regexp.prefixComplete = prog.Prefix()
+	if regexp.prefix != "" {
+		// TODO(rsc): Remove this allocation by adding
+		// IndexString to package bytes.
+		regexp.prefixBytes = []byte(regexp.prefix)
+		regexp.prefixRune, _ = utf8.DecodeRuneInString(regexp.prefix)
+	}
+	return regexp, nil
+}
+
+// get returns a machine to use for matching re.
+// It uses the re's machine cache if possible, to avoid
+// unnecessary allocation.
+func (re *Regexp) get() *machine {
+	re.mu.Lock()
+	if n := len(re.machine); n > 0 {
+		z := re.machine[n-1]
+		re.machine = re.machine[:n-1]
+		re.mu.Unlock()
+		return z
+	}
+	re.mu.Unlock()
+	z := progMachine(re.prog)
+	z.re = re
+	return z
+}
+
+// put returns a machine to the re's machine cache.
+// There is no attempt to limit the size of the cache, so it will
+// grow to the maximum number of simultaneous matches
+// run using re.  (The cache empties when re gets garbage collected.)
+func (re *Regexp) put(z *machine) {
+	re.mu.Lock()
+	re.machine = append(re.machine, z)
+	re.mu.Unlock()
 }
 
 // MustCompile is like Compile but panics if the expression cannot be parsed.
@@ -637,124 +194,53 @@ func Compile(str string) (regexp *Regexp, error os.Error) {
 func MustCompile(str string) *Regexp {
 	regexp, error := Compile(str)
 	if error != nil {
-		panic(`regexp: compiling "` + str + `": ` + error.String())
+		panic(`regexp: Compile(` + quote(str) + `): ` + error.Error())
 	}
 	return regexp
 }
 
+// MustCompilePOSIX is like CompilePOSIX but panics if the expression cannot be parsed.
+// It simplifies safe initialization of global variables holding compiled regular
+// expressions.
+func MustCompilePOSIX(str string) *Regexp {
+	regexp, error := CompilePOSIX(str)
+	if error != nil {
+		panic(`regexp: CompilePOSIX(` + quote(str) + `): ` + error.Error())
+	}
+	return regexp
+}
+
+func quote(s string) string {
+	if strconv.CanBackquote(s) {
+		return "`" + s + "`"
+	}
+	return strconv.Quote(s)
+}
+
 // NumSubexp returns the number of parenthesized subexpressions in this Regexp.
-func (re *Regexp) NumSubexp() int { return re.nbra }
-
-// The match arena allows us to reduce the garbage generated by tossing
-// match vectors away as we execute.  Matches are ref counted and returned
-// to a free list when no longer active.  Increases a simple benchmark by 22X.
-type matchArena struct {
-	head  *matchVec
-	len   int // length of match vector
-	pos   int
-	atBOT bool // whether we're at beginning of text
-	atEOT bool // whether we're at end of text
+func (re *Regexp) NumSubexp() int {
+	return re.numSubexp
 }
 
-type matchVec struct {
-	m    []int // pairs of bracketing submatches. 0th is start,end
-	ref  int
-	next *matchVec
+// SubexpNames returns the names of the parenthesized subexpressions
+// in this Regexp.  The name for the first sub-expression is names[1],
+// so that if m is a match slice, the name for m[i] is SubexpNames()[i].
+// Since the Regexp as a whole cannot be named, names[0] is always
+// the empty string.  The slice should not be modified.
+func (re *Regexp) SubexpNames() []string {
+	return re.subexpNames
 }
 
-func (a *matchArena) new() *matchVec {
-	if a.head == nil {
-		const N = 10
-		block := make([]matchVec, N)
-		for i := 0; i < N; i++ {
-			b := &block[i]
-			b.next = a.head
-			a.head = b
-		}
-	}
-	m := a.head
-	a.head = m.next
-	m.ref = 0
-	if m.m == nil {
-		m.m = make([]int, a.len)
-	}
-	return m
-}
-
-func (a *matchArena) free(m *matchVec) {
-	m.ref--
-	if m.ref == 0 {
-		m.next = a.head
-		a.head = m
-	}
-}
-
-func (a *matchArena) copy(m *matchVec) *matchVec {
-	m1 := a.new()
-	copy(m1.m, m.m)
-	return m1
-}
-
-func (a *matchArena) noMatch() *matchVec {
-	m := a.new()
-	for i := range m.m {
-		m.m[i] = -1 // no match seen; catches cases like "a(b)?c" on "ac"
-	}
-	m.ref = 1
-	return m
-}
-
-type state struct {
-	inst     *instr // next instruction to execute
-	prefixed bool   // this match began with a fixed prefix
-	match    *matchVec
-}
-
-// Append new state to to-do list.  Leftmost-longest wins so avoid
-// adding a state that's already active.  The matchVec will be inc-ref'ed
-// if it is assigned to a state.
-func (a *matchArena) addState(s []state, inst *instr, prefixed bool, match *matchVec) []state {
-	switch inst.kind {
-	case iBOT:
-		if a.atBOT {
-			s = a.addState(s, inst.next, prefixed, match)
-		}
-		return s
-	case iEOT:
-		if a.atEOT {
-			s = a.addState(s, inst.next, prefixed, match)
-		}
-		return s
-	case iBra:
-		match.m[inst.braNum] = a.pos
-		s = a.addState(s, inst.next, prefixed, match)
-		return s
-	}
-	l := len(s)
-	// States are inserted in order so it's sufficient to see if we have the same
-	// instruction; no need to see if existing match is earlier (it is).
-	for i := 0; i < l; i++ {
-		if s[i].inst == inst {
-			return s
-		}
-	}
-	s = append(s, state{inst, prefixed, match})
-	match.ref++
-	if inst.kind == iAlt {
-		s = a.addState(s, inst.left, prefixed, a.copy(match))
-		// give other branch a copy of this match vector
-		s = a.addState(s, inst.next, prefixed, a.copy(match))
-	}
-	return s
-}
+const endOfText rune = -1
 
 // input abstracts different representations of the input text. It provides
 // one-character lookahead.
 type input interface {
-	step(pos int) (rune int, width int) // advance one rune
-	canCheckPrefix() bool               // can we look ahead without losing info?
+	step(pos int) (r rune, width int) // advance one rune
+	canCheckPrefix() bool             // can we look ahead without losing info?
 	hasPrefix(re *Regexp) bool
 	index(re *Regexp, pos int) int
+	context(pos int) syntax.EmptyOp
 }
 
 // inputString scans a string.
@@ -762,13 +248,13 @@ type inputString struct {
 	str string
 }
 
-func newInputString(str string) *inputString {
-	return &inputString{str: str}
-}
-
-func (i *inputString) step(pos int) (int, int) {
+func (i *inputString) step(pos int) (rune, int) {
 	if pos < len(i.str) {
-		return utf8.DecodeRuneInString(i.str[pos:len(i.str)])
+		c := i.str[pos]
+		if c < utf8.RuneSelf {
+			return rune(c), 1
+		}
+		return utf8.DecodeRuneInString(i.str[pos:])
 	}
 	return endOfText, 0
 }
@@ -785,18 +271,29 @@ func (i *inputString) index(re *Regexp, pos int) int {
 	return strings.Index(i.str[pos:], re.prefix)
 }
 
+func (i *inputString) context(pos int) syntax.EmptyOp {
+	r1, r2 := endOfText, endOfText
+	if pos > 0 && pos <= len(i.str) {
+		r1, _ = utf8.DecodeLastRuneInString(i.str[:pos])
+	}
+	if pos < len(i.str) {
+		r2, _ = utf8.DecodeRuneInString(i.str[pos:])
+	}
+	return syntax.EmptyOpContext(r1, r2)
+}
+
 // inputBytes scans a byte slice.
 type inputBytes struct {
 	str []byte
 }
 
-func newInputBytes(str []byte) *inputBytes {
-	return &inputBytes{str: str}
-}
-
-func (i *inputBytes) step(pos int) (int, int) {
+func (i *inputBytes) step(pos int) (rune, int) {
 	if pos < len(i.str) {
-		return utf8.DecodeRune(i.str[pos:len(i.str)])
+		c := i.str[pos]
+		if c < utf8.RuneSelf {
+			return rune(c), 1
+		}
+		return utf8.DecodeRune(i.str[pos:])
 	}
 	return endOfText, 0
 }
@@ -813,6 +310,17 @@ func (i *inputBytes) index(re *Regexp, pos int) int {
 	return bytes.Index(i.str[pos:], re.prefixBytes)
 }
 
+func (i *inputBytes) context(pos int) syntax.EmptyOp {
+	r1, r2 := endOfText, endOfText
+	if pos > 0 && pos <= len(i.str) {
+		r1, _ = utf8.DecodeLastRune(i.str[:pos])
+	}
+	if pos < len(i.str) {
+		r2, _ = utf8.DecodeRune(i.str[pos:])
+	}
+	return syntax.EmptyOpContext(r1, r2)
+}
+
 // inputReader scans a RuneReader.
 type inputReader struct {
 	r     io.RuneReader
@@ -820,11 +328,7 @@ type inputReader struct {
 	pos   int
 }
 
-func newInputReader(r io.RuneReader) *inputReader {
-	return &inputReader{r: r}
-}
-
-func (i *inputReader) step(pos int) (int, int) {
+func (i *inputReader) step(pos int) (rune, int) {
 	if !i.atEOT && pos != i.pos {
 		return endOfText, 0
 
@@ -850,155 +354,40 @@ func (i *inputReader) index(re *Regexp, pos int) int {
 	return -1
 }
 
-// Search match starting from pos bytes into the input.
-func (re *Regexp) doExecute(i input, pos int) []int {
-	var s [2][]state
-	s[0] = make([]state, 0, 10)
-	s[1] = make([]state, 0, 10)
-	in, out := 0, 1
-	var final state
-	found := false
-	anchored := re.inst[0].next.kind == iBOT
-	if anchored && pos > 0 {
-		return nil
-	}
-	// fast check for initial plain substring
-	if i.canCheckPrefix() && re.prefix != "" {
-		advance := 0
-		if anchored {
-			if !i.hasPrefix(re) {
-				return nil
-			}
-		} else {
-			advance = i.index(re, pos)
-			if advance == -1 {
-				return nil
-			}
-		}
-		pos += advance
-	}
-	// We look one character ahead so we can match $, which checks whether
-	// we are at EOT.
-	nextChar, nextWidth := i.step(pos)
-	arena := &matchArena{
-		len:   2 * (re.nbra + 1),
-		pos:   pos,
-		atBOT: pos == 0,
-		atEOT: nextChar == endOfText,
-	}
-	for c, startPos := 0, pos; c != endOfText; {
-		if !found && (pos == startPos || !anchored) {
-			// prime the pump if we haven't seen a match yet
-			match := arena.noMatch()
-			match.m[0] = pos
-			s[out] = arena.addState(s[out], re.start.next, false, match)
-			arena.free(match) // if addState saved it, ref was incremented
-		} else if len(s[out]) == 0 {
-			// machine has completed
-			break
-		}
-		in, out = out, in // old out state is new in state
-		// clear out old state
-		old := s[out]
-		for _, state := range old {
-			arena.free(state.match)
-		}
-		s[out] = old[0:0] // truncate state vector
-		c = nextChar
-		thisPos := pos
-		pos += nextWidth
-		nextChar, nextWidth = i.step(pos)
-		arena.atEOT = nextChar == endOfText
-		arena.atBOT = false
-		arena.pos = pos
-		for _, st := range s[in] {
-			switch st.inst.kind {
-			case iBOT:
-			case iEOT:
-			case iChar:
-				if c == st.inst.char {
-					s[out] = arena.addState(s[out], st.inst.next, st.prefixed, st.match)
-				}
-			case iCharClass:
-				if st.inst.cclass.matches(c) {
-					s[out] = arena.addState(s[out], st.inst.next, st.prefixed, st.match)
-				}
-			case iAny:
-				if c != endOfText {
-					s[out] = arena.addState(s[out], st.inst.next, st.prefixed, st.match)
-				}
-			case iNotNL:
-				if c != endOfText && c != '\n' {
-					s[out] = arena.addState(s[out], st.inst.next, st.prefixed, st.match)
-				}
-			case iBra:
-			case iAlt:
-			case iEnd:
-				// choose leftmost longest
-				if !found || // first
-					st.match.m[0] < final.match.m[0] || // leftmost
-					(st.match.m[0] == final.match.m[0] && thisPos > final.match.m[1]) { // longest
-					if final.match != nil {
-						arena.free(final.match)
-					}
-					final = st
-					final.match.ref++
-					final.match.m[1] = thisPos
-				}
-				found = true
-			default:
-				st.inst.print()
-				panic("unknown instruction in execute")
-			}
-		}
-	}
-	if final.match == nil {
-		return nil
-	}
-	// if match found, back up start of match by width of prefix.
-	if final.prefixed && len(final.match.m) > 0 {
-		final.match.m[0] -= len(re.prefix)
-	}
-	return final.match.m
+func (i *inputReader) context(pos int) syntax.EmptyOp {
+	return 0
 }
 
 // LiteralPrefix returns a literal string that must begin any match
 // of the regular expression re.  It returns the boolean true if the
 // literal string comprises the entire regular expression.
 func (re *Regexp) LiteralPrefix() (prefix string, complete bool) {
-	c := make([]int, len(re.inst)-2) // minus start and end.
-	// First instruction is start; skip that.
-	i := 0
-	for inst := re.inst[0].next; inst.kind != iEnd; inst = inst.next {
-		// stop if this is not a char
-		if inst.kind != iChar {
-			return string(c[:i]), false
-		}
-		c[i] = inst.char
-		i++
-	}
-	return string(c[:i]), true
+	return re.prefix, re.prefixComplete
 }
 
 // MatchReader returns whether the Regexp matches the text read by the
 // RuneReader.  The return value is a boolean: true for match, false for no
 // match.
 func (re *Regexp) MatchReader(r io.RuneReader) bool {
-	return len(re.doExecute(newInputReader(r), 0)) > 0
+	return re.doExecute(r, nil, "", 0, 0) != nil
 }
 
 // MatchString returns whether the Regexp matches the string s.
 // The return value is a boolean: true for match, false for no match.
-func (re *Regexp) MatchString(s string) bool { return len(re.doExecute(newInputString(s), 0)) > 0 }
+func (re *Regexp) MatchString(s string) bool {
+	return re.doExecute(nil, nil, s, 0, 0) != nil
+}
 
 // Match returns whether the Regexp matches the byte slice b.
 // The return value is a boolean: true for match, false for no match.
-func (re *Regexp) Match(b []byte) bool { return len(re.doExecute(newInputBytes(b), 0)) > 0 }
+func (re *Regexp) Match(b []byte) bool {
+	return re.doExecute(nil, b, "", 0, 0) != nil
+}
 
 // MatchReader checks whether a textual regular expression matches the text
 // read by the RuneReader.  More complicated queries need to use Compile and
 // the full Regexp interface.
-func MatchReader(pattern string, r io.RuneReader) (matched bool, error os.Error) {
+func MatchReader(pattern string, r io.RuneReader) (matched bool, error error) {
 	re, err := Compile(pattern)
 	if err != nil {
 		return false, err
@@ -1009,7 +398,7 @@ func MatchReader(pattern string, r io.RuneReader) (matched bool, error os.Error)
 // MatchString checks whether a textual regular expression
 // matches a string.  More complicated queries need
 // to use Compile and the full Regexp interface.
-func MatchString(pattern string, s string) (matched bool, error os.Error) {
+func MatchString(pattern string, s string) (matched bool, error error) {
 	re, err := Compile(pattern)
 	if err != nil {
 		return false, err
@@ -1020,7 +409,7 @@ func MatchString(pattern string, s string) (matched bool, error os.Error) {
 // Match checks whether a textual regular expression
 // matches a byte slice.  More complicated queries need
 // to use Compile and the full Regexp interface.
-func Match(pattern string, b []byte) (matched bool, error os.Error) {
+func Match(pattern string, b []byte) (matched bool, error error) {
 	re, err := Compile(pattern)
 	if err != nil {
 		return false, err
@@ -1028,41 +417,79 @@ func Match(pattern string, b []byte) (matched bool, error os.Error) {
 	return re.Match(b), nil
 }
 
-// ReplaceAllString returns a copy of src in which all matches for the Regexp
-// have been replaced by repl.  No support is provided for expressions
-// (e.g. \1 or $1) in the replacement string.
+// ReplaceAllString returns a copy of src, replacing matches of the Regexp
+// with the replacement string repl.  Inside repl, $ signs are interpreted as
+// in Expand, so for instance $1 represents the text of the first submatch.
 func (re *Regexp) ReplaceAllString(src, repl string) string {
-	return re.ReplaceAllStringFunc(src, func(string) string { return repl })
+	n := 2
+	if strings.Index(repl, "$") >= 0 {
+		n = 2 * (re.numSubexp + 1)
+	}
+	b := re.replaceAll(nil, src, n, func(dst []byte, match []int) []byte {
+		return re.expand(dst, repl, nil, src, match)
+	})
+	return string(b)
 }
 
-// ReplaceAllStringFunc returns a copy of src in which all matches for the
-// Regexp have been replaced by the return value of of function repl (whose
-// first argument is the matched string).  No support is provided for
-// expressions (e.g. \1 or $1) in the replacement string.
+// ReplaceAllStringLiteral returns a copy of src, replacing matches of the Regexp
+// with the replacement string repl.  The replacement repl is substituted directly,
+// without using Expand.
+func (re *Regexp) ReplaceAllLiteralString(src, repl string) string {
+	return string(re.replaceAll(nil, src, 2, func(dst []byte, match []int) []byte {
+		return append(dst, repl...)
+	}))
+}
+
+// ReplaceAllStringFunc returns a copy of src in which all matches of the
+// Regexp have been replaced by the return value of of function repl applied
+// to the matched substring.  The replacement returned by repl is substituted
+// directly, without using Expand.
 func (re *Regexp) ReplaceAllStringFunc(src string, repl func(string) string) string {
+	b := re.replaceAll(nil, src, 2, func(dst []byte, match []int) []byte {
+		return append(dst, repl(src[match[0]:match[1]])...)
+	})
+	return string(b)
+}
+
+func (re *Regexp) replaceAll(bsrc []byte, src string, nmatch int, repl func(dst []byte, m []int) []byte) []byte {
 	lastMatchEnd := 0 // end position of the most recent match
 	searchPos := 0    // position where we next look for a match
-	buf := new(bytes.Buffer)
-	for searchPos <= len(src) {
-		a := re.doExecute(newInputString(src), searchPos)
+	var buf []byte
+	var endPos int
+	if bsrc != nil {
+		endPos = len(bsrc)
+	} else {
+		endPos = len(src)
+	}
+	for searchPos <= endPos {
+		a := re.doExecute(nil, bsrc, src, searchPos, nmatch)
 		if len(a) == 0 {
 			break // no more matches
 		}
 
 		// Copy the unmatched characters before this match.
-		io.WriteString(buf, src[lastMatchEnd:a[0]])
+		if bsrc != nil {
+			buf = append(buf, bsrc[lastMatchEnd:a[0]]...)
+		} else {
+			buf = append(buf, src[lastMatchEnd:a[0]]...)
+		}
 
 		// Now insert a copy of the replacement string, but not for a
 		// match of the empty string immediately after another match.
 		// (Otherwise, we get double replacement for patterns that
 		// match both empty and nonempty strings.)
 		if a[1] > lastMatchEnd || a[0] == 0 {
-			io.WriteString(buf, repl(src[a[0]:a[1]]))
+			buf = repl(buf, a)
 		}
 		lastMatchEnd = a[1]
 
 		// Advance past this match; always advance at least one character.
-		_, width := utf8.DecodeRuneInString(src[searchPos:])
+		var width int
+		if bsrc != nil {
+			_, width = utf8.DecodeRune(bsrc[searchPos:])
+		} else {
+			_, width = utf8.DecodeRuneInString(src[searchPos:])
+		}
 		if searchPos+width > a[1] {
 			searchPos += width
 		} else if searchPos+1 > a[1] {
@@ -1075,61 +502,56 @@ func (re *Regexp) ReplaceAllStringFunc(src string, repl func(string) string) str
 	}
 
 	// Copy the unmatched characters after the last match.
-	io.WriteString(buf, src[lastMatchEnd:])
+	if bsrc != nil {
+		buf = append(buf, bsrc[lastMatchEnd:]...)
+	} else {
+		buf = append(buf, src[lastMatchEnd:]...)
+	}
 
-	return buf.String()
+	return buf
 }
 
-// ReplaceAll returns a copy of src in which all matches for the Regexp
-// have been replaced by repl.  No support is provided for expressions
-// (e.g. \1 or $1) in the replacement text.
+// ReplaceAll returns a copy of src, replacing matches of the Regexp
+// with the replacement string repl.  Inside repl, $ signs are interpreted as
+// in Expand, so for instance $1 represents the text of the first submatch.
 func (re *Regexp) ReplaceAll(src, repl []byte) []byte {
-	return re.ReplaceAllFunc(src, func([]byte) []byte { return repl })
+	n := 2
+	if bytes.IndexByte(repl, '$') >= 0 {
+		n = 2 * (re.numSubexp + 1)
+	}
+	srepl := ""
+	b := re.replaceAll(src, "", n, func(dst []byte, match []int) []byte {
+		if len(srepl) != len(repl) {
+			srepl = string(repl)
+		}
+		return re.expand(dst, srepl, src, "", match)
+	})
+	return b
 }
 
-// ReplaceAllFunc returns a copy of src in which all matches for the
-// Regexp have been replaced by the return value of of function repl (whose
-// first argument is the matched []byte).  No support is provided for
-// expressions (e.g. \1 or $1) in the replacement string.
+// ReplaceAllLiteral returns a copy of src, replacing matches of the Regexp
+// with the replacement bytes repl.  The replacement repl is substituted directly,
+// without using Expand.
+func (re *Regexp) ReplaceAllLiteral(src, repl []byte) []byte {
+	return re.replaceAll(src, "", 2, func(dst []byte, match []int) []byte {
+		return append(dst, repl...)
+	})
+}
+
+// ReplaceAllFunc returns a copy of src in which all matches of the
+// Regexp have been replaced by the return value of of function repl applied
+// to the matched byte slice.  The replacement returned by repl is substituted
+// directly, without using Expand.
 func (re *Regexp) ReplaceAllFunc(src []byte, repl func([]byte) []byte) []byte {
-	lastMatchEnd := 0 // end position of the most recent match
-	searchPos := 0    // position where we next look for a match
-	buf := new(bytes.Buffer)
-	for searchPos <= len(src) {
-		a := re.doExecute(newInputBytes(src), searchPos)
-		if len(a) == 0 {
-			break // no more matches
-		}
+	return re.replaceAll(src, "", 2, func(dst []byte, match []int) []byte {
+		return append(dst, repl(src[match[0]:match[1]])...)
+	})
+}
 
-		// Copy the unmatched characters before this match.
-		buf.Write(src[lastMatchEnd:a[0]])
+var specialBytes = []byte(`\.+*?()|[]{}^$`)
 
-		// Now insert a copy of the replacement string, but not for a
-		// match of the empty string immediately after another match.
-		// (Otherwise, we get double replacement for patterns that
-		// match both empty and nonempty strings.)
-		if a[1] > lastMatchEnd || a[0] == 0 {
-			buf.Write(repl(src[a[0]:a[1]]))
-		}
-		lastMatchEnd = a[1]
-
-		// Advance past this match; always advance at least one character.
-		_, width := utf8.DecodeRune(src[searchPos:])
-		if searchPos+width > a[1] {
-			searchPos += width
-		} else if searchPos+1 > a[1] {
-			// This clause is only needed at the end of the input
-			// string.  In that case, DecodeRuneInString returns width=0.
-			searchPos++
-		} else {
-			searchPos = a[1]
-		}
-	}
-
-	// Copy the unmatched characters after the last match.
-	buf.Write(src[lastMatchEnd:])
-
-	return buf.Bytes()
+func special(b byte) bool {
+	return bytes.IndexByte(specialBytes, b) >= 0
 }
 
 // QuoteMeta returns a string that quotes all regular expression metacharacters
@@ -1141,7 +563,7 @@ func QuoteMeta(s string) string {
 	// A byte loop is correct because all metacharacters are ASCII.
 	j := 0
 	for i := 0; i < len(s); i++ {
-		if special(int(s[i])) {
+		if special(s[i]) {
 			b[j] = '\\'
 			j++
 		}
@@ -1149,6 +571,23 @@ func QuoteMeta(s string) string {
 		j++
 	}
 	return string(b[0:j])
+}
+
+// The number of capture values in the program may correspond
+// to fewer capturing expressions than are in the regexp.
+// For example, "(a){0}" turns into an empty program, so the
+// maximum capture in the program is 0 but we need to return
+// an expression for \1.  Pad appends -1s to the slice a as needed.
+func (re *Regexp) pad(a []int) []int {
+	if a == nil {
+		// No match.
+		return nil
+	}
+	n := (1 + re.numSubexp) * 2
+	for len(a) < n {
+		a = append(a, -1)
+	}
+	return a
 }
 
 // Find matches in slice b if b is non-nil, otherwise find matches in string s.
@@ -1161,13 +600,7 @@ func (re *Regexp) allMatches(s string, b []byte, n int, deliver func([]int)) {
 	}
 
 	for pos, i, prevMatchEnd := 0, 0, -1; i < n && pos <= end; {
-		var in input
-		if b == nil {
-			in = newInputString(s)
-		} else {
-			in = newInputBytes(b)
-		}
-		matches := re.doExecute(in, pos)
+		matches := re.doExecute(nil, b, s, pos, re.prog.NumCap)
 		if len(matches) == 0 {
 			break
 		}
@@ -1198,7 +631,7 @@ func (re *Regexp) allMatches(s string, b []byte, n int, deliver func([]int)) {
 		prevMatchEnd = matches[1]
 
 		if accept {
-			deliver(matches)
+			deliver(re.pad(matches))
 			i++
 		}
 	}
@@ -1207,7 +640,7 @@ func (re *Regexp) allMatches(s string, b []byte, n int, deliver func([]int)) {
 // Find returns a slice holding the text of the leftmost match in b of the regular expression.
 // A return value of nil indicates no match.
 func (re *Regexp) Find(b []byte) []byte {
-	a := re.doExecute(newInputBytes(b), 0)
+	a := re.doExecute(nil, b, "", 0, 2)
 	if a == nil {
 		return nil
 	}
@@ -1219,7 +652,7 @@ func (re *Regexp) Find(b []byte) []byte {
 // b[loc[0]:loc[1]].
 // A return value of nil indicates no match.
 func (re *Regexp) FindIndex(b []byte) (loc []int) {
-	a := re.doExecute(newInputBytes(b), 0)
+	a := re.doExecute(nil, b, "", 0, 2)
 	if a == nil {
 		return nil
 	}
@@ -1232,7 +665,7 @@ func (re *Regexp) FindIndex(b []byte) (loc []int) {
 // an empty string.  Use FindStringIndex or FindStringSubmatch if it is
 // necessary to distinguish these cases.
 func (re *Regexp) FindString(s string) string {
-	a := re.doExecute(newInputString(s), 0)
+	a := re.doExecute(nil, nil, s, 0, 2)
 	if a == nil {
 		return ""
 	}
@@ -1243,8 +676,8 @@ func (re *Regexp) FindString(s string) string {
 // location of the leftmost match in s of the regular expression.  The match
 // itself is at s[loc[0]:loc[1]].
 // A return value of nil indicates no match.
-func (re *Regexp) FindStringIndex(s string) []int {
-	a := re.doExecute(newInputString(s), 0)
+func (re *Regexp) FindStringIndex(s string) (loc []int) {
+	a := re.doExecute(nil, nil, s, 0, 2)
 	if a == nil {
 		return nil
 	}
@@ -1255,8 +688,8 @@ func (re *Regexp) FindStringIndex(s string) []int {
 // location of the leftmost match of the regular expression in text read from
 // the RuneReader.  The match itself is at s[loc[0]:loc[1]].  A return
 // value of nil indicates no match.
-func (re *Regexp) FindReaderIndex(r io.RuneReader) []int {
-	a := re.doExecute(newInputReader(r), 0)
+func (re *Regexp) FindReaderIndex(r io.RuneReader) (loc []int) {
+	a := re.doExecute(r, nil, "", 0, 2)
 	if a == nil {
 		return nil
 	}
@@ -1269,17 +702,145 @@ func (re *Regexp) FindReaderIndex(r io.RuneReader) []int {
 // comment.
 // A return value of nil indicates no match.
 func (re *Regexp) FindSubmatch(b []byte) [][]byte {
-	a := re.doExecute(newInputBytes(b), 0)
+	a := re.doExecute(nil, b, "", 0, re.prog.NumCap)
 	if a == nil {
 		return nil
 	}
-	ret := make([][]byte, len(a)/2)
+	ret := make([][]byte, 1+re.numSubexp)
 	for i := range ret {
-		if a[2*i] >= 0 {
+		if 2*i < len(a) && a[2*i] >= 0 {
 			ret[i] = b[a[2*i]:a[2*i+1]]
 		}
 	}
 	return ret
+}
+
+// Expand appends template to dst and returns the result; during the
+// append, Expand replaces variables in the template with corresponding
+// matches drawn from src.  The match slice should have been returned by
+// FindSubmatchIndex.
+// 
+// In the template, a variable is denoted by a substring of the form
+// $name or ${name}, where name is a non-empty sequence of letters,
+// digits, and underscores.  A purely numeric name like $1 refers to
+// the submatch with the corresponding index; other names refer to
+// capturing parentheses named with the (?P<name>...) syntax.  A
+// reference to an out of range or unmatched index or a name that is not
+// present in the regular expression is replaced with an empty string.
+// 
+// In the $name form, name is taken to be as long as possible: $1x is
+// equivalent to ${1x}, not ${1}x, and, $10 is equivalent to ${10}, not ${1}0.
+// 
+// To insert a literal $ in the output, use $$ in the template.
+func (re *Regexp) Expand(dst []byte, template []byte, src []byte, match []int) []byte {
+	return re.expand(dst, string(template), src, "", match)
+}
+
+// ExpandString is like Expand but the template and source are strings.
+// It appends to and returns a byte slice in order to give the calling
+// code control over allocation.
+func (re *Regexp) ExpandString(dst []byte, template string, src string, match []int) []byte {
+	return re.expand(dst, template, nil, src, match)
+}
+
+func (re *Regexp) expand(dst []byte, template string, bsrc []byte, src string, match []int) []byte {
+	for len(template) > 0 {
+		i := strings.Index(template, "$")
+		if i < 0 {
+			break
+		}
+		dst = append(dst, template[:i]...)
+		template = template[i:]
+		if len(template) > 1 && template[1] == '$' {
+			// Treat $$ as $.
+			dst = append(dst, '$')
+			template = template[2:]
+			continue
+		}
+		name, num, rest, ok := extract(template)
+		if !ok {
+			// Malformed; treat $ as raw text.
+			dst = append(dst, '$')
+			template = template[1:]
+			continue
+		}
+		template = rest
+		if num >= 0 {
+			if 2*num+1 < len(match) {
+				if bsrc != nil {
+					dst = append(dst, bsrc[match[2*num]:match[2*num+1]]...)
+				} else {
+					dst = append(dst, src[match[2*num]:match[2*num+1]]...)
+				}
+			}
+		} else {
+			for i, namei := range re.subexpNames {
+				if name == namei && 2*i+1 < len(match) && match[2*i] >= 0 {
+					if bsrc != nil {
+						dst = append(dst, bsrc[match[2*i]:match[2*i+1]]...)
+					} else {
+						dst = append(dst, src[match[2*i]:match[2*i+1]]...)
+					}
+					break
+				}
+			}
+		}
+	}
+	dst = append(dst, template...)
+	return dst
+}
+
+// extract returns the name from a leading "$name" or "${name}" in str.
+// If it is a number, extract returns num set to that number; otherwise num = -1.
+func extract(str string) (name string, num int, rest string, ok bool) {
+	if len(str) < 2 || str[0] != '$' {
+		return
+	}
+	brace := false
+	if str[1] == '{' {
+		brace = true
+		str = str[2:]
+	} else {
+		str = str[1:]
+	}
+	i := 0
+	for i < len(str) {
+		rune, size := utf8.DecodeRuneInString(str[i:])
+		if !unicode.IsLetter(rune) && !unicode.IsDigit(rune) && rune != '_' {
+			break
+		}
+		i += size
+	}
+	if i == 0 {
+		// empty name is not okay
+		return
+	}
+	name = str[:i]
+	if brace {
+		if i >= len(str) || str[i] != '}' {
+			// missing closing brace
+			return
+		}
+		i++
+	}
+
+	// Parse number.
+	num = 0
+	for i := 0; i < len(name); i++ {
+		if name[i] < '0' || '9' < name[i] || num >= 1e8 {
+			num = -1
+			break
+		}
+		num = num*10 + int(name[i]) - '0'
+	}
+	// Disallow leading zeros.
+	if name[0] == '0' && len(name) > 1 {
+		num = -1
+	}
+
+	rest = str[i:]
+	ok = true
+	return
 }
 
 // FindSubmatchIndex returns a slice holding the index pairs identifying the
@@ -1288,7 +849,7 @@ func (re *Regexp) FindSubmatch(b []byte) [][]byte {
 // in the package comment.
 // A return value of nil indicates no match.
 func (re *Regexp) FindSubmatchIndex(b []byte) []int {
-	return re.doExecute(newInputBytes(b), 0)
+	return re.pad(re.doExecute(nil, b, "", 0, re.prog.NumCap))
 }
 
 // FindStringSubmatch returns a slice of strings holding the text of the
@@ -1297,13 +858,13 @@ func (re *Regexp) FindSubmatchIndex(b []byte) []int {
 // package comment.
 // A return value of nil indicates no match.
 func (re *Regexp) FindStringSubmatch(s string) []string {
-	a := re.doExecute(newInputString(s), 0)
+	a := re.doExecute(nil, nil, s, 0, re.prog.NumCap)
 	if a == nil {
 		return nil
 	}
-	ret := make([]string, len(a)/2)
+	ret := make([]string, 1+re.numSubexp)
 	for i := range ret {
-		if a[2*i] >= 0 {
+		if 2*i < len(a) && a[2*i] >= 0 {
 			ret[i] = s[a[2*i]:a[2*i+1]]
 		}
 	}
@@ -1316,7 +877,7 @@ func (re *Regexp) FindStringSubmatch(s string) []string {
 // 'Index' descriptions in the package comment.
 // A return value of nil indicates no match.
 func (re *Regexp) FindStringSubmatchIndex(s string) []int {
-	return re.doExecute(newInputString(s), 0)
+	return re.pad(re.doExecute(nil, nil, s, 0, re.prog.NumCap))
 }
 
 // FindReaderSubmatchIndex returns a slice holding the index pairs
@@ -1325,7 +886,7 @@ func (re *Regexp) FindStringSubmatchIndex(s string) []int {
 // by the 'Submatch' and 'Index' descriptions in the package comment.  A
 // return value of nil indicates no match.
 func (re *Regexp) FindReaderSubmatchIndex(r io.RuneReader) []int {
-	return re.doExecute(newInputReader(r), 0)
+	return re.pad(re.doExecute(r, nil, "", 0, re.prog.NumCap))
 }
 
 const startSize = 10 // The size at which to start a slice in the 'All' routines.

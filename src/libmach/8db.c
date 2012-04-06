@@ -1,11 +1,11 @@
 // Inferno libmach/8db.c
 // http://code.google.com/p/inferno-os/source/browse/utils/libmach/8db.c
 //
-// 	Copyright © 1994-1999 Lucent Technologies Inc.
-// 	Power PC support Copyright © 1995-2004 C H Forsyth (forsyth@terzarima.net).
-// 	Portions Copyright © 1997-1999 Vita Nuova Limited.
-// 	Portions Copyright © 2000-2007 Vita Nuova Holdings Limited (www.vitanuova.com).
-// 	Revisions Copyright © 2000-2004 Lucent Technologies Inc. and others.
+//	Copyright © 1994-1999 Lucent Technologies Inc.
+//	Power PC support Copyright © 1995-2004 C H Forsyth (forsyth@terzarima.net).
+//	Portions Copyright © 1997-1999 Vita Nuova Limited.
+//	Portions Copyright © 2000-2007 Vita Nuova Holdings Limited (www.vitanuova.com).
+//	Revisions Copyright © 2000-2004 Lucent Technologies Inc. and others.
 //	Portions Copyright © 2009 The Go Authors.  All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -125,7 +125,7 @@ i386excep(Map *map, Rgetter rget)
 			if (memcmp(buf, machdata->bpinst, machdata->bpsize) == 0)
 				return "breakpoint";
 		}
-		snprint(buf, sizeof(buf), "exception %ld", c);
+		snprint(buf, sizeof(buf), "exception %d", c);
 		return buf;
 	} else
 		return excname[c];
@@ -688,6 +688,7 @@ static Optable optab0F[256]=
 [0x74] =	{ RM,0,		"PCMPEQB %m,%M" },
 [0x75] =	{ RM,0,		"PCMPEQW %m,%M" },
 [0x76] =	{ RM,0,		"PCMPEQL %m,%M" },
+[0x77] =	{ 0,0,		"EMMS" },
 [0x7E] =	{ RM,0,		"MOV%S %M,%e" },
 [0x7F] =	{ RM,0,		"MOVQ %M,%m" },
 [0xAE] =	{ RMOP,0,		optab0FAE },
@@ -1971,7 +1972,7 @@ plocal(Instr *ip)
 
 	offset = ip->disp;
 	if (!findsym(ip->addr, CTEXT, &s) || !findlocal(&s, FRAMENAME, &s)) {
-		bprint(ip, "%lux(SP)", offset);
+		bprint(ip, "%ux(SP)", offset);
 		return;
 	}
 
@@ -1987,7 +1988,7 @@ plocal(Instr *ip)
 		bprint(ip, "%s+", s.name);
 	else
 		offset = ip->disp;
-	bprint(ip, "%lux%s", offset, reg);
+	bprint(ip, "%ux%s", offset, reg);
 }
 
 static int
@@ -2061,7 +2062,7 @@ immediate(Instr *ip, vlong val)
 			w = -w;
 		if (issymref(ip, &s, w, val)) {
 			if (w)
-				bprint(ip, "%s+%#lux(SB)", s.name, w);
+				bprint(ip, "%s+%#ux(SB)", s.name, w);
 			else
 				bprint(ip, "%s(SB)", s.name);
 			return;
@@ -2087,24 +2088,29 @@ immediate(Instr *ip, vlong val)
 static void
 pea(Instr *ip)
 {
+	int base;
+
+	base = ip->base;
+	if(base >= 0 && (ip->rex & REXB))
+		base += 8;
+
 	if (ip->mod == 3) {
 		if (ip->osize == 'B')
 			bprint(ip, (ip->rex & REXB? breg64: breg)[(uchar)ip->base]);
-		else if(ip->rex & REXB)
-			bprint(ip, "%s%s", ANAME(ip), reg[ip->base+8]);
 		else
-			bprint(ip, "%s%s", ANAME(ip), reg[(uchar)ip->base]);
+			bprint(ip, "%s%s", ANAME(ip), reg[base]);
 		return;
 	}
+
 	if (ip->segment)
 		bprint(ip, ip->segment);
-	if (ip->asize == 'E' && ip->base == SP)
+	if (ip->asize == 'E' && base == SP)
 		plocal(ip);
 	else {
 		if (ip->base < 0)
 			immediate(ip, ip->disp);
 		else {
-			bprint(ip, "%lux", ip->disp);
+			bprint(ip, "%ux", ip->disp);
 			if(ip->rip)
 				bprint(ip, "(RIP)");
 			bprint(ip,"(%s%s)", ANAME(ip), reg[ip->rex&REXB? ip->base+8: ip->base]);
@@ -2197,7 +2203,7 @@ prinstr(Instr *ip, char *fmt)
 				bprint(ip, "CBW");
 			break;
 		case 'd':
-			bprint(ip,"%ux:%lux",ip->seg,ip->disp);
+			bprint(ip,"%ux:%ux", ip->seg, ip->disp);
 			break;
 		case 'm':
 			if (ip->mod == 3 && ip->osize != 'B') {

@@ -18,7 +18,9 @@
  */
 
 %{
+#include <u.h>
 #include <stdio.h>	/* if we don't, bison will, and go.h re-#defines getc */
+#include <libc.h>
 #include "go.h"
 
 static void fixlbrace(int);
@@ -29,13 +31,13 @@ static void fixlbrace(int);
 	Type*		type;
 	Sym*		sym;
 	struct	Val	val;
-	int		lint;
+	int		i;
 }
 
 // |sed 's/.*	//' |9 fmt -l1 |sort |9 fmt -l50 | sed 's/^/%xxx		/'
 
 %token	<val>	LLITERAL
-%token	<lint>	LASOP
+%token	<i>	LASOP
 %token	<sym>	LBREAK LCASE LCHAN LCOLAS LCONST LCONTINUE LDDD
 %token	<sym>	LDEFAULT LDEFER LELSE LFALL LFOR LFUNC LGO LGOTO
 %token	<sym>	LIF LIMPORT LINTERFACE LMAP LNAME
@@ -45,7 +47,7 @@ static void fixlbrace(int);
 %token		LANDAND LANDNOT LBODY LCOMM LDEC LEQ LGE LGT
 %token		LIGNORE LINC LLE LLSH LLT LNE LOROR LRSH
 
-%type	<lint>	lbrace import_here
+%type	<i>	lbrace import_here
 %type	<sym>	sym packname
 %type	<val>	oliteral
 
@@ -54,8 +56,8 @@ static void fixlbrace(int);
 %type	<node>	case caseblock
 %type	<node>	compound_stmt dotname embed expr complitexpr
 %type	<node>	expr_or_type
-%type	<node>	fndcl fnliteral
-%type	<node>	for_body for_header for_stmt if_header if_stmt non_dcl_stmt
+%type	<node>	fndcl hidden_fndcl fnliteral
+%type	<node>	for_body for_header for_stmt if_header if_stmt else non_dcl_stmt
 %type	<node>	interfacedcl keyval labelname name
 %type	<node>	name_or_type non_expr_type
 %type	<node>	new_name dcl_name oexpr typedclname
@@ -64,7 +66,7 @@ static void fixlbrace(int);
 %type	<node>	pseudocall range_stmt select_stmt
 %type	<node>	simple_stmt
 %type	<node>	switch_stmt uexpr
-%type	<node>	xfndcl typedcl
+%type	<node>	xfndcl typedcl start_complit
 
 %type	<list>	xdcl fnbody fnres loop_body dcl_name_list
 %type	<list>	new_name_list expr_list keyval_list braced_keyval_list expr_or_type_list xdcl_list
@@ -76,12 +78,10 @@ static void fixlbrace(int);
 %type	<node>	indcl interfacetype structtype ptrtype
 %type	<node>	recvchantype non_recvchantype othertype fnret_type fntype
 
-%type	<val>	hidden_tag
-
 %type	<sym>	hidden_importsym hidden_pkg_importsym
 
-%type	<node>	hidden_constant hidden_literal hidden_dcl
-%type	<node>	hidden_interfacedcl hidden_structdcl hidden_opt_sym
+%type	<node>	hidden_constant hidden_literal hidden_funarg
+%type	<node>	hidden_interfacedcl hidden_structdcl
 
 %type	<list>	hidden_funres
 %type	<list>	ohidden_funres
@@ -205,7 +205,15 @@ import_stmt:
 		my->lastlineno = $1;
 		my->block = 1;	// at top level
 	}
-
+|	import_here import_there
+	{
+		// When an invalid import path is passed to importfile,
+		// it calls yyerror and then sets up a fake import with
+		// no package statement. This allows us to test more
+		// than one invalid import statement in a single file.
+		if(nerrors == 0)
+			fatal("phase error in import");
+	}
 
 import_stmt_list:
 	import_stmt
@@ -235,17 +243,17 @@ import_here:
 	}
 
 import_package:
-	LPACKAGE sym import_safety ';'
+	LPACKAGE LNAME import_safety ';'
 	{
 		if(importpkg->name == nil) {
 			importpkg->name = $2->name;
 			pkglookup($2->name, nil)->npkg++;
 		} else if(strcmp(importpkg->name, $2->name) != 0)
-			yyerror("conflicting names %s and %s for package %Z", importpkg->name, $2->name, importpkg->path);
+			yyerror("conflicting names %s and %s for package \"%Z\"", importpkg->name, $2->name, importpkg->path);
 		importpkg->direct = 1;
 		
 		if(safemode && !curio.importsafe)
-			yyerror("cannot import unsafe package %Z", importpkg->path);
+			yyerror("cannot import unsafe package \"%Z\"", importpkg->path);
 	}
 
 import_safety:
@@ -418,18 +426,15 @@ simple_stmt:
 |	expr_list LCOLAS expr_list
 	{
 		if($3->n->op == OTYPESW) {
-			Node *n;
-			
-			n = N;
+			$$ = nod(OTYPESW, N, $3->n->right);
 			if($3->next != nil)
 				yyerror("expr.(type) must be alone in list");
 			if($1->next != nil)
 				yyerror("argument count mismatch: %d = %d", count($1), 1);
-			else if($1->n->op != ONAME && $1->n->op != OTYPE && $1->n->op != ONONAME)
-				yyerror("invalid variable name %#N in type switch", $1->n);
+			else if(($1->n->op != ONAME && $1->n->op != OTYPE && $1->n->op != ONONAME) || isblank($1->n))
+				yyerror("invalid variable name %N in type switch", $1->n);
 			else
-				n = $1->n;
-			$$ = nod(OTYPESW, n, $3->n->right);
+				$$->left = dclname($1->n->sym);  // it's a colas, so must not re-use an oldname.
 			break;
 		}
 		$$ = colas($1, $3);
@@ -448,7 +453,7 @@ simple_stmt:
 case:
 	LCASE expr_or_type_list ':'
 	{
-		Node *n;
+		Node *n, *nn;
 
 		// will be converted to OCASE
 		// right will point to next case
@@ -458,12 +463,13 @@ case:
 		$$->list = $2;
 		if(typesw != N && typesw->right != N && (n=typesw->right->left) != N) {
 			// type switch - declare variable
-			n = newname(n->sym);
-			n->used = 1;	// TODO(rsc): better job here
-			declare(n, dclcontext);
-			$$->nname = n;
+			nn = newname(n->sym);
+			declare(nn, dclcontext);
+			$$->nname = nn;
+
+			// keep track of the instances for reporting unused
+			nn->defn = typesw->right;
 		}
-		break;
 	}
 |	LCASE expr_or_type_list '=' expr ':'
 	{
@@ -494,16 +500,18 @@ case:
 	}
 |	LDEFAULT ':'
 	{
-		Node *n;
+		Node *n, *nn;
 
 		markdcl();
 		$$ = nod(OXCASE, N, N);
 		if(typesw != N && typesw->right != N && (n=typesw->right->left) != N) {
 			// type switch - declare variable
-			n = newname(n->sym);
-			n->used = 1;	// TODO(rsc): better job here
-			declare(n, dclcontext);
-			$$->nname = n;
+			nn = newname(n->sym);
+			declare(nn, dclcontext);
+			$$->nname = nn;
+
+			// keep track of the instances for reporting unused
+			nn->defn = typesw->right;
 		}
 	}
 
@@ -638,6 +646,7 @@ if_header:
 		$$->ntest = $3;
 	}
 
+/* IF cond body (ELSE IF cond body)* (ELSE block)? */
 if_stmt:
 	LIF
 	{
@@ -650,9 +659,27 @@ if_stmt:
 	}
 	loop_body
 	{
+		$3->nbody = $5;
+	}
+	else
+	{
+		popdcl();
 		$$ = $3;
-		$$->nbody = $5;
-		// no popdcl; maybe there's an LELSE
+		if($7 != N)
+			$$->nelse = list1($7);
+	}
+
+else:
+	{
+		$$ = N;
+	}
+|	LELSE if_stmt
+	{
+		$$ = $2;
+	}
+|	LELSE compound_stmt
+	{
+		$$ = $2;
 	}
 
 switch_stmt:
@@ -785,7 +812,14 @@ uexpr:
 	}
 |	'&' uexpr
 	{
-		$$ = nod(OADDR, $2, N);
+		if($2->op == OCOMPLIT) {
+			// Special case for &T{...}: turn into (*T){...}.
+			$$ = $2;
+			$$->right = nod(OIND, $$->right, N);
+			$$->right->implicit = 1;
+		} else {
+			$$ = nod(OADDR, $2, N);
+		}
 	}
 |	'+' uexpr
 	{
@@ -874,28 +908,34 @@ pexpr_no_paren:
 		$$ = nod(OCALL, $1, N);
 		$$->list = list1($3);
 	}
-|	comptype lbrace braced_keyval_list '}'
+|	comptype lbrace start_complit braced_keyval_list '}'
 	{
-		// composite expression
-		$$ = nod(OCOMPLIT, N, $1);
-		$$->list = $3;
-		
+		$$ = $3;
+		$$->right = $1;
+		$$->list = $4;
 		fixlbrace($2);
 	}
-|	pexpr_no_paren '{' braced_keyval_list '}'
+|	pexpr_no_paren '{' start_complit braced_keyval_list '}'
 	{
-		// composite expression
-		$$ = nod(OCOMPLIT, N, $1);
-		$$->list = $3;
+		$$ = $3;
+		$$->right = $1;
+		$$->list = $4;
 	}
-|	'(' expr_or_type ')' '{' braced_keyval_list '}'
+|	'(' expr_or_type ')' '{' start_complit braced_keyval_list '}'
 	{
 		yyerror("cannot parenthesize type in composite literal");
-		// composite expression
-		$$ = nod(OCOMPLIT, N, $2);
-		$$->list = $5;
+		$$ = $5;
+		$$->right = $2;
+		$$->list = $6;
 	}
 |	fnliteral
+
+start_complit:
+	{
+		// composite expression.
+		// make node early so we get the right line number.
+		$$ = nod(OCOMPLIT, N, N);
+	}
 
 keyval:
 	expr ':' complitexpr
@@ -905,10 +945,10 @@ keyval:
 
 complitexpr:
 	expr
-|	'{' braced_keyval_list '}'
+|	'{' start_complit braced_keyval_list '}'
 	{
-		$$ = nod(OCOMPLIT, N, N);
-		$$->list = $2;
+		$$ = $2;
+		$$->list = $3;
 	}
 
 pexpr:
@@ -955,7 +995,10 @@ lbrace:
 new_name:
 	sym
 	{
-		$$ = newname($1);
+		if($1 == S)
+			$$ = N;
+		else
+			$$ = newname($1);
 	}
 
 dcl_name:
@@ -972,6 +1015,26 @@ onew_name:
 
 sym:
 	LNAME
+	{
+		$$ = $1;
+		// during imports, unqualified non-exported identifiers are from builtinpkg
+		if(importpkg != nil && !exportname($1->name))
+			$$ = pkglookup($1->name, builtinpkg);
+	}
+|	hidden_importsym
+|	'?'
+	{
+		$$ = S;
+	}
+
+hidden_importsym:
+	'@' LLITERAL '.' LNAME
+	{
+		if($2.u.sval->len == 0)
+			$$ = pkglookup($4->name, importpkg);
+		else
+			$$ = pkglookup($4->name, mkpkg($2.u.sval));
+	}
 
 name:
 	sym	%prec NotParen
@@ -1144,38 +1207,43 @@ xfndcl:
 	}
 
 fndcl:
-	dcl_name '(' oarg_type_list_ocomma ')' fnres
+	sym '(' oarg_type_list_ocomma ')' fnres
 	{
-		Node *n;
+		Node *t;
 
+		$$ = N;
 		$3 = checkarglist($3, 1);
-		$$ = nod(ODCLFUNC, N, N);
-		$$->nname = $1;
-		n = nod(OTFUNC, N, N);
-		n->list = $3;
-		n->rlist = $5;
-		if(strcmp($1->sym->name, "init") == 0) {
-			$$->nname = renameinit($1);
+
+		if(strcmp($1->name, "init") == 0) {
+			$1 = renameinit();
 			if($3 != nil || $5 != nil)
 				yyerror("func init must have no arguments and no return values");
 		}
-		if(strcmp(localpkg->name, "main") == 0 && strcmp($1->sym->name, "main") == 0) {
+		if(strcmp(localpkg->name, "main") == 0 && strcmp($1->name, "main") == 0) {
 			if($3 != nil || $5 != nil)
 				yyerror("func main must have no arguments and no return values");
 		}
-		// TODO: check if nname already has an ntype
-		$$->nname->ntype = n;
+
+		t = nod(OTFUNC, N, N);
+		t->list = $3;
+		t->rlist = $5;
+
+		$$ = nod(ODCLFUNC, N, N);
+		$$->nname = newname($1);
+		$$->nname->defn = $$;
+		$$->nname->ntype = t;		// TODO: check if nname already has an ntype
+		declare($$->nname, PFUNC);
+
 		funchdr($$);
 	}
 |	'(' oarg_type_list_ocomma ')' sym '(' oarg_type_list_ocomma ')' fnres
 	{
 		Node *rcvr, *t;
-		Node *name;
-		
-		name = newname($4);
+
+		$$ = N;
 		$2 = checkarglist($2, 0);
 		$6 = checkarglist($6, 1);
-		$$ = N;
+
 		if($2 == nil) {
 			yyerror("method has no receiver");
 			break;
@@ -1192,14 +1260,58 @@ fndcl:
 		if(rcvr->right->op == OTPAREN || (rcvr->right->op == OIND && rcvr->right->left->op == OTPAREN))
 			yyerror("cannot parenthesize receiver type");
 
-		$$ = nod(ODCLFUNC, N, N);
-		$$->nname = methodname1(name, rcvr->right);
 		t = nod(OTFUNC, rcvr, N);
 		t->list = $6;
 		t->rlist = $8;
+
+		$$ = nod(ODCLFUNC, N, N);
+		$$->shortname = newname($4);
+		$$->nname = methodname1($$->shortname, rcvr->right);
+		$$->nname->defn = $$;
 		$$->nname->ntype = t;
-		$$->shortname = name;
+		declare($$->nname, PFUNC);
+
 		funchdr($$);
+	}
+
+hidden_fndcl:
+	hidden_pkg_importsym '(' ohidden_funarg_list ')' ohidden_funres
+	{
+		Sym *s;
+		Type *t;
+
+		$$ = N;
+
+		s = $1;
+		t = functype(N, $3, $5);
+
+		importsym(s, ONAME);
+		if(s->def != N && s->def->op == ONAME) {
+			if(eqtype(t, s->def->type))
+				break;
+			yyerror("inconsistent definition for func %S during import\n\t%T\n\t%T", s, s->def->type, t);
+		}
+
+		$$ = newname(s);
+		$$->type = t;
+		declare($$, PFUNC);
+
+		funchdr($$);
+	}
+|	'(' hidden_funarg_list ')' sym '(' ohidden_funarg_list ')' ohidden_funres
+	{
+		$$ = methodname1(newname($4), $2->n->right); 
+		$$->type = functype($2->n, $6, $8);
+
+		checkwidth($$->type);
+		addmethod($4, $$->type, 0);
+		funchdr($$);
+		
+		// inl.c's inlnode in on a dotmeth node expects to find the inlineable body as
+		// (dotmeth's type)->nname->inl, and dotmeth's type has been pulled
+		// out by typecheck's lookdot as this $$->ttype.  So by providing
+		// this back link here we avoid special casing there.
+		$$->type->nname = $$;
 	}
 
 fntype:
@@ -1316,6 +1428,20 @@ structdcl:
 	new_name_list ntype oliteral
 	{
 		NodeList *l;
+
+		Node *n;
+		l = $1;
+		if(l != nil && l->next == nil && l->n == nil) {
+			// ? symbol, during import
+			n = $2;
+			if(n->op == OIND)
+				n = n->left;
+			n = embedded(n->sym);
+			n->right = $2;
+			n->val = $3;
+			$$ = list1(n);
+			break;
+		}
 
 		for(l=$1; l; l=l->next) {
 			l->n = nod(ODCLFIELD, l->n, $2);
@@ -1472,19 +1598,6 @@ non_dcl_stmt:
 |	switch_stmt
 |	select_stmt
 |	if_stmt
-	{
-		popdcl();
-		$$ = $1;
-	}
-|	if_stmt LELSE stmt
-	{
-		if($3->op != OIF && $3->op != OBLOCK)
-			yyerror("missing { } after else");
-
-		popdcl();
-		$$ = $1;
-		$$->nelse = list1($3);
-	}
 |	labelname ':'
 	{
 		$1 = nod(OLABEL, $1, N);
@@ -1494,7 +1607,7 @@ non_dcl_stmt:
 	{
 		NodeList *l;
 
-		$1->right = $4;
+		$1->defn = $4;
 		l = list1($1);
 		if($4)
 			l = list(l, $4);
@@ -1530,6 +1643,18 @@ non_dcl_stmt:
 	{
 		$$ = nod(ORETURN, N, N);
 		$$->list = $2;
+		if($$->list == nil && curfn != N) {
+			NodeList *l;
+
+			for(l=curfn->dcl; l; l=l->next) {
+				if(l->n->class == PPARAM)
+					continue;
+				if(l->n->class != PPARAMOUT)
+					break;
+				if(l->n->sym->def != l->n)
+					yyerror("%s is shadowed during return", l->n->sym->name);
+			}
+		}
 	}
 
 stmt_list:
@@ -1668,27 +1793,16 @@ oliteral:
 |	LLITERAL
 
 /*
- * import syntax from header of
- * an output package
+ * import syntax from package header
  */
 hidden_import:
-	LIMPORT sym LLITERAL ';'
+	LIMPORT LNAME LLITERAL ';'
 	{
-		// Informational: record package name
-		// associated with import path, for use in
-		// human-readable messages.
-		Pkg *p;
-
-		p = mkpkg($3.u.sval);
-		if(p->name == nil) {
-			p->name = $2->name;
-			pkglookup($2->name, nil)->npkg++;
-		} else if(strcmp(p->name, $2->name) != 0)
-			yyerror("conflicting names %s and %s for package %Z", p->name, $2->name, p->path);
+		importimport($2, $3.u.sval);
 	}
 |	LVAR hidden_pkg_importsym hidden_type ';'
 	{
-		importvar($2, $3, PEXTERN);
+		importvar($2, $3);
 	}
 |	LCONST hidden_pkg_importsym '=' hidden_constant ';'
 	{
@@ -1702,17 +1816,28 @@ hidden_import:
 	{
 		importtype($2, $3);
 	}
-|	LFUNC hidden_pkg_importsym '(' ohidden_funarg_list ')' ohidden_funres ';'
+|	LFUNC hidden_fndcl fnbody ';'
 	{
-		importvar($2, functype(N, $4, $6), PFUNC);
-	}
-|	LFUNC '(' hidden_funarg_list ')' sym '(' ohidden_funarg_list ')' ohidden_funres ';'
-	{
-		if($3->next != nil || $3->n->op != ODCLFIELD) {
-			yyerror("bad receiver in method");
-			YYERROR;
+		if($2 == N)
+			break;
+
+		$2->inl = $3;
+
+		funcbody($2);
+		importlist = list(importlist, $2);
+
+		if(debug['E']) {
+			print("import [%Z] func %lN \n", importpkg->path, $2);
+			if(debug['l'] > 2 && $2->inl)
+				print("inl body:%+H\n", $2->inl);
 		}
-		importmethod($5, functype($3->n, $7, $9));
+	}
+
+hidden_pkg_importsym:
+	hidden_importsym
+	{
+		$$ = $1;
+		structpkg = $$->pkg;
 	}
 
 hidden_pkgtype:
@@ -1721,6 +1846,10 @@ hidden_pkgtype:
 		$$ = pkgtype($1);
 		importsym($1, OTYPE);
 	}
+
+/*
+ *  importing types
+ */
 
 hidden_type:
 	hidden_type_misc
@@ -1760,11 +1889,11 @@ hidden_type_misc:
 	}
 |	LSTRUCT '{' ohidden_structdcl_list '}'
 	{
-		$$ = dostruct($3, TSTRUCT);
+		$$ = tostruct($3);
 	}
 |	LINTERFACE '{' ohidden_interfacedcl_list '}'
 	{
-		$$ = dostruct($3, TINTER);
+		$$ = tointerface($3);
 	}
 |	'*' hidden_type
 	{
@@ -1803,61 +1932,45 @@ hidden_type_func:
 		$$ = functype(nil, $3, $5);
 	}
 
-hidden_opt_sym:
-	sym
+hidden_funarg:
+	sym hidden_type oliteral
 	{
-		$$ = newname($1);
-	}
-|	'?'
-	{
-		$$ = N;
-	}
-
-hidden_dcl:
-	hidden_opt_sym hidden_type hidden_tag
-	{
-		$$ = nod(ODCLFIELD, $1, typenod($2));
+		$$ = nod(ODCLFIELD, N, typenod($2));
+		if($1)
+			$$->left = newname($1);
 		$$->val = $3;
 	}
-|	hidden_opt_sym LDDD hidden_type hidden_tag
+|	sym LDDD hidden_type oliteral
 	{
 		Type *t;
-		
+	
 		t = typ(TARRAY);
 		t->bound = -1;
 		t->type = $3;
-		$$ = nod(ODCLFIELD, $1, typenod(t));
+
+		$$ = nod(ODCLFIELD, N, typenod(t));
+		if($1)
+			$$->left = newname($1);
 		$$->isddd = 1;
 		$$->val = $4;
 	}
 
 hidden_structdcl:
-	sym hidden_type hidden_tag
-	{
-		$$ = nod(ODCLFIELD, newname($1), typenod($2));
-		$$->val = $3;
-	}
-|	'?' hidden_type hidden_tag
+	sym hidden_type oliteral
 	{
 		Sym *s;
 
-		s = $2->sym;
-		if(s == S && isptr[$2->etype])
-			s = $2->type->sym;
-		if(s && s->pkg == builtinpkg)
-			s = lookup(s->name);
-		$$ = embedded(s);
-		$$->right = typenod($2);
-		$$->val = $3;
-	}
-
-hidden_tag:
-	{
-		$$.ctype = CTxxx;
-	}
-|	':' LLITERAL	// extra colon avoids conflict with "" looking like beginning of "".typename
-	{
-		$$ = $2;
+		if($1 != S) {
+			$$ = nod(ODCLFIELD, newname($1), typenod($2));
+			$$->val = $3;
+		} else {
+			s = $2->sym;
+			if(s == S && isptr[$2->etype])
+				s = $2->type->sym;
+			$$ = embedded(s);
+			$$->right = typenod($2);
+			$$->val = $3;
+		}
 	}
 
 hidden_interfacedcl:
@@ -1865,9 +1978,9 @@ hidden_interfacedcl:
 	{
 		$$ = nod(ODCLFIELD, newname($1), typenod(functype(fakethis(), $3, $5)));
 	}
-|	hidden_importsym '(' ohidden_funarg_list ')' ohidden_funres
+|	hidden_type
 	{
-		$$ = nod(ODCLFIELD, newname($1), typenod(functype(fakethis(), $3, $5)));
+		$$ = nod(ODCLFIELD, N, typenod($1));
 	}
 
 ohidden_funres:
@@ -1886,6 +1999,10 @@ hidden_funres:
 		$$ = list1(nod(ODCLFIELD, N, typenod($1)));
 	}
 
+/*
+ *  importing constants
+ */
+
 hidden_literal:
 	LLITERAL
 	{
@@ -1896,6 +2013,7 @@ hidden_literal:
 		$$ = nodlit($2);
 		switch($$->val.ctype){
 		case CTINT:
+		case CTRUNE:
 			mpnegfix($$->val.u.xval);
 			break;
 		case CTFLT:
@@ -1916,37 +2034,23 @@ hidden_constant:
 	hidden_literal
 |	'(' hidden_literal '+' hidden_literal ')'
 	{
+		if($2->val.ctype == CTRUNE && $4->val.ctype == CTINT) {
+			$$ = $2;
+			mpaddfixfix($2->val.u.xval, $4->val.u.xval, 0);
+			break;
+		}
 		$$ = nodcplxlit($2->val, $4->val);
-	}
-
-hidden_importsym:
-	LLITERAL '.' sym
-	{
-		Pkg *p;
-
-		if($1.u.sval->len == 0)
-			p = importpkg;
-		else
-			p = mkpkg($1.u.sval);
-		$$ = pkglookup($3->name, p);
-	}
-
-hidden_pkg_importsym:
-	hidden_importsym
-	{
-		$$ = $1;
-		structpkg = $$->pkg;
 	}
 
 hidden_import_list:
 |	hidden_import_list hidden_import
 
 hidden_funarg_list:
-	hidden_dcl
+	hidden_funarg
 	{
 		$$ = list1($1);
 	}
-|	hidden_funarg_list ',' hidden_dcl
+|	hidden_funarg_list ',' hidden_funarg
 	{
 		$$ = list($1, $3);
 	}

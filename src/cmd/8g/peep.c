@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 #include "opt.h"
 
@@ -876,13 +878,12 @@ loop:
 	case 3:	// set
 		if(p->as == p0->as)
 		if(p->from.type == p0->from.type)
-		if(p->from.sym == p0->from.sym)
+		if(p->from.node == p0->from.node)
 		if(p->from.offset == p0->from.offset)
 		if(p->from.scale == p0->from.scale)
 		if(p->from.dval == p0->from.dval)
 		if(p->from.index == p0->from.index) {
 			excise(r);
-			t++;
 			goto loop;
 		}
 		break;

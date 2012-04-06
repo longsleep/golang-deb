@@ -1,8 +1,10 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+// Test behavior of the blank identifier (_).
 
 package main
 
@@ -101,6 +103,46 @@ func main() {
 	}
 
 	h(a, b)
+	
+	m()
+}
+
+type I interface {
+	M(_ int, y int)
+}
+
+type TI struct{}
+
+func (TI) M(x int, y int) {
+	if x != y {
+		println("invalid M call:", x, y)
+		panic("bad M")
+	}
+}
+
+var fp = func(_ int, y int) {}
+
+func init() {
+	fp = fp1
+}
+
+func fp1(x, y int) {
+	if x != y {
+		println("invalid fp1 call:", x, y)
+		panic("bad fp1")
+	}
+}
+
+
+func m() {
+	var i I
+	
+	i = TI{}
+	i.M(1, 1)
+	i.M(2, 2)
+	
+	fp(1, 1)
+	fp(2, 2)
 }
 
 // useless but legal
@@ -120,3 +162,4 @@ func _() {
 func ff() {
 	var _ int = 1
 }
+

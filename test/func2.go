@@ -1,11 +1,13 @@
-// $G $F.go || echo BUG: should compile
+// compile
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Test function signatures.
+// Compiled but not run.
+
 package main
-import os "os"
 
 type t1 int
 type t2 int
@@ -23,7 +25,7 @@ func f8(os int) int
 func f9(os int) int {
 	return os
 }
-func f10(err os.Error) os.Error {
+func f10(err error) error {
 	return err
 }
 func f11(t1 string) string {

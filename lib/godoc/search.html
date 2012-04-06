@@ -17,6 +17,17 @@
 	{{end}}
 	</p>
 {{end}}
+{{with .Pak}}
+	<h2 id="Packages">Package {{html $.Query}}</h2>
+	<p>
+	<table class="layout">
+	{{range .}}
+		{{$pkg_html := pkgLink .Pak.Path | html}}
+		<tr><td><a href="/{{$pkg_html}}">{{$pkg_html}}</a></td></tr>
+	{{end}}
+	</table>
+	</p>
+{{end}}
 {{with .Hit}}
 	{{with .Decls}}
 		<h2 id="Global">Package-level declarations</h2>
@@ -26,8 +37,8 @@
 			{{range .Files}}
 				{{$src_html := srcLink .File.Path | html}}
 				{{range .Groups}}
-					{{range .Infos}}
-						<a href="/{{$src_html}}?h={{$query_url}}#L{{infoLine .}}">{{$src_html}}:{{infoLine .}}</a>
+					{{range .}}
+						<a href="{{$src_html}}?h={{$query_url}}#L{{infoLine .}}">{{$src_html}}:{{infoLine .}}</a>
 						{{infoSnippet_html .}}
 					{{end}}
 				{{end}}
@@ -41,16 +52,16 @@
 			<h3 id="Local_{{$pkg_html}}">package <a href="/{{$pkg_html}}">{{html .Pak.Name}}</a></h3>
 			{{range .Files}}
 				{{$src_html := srcLink .File.Path | html}}
-				<a href="/{{$src_html}}?h={{$query_url}}">{{$src_html}}</a>
+				<a href="{{$src_html}}?h={{$query_url}}">{{$src_html}}</a>
 				<table class="layout">
 				{{range .Groups}}
 					<tr>
 					<td width="25"></td>
-					<th align="left" valign="top">{{infoKind_html .Kind}}</th>
+					<th align="left" valign="top">{{index . 0 | infoKind_html}}</th>
 					<td align="left" width="4"></td>
 					<td>
-					{{range .Infos}}
-						<a href="/{{$src_html}}?h={{$query_url}}#L{{infoLine .}}">{{infoLine .}}</a>
+					{{range .}}
+						<a href="{{$src_html}}?h={{$query_url}}#L{{infoLine .}}">{{infoLine .}}</a>
 					{{end}}
 					</td>
 					</tr>
@@ -75,14 +86,14 @@
 		{{$src_html := srcLink .Filename | html}}
 		<tr>
 		<td align="left" valign="top">
-		<a href="/{{$src_html}}?h={{$query_url}}">{{$src_html}}</a>:
+		<a href="{{$src_html}}?h={{$query_url}}">{{$src_html}}</a>:
 		</td>
 		<td align="left" width="4"></td>
 		<th align="left" valign="top">{{len .Lines}}</th>
 		<td align="left" width="4"></td>
 		<td align="left">
 		{{range .Lines}}
-			<a href="/{{$src_html}}?h={{$query_url}}#L{{html .}}">{{html .}}</a>
+			<a href="{{$src_html}}?h={{$query_url}}#L{{html .}}">{{html .}}</a>
 		{{end}}
 		{{if not $.Complete}}
 			...

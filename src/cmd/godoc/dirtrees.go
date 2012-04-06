@@ -12,79 +12,49 @@ import (
 	"go/parser"
 	"go/token"
 	"log"
-	"path/filepath"
+	"os"
+	pathpkg "path"
 	"strings"
-	"unicode"
 )
 
+// Conventional name for directories containing test data.
+// Excluded from directory trees.
+//
+const testdataDirName = "testdata"
+
 type Directory struct {
-	Depth int
-	Path  string // includes Name
-	Name  string
-	Text  string       // package documentation, if any
-	Dirs  []*Directory // subdirectories
+	Depth    int
+	Path     string       // directory path; includes Name
+	Name     string       // directory name
+	HasPkg   bool         // true if the directory contains at least one package
+	Synopsis string       // package documentation, if any
+	Dirs     []*Directory // subdirectories
 }
 
-func isGoFile(fi FileInfo) bool {
+func isGoFile(fi os.FileInfo) bool {
 	name := fi.Name()
-	return fi.IsRegular() &&
+	return !fi.IsDir() &&
 		len(name) > 0 && name[0] != '.' && // ignore .files
-		filepath.Ext(name) == ".go"
+		pathpkg.Ext(name) == ".go"
 }
 
-func isPkgFile(fi FileInfo) bool {
+func isPkgFile(fi os.FileInfo) bool {
 	return isGoFile(fi) &&
 		!strings.HasSuffix(fi.Name(), "_test.go") // ignore test files
 }
 
-func isPkgDir(fi FileInfo) bool {
+func isPkgDir(fi os.FileInfo) bool {
 	name := fi.Name()
-	return fi.IsDirectory() && len(name) > 0 &&
+	return fi.IsDir() && len(name) > 0 &&
 		name[0] != '_' && name[0] != '.' // ignore _files and .files
 }
 
-func firstSentence(s string) string {
-	i := -1 // index+1 of first terminator (punctuation ending a sentence)
-	j := -1 // index+1 of first terminator followed by white space
-	prev := 'A'
-	for k, ch := range s {
-		k1 := k + 1
-		if ch == '.' || ch == '!' || ch == '?' {
-			if i < 0 {
-				i = k1 // first terminator
-			}
-			if k1 < len(s) && s[k1] <= ' ' {
-				if j < 0 {
-					j = k1 // first terminator followed by white space
-				}
-				if !unicode.IsUpper(prev) {
-					j = k1
-					break
-				}
-			}
-		}
-		prev = ch
-	}
-
-	if j < 0 {
-		// use the next best terminator
-		j = i
-		if j < 0 {
-			// no terminator at all, use the entire string
-			j = len(s)
-		}
-	}
-
-	return s[0:j]
-}
-
 type treeBuilder struct {
-	pathFilter func(string) bool
-	maxDepth   int
+	maxDepth int
 }
 
 func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth int) *Directory {
-	if b.pathFilter != nil && !b.pathFilter(path) {
+	if name == testdataDirName {
 		return nil
 	}
 
@@ -92,16 +62,14 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 		// return a dummy directory so that the parent directory
 		// doesn't get discarded just because we reached the max
 		// directory depth
-		return &Directory{depth, path, name, "", nil}
+		return &Directory{
+			Depth: depth,
+			Path:  path,
+			Name:  name,
+		}
 	}
 
-	list, err := fs.ReadDir(path)
-	if err != nil {
-		// newDirTree is called with a path that should be a package
-		// directory; errors here should not happen, but if they do,
-		// we want to know about them
-		log.Printf("ReadDir(%s): %s", path, err)
-	}
+	list, _ := fs.ReadDir(path)
 
 	// determine number of subdirectories and if there are package files
 	ndirs := 0
@@ -117,7 +85,7 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 			// though the directory doesn't contain any real package files - was bug)
 			if synopses[0] == "" {
 				// no "optimal" package synopsis yet; continue to collect synopses
-				file, err := parser.ParseFile(fset, filepath.Join(path, d.Name()), nil,
+				file, err := parseFile(fset, pathpkg.Join(path, d.Name()),
 					parser.ParseComments|parser.PackageClauseOnly)
 				if err == nil {
 					hasPkgFiles = true
@@ -135,7 +103,7 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 							i = 3 // none of the above
 						}
 						if 0 <= i && i < len(synopses) && synopses[i] == "" {
-							synopses[i] = firstSentence(doc.CommentText(file.Doc))
+							synopses[i] = doc.Synopsis(file.Doc.Text())
 						}
 					}
 				}
@@ -151,7 +119,7 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 		for _, d := range list {
 			if isPkgDir(d) {
 				name := d.Name()
-				dd := b.newDirTree(fset, filepath.Join(path, name), name, depth+1)
+				dd := b.newDirTree(fset, pathpkg.Join(path, name), name, depth+1)
 				if dd != nil {
 					dirs[i] = dd
 					i++
@@ -175,7 +143,14 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 		}
 	}
 
-	return &Directory{depth, path, name, synopsis, dirs}
+	return &Directory{
+		Depth:    depth,
+		Path:     path,
+		Name:     name,
+		HasPkg:   hasPkgFiles,
+		Synopsis: synopsis,
+		Dirs:     dirs,
+	}
 }
 
 // newDirectory creates a new package directory tree with at most maxDepth
@@ -188,7 +163,7 @@ func (b *treeBuilder) newDirTree(fset *token.FileSet, path, name string, depth i
 // are assumed to contain package files even if their contents are not known
 // (i.e., in this case the tree may contain directories w/o any package files).
 //
-func newDirectory(root string, pathFilter func(string) bool, maxDepth int) *Directory {
+func newDirectory(root string, maxDepth int) *Directory {
 	// The root could be a symbolic link so use Stat not Lstat.
 	d, err := fs.Stat(root)
 	// If we fail here, report detailed error messages; otherwise
@@ -204,7 +179,7 @@ func newDirectory(root string, pathFilter func(string) bool, maxDepth int) *Dire
 	if maxDepth < 0 {
 		maxDepth = 1e6 // "infinity"
 	}
-	b := treeBuilder{pathFilter, maxDepth}
+	b := treeBuilder{maxDepth}
 	// the file set provided is only for local parsing, no position
 	// information escapes and thus we don't need to save the set
 	return b.newDirTree(token.NewFileSet(), root, d.Name(), 0)
@@ -253,10 +228,20 @@ func (dir *Directory) lookupLocal(name string) *Directory {
 	return nil
 }
 
+func splitPath(p string) []string {
+	if strings.HasPrefix(p, "/") {
+		p = p[1:]
+	}
+	if p == "" {
+		return nil
+	}
+	return strings.Split(p, "/")
+}
+
 // lookup looks for the *Directory for a given path, relative to dir.
 func (dir *Directory) lookup(path string) *Directory {
-	d := strings.Split(dir.Path, string(filepath.Separator))
-	p := strings.Split(path, string(filepath.Separator))
+	d := splitPath(dir.Path)
+	p := splitPath(path)
 	i := 0
 	for i < len(d) {
 		if i >= len(p) || d[i] != p[i] {
@@ -277,9 +262,10 @@ func (dir *Directory) lookup(path string) *Directory {
 type DirEntry struct {
 	Depth    int    // >= 0
 	Height   int    // = DirList.MaxHeight - Depth, > 0
-	Path     string // includes Name, relative to DirList root
-	Name     string
-	Synopsis string
+	Path     string // directory path; includes Name, relative to DirList root
+	Name     string // directory name
+	HasPkg   bool   // true if the directory contains at least one package 
+	Synopsis string // package documentation, if any
 }
 
 type DirList struct {
@@ -328,13 +314,14 @@ func (root *Directory) listing(skipRoot bool) *DirList {
 		if strings.HasPrefix(d.Path, root.Path) {
 			path = d.Path[len(root.Path):]
 		}
-		// remove trailing separator if any - path must be relative
-		if len(path) > 0 && path[0] == filepath.Separator {
+		// remove leading separator if any - path must be relative
+		if len(path) > 0 && path[0] == '/' {
 			path = path[1:]
 		}
 		p.Path = path
 		p.Name = d.Name
-		p.Synopsis = d.Text
+		p.HasPkg = d.HasPkg
+		p.Synopsis = d.Synopsis
 		i++
 	}
 

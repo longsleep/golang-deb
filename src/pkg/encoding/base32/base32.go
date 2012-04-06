@@ -7,7 +7,6 @@ package base32
 
 import (
 	"io"
-	"os"
 	"strconv"
 )
 
@@ -126,8 +125,15 @@ func (enc *Encoding) Encode(dst, src []byte) {
 	}
 }
 
+// EncodeToString returns the base32 encoding of src.
+func (enc *Encoding) EncodeToString(src []byte) string {
+	buf := make([]byte, enc.EncodedLen(len(src)))
+	enc.Encode(buf, src)
+	return string(buf)
+}
+
 type encoder struct {
-	err  os.Error
+	err  error
 	enc  *Encoding
 	w    io.Writer
 	buf  [5]byte    // buffered data waiting to be encoded
@@ -135,7 +141,7 @@ type encoder struct {
 	out  [1024]byte // output buffer
 }
 
-func (e *encoder) Write(p []byte) (n int, err os.Error) {
+func (e *encoder) Write(p []byte) (n int, err error) {
 	if e.err != nil {
 		return 0, e.err
 	}
@@ -187,7 +193,7 @@ func (e *encoder) Write(p []byte) (n int, err os.Error) {
 
 // Close flushes any pending output from the encoder.
 // It is an error to call Write after calling Close.
-func (e *encoder) Close() os.Error {
+func (e *encoder) Close() error {
 	// If there's anything left in the buffer, flush it out
 	if e.err == nil && e.nbuf > 0 {
 		e.enc.Encode(e.out[0:], e.buf[0:e.nbuf])
@@ -216,30 +222,38 @@ func (enc *Encoding) EncodedLen(n int) int { return (n + 4) / 5 * 8 }
 
 type CorruptInputError int64
 
-func (e CorruptInputError) String() string {
-	return "illegal base32 data at input byte " + strconv.Itoa64(int64(e))
+func (e CorruptInputError) Error() string {
+	return "illegal base32 data at input byte " + strconv.FormatInt(int64(e), 10)
 }
 
 // decode is like Decode but returns an additional 'end' value, which
 // indicates if end-of-message padding was encountered and thus any
-// additional data is an error.  decode also assumes len(src)%8==0,
-// since it is meant for internal use.
-func (enc *Encoding) decode(dst, src []byte) (n int, end bool, err os.Error) {
-	for i := 0; i < len(src)/8 && !end; i++ {
+// additional data is an error.
+func (enc *Encoding) decode(dst, src []byte) (n int, end bool, err error) {
+	osrc := src
+	for len(src) > 0 && !end {
 		// Decode quantum using the base32 alphabet
 		var dbuf [8]byte
 		dlen := 8
 
 		// do the top bytes contain any data?
 	dbufloop:
-		for j := 0; j < 8; j++ {
-			in := src[i*8+j]
-			if in == '=' && j >= 2 && i == len(src)/8-1 {
+		for j := 0; j < 8; {
+			if len(src) == 0 {
+				return n, false, CorruptInputError(len(osrc) - len(src) - j)
+			}
+			in := src[0]
+			src = src[1:]
+			if in == '\r' || in == '\n' {
+				// Ignore this character.
+				continue
+			}
+			if in == '=' && j >= 2 && len(src) < 8 {
 				// We've reached the end and there's
 				// padding, the rest should be padded
-				for k := j; k < 8; k++ {
-					if src[i*8+k] != '=' {
-						return n, false, CorruptInputError(i*8 + j)
+				for k := 0; k < 8-j-1; k++ {
+					if len(src) > k && src[k] != '=' {
+						return n, false, CorruptInputError(len(osrc) - len(src) + k - 1)
 					}
 				}
 				dlen = j
@@ -248,28 +262,30 @@ func (enc *Encoding) decode(dst, src []byte) (n int, end bool, err os.Error) {
 			}
 			dbuf[j] = enc.decodeMap[in]
 			if dbuf[j] == 0xFF {
-				return n, false, CorruptInputError(i*8 + j)
+				return n, false, CorruptInputError(len(osrc) - len(src) - 1)
 			}
+			j++
 		}
 
 		// Pack 8x 5-bit source blocks into 5 byte destination
 		// quantum
 		switch dlen {
 		case 7, 8:
-			dst[i*5+4] = dbuf[6]<<5 | dbuf[7]
+			dst[4] = dbuf[6]<<5 | dbuf[7]
 			fallthrough
 		case 6, 5:
-			dst[i*5+3] = dbuf[4]<<7 | dbuf[5]<<2 | dbuf[6]>>3
+			dst[3] = dbuf[4]<<7 | dbuf[5]<<2 | dbuf[6]>>3
 			fallthrough
 		case 4:
-			dst[i*5+2] = dbuf[3]<<4 | dbuf[4]>>1
+			dst[2] = dbuf[3]<<4 | dbuf[4]>>1
 			fallthrough
 		case 3:
-			dst[i*5+1] = dbuf[1]<<6 | dbuf[2]<<1 | dbuf[3]>>4
+			dst[1] = dbuf[1]<<6 | dbuf[2]<<1 | dbuf[3]>>4
 			fallthrough
 		case 2:
-			dst[i*5+0] = dbuf[0]<<3 | dbuf[1]>>2
+			dst[0] = dbuf[0]<<3 | dbuf[1]>>2
 		}
+		dst = dst[5:]
 		switch dlen {
 		case 2:
 			n += 1
@@ -290,17 +306,21 @@ func (enc *Encoding) decode(dst, src []byte) (n int, end bool, err os.Error) {
 // DecodedLen(len(src)) bytes to dst and returns the number of bytes
 // written.  If src contains invalid base32 data, it will return the
 // number of bytes successfully written and CorruptInputError.
-func (enc *Encoding) Decode(dst, src []byte) (n int, err os.Error) {
-	if len(src)%8 != 0 {
-		return 0, CorruptInputError(len(src) / 8 * 8)
-	}
-
+// New line characters (\r and \n) are ignored.
+func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 	n, _, err = enc.decode(dst, src)
 	return
 }
 
+// DecodeString returns the bytes represented by the base32 string s.
+func (enc *Encoding) DecodeString(s string) ([]byte, error) {
+	dbuf := make([]byte, enc.DecodedLen(len(s)))
+	n, err := enc.Decode(dbuf, []byte(s))
+	return dbuf[:n], err
+}
+
 type decoder struct {
-	err    os.Error
+	err    error
 	enc    *Encoding
 	r      io.Reader
 	end    bool       // saw end of message
@@ -310,7 +330,7 @@ type decoder struct {
 	outbuf [1024 / 8 * 5]byte
 }
 
-func (d *decoder) Read(p []byte) (n int, err os.Error) {
+func (d *decoder) Read(p []byte) (n int, err error) {
 	if d.err != nil {
 		return 0, d.err
 	}

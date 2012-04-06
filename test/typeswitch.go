@@ -1,8 +1,10 @@
-// $G $F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+// Test simple type switches, including chans, maps etc.
 
 package main
 
@@ -82,9 +84,9 @@ func main() {
 		case []int:
 			assert(x[3] == 3 && i == Array, "array")
 		case map[string]int:
-			assert(x == m && i == Map, "map")
+			assert(x != nil && i == Map, "map")
 		case func(i int) interface{}:
-			assert(x == f && i == Func, "fun")
+			assert(x != nil && i == Func, "fun")
 		default:
 			assert(false, "unknown")
 		}
@@ -111,5 +113,4 @@ func main() {
 	default:
 		assert(false, "switch 4 unknown")
 	}
-
 }

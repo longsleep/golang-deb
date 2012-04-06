@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build darwin freebsd linux netbsd openbsd
+
 package filepath
 
 import "strings"
@@ -17,7 +19,7 @@ func VolumeName(path string) string {
 	return ""
 }
 
-// HasPrefix tests whether the path p begins with prefix.
+// HasPrefix exists for historical compatibility and should not be used.
 func HasPrefix(p, prefix string) bool {
 	return strings.HasPrefix(p, prefix)
 }

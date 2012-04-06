@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 /*
@@ -148,12 +150,12 @@ Qconv(Fmt *fp)
 			first = 0;
 		else
 			fmtprint(fp, " ");
-		if(var[i].sym == S)
-			fmtprint(fp, "$%lld", var[i].offset);
+		if(var[i].node == N || var[i].node->sym == S)
+			fmtprint(fp, "$%d", i);
 		else {
-			fmtprint(fp, var[i].sym->name);
+			fmtprint(fp, "%s", var[i].node->sym->name);
 			if(var[i].offset != 0)
-				fmtprint(fp, "%+d", var[i].offset);
+				fmtprint(fp, "%+lld", (vlong)var[i].offset);
 		}
 		bits.b[i/32] &= ~(1L << (i%32));
 	}

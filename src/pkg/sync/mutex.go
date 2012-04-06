@@ -6,12 +6,11 @@
 // exclusion locks.  Other than the Once and WaitGroup types, most are intended
 // for use by low-level library routines.  Higher-level synchronization is
 // better done via channels and communication.
+//
+// Values containing the types defined in this package should not be copied.
 package sync
 
-import (
-	"runtime"
-	"sync/atomic"
-)
+import "sync/atomic"
 
 // A Mutex is a mutual exclusion lock.
 // Mutexes can be created as part of other structures;
@@ -58,7 +57,7 @@ func (m *Mutex) Lock() {
 			if old&mutexLocked == 0 {
 				break
 			}
-			runtime.Semacquire(&m.sema)
+			runtime_Semacquire(&m.sema)
 			awoke = true
 		}
 	}
@@ -87,7 +86,7 @@ func (m *Mutex) Unlock() {
 		// Grab the right to wake someone.
 		new = (old - 1<<mutexWaiterShift) | mutexWoken
 		if atomic.CompareAndSwapInt32(&m.state, old, new) {
-			runtime.Semrelease(&m.sema)
+			runtime_Semrelease(&m.sema)
 			return
 		}
 		old = m.state

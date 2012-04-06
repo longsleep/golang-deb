@@ -8,10 +8,7 @@
 
 package dwarf
 
-import (
-	"os"
-	"strconv"
-)
+import "strconv"
 
 // A Type conventionally represents a pointer to any of the
 // specific Type structures (CharType, StructType, etc.).
@@ -113,7 +110,7 @@ type ArrayType struct {
 }
 
 func (t *ArrayType) String() string {
-	return "[" + strconv.Itoa64(t.Count) + "]" + t.Type.String()
+	return "[" + strconv.FormatInt(t.Count, 10) + "]" + t.Type.String()
 }
 
 func (t *ArrayType) Size() int64 { return t.Count * t.Type.Size() }
@@ -174,10 +171,10 @@ func (t *StructType) Defn() string {
 			s += "; "
 		}
 		s += f.Name + " " + f.Type.String()
-		s += "@" + strconv.Itoa64(f.ByteOffset)
+		s += "@" + strconv.FormatInt(f.ByteOffset, 10)
 		if f.BitSize > 0 {
-			s += " : " + strconv.Itoa64(f.BitSize)
-			s += "@" + strconv.Itoa64(f.BitOffset)
+			s += " : " + strconv.FormatInt(f.BitSize, 10)
+			s += "@" + strconv.FormatInt(f.BitOffset, 10)
 		}
 	}
 	s += "}"
@@ -209,7 +206,7 @@ func (t *EnumType) String() string {
 		if i > 0 {
 			s += "; "
 		}
-		s += v.Name + "=" + strconv.Itoa64(v.Val)
+		s += v.Name + "=" + strconv.FormatInt(v.Val, 10)
 	}
 	s += "}"
 	return s
@@ -254,7 +251,7 @@ func (t *TypedefType) String() string { return t.Name }
 
 func (t *TypedefType) Size() int64 { return t.Type.Size() }
 
-func (d *Data) Type(off Offset) (Type, os.Error) {
+func (d *Data) Type(off Offset) (Type, error) {
 	if t, ok := d.typeCache[off]; ok {
 		return t, nil
 	}
@@ -429,6 +426,8 @@ func (d *Data) Type(off Offset) (Type, os.Error) {
 		t.StructName, _ = e.Val(AttrName).(string)
 		t.Incomplete = e.Val(AttrDeclaration) != nil
 		t.Field = make([]*StructField, 0, 8)
+		var lastFieldType Type
+		var lastFieldBitOffset int64
 		for kid := next(); kid != nil; kid = next() {
 			if kid.Tag == TagMember {
 				f := new(StructField)
@@ -447,11 +446,32 @@ func (d *Data) Type(off Offset) (Type, os.Error) {
 						goto Error
 					}
 				}
+
+				haveBitOffset := false
 				f.Name, _ = kid.Val(AttrName).(string)
 				f.ByteSize, _ = kid.Val(AttrByteSize).(int64)
-				f.BitOffset, _ = kid.Val(AttrBitOffset).(int64)
+				f.BitOffset, haveBitOffset = kid.Val(AttrBitOffset).(int64)
 				f.BitSize, _ = kid.Val(AttrBitSize).(int64)
 				t.Field = append(t.Field, f)
+
+				bito := f.BitOffset
+				if !haveBitOffset {
+					bito = f.ByteOffset * 8
+				}
+				if bito == lastFieldBitOffset && t.Kind != "union" {
+					// Last field was zero width.  Fix array length.
+					// (DWARF writes out 0-length arrays as if they were 1-length arrays.)
+					zeroArray(lastFieldType)
+				}
+				lastFieldType = f.Type
+				lastFieldBitOffset = bito
+			}
+		}
+		if t.Kind != "union" {
+			b, ok := e.Val(AttrByteSize).(int64)
+			if ok && b*8 == lastFieldBitOffset {
+				// Final field must be zero width.  Fix array length.
+				zeroArray(lastFieldType)
 			}
 		}
 
@@ -579,6 +599,17 @@ Error:
 	// If the parse fails, take the type out of the cache
 	// so that the next call with this offset doesn't hit
 	// the cache and return success.
-	d.typeCache[off] = nil, false
+	delete(d.typeCache, off)
 	return nil, err
+}
+
+func zeroArray(t Type) {
+	for {
+		at, ok := t.(*ArrayType)
+		if !ok {
+			break
+		}
+		at.Count = 0
+		t = at.Type
+	}
 }

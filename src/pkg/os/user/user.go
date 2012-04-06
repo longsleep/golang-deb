@@ -9,12 +9,16 @@ import (
 	"strconv"
 )
 
-var implemented = false // set to true by lookup_unix.go's init
+var implemented = true // set to false by lookup_stubs.go's init
 
 // User represents a user account.
+//
+// On posix systems Uid and Gid contain a decimal number
+// representing uid and gid. On windows Uid and Gid
+// contain security identifier (SID) in a string format.
 type User struct {
-	Uid      int // user id
-	Gid      int // primary group id
+	Uid      string // user id
+	Gid      string // primary group id
 	Username string
 	Name     string
 	HomeDir  string
@@ -24,7 +28,7 @@ type User struct {
 // a user cannot be found.
 type UnknownUserIdError int
 
-func (e UnknownUserIdError) String() string {
+func (e UnknownUserIdError) Error() string {
 	return "user: unknown userid " + strconv.Itoa(int(e))
 }
 
@@ -32,6 +36,6 @@ func (e UnknownUserIdError) String() string {
 // a user cannot be found.
 type UnknownUserError string
 
-func (e UnknownUserError) String() string {
+func (e UnknownUserError) Error() string {
 	return "user: unknown user " + string(e)
 }

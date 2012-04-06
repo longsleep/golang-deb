@@ -5,7 +5,6 @@
 package regexp
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -24,16 +23,16 @@ var good_re = []string{
 	`[a-z]`,
 	`[a-abc-c\-\]\[]`,
 	`[a-z]+`,
-	`[]`,
 	`[abc]`,
 	`[^1234]`,
 	`[^\n]`,
 	`\!\\`,
 }
 
+/*
 type stringError struct {
 	re  string
-	err os.Error
+	err error
 }
 
 var bad_re = []stringError{
@@ -51,11 +50,12 @@ var bad_re = []stringError{
 	{`a??`, ErrBadClosure},
 	{`\x`, ErrBadBackslash},
 }
+*/
 
-func compileTest(t *testing.T, expr string, error os.Error) *Regexp {
+func compileTest(t *testing.T, expr string, error error) *Regexp {
 	re, err := Compile(expr)
 	if err != error {
-		t.Error("compiling `", expr, "`; unexpected error: ", err.String())
+		t.Error("compiling `", expr, "`; unexpected error: ", err.Error())
 	}
 	return re
 }
@@ -66,11 +66,13 @@ func TestGoodCompile(t *testing.T) {
 	}
 }
 
+/*
 func TestBadCompile(t *testing.T) {
 	for i := 0; i < len(bad_re); i++ {
 		compileTest(t, bad_re[i].re, bad_re[i].err)
 	}
 }
+*/
 
 func matchTest(t *testing.T, test *FindTest) {
 	re := compileTest(t, test.pat, nil)
@@ -174,6 +176,45 @@ var replaceTests = []ReplaceTest{
 	{"[a-c]*", "x", "def", "xdxexfx"},
 	{"[a-c]+", "x", "abcbcdcdedef", "xdxdedef"},
 	{"[a-c]*", "x", "abcbcdcdedef", "xdxdxexdxexfx"},
+
+	// Substitutions
+	{"a+", "($0)", "banana", "b(a)n(a)n(a)"},
+	{"a+", "(${0})", "banana", "b(a)n(a)n(a)"},
+	{"a+", "(${0})$0", "banana", "b(a)an(a)an(a)a"},
+	{"a+", "(${0})$0", "banana", "b(a)an(a)an(a)a"},
+	{"hello, (.+)", "goodbye, ${1}", "hello, world", "goodbye, world"},
+	{"hello, (.+)", "goodbye, $1x", "hello, world", "goodbye, "},
+	{"hello, (.+)", "goodbye, ${1}x", "hello, world", "goodbye, worldx"},
+	{"hello, (.+)", "<$0><$1><$2><$3>", "hello, world", "<hello, world><world><><>"},
+	{"hello, (?P<noun>.+)", "goodbye, $noun!", "hello, world", "goodbye, world!"},
+	{"hello, (?P<noun>.+)", "goodbye, ${noun}", "hello, world", "goodbye, world"},
+	{"(?P<x>hi)|(?P<x>bye)", "$x$x$x", "hi", "hihihi"},
+	{"(?P<x>hi)|(?P<x>bye)", "$x$x$x", "bye", "byebyebye"},
+	{"(?P<x>hi)|(?P<x>bye)", "$xyz", "hi", ""},
+	{"(?P<x>hi)|(?P<x>bye)", "${x}yz", "hi", "hiyz"},
+	{"(?P<x>hi)|(?P<x>bye)", "hello $$x", "hi", "hello $x"},
+	{"a+", "${oops", "aaa", "${oops"},
+	{"a+", "$$", "aaa", "$"},
+	{"a+", "$", "aaa", "$"},
+}
+
+var replaceLiteralTests = []ReplaceTest{
+	// Substitutions
+	{"a+", "($0)", "banana", "b($0)n($0)n($0)"},
+	{"a+", "(${0})", "banana", "b(${0})n(${0})n(${0})"},
+	{"a+", "(${0})$0", "banana", "b(${0})$0n(${0})$0n(${0})$0"},
+	{"a+", "(${0})$0", "banana", "b(${0})$0n(${0})$0n(${0})$0"},
+	{"hello, (.+)", "goodbye, ${1}", "hello, world", "goodbye, ${1}"},
+	{"hello, (?P<noun>.+)", "goodbye, $noun!", "hello, world", "goodbye, $noun!"},
+	{"hello, (?P<noun>.+)", "goodbye, ${noun}", "hello, world", "goodbye, ${noun}"},
+	{"(?P<x>hi)|(?P<x>bye)", "$x$x$x", "hi", "$x$x$x"},
+	{"(?P<x>hi)|(?P<x>bye)", "$x$x$x", "bye", "$x$x$x"},
+	{"(?P<x>hi)|(?P<x>bye)", "$xyz", "hi", "$xyz"},
+	{"(?P<x>hi)|(?P<x>bye)", "${x}yz", "hi", "${x}yz"},
+	{"(?P<x>hi)|(?P<x>bye)", "hello $$x", "hi", "hello $$x"},
+	{"a+", "${oops", "aaa", "${oops"},
+	{"a+", "$$", "aaa", "$$"},
+	{"a+", "$", "aaa", "$"},
 }
 
 type ReplaceFuncTest struct {
@@ -197,13 +238,58 @@ func TestReplaceAll(t *testing.T) {
 		}
 		actual := re.ReplaceAllString(tc.input, tc.replacement)
 		if actual != tc.output {
-			t.Errorf("%q.Replace(%q,%q) = %q; want %q",
+			t.Errorf("%q.ReplaceAllString(%q,%q) = %q; want %q",
 				tc.pattern, tc.input, tc.replacement, actual, tc.output)
 		}
 		// now try bytes
 		actual = string(re.ReplaceAll([]byte(tc.input), []byte(tc.replacement)))
 		if actual != tc.output {
-			t.Errorf("%q.Replace(%q,%q) = %q; want %q",
+			t.Errorf("%q.ReplaceAll(%q,%q) = %q; want %q",
+				tc.pattern, tc.input, tc.replacement, actual, tc.output)
+		}
+	}
+}
+
+func TestReplaceAllLiteral(t *testing.T) {
+	// Run ReplaceAll tests that do not have $ expansions.
+	for _, tc := range replaceTests {
+		if strings.Contains(tc.replacement, "$") {
+			continue
+		}
+		re, err := Compile(tc.pattern)
+		if err != nil {
+			t.Errorf("Unexpected error compiling %q: %v", tc.pattern, err)
+			continue
+		}
+		actual := re.ReplaceAllLiteralString(tc.input, tc.replacement)
+		if actual != tc.output {
+			t.Errorf("%q.ReplaceAllLiteralString(%q,%q) = %q; want %q",
+				tc.pattern, tc.input, tc.replacement, actual, tc.output)
+		}
+		// now try bytes
+		actual = string(re.ReplaceAllLiteral([]byte(tc.input), []byte(tc.replacement)))
+		if actual != tc.output {
+			t.Errorf("%q.ReplaceAllLiteral(%q,%q) = %q; want %q",
+				tc.pattern, tc.input, tc.replacement, actual, tc.output)
+		}
+	}
+
+	// Run literal-specific tests.
+	for _, tc := range replaceLiteralTests {
+		re, err := Compile(tc.pattern)
+		if err != nil {
+			t.Errorf("Unexpected error compiling %q: %v", tc.pattern, err)
+			continue
+		}
+		actual := re.ReplaceAllLiteralString(tc.input, tc.replacement)
+		if actual != tc.output {
+			t.Errorf("%q.ReplaceAllLiteralString(%q,%q) = %q; want %q",
+				tc.pattern, tc.input, tc.replacement, actual, tc.output)
+		}
+		// now try bytes
+		actual = string(re.ReplaceAllLiteral([]byte(tc.input), []byte(tc.replacement)))
+		if actual != tc.output {
+			t.Errorf("%q.ReplaceAllLiteral(%q,%q) = %q; want %q",
 				tc.pattern, tc.input, tc.replacement, actual, tc.output)
 		}
 	}
@@ -240,7 +326,7 @@ var metaTests = []MetaTest{
 	{`foo`, `foo`, `foo`, true},
 	{`foo\.\$`, `foo\\\.\\\$`, `foo.$`, true}, // has meta but no operator
 	{`foo.\$`, `foo\.\\\$`, `foo`, false},     // has escaped operators and real operators
-	{`!@#$%^&*()_+-=[{]}\|,<.>/?~`, `!@#\$%\^&\*\(\)_\+-=\[{\]}\\\|,<\.>/\?~`, `!@#`, false},
+	{`!@#$%^&*()_+-=[{]}\|,<.>/?~`, `!@#\$%\^&\*\(\)_\+-=\[\{\]\}\\\|,<\.>/\?~`, `!@#`, false},
 }
 
 func TestQuoteMeta(t *testing.T) {
@@ -287,30 +373,45 @@ func TestLiteralPrefix(t *testing.T) {
 	}
 }
 
-type numSubexpCase struct {
-	input    string
-	expected int
+type subexpCase struct {
+	input string
+	num   int
+	names []string
 }
 
-var numSubexpCases = []numSubexpCase{
-	{``, 0},
-	{`.*`, 0},
-	{`abba`, 0},
-	{`ab(b)a`, 1},
-	{`ab(.*)a`, 1},
-	{`(.*)ab(.*)a`, 2},
-	{`(.*)(ab)(.*)a`, 3},
-	{`(.*)((a)b)(.*)a`, 4},
-	{`(.*)(\(ab)(.*)a`, 3},
-	{`(.*)(\(a\)b)(.*)a`, 3},
+var subexpCases = []subexpCase{
+	{``, 0, nil},
+	{`.*`, 0, nil},
+	{`abba`, 0, nil},
+	{`ab(b)a`, 1, []string{"", ""}},
+	{`ab(.*)a`, 1, []string{"", ""}},
+	{`(.*)ab(.*)a`, 2, []string{"", "", ""}},
+	{`(.*)(ab)(.*)a`, 3, []string{"", "", "", ""}},
+	{`(.*)((a)b)(.*)a`, 4, []string{"", "", "", "", ""}},
+	{`(.*)(\(ab)(.*)a`, 3, []string{"", "", "", ""}},
+	{`(.*)(\(a\)b)(.*)a`, 3, []string{"", "", "", ""}},
+	{`(?P<foo>.*)(?P<bar>(a)b)(?P<foo>.*)a`, 4, []string{"", "foo", "bar", "", "foo"}},
 }
 
-func TestNumSubexp(t *testing.T) {
-	for _, c := range numSubexpCases {
+func TestSubexp(t *testing.T) {
+	for _, c := range subexpCases {
 		re := MustCompile(c.input)
 		n := re.NumSubexp()
-		if n != c.expected {
-			t.Errorf("NumSubexp for %q returned %d, expected %d", c.input, n, c.expected)
+		if n != c.num {
+			t.Errorf("%q: NumSubexp = %d, want %d", c.input, n, c.num)
+			continue
+		}
+		names := re.SubexpNames()
+		if len(names) != 1+n {
+			t.Errorf("%q: len(SubexpNames) = %d, want %d", c.input, len(names), n)
+			continue
+		}
+		if c.names != nil {
+			for i := 0; i < 1+n; i++ {
+				if names[i] != c.names[i] {
+					t.Errorf("%q: SubexpNames[%d] = %q, want %q", c.input, i, names[i], c.names[i])
+				}
+			}
 		}
 	}
 }
@@ -322,8 +423,7 @@ func BenchmarkLiteral(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if !re.MatchString(x) {
-			println("no match!")
-			break
+			b.Fatalf("no match!")
 		}
 	}
 }
@@ -335,8 +435,7 @@ func BenchmarkNotLiteral(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if !re.MatchString(x) {
-			println("no match!")
-			break
+			b.Fatalf("no match!")
 		}
 	}
 }
@@ -348,8 +447,7 @@ func BenchmarkMatchClass(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if !re.MatchString(x) {
-			println("no match!")
-			break
+			b.Fatalf("no match!")
 		}
 	}
 }
@@ -363,8 +461,7 @@ func BenchmarkMatchClass_InRange(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		if !re.MatchString(x) {
-			println("no match!")
-			break
+			b.Fatalf("no match!")
 		}
 	}
 }

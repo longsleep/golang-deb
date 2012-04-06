@@ -57,8 +57,8 @@ enum {
 	// to each stack below the usual guard area for OS-specific
 	// purposes like signal handling. Used on Windows because
 	// it does not use a separate stack.
-#ifdef __WINDOWS__
-	StackSystem = 2048,
+#ifdef GOOS_windows
+	StackSystem = 512 * sizeof(uintptr),
 #else
 	StackSystem = 0,
 #endif
@@ -94,4 +94,9 @@ enum {
 	// The maximum number of bytes that a chain of NOSPLIT
 	// functions can use.
 	StackLimit = StackGuard - StackSystem - StackSmall,
+	
+	// The assumed size of the top-of-stack data block.
+	// The actual size can be smaller than this but cannot be larger.
+	// Checked in proc.c's runtime.malg.
+	StackTop = 72,
 };

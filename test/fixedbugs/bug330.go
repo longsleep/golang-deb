@@ -1,4 +1,4 @@
-// errchk $G -e $D/$F.go
+// errorcheck
 
 // Copyright 2011 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -8,6 +8,6 @@ package main
 
 func main() {
 	x := ""
-	x = +"hello"  // ERROR "invalid operation.*string"
-	x = +x  // ERROR "invalid operation.*string"
+	x = +"hello"  // ERROR "invalid operation.*string|expected numeric"
+	x = +x  // ERROR "invalid operation.*string|expected numeric"
 }

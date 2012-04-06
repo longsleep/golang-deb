@@ -36,6 +36,7 @@ package math
 // Acosh(x) calculates the inverse hyperbolic cosine of x.
 //
 // Special cases are:
+//	Acosh(+Inf) = +Inf
 //	Acosh(x) = NaN if x < 1
 //	Acosh(NaN) = NaN
 func Acosh(x float64) float64 {
@@ -43,11 +44,9 @@ func Acosh(x float64) float64 {
 		Ln2   = 6.93147180559945286227e-01 // 0x3FE62E42FEFA39EF
 		Large = 1 << 28                    // 2**28
 	)
-	// TODO(rsc): Remove manual inlining of IsNaN
-	// when compiler does it for us
 	// first case is special case
 	switch {
-	case x < 1 || x != x: // x < 1 || IsNaN(x):
+	case x < 1 || IsNaN(x):
 		return NaN()
 	case x == 1:
 		return 0

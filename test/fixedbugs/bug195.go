@@ -1,4 +1,4 @@
-// errchk $G $D/$F.go
+// errorcheck
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -23,5 +23,5 @@ type I5 interface {
 }
 
 type I6 interface {
-	I5	// GC_ERROR "interface"
+	I5	// ERROR "interface"
 }

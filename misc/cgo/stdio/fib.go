@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build ignore
+
 // Compute Fibonacci numbers with two goroutines
 // that pass integers back and forth.  No actual
 // concurrency, just threads and synchronization
@@ -10,8 +12,8 @@
 package main
 
 import (
+	"../stdio"
 	"runtime"
-	"stdio"
 	"strconv"
 )
 
@@ -26,7 +28,7 @@ func fibber(c, out chan int64, i int64) {
 	}
 	for {
 		j := <-c
-		stdio.Stdout.WriteString(strconv.Itoa64(j) + "\n")
+		stdio.Stdout.WriteString(strconv.FormatInt(j, 10) + "\n")
 		out <- j
 		<-out
 		i += j

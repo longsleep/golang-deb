@@ -8,12 +8,12 @@ package rsa
 // TODO(agl): Add support for PSS padding.
 
 import (
-	"big"
 	"crypto/rand"
 	"crypto/subtle"
+	"errors"
 	"hash"
 	"io"
-	"os"
+	"math/big"
 )
 
 var bigZero = big.NewInt(0)
@@ -55,16 +55,15 @@ type CRTValue struct {
 }
 
 // Validate performs basic sanity checks on the key.
-// It returns nil if the key is valid, or else an os.Error describing a problem.
-
-func (priv *PrivateKey) Validate() os.Error {
+// It returns nil if the key is valid, or else an error describing a problem.
+func (priv *PrivateKey) Validate() error {
 	// Check that the prime factors are actually prime. Note that this is
 	// just a sanity check. Since the random witnesses chosen by
 	// ProbablyPrime are deterministic, given the candidate number, it's
 	// easy for an attack to generate composites that pass this test.
 	for _, prime := range priv.Primes {
-		if !big.ProbablyPrime(prime, 20) {
-			return os.NewError("prime factor is composite")
+		if !prime.ProbablyPrime(20) {
+			return errors.New("prime factor is composite")
 		}
 	}
 
@@ -74,7 +73,7 @@ func (priv *PrivateKey) Validate() os.Error {
 		modulus.Mul(modulus, prime)
 	}
 	if modulus.Cmp(priv.N) != 0 {
-		return os.NewError("invalid modulus")
+		return errors.New("invalid modulus")
 	}
 	// Check that e and totient(Πprimes) are coprime.
 	totient := new(big.Int).Set(bigOne)
@@ -86,21 +85,21 @@ func (priv *PrivateKey) Validate() os.Error {
 	gcd := new(big.Int)
 	x := new(big.Int)
 	y := new(big.Int)
-	big.GcdInt(gcd, x, y, totient, e)
+	gcd.GCD(x, y, totient, e)
 	if gcd.Cmp(bigOne) != 0 {
-		return os.NewError("invalid public exponent E")
+		return errors.New("invalid public exponent E")
 	}
 	// Check that de ≡ 1 (mod totient(Πprimes))
 	de := new(big.Int).Mul(priv.D, e)
 	de.Mod(de, totient)
 	if de.Cmp(bigOne) != 0 {
-		return os.NewError("invalid private exponent D")
+		return errors.New("invalid private exponent D")
 	}
 	return nil
 }
 
 // GenerateKey generates an RSA keypair of the given bit size.
-func GenerateKey(random io.Reader, bits int) (priv *PrivateKey, err os.Error) {
+func GenerateKey(random io.Reader, bits int) (priv *PrivateKey, err error) {
 	return GenerateMultiPrimeKey(random, 2, bits)
 }
 
@@ -114,20 +113,12 @@ func GenerateKey(random io.Reader, bits int) (priv *PrivateKey, err os.Error) {
 //
 // [1] US patent 4405829 (1972, expired)
 // [2] http://www.cacr.math.uwaterloo.ca/techreports/2006/cacr2006-16.pdf
-func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) (priv *PrivateKey, err os.Error) {
+func GenerateMultiPrimeKey(random io.Reader, nprimes int, bits int) (priv *PrivateKey, err error) {
 	priv = new(PrivateKey)
-	// Smaller public exponents lead to faster public key
-	// operations. Since the exponent must be coprime to
-	// (p-1)(q-1), the smallest possible value is 3. Some have
-	// suggested that a larger exponent (often 2**16+1) be used
-	// since previous implementation bugs[1] were avoided when this
-	// was the case. However, there are no current reasons not to use
-	// small exponents.
-	// [1] http://marc.info/?l=cryptography&m=115694833312008&w=2
-	priv.E = 3
+	priv.E = 65537
 
 	if nprimes < 2 {
-		return nil, os.NewError("rsa.GenerateMultiPrimeKey: nprimes must be >= 2")
+		return nil, errors.New("rsa.GenerateMultiPrimeKey: nprimes must be >= 2")
 	}
 
 	primes := make([]*big.Int, nprimes)
@@ -165,7 +156,7 @@ NextSetOfPrimes:
 		priv.D = new(big.Int)
 		y := new(big.Int)
 		e := big.NewInt(int64(priv.E))
-		big.GcdInt(g, priv.D, y, e, totient)
+		g.GCD(priv.D, y, e, totient)
 
 		if g.Cmp(bigOne) == 0 {
 			priv.D.Add(priv.D, totient)
@@ -198,12 +189,13 @@ func incCounter(c *[4]byte) {
 // specified in PKCS#1 v2.1.
 func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
 	var counter [4]byte
+	var digest []byte
 
 	done := 0
 	for done < len(out) {
 		hash.Write(seed)
 		hash.Write(counter[0:4])
-		digest := hash.Sum()
+		digest = hash.Sum(digest[:0])
 		hash.Reset()
 
 		for i := 0; i < len(digest) && done < len(out); i++ {
@@ -214,13 +206,9 @@ func mgf1XOR(out []byte, hash hash.Hash, seed []byte) {
 	}
 }
 
-// MessageTooLongError is returned when attempting to encrypt a message which
-// is too large for the size of the public key.
-type MessageTooLongError struct{}
-
-func (MessageTooLongError) String() string {
-	return "message too long for RSA public key size"
-}
+// ErrMessageTooLong is returned when attempting to encrypt a message which is
+// too large for the size of the public key.
+var ErrMessageTooLong = errors.New("crypto/rsa: message too long for RSA public key size")
 
 func encrypt(c *big.Int, pub *PublicKey, m *big.Int) *big.Int {
 	e := big.NewInt(int64(pub.E))
@@ -231,16 +219,16 @@ func encrypt(c *big.Int, pub *PublicKey, m *big.Int) *big.Int {
 // EncryptOAEP encrypts the given message with RSA-OAEP.
 // The message must be no longer than the length of the public modulus less
 // twice the hash length plus 2.
-func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) (out []byte, err os.Error) {
+func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, label []byte) (out []byte, err error) {
 	hash.Reset()
 	k := (pub.N.BitLen() + 7) / 8
 	if len(msg) > k-2*hash.Size()-2 {
-		err = MessageTooLongError{}
+		err = ErrMessageTooLong
 		return
 	}
 
 	hash.Write(label)
-	lHash := hash.Sum()
+	lHash := hash.Sum(nil)
 	hash.Reset()
 
 	em := make([]byte, k)
@@ -274,17 +262,13 @@ func EncryptOAEP(hash hash.Hash, random io.Reader, pub *PublicKey, msg []byte, l
 	return
 }
 
-// A DecryptionError represents a failure to decrypt a message.
+// ErrDecryption represents a failure to decrypt a message.
 // It is deliberately vague to avoid adaptive attacks.
-type DecryptionError struct{}
+var ErrDecryption = errors.New("crypto/rsa: decryption error")
 
-func (DecryptionError) String() string { return "RSA decryption error" }
-
-// A VerificationError represents a failure to verify a signature.
+// ErrVerification represents a failure to verify a signature.
 // It is deliberately vague to avoid adaptive attacks.
-type VerificationError struct{}
-
-func (VerificationError) String() string { return "RSA verification error" }
+var ErrVerification = errors.New("crypto/rsa: verification error")
 
 // modInverse returns ia, the inverse of a in the multiplicative group of prime
 // order n. It requires that a be a member of the group (i.e. less than n).
@@ -292,7 +276,7 @@ func modInverse(a, n *big.Int) (ia *big.Int, ok bool) {
 	g := new(big.Int)
 	x := new(big.Int)
 	y := new(big.Int)
-	big.GcdInt(g, x, y, a, n)
+	g.GCD(x, y, a, n)
 	if g.Cmp(bigOne) != 0 {
 		// In this case, a and n aren't coprime and we cannot calculate
 		// the inverse. This happens because the values of n are nearly
@@ -343,10 +327,10 @@ func (priv *PrivateKey) Precompute() {
 
 // decrypt performs an RSA decryption, resulting in a plaintext integer. If a
 // random source is given, RSA blinding is used.
-func decrypt(random io.Reader, priv *PrivateKey, c *big.Int) (m *big.Int, err os.Error) {
+func decrypt(random io.Reader, priv *PrivateKey, c *big.Int) (m *big.Int, err error) {
 	// TODO(agl): can we get away with reusing blinds?
 	if c.Cmp(priv.N) > 0 {
-		err = DecryptionError{}
+		err = ErrDecryption
 		return
 	}
 
@@ -420,12 +404,12 @@ func decrypt(random io.Reader, priv *PrivateKey, c *big.Int) (m *big.Int, err os
 }
 
 // DecryptOAEP decrypts ciphertext using RSA-OAEP.
-// If rand != nil, DecryptOAEP uses RSA blinding to avoid timing side-channel attacks.
-func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext []byte, label []byte) (msg []byte, err os.Error) {
+// If random != nil, DecryptOAEP uses RSA blinding to avoid timing side-channel attacks.
+func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext []byte, label []byte) (msg []byte, err error) {
 	k := (priv.N.BitLen() + 7) / 8
 	if len(ciphertext) > k ||
 		k < hash.Size()*2+2 {
-		err = DecryptionError{}
+		err = ErrDecryption
 		return
 	}
 
@@ -437,7 +421,7 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext 
 	}
 
 	hash.Write(label)
-	lHash := hash.Sum()
+	lHash := hash.Sum(nil)
 	hash.Reset()
 
 	// Converting the plaintext number to bytes will strip any
@@ -481,7 +465,7 @@ func DecryptOAEP(hash hash.Hash, random io.Reader, priv *PrivateKey, ciphertext 
 	}
 
 	if firstByteIsZero&lHash2Good&^invalid&^lookingForIndex != 1 {
-		err = DecryptionError{}
+		err = ErrDecryption
 		return
 	}
 

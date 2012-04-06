@@ -7,7 +7,7 @@
 // Web server tree:
 //
 //	http://godoc/		main landing page
-//	http://godoc/doc/	serve from $GOROOT/doc - spec, mem, tutorial, etc.
+//	http://godoc/doc/	serve from $GOROOT/doc - spec, mem, etc.
 //	http://godoc/src/	serve files from $GOROOT/src; .go gets pretty-printed
 //	http://godoc/cmd/	serve documentation about commands
 //	http://godoc/pkg/	serve documentation about packages
@@ -28,23 +28,23 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	_ "expvar" // to serve /debug/vars
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/build"
-	"http"
-	_ "http/pprof" // to serve /debug/pprof/*
 	"io"
 	"log"
+	"net/http"
+	_ "net/http/pprof" // to serve /debug/pprof/*
+	"net/url"
 	"os"
-	"path"
+	pathpkg "path"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
-	"time"
-	"url"
 )
 
 const defaultAddr = ":6060" // default webserver address
@@ -54,10 +54,8 @@ var (
 	// (with e.g.: zip -r go.zip $GOROOT -i \*.go -i \*.html -i \*.css -i \*.js -i \*.txt -i \*.c -i \*.h -i \*.s -i \*.png -i \*.jpg -i \*.sh -i favicon.ico)
 	zipfile = flag.String("zip", "", "zip file providing the file system to serve; disabled if empty")
 
-	// periodic sync
-	syncCmd   = flag.String("sync", "", "sync command; disabled if empty")
-	syncMin   = flag.Int("sync_minutes", 0, "sync interval in minutes; disabled if <= 0")
-	syncDelay delayTime // actual sync interval in minutes; usually syncDelay == syncMin, but syncDelay may back off exponentially
+	// file-based index
+	writeIndex = flag.Bool("write_index", false, "write index to a file; the file name must be specified with -index_files")
 
 	// network
 	httpAddr   = flag.String("http", "", "HTTP service address (e.g., '"+defaultAddr+"')")
@@ -66,83 +64,16 @@ var (
 	// layout control
 	html    = flag.Bool("html", false, "print HTML in command-line mode")
 	srcMode = flag.Bool("src", false, "print (exported) source in command-line mode")
+	urlFlag = flag.String("url", "", "print HTML for named URL")
 
 	// command-line searches
 	query = flag.Bool("q", false, "arguments are considered search queries")
 )
 
-func serveError(w http.ResponseWriter, r *http.Request, relpath string, err os.Error) {
+func serveError(w http.ResponseWriter, r *http.Request, relpath string, err error) {
 	contents := applyTemplate(errorHTML, "errorHTML", err) // err may contain an absolute path!
 	w.WriteHeader(http.StatusNotFound)
-	servePage(w, "File "+relpath, "", "", contents)
-}
-
-func exec(rw http.ResponseWriter, args []string) (status int) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		log.Printf("os.Pipe(): %v", err)
-		return 2
-	}
-
-	bin := args[0]
-	fds := []*os.File{nil, w, w}
-	if *verbose {
-		log.Printf("executing %v", args)
-	}
-	p, err := os.StartProcess(bin, args, &os.ProcAttr{Files: fds, Dir: *goroot})
-	defer r.Close()
-	w.Close()
-	if err != nil {
-		log.Printf("os.StartProcess(%q): %v", bin, err)
-		return 2
-	}
-	defer p.Release()
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	wait, err := p.Wait(0)
-	if err != nil {
-		os.Stderr.Write(buf.Bytes())
-		log.Printf("os.Wait(%d, 0): %v", p.Pid, err)
-		return 2
-	}
-	status = wait.ExitStatus()
-	if !wait.Exited() || status > 1 {
-		os.Stderr.Write(buf.Bytes())
-		log.Printf("executing %v failed (exit status = %d)", args, status)
-		return
-	}
-
-	if *verbose {
-		os.Stderr.Write(buf.Bytes())
-	}
-	if rw != nil {
-		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		rw.Write(buf.Bytes())
-	}
-
-	return
-}
-
-func dosync(w http.ResponseWriter, r *http.Request) {
-	args := []string{"/bin/sh", "-c", *syncCmd}
-	switch exec(w, args) {
-	case 0:
-		// sync succeeded and some files have changed;
-		// update package tree.
-		// TODO(gri): The directory tree may be temporarily out-of-sync.
-		//            Consider keeping separate time stamps so the web-
-		//            page can indicate this discrepancy.
-		initFSTree()
-		fallthrough
-	case 1:
-		// sync failed because no files changed;
-		// don't change the package tree
-		syncDelay.set(*syncMin) //  revert to regular sync schedule
-	default:
-		// sync failed because of an error - back off exponentially, but try at least once a day
-		syncDelay.backoff(24 * 60)
-	}
+	servePage(w, relpath, "File "+relpath, "", "", contents)
 }
 
 func usage() {
@@ -160,9 +91,7 @@ func loggingHandler(h http.Handler) http.Handler {
 	})
 }
 
-func remoteSearch(query string) (res *http.Response, err os.Error) {
-	search := "/search?f=text&q=" + url.QueryEscape(query)
-
+func remoteSearch(query string) (res *http.Response, err error) {
 	// list of addresses to try
 	var addrs []string
 	if *serverAddr != "" {
@@ -176,6 +105,7 @@ func remoteSearch(query string) (res *http.Response, err os.Error) {
 	}
 
 	// remote search
+	search := remoteSearchURL(query, *html)
 	for _, addr := range addrs {
 		url := "http://" + addr + search
 		res, err = http.Get(url)
@@ -185,7 +115,7 @@ func remoteSearch(query string) (res *http.Response, err os.Error) {
 	}
 
 	if err == nil && res.StatusCode != http.StatusOK {
-		err = os.NewError(res.Status)
+		err = errors.New(res.Status)
 	}
 
 	return
@@ -221,8 +151,8 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	// Check usage: either server and no args, or command line and args
-	if (*httpAddr != "") != (flag.NArg() == 0) {
+	// Check usage: either server and no args, command line and args, or index creation mode
+	if (*httpAddr != "" || *urlFlag != "") != (flag.NArg() == 0) && !*writeIndex {
 		usage()
 	}
 
@@ -236,22 +166,93 @@ func main() {
 	//             same is true for the http handlers in initHandlers.
 	if *zipfile == "" {
 		// use file system of underlying OS
-		*goroot = filepath.Clean(*goroot) // normalize path separator
-		fs = OS
-		fsHttp = http.Dir(*goroot)
+		fs.Bind("/", OS(*goroot), "/", bindReplace)
+		if *templateDir != "" {
+			fs.Bind("/lib/godoc", OS(*templateDir), "/", bindBefore)
+		}
 	} else {
 		// use file system specified via .zip file (path separator must be '/')
 		rc, err := zip.OpenReader(*zipfile)
 		if err != nil {
 			log.Fatalf("%s: %s\n", *zipfile, err)
 		}
-		*goroot = path.Join("/", *goroot) // fsHttp paths are relative to '/'
-		fs = NewZipFS(rc)
-		fsHttp = NewHttpZipFS(rc, *goroot)
+		defer rc.Close() // be nice (e.g., -writeIndex mode)
+		fs.Bind("/", NewZipFS(rc, *zipfile), *goroot, bindReplace)
 	}
 
-	initHandlers()
+	// Bind $GOPATH trees into Go root.
+	for _, p := range filepath.SplitList(build.Default.GOPATH) {
+		fs.Bind("/src/pkg", OS(p), "/src", bindAfter)
+	}
+
 	readTemplates()
+	initHandlers()
+
+	if *writeIndex {
+		// Write search index and exit.
+		if *indexFiles == "" {
+			log.Fatal("no index file specified")
+		}
+
+		log.Println("initialize file systems")
+		*verbose = true // want to see what happens
+		initFSTree()
+
+		*indexThrottle = 1
+		updateIndex()
+
+		log.Println("writing index file", *indexFiles)
+		f, err := os.Create(*indexFiles)
+		if err != nil {
+			log.Fatal(err)
+		}
+		index, _ := searchIndex.get()
+		err = index.(*Index).Write(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Println("done")
+		return
+	}
+
+	// Print content that would be served at the URL *urlFlag.
+	if *urlFlag != "" {
+		registerPublicHandlers(http.DefaultServeMux)
+		// Try up to 10 fetches, following redirects.
+		urlstr := *urlFlag
+		for i := 0; i < 10; i++ {
+			// Prepare request.
+			u, err := url.Parse(urlstr)
+			if err != nil {
+				log.Fatal(err)
+			}
+			req := &http.Request{
+				URL: u,
+			}
+
+			// Invoke default HTTP handler to serve request
+			// to our buffering httpWriter.
+			w := &httpWriter{h: http.Header{}, code: 200}
+			http.DefaultServeMux.ServeHTTP(w, req)
+
+			// Return data, error, or follow redirect.
+			switch w.code {
+			case 200: // ok
+				os.Stdout.Write(w.Bytes())
+				return
+			case 301, 302, 303, 307: // redirect
+				redirect := w.h.Get("Location")
+				if redirect == "" {
+					log.Fatalf("HTTP %d without Location header", w.code)
+				}
+				urlstr = redirect
+			default:
+				log.Fatalf("HTTP error %d", w.code)
+			}
+		}
+		log.Fatalf("too many redirects")
+	}
 
 	if *httpAddr != "" {
 		// HTTP server mode.
@@ -270,41 +271,26 @@ func main() {
 			default:
 				log.Print("identifier search index enabled")
 			}
-			if !fsMap.IsEmpty() {
-				log.Print("user-defined mapping:")
-				fsMap.Fprint(os.Stderr)
-			}
+			fs.Fprint(os.Stderr)
 			handler = loggingHandler(handler)
 		}
 
 		registerPublicHandlers(http.DefaultServeMux)
-		if *syncCmd != "" {
-			http.Handle("/debug/sync", http.HandlerFunc(dosync))
-		}
+
+		// Playground handlers are not available in local godoc.
+		http.HandleFunc("/compile", disabledHandler)
+		http.HandleFunc("/share", disabledHandler)
 
 		// Initialize default directory tree with corresponding timestamp.
 		// (Do it in a goroutine so that launch is quick.)
 		go initFSTree()
 
-		// Initialize directory trees for user-defined file systems (-path flag).
-		initDirTrees()
+		// Immediately update metadata.
+		updateMetadata()
+		// Periodically refresh metadata.
+		go refreshMetadataLoop()
 
-		// Start sync goroutine, if enabled.
-		if *syncCmd != "" && *syncMin > 0 {
-			syncDelay.set(*syncMin) // initial sync delay
-			go func() {
-				for {
-					dosync(nil, nil)
-					delay, _ := syncDelay.get()
-					if *verbose {
-						log.Printf("next sync in %dmin", delay.(int))
-					}
-					time.Sleep(int64(delay.(int)) * 60e9)
-				}
-			}()
-		}
-
-		// Start indexing goroutine.
+		// Initialize search index.
 		if *indexEnabled {
 			go indexer()
 		}
@@ -335,51 +321,91 @@ func main() {
 		return
 	}
 
-	// determine paths
+	// Determine paths.
+	//
+	// If we are passed an operating system path like . or ./foo or /foo/bar or c:\mysrc,
+	// we need to map that path somewhere in the fs name space so that routines
+	// like getPageInfo will see it.  We use the arbitrarily-chosen virtual path "/target"
+	// for this.  That is, if we get passed a directory like the above, we map that
+	// directory so that getPageInfo sees it as /target.
+	const target = "/target"
+	const cmdPrefix = "cmd/"
 	path := flag.Arg(0)
-	if len(path) > 0 && path[0] == '.' {
-		// assume cwd; don't assume -goroot
+	var forceCmd bool
+	var abspath, relpath string
+	if filepath.IsAbs(path) {
+		fs.Bind(target, OS(path), "/", bindReplace)
+		abspath = target
+	} else if build.IsLocalImport(path) {
 		cwd, _ := os.Getwd() // ignore errors
 		path = filepath.Join(cwd, path)
-	}
-	relpath := path
-	abspath := path
-	if t, pkg, err := build.FindTree(path); err == nil {
-		relpath = pkg
-		abspath = filepath.Join(t.SrcDir(), pkg)
-	} else if !filepath.IsAbs(path) {
-		abspath = absolutePath(path, pkgHandler.fsRoot)
+		fs.Bind(target, OS(path), "/", bindReplace)
+		abspath = target
+	} else if strings.HasPrefix(path, cmdPrefix) {
+		path = path[len(cmdPrefix):]
+		forceCmd = true
+	} else if bp, _ := build.Import(path, "", build.FindOnly); bp.Dir != "" && bp.ImportPath != "" {
+		fs.Bind(target, OS(bp.Dir), "/", bindReplace)
+		abspath = target
+		relpath = bp.ImportPath
 	} else {
-		relpath = relativeURL(path)
+		abspath = pathpkg.Join(pkgHandler.fsRoot, path)
+	}
+	if relpath == "" {
+		relpath = abspath
 	}
 
 	var mode PageInfoMode
+	if relpath == builtinPkgPath {
+		// the fake built-in package contains unexported identifiers
+		mode = noFiltering
+	}
 	if *srcMode {
 		// only filter exports if we don't have explicit command-line filter arguments
-		if flag.NArg() == 1 {
-			mode |= exportsOnly
+		if flag.NArg() > 1 {
+			mode |= noFiltering
 		}
-	} else {
-		mode = exportsOnly | genDoc
+		mode |= showSource
 	}
 	// TODO(gri): Provide a mechanism (flag?) to select a package
 	//            if there are multiple packages in a directory.
-	info := pkgHandler.getPageInfo(abspath, relpath, "", mode)
 
+	// first, try as package unless forced as command
+	var info PageInfo
+	if !forceCmd {
+		info = pkgHandler.getPageInfo(abspath, relpath, "", mode)
+	}
+
+	// second, try as command unless the path is absolute
+	// (the go command invokes godoc w/ absolute paths; don't override)
+	var cinfo PageInfo
+	if !filepath.IsAbs(path) {
+		abspath = pathpkg.Join(cmdHandler.fsRoot, path)
+		cinfo = cmdHandler.getPageInfo(abspath, relpath, "", mode)
+	}
+
+	// determine what to use
 	if info.IsEmpty() {
-		// try again, this time assume it's a command
-		if !filepath.IsAbs(path) {
-			abspath = absolutePath(path, cmdHandler.fsRoot)
+		if !cinfo.IsEmpty() {
+			// only cinfo exists - switch to cinfo
+			info = cinfo
 		}
-		cmdInfo := cmdHandler.getPageInfo(abspath, relpath, "", mode)
-		// only use the cmdInfo if it actually contains a result
-		// (don't hide errors reported from looking up a package)
-		if !cmdInfo.IsEmpty() {
-			info = cmdInfo
+	} else if !cinfo.IsEmpty() {
+		// both info and cinfo exist - use cinfo if info
+		// contains only subdirectory information
+		if info.PAst == nil && info.PDoc == nil {
+			info = cinfo
+		} else {
+			fmt.Printf("use 'godoc %s%s' for documentation on the %s command \n\n", cmdPrefix, relpath, relpath)
 		}
 	}
+
 	if info.Err != nil {
 		log.Fatalf("%v", info.Err)
+	}
+	if info.PDoc != nil && info.PDoc.ImportPath == target {
+		// Replace virtual /target with actual argument from command line.
+		info.PDoc.ImportPath = flag.Arg(0)
 	}
 
 	// If we have more than one argument, use the remaining arguments for filtering
@@ -420,4 +446,20 @@ func main() {
 	if err := packageText.Execute(os.Stdout, info); err != nil {
 		log.Printf("packageText.Execute: %s", err)
 	}
+}
+
+// An httpWriter is an http.ResponseWriter writing to a bytes.Buffer.
+type httpWriter struct {
+	bytes.Buffer
+	h    http.Header
+	code int
+}
+
+func (w *httpWriter) Header() http.Header  { return w.h }
+func (w *httpWriter) WriteHeader(code int) { w.code = code }
+
+// disabledHandler serves a 501 "Not Implemented" response.
+func disabledHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+	fmt.Fprint(w, "This functionality is not available via local godoc.")
 }

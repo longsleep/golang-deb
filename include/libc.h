@@ -95,6 +95,7 @@ extern	void	perror(const char*);
 extern	int	postnote(int, int, char *);
 extern	double	p9pow10(int);
 extern	char*	searchpath(char*);
+extern	char*	p9ctime(long);
 #define p9setjmp(b)	sigsetjmp((void*)(b), 1)
 
 extern	void	sysfatal(char*, ...);
@@ -112,8 +113,10 @@ extern	void	sysfatal(char*, ...);
 #define notejmp		p9notejmp
 #define jmp_buf		p9jmp_buf
 #define pow10		p9pow10
+#undef  strtod
 #define strtod		fmtstrtod
 #define charstod	fmtcharstod
+#define ctime	p9ctime
 #endif
 
 /*
@@ -184,7 +187,7 @@ extern	void	sysfatal(char*, ...);
 #define DMWRITE		0x2		/* mode bit for write permission */
 #define DMEXEC		0x1		/* mode bit for execute permission */
 
-#ifdef RFMEM	/* FreeBSD, OpenBSD */
+#ifdef RFMEM	/* FreeBSD, OpenBSD, NetBSD */
 #undef RFFDG
 #undef RFNOTEG
 #undef RFPROC
@@ -306,6 +309,9 @@ extern int nanosleep(const struct timespec *rqtp, struct timespec *rmtp);
 extern int fork(void);
 extern int pread(int fd, void *buf, int n, int off);
 extern int pwrite(int fd, void *buf, int n, int off);
+#undef  getwd
+#define getwd(s, ns) getcwd(s, ns)
+#undef  lseek
 #define lseek(fd, n, base) _lseeki64(fd, n, base)
 #define mkdir(path, perm) mkdir(path)
 #define pipe(fd) _pipe(fd, 512, O_BINARY)

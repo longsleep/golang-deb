@@ -200,7 +200,8 @@ uchar	ymovq[] =
 	Ymm,	Ymr,	Zm_r_xm,	1,	// MMX MOVD
 	Ymr,	Ymm,	Zr_m_xm,	1,	// MMX MOVD
 	Yxr,	Ymr,	Zm_r_xm_nr,	2,	// MOVDQ2Q
-	Yxr,	Ym,	Zr_m_xm_nr,	2,	// MOVQ xmm store
+	Yxm,	Yxr,	Zm_r_xm_nr,	2, // MOVQ xmm1/m64 -> xmm2
+	Yxr,	Yxm,	Zr_m_xm_nr,	2, // MOVQ xmm1 -> xmm2/m64
 	Yml,	Yxr,	Zm_r_xm,	2,	// MOVD xmm load
 	Yxr,	Yml,	Zr_m_xm,	2,	// MOVD xmm store
 	Yiauto,	Yrl,	Zaut_r,	2,	// built-in LEAQ
@@ -264,6 +265,11 @@ uchar	yimul[] =
 	Yi8,	Yrl,	Zib_rr,	1,
 	Yi32,	Yrl,	Zil_rr,	1,
 	Yml,	Yrl,	Zm_r,	2,
+	0
+};
+uchar	yimul3[] =
+{
+	Yml,	Yrl,	Zibm_r,	1,
 	0
 };
 uchar	ybyte[] =
@@ -771,6 +777,7 @@ Optab optab[] =
 	{ AIMULL,	yimul,	Px, 0xf7,(05),0x6b,0x69,Pm,0xaf },
 	{ AIMULQ,	yimul,	Pw, 0xf7,(05),0x6b,0x69,Pm,0xaf },
 	{ AIMULW,	yimul,	Pe, 0xf7,(05),0x6b,0x69,Pm,0xaf },
+	{ AIMUL3Q,	yimul3,	Pw, 0x6b },
 	{ AINB,		yin,	Pb, 0xe4,0xec },
 	{ AINCB,	yincb,	Pb, 0xfe,(00) },
 	{ AINCL,	yincl,	Px, 0xff,(00) },
@@ -788,7 +795,8 @@ Optab optab[] =
 	{ AIRETW,	ynone,	Pe, 0xcf },
 	{ AJCC,		yjcond,	Px, 0x73,0x83,(00) },
 	{ AJCS,		yjcond,	Px, 0x72,0x82 },
-	{ AJCXZ,	yloop,	Px, 0xe3 },
+	{ AJCXZL,	yloop,	Px, 0xe3 },
+	{ AJCXZQ,	yloop,	Px, 0xe3 },
 	{ AJEQ,		yjcond,	Px, 0x74,0x84 },
 	{ AJGE,		yjcond,	Px, 0x7d,0x8d },
 	{ AJGT,		yjcond,	Px, 0x7f,0x8f },
@@ -861,7 +869,7 @@ Optab optab[] =
 	{ AMOVNTPD,	yxr_ml,	Pe, 0x2b },
 	{ AMOVNTPS,	yxr_ml,	Pm, 0x2b },
 	{ AMOVNTQ,	ymr_ml,	Pm, 0xe7 },
-	{ AMOVQ,	ymovq,	Pw, 0x89,0x8b,0x31,0xc7,(00),0xb8,0xc7,(00),0x6f,0x7f,0x6e,0x7e,Pf2,0xd6,Pe,0xd6,Pe,0x6e,Pe,0x7e },
+	{ AMOVQ,	ymovq,	Pw, 0x89, 0x8b, 0x31, 0xc7,(00), 0xb8, 0xc7,(00), 0x6f, 0x7f, 0x6e, 0x7e, Pf2,0xd6, Pf3,0x7e, Pe,0xd6, Pe,0x6e, Pe,0x7e },
 	{ AMOVQOZX,	ymrxr,	Pf3, 0xd6,0x7e },
 	{ AMOVSB,	ynone,	Pb, 0xa4 },
 	{ AMOVSD,	yxmov,	Pf2, 0x10,0x11 },
@@ -977,7 +985,7 @@ Optab optab[] =
 	{ APSHUFW,	ymshuf,	Pm, 0x70 },
 	{ APSLLO,	ypsdq,	Pq, 0x73,(07) },
 	{ APSLLL,	yps,	Py, 0xf2, 0x72,(06), Pe,0xf2, Pe,0x72,(06) },
-	{ APSLLQ,	yps,	Py, 0xf3, 0x73,(06), Pe,0xf3, Pe,0x7e,(06) },
+	{ APSLLQ,	yps,	Py, 0xf3, 0x73,(06), Pe,0xf3, Pe,0x73,(06) },
 	{ APSLLW,	yps,	Py, 0xf1, 0x71,(06), Pe,0xf1, Pe,0x71,(06) },
 	{ APSRAL,	yps,	Py, 0xe2, 0x72,(04), Pe,0xe2, Pe,0x72,(04) },
 	{ APSRAW,	yps,	Py, 0xe1, 0x71,(04), Pe,0xe1, Pe,0x71,(04) },

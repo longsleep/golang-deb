@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 // TODO(kaib): Can make this bigger if we move
@@ -50,6 +52,10 @@ clearp(Prog *p)
 	pcloc++;
 }
 
+static int ddumped;
+static Prog *dfirst;
+static Prog *dpc;
+
 /*
  * generate and return proc with p->as = as,
  * linked into program.  pc is next instruction.
@@ -59,10 +65,23 @@ prog(int as)
 {
 	Prog *p;
 
-	p = pc;
-	pc = mal(sizeof(*pc));
-
-	clearp(pc);
+	if(as == ADATA || as == AGLOBL) {
+		if(ddumped)
+			fatal("already dumped data");
+		if(dpc == nil) {
+			dpc = mal(sizeof(*dpc));
+			dfirst = dpc;
+		}
+		p = dpc;
+		dpc = mal(sizeof(*dpc));
+		p->link = dpc;
+		p->reg = 0;  // used for flags
+	} else {
+		p = pc;
+		pc = mal(sizeof(*pc));
+		clearp(pc);
+		p->link = pc;
+	}
 
 	if(lineno == 0) {
 		if(debug['K'])
@@ -71,8 +90,19 @@ prog(int as)
 
 	p->as = as;
 	p->lineno = lineno;
-	p->link = pc;
 	return p;
+}
+
+void
+dumpdata(void)
+{
+	ddumped = 1;
+	if(dfirst == nil)
+		return;
+	newplist();
+	*pc = *dfirst;
+	pc = dpc;
+	clearp(pc);
 }
 
 /*
@@ -83,6 +113,8 @@ Prog*
 gbranch(int as, Type *t)
 {
 	Prog *p;
+
+	USED(t);
 
 	p = prog(as);
 	p->to.type = D_BRANCH;
@@ -222,6 +254,10 @@ ggloblnod(Node *nam, int32 width)
 	p->to.sym = S;
 	p->to.type = D_CONST;
 	p->to.offset = width;
+	if(nam->readonly)
+		p->reg = RODATA;
+	if(nam->type != T && !haspointers(nam->type))
+		p->reg |= NOPTR;
 }
 
 void
@@ -238,6 +274,7 @@ ggloblsym(Sym *s, int32 width, int dupok)
 	p->to.offset = width;
 	if(dupok)
 		p->reg = DUPOK;
+	p->reg |= RODATA;
 }
 
 int
@@ -315,6 +352,8 @@ anyregalloc(void)
 	return 0;
 }
 
+uintptr regpc[REGALLOC_FMAX+1];
+
 /*
  * allocate register of type t, leave in n.
  * if o != N, o is desired fixed register.
@@ -325,7 +364,7 @@ regalloc(Node *n, Type *t, Node *o)
 {
 	int i, et, fixfree, floatfree;
 
-	if(debug['r']) {
+	if(0 && debug['r']) {
 		fixfree = 0;
 		for(i=REGALLOC_R0; i<=REGALLOC_RMAX; i++)
 			if(reg[i] == 0)
@@ -358,9 +397,12 @@ regalloc(Node *n, Type *t, Node *o)
 				goto out;
 		}
 		for(i=REGALLOC_R0; i<=REGALLOC_RMAX; i++)
-			if(reg[i] == 0)
+			if(reg[i] == 0) {
+				regpc[i] = (uintptr)getcallerpc(&n);
 				goto out;
-
+			}
+		for(i=REGALLOC_R0; i<=REGALLOC_RMAX; i++)
+			print("%d %p\n", i, regpc[i]);
 		yyerror("out of fixed registers");
 		goto err;
 
@@ -398,7 +440,7 @@ regfree(Node *n)
 {
 	int i, fixfree, floatfree;
 
-	if(debug['r']) {
+	if(0 && debug['r']) {
 		fixfree = 0;
 		for(i=REGALLOC_R0; i<=REGALLOC_RMAX; i++)
 			if(reg[i] == 0)
@@ -415,11 +457,13 @@ regfree(Node *n)
 	if(n->op != OREGISTER && n->op != OINDREG)
 		fatal("regfree: not a register");
 	i = n->val.u.reg;
-	if(i < 0 || i >= sizeof(reg))
+	if(i < 0 || i >= nelem(reg) || i >= nelem(regpc))
 		fatal("regfree: reg out of range");
 	if(reg[i] <= 0)
 		fatal("regfree: reg not allocated");
 	reg[i]--;
+	if(reg[i] == 0)
+		regpc[i] = 0;
 }
 
 /*
@@ -481,8 +525,15 @@ nodarg(Type *t, int fp)
 		fatal("nodarg: offset not computed for %T", t);
 	n->xoffset = t->width;
 	n->addable = 1;
+	n->orig = t->nname;
 
 fp:
+	// Rewrite argument named _ to __,
+	// or else the assignment to _ will be
+	// discarded during code generation.
+	if(isblank(n))
+		n->sym = lookup("__");
+
 	switch(fp) {
 	default:
 		fatal("nodarg %T %d", t, fp);
@@ -1066,7 +1117,8 @@ gins(int as, Node *f, Node *t)
 	if(f != N)
 		naddr(f, &af, 1);
 	if(t != N)
-		naddr(t, &at, 1);	p = prog(as);
+		naddr(t, &at, 1);
+	p = prog(as);
 	if(f != N)
 		p->from = af;
 	if(t != N)
@@ -1232,6 +1284,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 		a->sym = n->left->sym;
 		a->type = D_OREG;
 		a->name = D_PARAM;
+		a->node = n->left->orig;
 		break;
 
 	case ONAME:
@@ -1242,9 +1295,11 @@ naddr(Node *n, Addr *a, int canemitcode)
 			a->etype = simtype[n->type->etype];
 			a->width = n->type->width;
 		}
-		a->pun = n->pun;
 		a->offset = n->xoffset;
 		a->sym = n->sym;
+		a->node = n->orig;
+		//if(a->node >= (Node*)&n)
+		//	fatal("stack node");
 		if(a->sym == S)
 			a->sym = lookup(".noname");
 		if(n->method) {
@@ -1263,8 +1318,6 @@ naddr(Node *n, Addr *a, int canemitcode)
 			break;
 		case PAUTO:
 			a->name = D_AUTO;
-			if (n->sym)
-				a->node = n->orig;
 			break;
 		case PPARAM:
 		case PPARAMOUT:
@@ -1287,6 +1340,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 			a->dval = mpgetflt(n->val.u.fval);
 			break;
 		case CTINT:
+		case CTRUNE:
 			a->sym = S;
 			a->type = D_CONST;
 			a->offset = mpgetfix(n->val.u.xval);
@@ -1305,6 +1359,16 @@ naddr(Node *n, Addr *a, int canemitcode)
 			a->offset = 0;
 			break;
 		}
+		break;
+
+	case OITAB:
+		// itable of interface value
+		naddr(n->left, a, canemitcode);
+		a->etype = TINT32;
+		if(a->type == D_CONST && a->offset == 0)
+			break;	// len(nil)
+		if(a->offset >= unmappedzero && a->offset-Array_nel < unmappedzero)
+			checkoffset(a, canemitcode);
 		break;
 
 	case OLEN:
@@ -1744,7 +1808,7 @@ sudoaddable(int as, Node *n, Addr *a, int *w)
 
 	switch(n->op) {
 	case OLITERAL:
-		if(n->val.ctype != CTINT)
+		if(!isconst(n, CTINT))
 			break;
 		v = mpgetfix(n->val.u.xval);
 		if(v >= 32000 || v <= -32000)
