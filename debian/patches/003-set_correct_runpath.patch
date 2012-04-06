@@ -8,4 +8,4 @@
 +	$(LD) $(LDIMPORTS) -o $@ -r $(QUOTED_GOROOT_FINAL)/pkg/$(GOOS)_$(GOARCH) _go_.$O
  
  _go_.$O: $(GOFILES) $(PREREQ)
- 	$(GC) $(GCIMPORTS) -o $@ $(GOFILES)
+ 	$(GC) $(GCFLAGS) $(GCIMPORTS) -o $@ $(GOFILES)

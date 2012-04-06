@@ -1,0 +1,57 @@
+# Czech PO debconf template translation of xfonts-traditional.
+# Copyright (C) 2012 Michal Simunek <michal.simunek@gmail.com>
+# This file is distributed under the same license as the xfonts-traditional package.
+# Michal Simunek <michal.simunek@gmail.com>, 2012.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: golang 2012.01.27-3\n"
+"Report-Msgid-Bugs-To: golang@packages.debian.org\n"
+"POT-Creation-Date: 2012-03-01 07:32+0100\n"
+"PO-Revision-Date: 2012-03-17 17:01+0100\n"
+"Last-Translator: Michal Simunek <michal.simunek@gmail.com>\n"
+"Language-Team: Czech <debian-l10n-czech@lists.debian.org>\n"
+"Language: cs\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#. Type: boolean
+#. Description
+#: ../golang-tools.templates:2001
+msgid "Report installation of public packages to Go Dashboard?"
+msgstr "Nahlašovat instalaci veřejných balíčků do Go Dashboard?"
+
+#. Type: boolean
+#. Description
+#: ../golang-tools.templates:2001
+msgid ""
+"The goinstall program reports the successful installation of the public Go "
+"packages to godashboard.appspot.com, which increments a count associated "
+"with the package and the time of its most recent installation. This "
+"mechanism powers the package list at the Go Dashboard, allowing Go "
+"programmers to learn about popular packages that might be worth looking at."
+msgstr ""
+"Program goinstall nahlašuje úspěšné instalace veřejných Go balíčků do "
+"godashboard.appspot.com, který zvýší počet jeho instalací a čas poslední "
+"instalace. Tento mechanizmus vytváří přehled o balíčcích v Go Dashboard, "
+"umožňuje tak Go programátorům, aby se dozvěděly o oblíbených balíčcích, "
+"kterým stojí za to se věnovat."
+
+#. Type: boolean
+#. Description
+#: ../golang-tools.templates:2001
+msgid ""
+"If you choose to participate, each successful installation will be reported "
+"to the Go Dashboard."
+msgstr ""
+"Rozhodnete-li se k účasti, každá úspěšná instalace se nahlásí do Go "
+"Dashboard."
+
+#. Type: boolean
+#. Description
+#: ../golang-tools.templates:2001
+msgid ""
+"This choice can be modified by running \"dpkg-reconfigure golang-tools\"."
+msgstr ""
+"Tuto volbu lze změnit spuštěním \"dpkg-reconfigure golang-go\"."

@@ -17,7 +17,7 @@ fi
 # /etc/golang/goinstall.conf in the 'config' script, so it should be
 # safe to ignore the value fetched by loading the file above.  This
 # should allow for using debconf to reconfigure the package.
-db_get golang-tools/dashboard || true
+db_get golang-go/dashboard || true
 if [ "$RET" = "yes" ] || [ "$RET" = "YES" ] || [ "$RET" = "true" ]; then
     DASHBOARD="yes"
 else
@@ -32,7 +32,7 @@ generate_conffile() {
 		# Config file for goinstall tool.
 		#
 		# To change this file, use:
-		#        dpkg-reconfigure golang-tools
+		#        dpkg-reconfigure golang-go
 		#
 		# You can also edit it by hand, if you so choose.
 		

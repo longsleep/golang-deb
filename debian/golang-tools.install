@@ -1,6 +1,0 @@
-bin/godoc /usr/bin
-bin/gofix /usr/bin
-bin/gofmt /usr/bin
-bin/goinstall /usr/bin
-bin/gotry /usr/bin
-bin/govet /usr/bin

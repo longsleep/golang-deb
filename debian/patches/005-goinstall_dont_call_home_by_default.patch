@@ -1,0 +1,22 @@
+--- a/src/cmd/goinstall/main.go
++++ b/src/cmd/goinstall/main.go
+@@ -38,7 +38,7 @@ var (
+ 	schemeRe      = regexp.MustCompile(`^[a-z]+://`)
+ 
+ 	allpkg            = flag.Bool("a", false, "install all previously installed packages")
+-	reportToDashboard = flag.Bool("dashboard", true, "report public packages at "+dashboardURL)
++	reportToDashboard = flag.Bool("dashboard", false, "report public packages at "+dashboardURL)
+ 	update            = flag.Bool("u", false, "update already-downloaded packages")
+ 	doInstall         = flag.Bool("install", true, "build and install")
+ 	clean             = flag.Bool("clean", false, "clean the package directory before installing")
+--- a/src/cmd/goinstall/doc.go
++++ b/src/cmd/goinstall/doc.go
+@@ -15,7 +15,7 @@ Usage:
+ Flags and default settings:
+         -a=false          install all previously installed packages
+ 	-clean=false      clean the package directory before installing
+-	-dashboard=true   tally public packages on godashboard.appspot.com
++	-dashboard=false  tally public packages on godashboard.appspot.com
+ 	-install=true     build and install the package and its dependencies
+ 	-nuke=false       remove the target object and clean before installing
+ 	-u=false          update already-downloaded packages

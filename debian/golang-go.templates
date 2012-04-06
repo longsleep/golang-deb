@@ -1,4 +1,4 @@
-Template: golang-tools/dashboard
+Template: golang-go/dashboard
 Type: boolean
 Default: true
 _Description: Report installation of public packages to Go Dashboard?
@@ -11,5 +11,4 @@ _Description: Report installation of public packages to Go Dashboard?
  If you choose to participate, the goinstall will report each successful
  installation to the Go Dashboard.
  .
- This choice can be later modified by running "dpkg-reconfigure
- golang-tools".
+ This choice can be later modified by running "dpkg-reconfigure golang-go".

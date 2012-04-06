@@ -1,7 +1,9 @@
 001-allow_IPv4_on_IPv6_sockets.patch
-003-set_correct_runpath.patch
-006-fix_kfreebsd_build.patch
+#003-set_correct_runpath.patch
+#006-fix_kfreebsd_build.patch
 007-use_native_dynamic_linker_on_kfreebsd.patch
-008-emacs-mode-key-literal-indent.patch
-009-goinstall_can_install_to_GOPATH.patch
-010-goinstall_check_conf.patch
+#009-goinstall_can_install_to_GOPATH.patch
+#010-goinstall_check_conf.patch
+011-__FreeBSD_kernel__.patch
+012-sigfillset_kFreeBSD.patch
+013-kFreeBSD-AI_MASK.patch

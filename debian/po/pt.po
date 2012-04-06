@@ -1,20 +1,19 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+# golang's portuguese debconf messages
+# Copyright (C) 2012
+# This file is distributed under the same license as the golang package.
+# Pedro Ribeiro <p.m42.ribeiro@gmail.com>, 2012
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: golang\n"
 "Report-Msgid-Bugs-To: golang@packages.debian.org\n"
 "POT-Creation-Date: 2012-03-01 07:32+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
+"PO-Revision-Date: 2012-03-17 13:59+0000\n"
+"Last-Translator: Pedro Ribeiro <p.m42.ribeiro@gmail.com>, 2012\n"
+"Language-Team: Portuguese <traduz@debianpt.org>\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
 #. Type: boolean
@@ -22,6 +21,7 @@ msgstr ""
 #: ../golang-tools.templates:2001
 msgid "Report installation of public packages to Go Dashboard?"
 msgstr ""
+"Relatar a instalação de pacotes públicos no Painel de Instrumentos do Go?"
 
 #. Type: boolean
 #. Description
@@ -33,6 +33,11 @@ msgid ""
 "mechanism powers the package list at the Go Dashboard, allowing Go "
 "programmers to learn about popular packages that might be worth looking at."
 msgstr ""
+"O goinstall relata a instalação bem sucedida dos pacotes públicos do Go para "
+"o godashboard.appspot.com, o que incrementa um contador associado com o "
+"pacote e a data da instalação mais recente. Este mecanismo alimenta a lista "
+"de pacotes no Go Dashboard, permitindo que os programadores Go saibam quais "
+"os pacotes mais populares a que vale a pena dar atenção."
 
 #. Type: boolean
 #. Description
@@ -41,11 +46,15 @@ msgid ""
 "If you choose to participate, each successful installation will be reported "
 "to the Go Dashboard."
 msgstr ""
+"Se escolher participar, cada instalação bem sucedida será comunicada para o "
+"Go Dashboard."
 
 #. Type: boolean
 #. Description
 #: ../golang-tools.templates:2001
 msgid ""
-"This choice can be modified by running \"dpkg-reconfigure golang-tools"
+"This choice can be modified by running \"dpkg-reconfigure golang-go"
 "\"."
 msgstr ""
+"Esta escolha pode ser modificada com \"dpkg-reconfigure golang-go"
+"\"."

@@ -1,0 +1,33 @@
+--- a/include/u.h
++++ b/include/u.h
+@@ -45,7 +45,7 @@ extern "C" {
+ #	define _XOPEN_SOURCE 1000
+ #	define _XOPEN_SOURCE_EXTENDED 1
+ #endif
+-#if defined(__FreeBSD__)
++#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+ #	include <sys/cdefs.h>
+ 	/* for strtoll */
+ #	undef __ISO_C_VISIBLE
+--- a/src/cmd/dist/unix.c
++++ b/src/cmd/dist/unix.c
+@@ -653,7 +653,7 @@ main(int argc, char **argv)
+ 		gohostarch = "amd64";
+ #elif defined(__linux__)
+ 	gohostos = "linux";
+-#elif defined(__FreeBSD__)
++#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+ 	gohostos = "freebsd";
+ #elif defined(__OpenBSD__)
+ 	gohostos = "openbsd";
+--- a/src/lib9/dirfwstat.c
++++ b/src/lib9/dirfwstat.c
+@@ -29,7 +29,7 @@ THE SOFTWARE.
+ #include <sys/time.h>
+ #include <sys/stat.h>
+ 
+-#if defined(__FreeBSD__) || defined(__APPLE__) || defined(__OpenBSD__) || defined(__linux__)
++#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__APPLE__) || defined(__OpenBSD__) || defined(__linux__)
+ /* do nothing -- futimes exists and is fine */
+ 
+ #elif defined(__SunOS5_9__)

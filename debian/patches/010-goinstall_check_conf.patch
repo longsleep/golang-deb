@@ -7,9 +7,9 @@
 -	reportToDashboard = flag.Bool("dashboard", true, "report public packages at "+dashboardURL)
 +	reportToDashboard *bool
  	update            = flag.Bool("u", false, "update already-downloaded packages")
+ 	doGofix           = flag.Bool("fix", false, "gofix each package before building it")
  	doInstall         = flag.Bool("install", true, "build and install")
- 	clean             = flag.Bool("clean", false, "clean the package directory before installing")
-@@ -47,6 +47,16 @@ var (
+@@ -48,6 +48,16 @@ var (
  	verbose           = flag.Bool("v", false, "verbose")
  )
  

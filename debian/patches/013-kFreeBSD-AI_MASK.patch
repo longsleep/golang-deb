@@ -1,0 +1,9 @@
+--- a/src/pkg/net/cgo_bsd.go
++++ b/src/pkg/net/cgo_bsd.go
+@@ -12,5 +12,5 @@ package net
+ import "C"
+ 
+ func cgoAddrInfoMask() C.int {
+-	return C.AI_MASK
++	return C.AI_CANONNAME | C.AI_V4MAPPED | C.AI_ALL
+ }

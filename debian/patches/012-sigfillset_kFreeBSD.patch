@@ -1,0 +1,22 @@
+--- a/src/pkg/runtime/cgo/gcc_freebsd_386.c
++++ b/src/pkg/runtime/cgo/gcc_freebsd_386.c
+@@ -33,7 +33,7 @@ libcgo_sys_thread_start(ThreadStart *ts)
+ 	size_t size;
+ 	int err;
+ 
+-	SIGFILLSET(ign);
++	sigfillset(&ign);
+ 	sigprocmask(SIG_SETMASK, &ign, &oset);
+ 
+ 	pthread_attr_init(&attr);
+--- a/src/pkg/runtime/cgo/gcc_freebsd_amd64.c
++++ b/src/pkg/runtime/cgo/gcc_freebsd_amd64.c
+@@ -33,7 +33,7 @@ libcgo_sys_thread_start(ThreadStart *ts)
+ 	size_t size;
+ 	int err;
+ 
+-	SIGFILLSET(ign);
++	sigfillset(&ign);
+ 	sigprocmask(SIG_SETMASK, &ign, &oset);
+ 
+ 	pthread_attr_init(&attr);

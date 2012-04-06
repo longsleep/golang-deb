@@ -1,6 +1,6 @@
 --- a/src/cmd/goinstall/main.go
 +++ b/src/cmd/goinstall/main.go
-@@ -87,6 +87,10 @@ func main() {
+@@ -121,6 +121,10 @@ func main() {
  	}
  	readPackageList()
  
