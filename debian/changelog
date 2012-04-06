@@ -1,6 +1,7 @@
-golang (1:1-1) unstable; urgency=low
+golang (2:1-1) unstable; urgency=low
 
-  * New major upstream release Go 1
+  * New major upstream release Go 1 (Closes: #666942)
+  * Bumb epoch to 2, since 1 < 60 < 2011 (I wonder if next version will be 0 :)
   * Debconf templates and debian/control reviewed by the debian-l10n-
     english team as part of the Smith review project. (Closes: #663181)
   * [Debconf translation updates]
