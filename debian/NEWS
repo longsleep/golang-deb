@@ -1,3 +1,18 @@
+golang (1:1-1) unstable; urgency=low
+
+  Go 1 is a major release of Go that will be stable in the long term.
+  It is intended that programs written for Go 1 will continue to compile
+  and run correctly, unchanged, under future versions of Go 1.
+  
+  The Go 1 release notes list the significant changes since the last
+  release and explain how to update your code:
+         http://golang.org/doc/go1.html
+  
+  To learn about the future of Go 1, read the Go 1 compatibility document:
+         http://golang.org/doc/go1compat.html
+
+ -- Ondřej Surý <ondrej@debian.org>  Fri, 06 Apr 2012 16:02:17 +0200
+
 golang (1:58-1) unstable; urgency=low
 
   Most significant upstream changes in this release:
