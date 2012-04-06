@@ -8,20 +8,6 @@ libexecdir := /usr/lib/go
 datadir := /usr/share/go
 bindir := /bin
 
-ifeq ($(PACKAGE), golang)
-	P=
-	C=-weekly
-else
-	P=-weekly
-	C=
-endif
-
-debian/control: debian/control.in debian/control.extra
-	sed -e's/#P#/$(P)/g; s/#C#/$(C)/g; /#EXTRA#/ r debian/control.extra' \
-	< debian/control.in | \
-	sed -e'/#EXTRA#/ d' \
-	> debian/control
-
 build clean install binary-arch binary-indep binary: debian/control
 	+dh --parallel $(opt_no_act) $@
 
