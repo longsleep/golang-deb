@@ -7,11 +7,13 @@
  * mainly statements and control flow.
  */
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 static void	cgen_dcl(Node *n);
 static void	cgen_proc(Node *n, int proc);
-static void checkgoto(Node*, Node*);
+static void	checkgoto(Node*, Node*);
 
 static Label *labellist;
 static Label *lastlabel;
@@ -26,50 +28,93 @@ sysfunc(char *name)
 	return n;
 }
 
+/*
+ * the address of n has been taken and might be used after
+ * the current function returns.  mark any local vars
+ * as needing to move to the heap.
+ */
 void
-allocparams(void)
+addrescapes(Node *n)
 {
-	NodeList *l;
-	Node *n;
-	uint32 w;
-	Sym *s;
-	int lno;
+	char buf[100];
+	Node *oldfn;
 
-	if(stksize < 0)
-		fatal("allocparams not during code generation");
+	switch(n->op) {
+	default:
+		// probably a type error already.
+		// dump("addrescapes", n);
+		break;
 
-	/*
-	 * allocate (set xoffset) the stack
-	 * slots for all automatics.
-	 * allocated starting at -w down.
-	 */
-	lno = lineno;
-	for(l=curfn->dcl; l; l=l->next) {
-		n = l->n;
-		if(n->op == ONAME && n->class == PHEAP-1) {
-			// heap address variable; finish the job
-			// started in addrescapes.
-			s = n->sym;
-			tempname(n, n->type);
-			n->sym = s;
+	case ONAME:
+		if(n == nodfp)
+			break;
+
+		// if this is a tmpname (PAUTO), it was tagged by tmpname as not escaping.
+		// on PPARAM it means something different.
+		if(n->class == PAUTO && n->esc == EscNever)
+			break;
+
+		if(debug['N'] && n->esc != EscUnknown)
+			fatal("without escape analysis, only PAUTO's should have esc: %N", n);
+
+		switch(n->class) {
+		case PPARAMREF:
+			addrescapes(n->defn);
+			break;
+		case PPARAM:
+		case PPARAMOUT:
+			// if func param, need separate temporary
+			// to hold heap pointer.
+			// the function type has already been checked
+			// (we're in the function body)
+			// so the param already has a valid xoffset.
+
+			// expression to refer to stack copy
+			n->stackparam = nod(OPARAM, n, N);
+			n->stackparam->type = n->type;
+			n->stackparam->addable = 1;
+			if(n->xoffset == BADWIDTH)
+				fatal("addrescapes before param assignment");
+			n->stackparam->xoffset = n->xoffset;
+			// fallthrough
+
+		case PAUTO:
+			n->class |= PHEAP;
+			n->addable = 0;
+			n->ullman = 2;
+			n->xoffset = 0;
+
+			// create stack variable to hold pointer to heap
+			oldfn = curfn;
+			curfn = n->curfn;
+			n->heapaddr = temp(ptrto(n->type));
+			snprint(buf, sizeof buf, "&%S", n->sym);
+			n->heapaddr->sym = lookup(buf);
+			n->heapaddr->orig->sym = n->heapaddr->sym;
+			if(!debug['N'])
+				n->esc = EscHeap;
+			if(debug['m'])
+				print("%L: moved to heap: %N\n", n->lineno, n);
+			curfn = oldfn;
+			break;
 		}
-		if(n->op != ONAME || n->class != PAUTO)
-			continue;
-		if (n->xoffset != BADWIDTH)
-			continue;
-		if(n->type == T)
-			continue;
-		dowidth(n->type);
-		w = n->type->width;
-		if(w >= MAXWIDTH)
-			fatal("bad width");
-		stksize += w;
-		stksize = rnd(stksize, n->type->align);
-		if(thechar == '5')
-			stksize = rnd(stksize, widthptr);
-		n->xoffset = -stksize;
+		break;
+
+	case OIND:
+	case ODOTPTR:
+		break;
+
+	case ODOT:
+	case OINDEX:
+		// ODOTPTR has already been introduced,
+		// so these are the non-pointer ODOT and OINDEX.
+		// In &x[0], if x is a slice, then x does not
+		// escape--the pointer inside x does, but that
+		// is always a heap pointer anyway.
+		if(!isslice(n->left->type))
+			addrescapes(n->left);
+		break;
 	}
-	lineno = lno;
 }
 
 void
@@ -197,7 +242,7 @@ stmtlabel(Node *n)
 	if(n->sym != S)
 	if((lab = n->sym->label) != L)
 	if(lab->def != N)
-	if(lab->def->right == n)
+	if(lab->def->defn == n)
 		return lab;
 	return L;
 }
@@ -227,7 +272,6 @@ gen(Node *n)
 	if(n == N)
 		goto ret;
 
-	p3 = pc;	// save pc for loop labels
 	if(n->ninit)
 		genlist(n->ninit);
 
@@ -266,13 +310,13 @@ gen(Node *n)
 		if(lab->labelpc == P)
 			lab->labelpc = pc;
 
-		if(n->right) {
-			switch(n->right->op) {
+		if(n->defn) {
+			switch(n->defn->op) {
 			case OFOR:
 			case OSWITCH:
 			case OSELECT:
 				// so stmtlabel can find the label
-				n->right->sym = lab->sym;
+				n->defn->sym = lab->sym;
 			}
 		}
 		break;
@@ -486,7 +530,7 @@ cgen_callmeth(Node *n, int proc)
 /*
  * generate code to start new proc running call n.
  */
-void
+static void
 cgen_proc(Node *n, int proc)
 {
 	switch(n->left->op) {
@@ -598,15 +642,12 @@ cgen_as(Node *nl, Node *nr)
 	Type *tl;
 	int iszer;
 
-	if(nl == N)
-		return;
-
 	if(debug['g']) {
 		dump("cgen_as", nl);
 		dump("cgen_as = ", nr);
 	}
 
-	if(isblank(nl)) {
+	if(nl == N || isblank(nl)) {
 		cgen_discard(nr);
 		return;
 	}
@@ -748,12 +789,8 @@ tempname(Node *nn, Type *t)
 {
 	Node *n;
 	Sym *s;
-	uint32 w;
 
-	if(stksize < 0)
-		fatal("tempname not during code generation");
-
-	if (curfn == N)
+	if(curfn == N)
 		fatal("no curfn for tempname");
 
 	if(t == T) {
@@ -768,23 +805,27 @@ tempname(Node *nn, Type *t)
 	s = lookup(namebuf);
 	n = nod(ONAME, N, N);
 	n->sym = s;
+	s->def = n;
 	n->type = t;
 	n->class = PAUTO;
 	n->addable = 1;
 	n->ullman = 1;
-	n->noescape = 1;
+	n->esc = EscNever;
 	n->curfn = curfn;
 	curfn->dcl = list(curfn->dcl, n);
 
 	dowidth(t);
-	w = t->width;
-	stksize += w;
-	stksize = rnd(stksize, t->align);
-	if(thechar == '5')
-		stksize = rnd(stksize, widthptr);
-	n->xoffset = -stksize;
-
-	//	print("\ttmpname (%d): %N\n", stksize, n);
-
+	n->xoffset = 0;
 	*nn = *n;
+}
+
+Node*
+temp(Type *t)
+{
+	Node *n;
+	
+	n = nod(OXXX, N, N);
+	tempname(n, t);
+	n->sym->def->used = 1;
+	return n;
 }

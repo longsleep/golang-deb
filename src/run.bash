@@ -4,69 +4,64 @@
 # license that can be found in the LICENSE file.
 
 set -e
-if [ "$1" = "--no-env" ]; then
-	# caller has already run env.bash
-	shift
-else
-	. ./env.bash
-fi
 
-unset MAKEFLAGS  # single-threaded make
+eval $(go env)
+
 unset CDPATH	# in case user has it set
+unset GOPATH    # we disallow local import for non-local packages, if $GOROOT happens
+                # to be under $GOPATH, then some tests below will fail
 
 # no core files, please
 ulimit -c 0
 
-# allow make.bash to avoid double-build of everything
+# allow all.bash to avoid double-build of everything
 rebuild=true
 if [ "$1" = "--no-rebuild" ]; then
-	rebuild=false
 	shift
+else
+	echo '# Building packages and commands.'
+	time go install -a -v std
+	echo
 fi
-		
+
+echo '# Testing packages.'
+time go test std -short -timeout=120s
+echo
+
+echo '# GOMAXPROCS=2 runtime -cpu=1,2,4'
+GOMAXPROCS=2 go test runtime -short -timeout=240s -cpu=1,2,4
+echo
+
+echo '# sync -cpu=10'
+go test sync -short -timeout=120s -cpu=10
+
 xcd() {
 	echo
-	echo --- cd $1
+	echo '#' $1
 	builtin cd "$GOROOT"/src/$1
 }
-
-if $rebuild; then
-	(xcd pkg
-		gomake clean
-		time gomake install
-	) || exit $?
-fi
-
-(xcd pkg
-gomake testshort
-) || exit $?
-
-(xcd pkg/sync;
-GOMAXPROCS=10 gomake testshort
-) || exit $?
-
-(xcd cmd/ebnflint
-time gomake test
-) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
 [ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/stdio
-gomake clean
 ./test.bash
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
 (xcd ../misc/cgo/life
-gomake clean
 ./test.bash
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
-[ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/test
-gomake clean
-gotest
+go test
+) || exit $?
+
+[ "$CGO_ENABLED" != 1 ] ||
+[ "$GOHOSTOS" == windows ] ||
+[ "$GOHOSTOS" == darwin ] ||
+(xcd ../misc/cgo/testso
+./test.bash
 ) || exit $?
 
 (xcd ../doc/progs
@@ -74,29 +69,39 @@ time ./run
 ) || exit $?
 
 [ "$GOARCH" == arm ] ||  # uses network, fails under QEMU
-(xcd ../doc/codelab/wiki
-gomake clean
-gomake
-gomake test
+(xcd ../doc/articles/wiki
+make clean
+./test.bash
 ) || exit $?
 
-for i in ../misc/dashboard/builder ../misc/goplay
-do
-	(xcd $i
-	gomake clean
-	gomake
-	) || exit $?
-done
+(xcd ../doc/codewalk
+# TODO: test these too.
+set -e
+go build pig.go
+go build urlpoll.go
+rm -f pig urlpoll
+) || exit $?
+
+echo
+echo '#' ../misc/dashboard/builder ../misc/goplay
+go build ../misc/dashboard/builder ../misc/goplay
 
 [ "$GOARCH" == arm ] ||
-(xcd ../test/bench
+(xcd ../test/bench/shootout
 ./timing.sh -test
 ) || exit $?
 
-[ "$GOHOSTOS" == windows ] ||
+echo
+echo '#' ../test/bench/go1
+go test ../test/bench/go1
+
 (xcd ../test
-./run
+time go run run.go
 ) || exit $?
+
+echo
+echo '# Checking API compatibility.'
+go tool api -c $GOROOT/api/go1.txt
 
 echo
 echo ALL TESTS PASSED

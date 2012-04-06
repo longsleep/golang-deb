@@ -1,10 +1,10 @@
-// $G $F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2010 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Semi-exhaustive test for append()
+// Semi-exhaustive test for the append predeclared function.
 
 package main
 
@@ -27,6 +27,7 @@ func main() {
 	}
 	verifyStruct()
 	verifyInterface()
+	verifyType()
 }
 
 
@@ -63,6 +64,11 @@ var tests = []struct {
 	{"byte i", append([]byte{0, 1, 2}, []byte{3}...), []byte{0, 1, 2, 3}},
 	{"byte j", append([]byte{0, 1, 2}, []byte{3, 4, 5}...), []byte{0, 1, 2, 3, 4, 5}},
 
+	{"bytestr a", append([]byte{}, "0"...), []byte("0")},
+	{"bytestr b", append([]byte{}, "0123"...), []byte("0123")},
+
+	{"bytestr c", append([]byte("012"), "3"...), []byte("0123")},
+	{"bytestr d", append([]byte("012"), "345"...), []byte("012345")},
 
 	{"int16 a", append([]int16{}), []int16{}},
 	{"int16 b", append([]int16{}, 0), []int16{0}},
@@ -224,4 +230,18 @@ func verifyInterface() {
 	}
 	verify("interface l", append(s), s)
 	verify("interface m", append(s, e...), r)
+}
+
+type T1 []int
+type T2 []int
+
+func verifyType() {
+	// The second argument to append has type []E where E is the
+	// element type of the first argument.  Test that the compiler
+	// accepts two slice types that meet that requirement but are
+	// not assignment compatible.  The return type of append is
+	// the type of the first argument.
+	t1 := T1{1}
+	t2 := T2{2}
+	verify("T1", append(t1, t2...), T1{1, 2})
 }

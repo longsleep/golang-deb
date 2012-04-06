@@ -1,11 +1,11 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// make a lot of goroutines, threaded together.
-// tear them down cleanly.
+// Torture test for goroutines.
+// Make a lot of goroutines, threaded together, and tear them down cleanly.
 
 package main
 
@@ -21,7 +21,7 @@ func f(left, right chan int) {
 func main() {
 	var n = 10000
 	if len(os.Args) > 1 {
-		var err os.Error
+		var err error
 		n, err = strconv.Atoi(os.Args[1])
 		if err != nil {
 			print("bad arg\n")

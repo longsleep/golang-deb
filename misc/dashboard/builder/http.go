@@ -6,143 +6,160 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"http"
-	"json"
+	"io"
 	"log"
-	"os"
-	"strconv"
-	"url"
+	"net/http"
+	"net/url"
+	"time"
 )
 
-type param map[string]string
+type obj map[string]interface{}
 
 // dash runs the given method and command on the dashboard.
-// If args is not nil, it is the query or post parameters.
-// If resp is not nil, dash unmarshals the body as JSON into resp.
-func dash(meth, cmd string, resp interface{}, args param) os.Error {
+// If args is non-nil it is encoded as the URL query string.
+// If req is non-nil it is JSON-encoded and passed as the body of the HTTP POST.
+// If resp is non-nil the server's response is decoded into the value pointed
+// to by resp (resp must be a pointer).
+func dash(meth, cmd string, args url.Values, req, resp interface{}) error {
 	var r *http.Response
-	var err os.Error
+	var err error
 	if *verbose {
-		log.Println("dash", cmd, args)
+		log.Println("dash", meth, cmd, args, req)
 	}
 	cmd = "http://" + *dashboard + "/" + cmd
-	vals := make(url.Values)
-	for k, v := range args {
-		vals.Add(k, v)
+	if len(args) > 0 {
+		cmd += "?" + args.Encode()
 	}
 	switch meth {
 	case "GET":
-		if q := vals.Encode(); q != "" {
-			cmd += "?" + q
+		if req != nil {
+			log.Panicf("%s to %s with req", meth, cmd)
 		}
 		r, err = http.Get(cmd)
 	case "POST":
-		r, err = http.PostForm(cmd, vals)
-	default:
-		return fmt.Errorf("unknown method %q", meth)
-	}
-	if err != nil {
-		return err
-	}
-	defer r.Body.Close()
-	var buf bytes.Buffer
-	buf.ReadFrom(r.Body)
-	if resp != nil {
-		if err = json.Unmarshal(buf.Bytes(), resp); err != nil {
-			log.Printf("json unmarshal %#q: %s\n", buf.Bytes(), err)
-			return err
+		var body io.Reader
+		if req != nil {
+			b, err := json.Marshal(req)
+			if err != nil {
+				return err
+			}
+			body = bytes.NewBuffer(b)
 		}
+		r, err = http.Post(cmd, "text/json", body)
+	default:
+		log.Panicf("%s: invalid method %q", cmd, meth)
+		panic("invalid method: " + meth)
 	}
-	return nil
-}
-
-func dashStatus(meth, cmd string, args param) os.Error {
-	var resp struct {
-		Status string
-		Error  string
-	}
-	err := dash(meth, cmd, &resp, args)
 	if err != nil {
 		return err
 	}
-	if resp.Status != "OK" {
-		return os.NewError("/build: " + resp.Error)
+
+	defer r.Body.Close()
+	body := new(bytes.Buffer)
+	if _, err := body.ReadFrom(r.Body); err != nil {
+		return err
 	}
+
+	// Read JSON-encoded Response into provided resp
+	// and return an error if present.
+	var result = struct {
+		Response interface{}
+		Error    string
+	}{
+		// Put the provided resp in here as it can be a pointer to
+		// some value we should unmarshal into.
+		Response: resp,
+	}
+	if err = json.Unmarshal(body.Bytes(), &result); err != nil {
+		log.Printf("json unmarshal %#q: %s\n", body.Bytes(), err)
+		return err
+	}
+	if result.Error != "" {
+		return errors.New(result.Error)
+	}
+
 	return nil
 }
 
 // todo returns the next hash to build.
-func (b *Builder) todo() (rev string, err os.Error) {
-	var resp []struct {
-		Hash string
+func (b *Builder) todo(kind, pkg, goHash string) (rev string, err error) {
+	args := url.Values{
+		"kind":        {kind},
+		"builder":     {b.name},
+		"packagePath": {pkg},
+		"goHash":      {goHash},
 	}
-	if err = dash("GET", "todo", &resp, param{"builder": b.name}); err != nil {
-		return
+	var resp *struct {
+		Kind string
+		Data struct {
+			Hash string
+		}
 	}
-	if len(resp) > 0 {
-		rev = resp[0].Hash
+	if err = dash("GET", "todo", args, nil, &resp); err != nil {
+		return "", err
 	}
-	return
+	if resp == nil {
+		return "", nil
+	}
+	if kind != resp.Kind {
+		return "", fmt.Errorf("expecting Kind %q, got %q", kind, resp.Kind)
+	}
+	return resp.Data.Hash, nil
 }
 
 // recordResult sends build results to the dashboard
-func (b *Builder) recordResult(buildLog string, hash string) os.Error {
-	return dash("POST", "build", nil, param{
-		"builder": b.name,
-		"key":     b.key,
-		"node":    hash,
-		"log":     buildLog,
-	})
+func (b *Builder) recordResult(ok bool, pkg, hash, goHash, buildLog string, runTime time.Duration) error {
+	req := obj{
+		"Builder":     b.name,
+		"PackagePath": pkg,
+		"Hash":        hash,
+		"GoHash":      goHash,
+		"OK":          ok,
+		"Log":         buildLog,
+		"RunTime":     runTime,
+	}
+	args := url.Values{"key": {b.key}, "builder": {b.name}}
+	return dash("POST", "result", args, req, nil)
 }
 
-// packages fetches a list of package paths from the dashboard
-func packages() (pkgs []string, err os.Error) {
-	var resp struct {
-		Packages []struct {
-			Path string
-		}
-	}
-	err = dash("GET", "package", &resp, param{"fmt": "json"})
+func postCommit(key, pkg string, l *HgLog) error {
+	t, err := time.Parse(time.RFC3339, l.Date)
 	if err != nil {
-		return
+		return fmt.Errorf("parsing %q: %v", l.Date, t)
 	}
-	for _, p := range resp.Packages {
-		pkgs = append(pkgs, p.Path)
-	}
-	return
+	return dash("POST", "commit", url.Values{"key": {key}}, obj{
+		"PackagePath": pkg,
+		"Hash":        l.Hash,
+		"ParentHash":  l.Parent,
+		"Time":        t.Format(time.RFC3339),
+		"User":        l.Author,
+		"Desc":        l.Desc,
+	}, nil)
 }
 
-// updatePackage sends package build results and info dashboard
-func (b *Builder) updatePackage(pkg string, ok bool, buildLog, info string) os.Error {
-	return dash("POST", "package", nil, param{
-		"builder": b.name,
-		"key":     b.key,
-		"path":    pkg,
-		"ok":      strconv.Btoa(ok),
-		"log":     buildLog,
-		"info":    info,
-	})
+func dashboardCommit(pkg, hash string) bool {
+	err := dash("GET", "commit", url.Values{
+		"packagePath": {pkg},
+		"hash":        {hash},
+	}, nil, nil)
+	return err == nil
 }
 
-// postCommit informs the dashboard of a new commit
-func postCommit(key string, l *HgLog) os.Error {
-	return dashStatus("POST", "commit", param{
-		"key":    key,
-		"node":   l.Hash,
-		"date":   l.Date,
-		"user":   l.Author,
-		"parent": l.Parent,
-		"desc":   l.Desc,
-	})
-}
-
-// dashboardCommit returns true if the dashboard knows about hash.
-func dashboardCommit(hash string) bool {
-	err := dashStatus("GET", "commit", param{"node": hash})
-	if err != nil {
-		log.Printf("check %s: %s", hash, err)
-		return false
+func dashboardPackages(kind string) []string {
+	args := url.Values{"kind": []string{kind}}
+	var resp []struct {
+		Path string
 	}
-	return true
+	if err := dash("GET", "packages", args, nil, &resp); err != nil {
+		log.Println("dashboardPackages:", err)
+		return nil
+	}
+	var pkgs []string
+	for _, r := range resp {
+		pkgs = append(pkgs, r.Path)
+	}
+	return pkgs
 }

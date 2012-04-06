@@ -3,14 +3,16 @@
 // license that can be found in the LICENSE file.
 
 // NOTE: If you change this file you must run "./mkbuiltin"
-// to update builtin.c.boot.  This is not done automatically
+// to update builtin.c.  This is not done automatically
 // to avoid depending on having a working compiler binary.
+
+// +build ignore
 
 package PACKAGE
 
 // emitted by compiler, not referred to by go programs
 
-func new(int32) *any
+func new(typ *byte) *any
 func panicindex()
 func panicslice()
 func throwreturn()
@@ -40,18 +42,19 @@ func concatstring()
 // filled in by compiler: Type*, int n, Slice, ...
 func append()
 func appendslice(typ *byte, x any, y []any) any
+func appendstr(typ *byte, x []byte, y string) []byte
 
 func cmpstring(string, string) int
 func slicestring(string, int, int) string
 func slicestring1(string, int) string
 func intstring(int64) string
 func slicebytetostring([]byte) string
-func sliceinttostring([]int) string
+func slicerunetostring([]rune) string
 func stringtoslicebyte(string) []byte
-func stringtosliceint(string) []int
+func stringtoslicerune(string) []rune
 func stringiter(string, int) int
-func stringiter2(string, int) (retk int, retv int)
-func slicecopy(to any, fr any, wid uint32) int
+func stringiter2(string, int) (retk int, retv rune)
+func copy(to any, fr any, wid uint32) int
 func slicestringcopy(to any, fr any) int
 
 // interface conversions
@@ -79,6 +82,8 @@ func efaceeq(i1 any, i2 any) (ret bool)
 func ifacethash(i1 any) (ret uint32)
 func efacethash(i1 any) (ret uint32)
 
+func equal(typ *byte, x1, x2 any) (ret bool)
+
 // *byte is really *runtime.Type
 func makemap(mapType *byte, hint int64) (hmap map[any]any)
 func mapaccess1(mapType *byte, hmap map[any]any, key any) (val any)
@@ -86,6 +91,7 @@ func mapaccess2(mapType *byte, hmap map[any]any, key any) (val any, pres bool)
 func mapassign1(mapType *byte, hmap map[any]any, key any, val any)
 func mapassign2(mapType *byte, hmap map[any]any, key any, val any, pres bool)
 func mapiterinit(mapType *byte, hmap map[any]any, hiter *any)
+func mapdelete(mapType *byte, hmap map[any]any, key any)
 func mapiternext(hiter *any)
 func mapiter1(hiter *any) (key any)
 func mapiter2(hiter *any) (key any, val any)
@@ -116,6 +122,13 @@ func sliceslice(old []any, lb uint64, hb uint64, width uint64) (ary []any)
 func slicearray(old *any, nel uint64, lb uint64, hb uint64, width uint64) (ary []any)
 
 func closure() // has args, but compiler fills in
+
+func memequal(eq *bool, size uintptr, x, y *any)
+func memequal8(eq *bool, size uintptr, x, y *any)
+func memequal16(eq *bool, size uintptr, x, y *any)
+func memequal32(eq *bool, size uintptr, x, y *any)
+func memequal64(eq *bool, size uintptr, x, y *any)
+func memequal128(eq *bool, size uintptr, x, y *any)
 
 // only used on 32-bit
 func int64div(int64, int64) int64

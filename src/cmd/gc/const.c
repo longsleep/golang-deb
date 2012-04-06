@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include	<u.h>
+#include	<libc.h>
 #include	"go.h"
 #define	TUP(x,y)	(((x)<<16)|(y))
 
@@ -85,6 +87,8 @@ convlit1(Node **np, Type *t, int explicit)
 
 	switch(n->op) {
 	default:
+		if(n->type == idealbool)
+			n->type = types[TBOOL];
 		if(n->type->etype == TIDEAL) {
 			convlit(&n->left, t);
 			convlit(&n->right, t);
@@ -106,7 +110,7 @@ convlit1(Node **np, Type *t, int explicit)
 		if(t != T && t->etype == TIDEAL && n->val.ctype != CTINT)
 			n->val = toint(n->val);
 		if(t != T && !isint[t->etype]) {
-			yyerror("invalid operation: %#N (shift of type %T)", n, t);
+			yyerror("invalid operation: %N (shift of type %T)", n, t);
 			t = T;
 		}
 		n->type = t;
@@ -168,6 +172,7 @@ convlit1(Node **np, Type *t, int explicit)
 		break;
 
 	case CTINT:
+	case CTRUNE:
 	case CTFLT:
 	case CTCPLX:
 		ct = n->val.ctype;
@@ -177,6 +182,7 @@ convlit1(Node **np, Type *t, int explicit)
 				goto bad;
 			case CTCPLX:
 			case CTFLT:
+			case CTRUNE:
 				n->val = toint(n->val);
 				// flowthrough
 			case CTINT:
@@ -190,6 +196,7 @@ convlit1(Node **np, Type *t, int explicit)
 				goto bad;
 			case CTCPLX:
 			case CTINT:
+			case CTRUNE:
 				n->val = toflt(n->val);
 				// flowthrough
 			case CTFLT:
@@ -204,6 +211,7 @@ convlit1(Node **np, Type *t, int explicit)
 				goto bad;
 			case CTFLT:
 			case CTINT:
+			case CTRUNE:
 				n->val = tocplx(n->val);
 				break;
 			case CTCPLX:
@@ -211,7 +219,7 @@ convlit1(Node **np, Type *t, int explicit)
 				break;
 			}
 		} else
-		if(et == TSTRING && ct == CTINT && explicit)
+		if(et == TSTRING && (ct == CTINT || ct == CTRUNE) && explicit)
 			n->val = tostr(n->val);
 		else
 			goto bad;
@@ -222,7 +230,7 @@ convlit1(Node **np, Type *t, int explicit)
 
 bad:
 	if(!n->diag) {
-		yyerror("cannot convert %#N to type %T", n, t);
+		yyerror("cannot convert %N to type %T", n, t);
 		n->diag = 1;
 	}
 	if(isideal(n->type)) {
@@ -241,6 +249,7 @@ copyval(Val v)
 
 	switch(v.ctype) {
 	case CTINT:
+	case CTRUNE:
 		i = mal(sizeof(*i));
 		mpmovefixfix(i, v.u.xval);
 		v.u.xval = i;
@@ -267,6 +276,7 @@ tocplx(Val v)
 
 	switch(v.ctype) {
 	case CTINT:
+	case CTRUNE:
 		c = mal(sizeof(*c));
 		mpmovefixflt(&c->real, v.u.xval);
 		mpmovecflt(&c->imag, 0.0);
@@ -291,6 +301,7 @@ toflt(Val v)
 
 	switch(v.ctype) {
 	case CTINT:
+	case CTRUNE:
 		f = mal(sizeof(*f));
 		mpmovefixflt(f, v.u.xval);
 		v.ctype = CTFLT;
@@ -314,6 +325,9 @@ toint(Val v)
 	Mpint *i;
 
 	switch(v.ctype) {
+	case CTRUNE:
+		v.ctype = CTINT;
+		break;
 	case CTFLT:
 		i = mal(sizeof(*i));
 		if(mpmovefltfix(i, v.u.fval) < 0)
@@ -343,6 +357,7 @@ overflow(Val v, Type *t)
 		return;
 	switch(v.ctype) {
 	case CTINT:
+	case CTRUNE:
 		if(!isint[t->etype])
 			fatal("overflow: %T integer constant", t);
 		if(mpcmpfixfix(v.u.xval, minintval[t->etype]) < 0 ||
@@ -377,6 +392,7 @@ tostr(Val v)
 
 	switch(v.ctype) {
 	case CTINT:
+	case CTRUNE:
 		if(mpcmpfixfix(v.u.xval, minintval[TINT]) < 0 ||
 		   mpcmpfixfix(v.u.xval, maxintval[TINT]) > 0)
 			yyerror("overflow in int -> string");
@@ -413,7 +429,12 @@ consttype(Node *n)
 int
 isconst(Node *n, int ct)
 {
-	return consttype(n) == ct;
+	int t;
+	
+	t = consttype(n);
+	// If the caller is asking for CTINT, allow CTRUNE too.
+	// Makes life easier for back ends.
+	return t == ct || (ct == CTINT && t == CTRUNE);
 }
 
 /*
@@ -422,7 +443,7 @@ isconst(Node *n, int ct)
 void
 evconst(Node *n)
 {
-	Node *nl, *nr;
+	Node *nl, *nr, *norig;
 	int32 len;
 	Strlit *str;
 	int wl, wr, lno, et;
@@ -516,7 +537,8 @@ evconst(Node *n)
 		n->right = nr;
 		if(nr->type && (issigned[nr->type->etype] || !isint[nr->type->etype]))
 			goto illegal;
-		nl->val = toint(nl->val);
+		if(nl->val.ctype != CTRUNE)
+			nl->val = toint(nl->val);
 		nr->val = toint(nr->val);
 		break;
 	}
@@ -538,6 +560,17 @@ evconst(Node *n)
 		v = toflt(v);
 		rv = toflt(rv);
 	}
+
+	// Rune and int turns into rune.
+	if(v.ctype == CTRUNE && rv.ctype == CTINT)
+		rv.ctype = CTRUNE;
+	if(v.ctype == CTINT && rv.ctype == CTRUNE) {
+		if(n->op == OLSH || n->op == ORSH)
+			rv.ctype = CTINT;
+		else
+			v.ctype = CTRUNE;
+	}
+
 	if(v.ctype != rv.ctype) {
 		// Use of undefined name as constant?
 		if((v.ctype == 0 || rv.ctype == 0) && nerrors > 0)
@@ -557,15 +590,19 @@ evconst(Node *n)
 		return;
 
 	case TUP(OADD, CTINT):
-		mpaddfixfix(v.u.xval, rv.u.xval);
+	case TUP(OADD, CTRUNE):
+		mpaddfixfix(v.u.xval, rv.u.xval, 0);
 		break;
 	case TUP(OSUB, CTINT):
+	case TUP(OSUB, CTRUNE):
 		mpsubfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(OMUL, CTINT):
+	case TUP(OMUL, CTRUNE):
 		mpmulfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(ODIV, CTINT):
+	case TUP(ODIV, CTRUNE):
 		if(mpcmpfixc(rv.u.xval, 0) == 0) {
 			yyerror("division by zero");
 			mpmovecfix(v.u.xval, 1);
@@ -574,6 +611,7 @@ evconst(Node *n)
 		mpdivfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(OMOD, CTINT):
+	case TUP(OMOD, CTRUNE):
 		if(mpcmpfixc(rv.u.xval, 0) == 0) {
 			yyerror("division by zero");
 			mpmovecfix(v.u.xval, 1);
@@ -583,21 +621,27 @@ evconst(Node *n)
 		break;
 
 	case TUP(OLSH, CTINT):
+	case TUP(OLSH, CTRUNE):
 		mplshfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(ORSH, CTINT):
+	case TUP(ORSH, CTRUNE):
 		mprshfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(OOR, CTINT):
+	case TUP(OOR, CTRUNE):
 		mporfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(OAND, CTINT):
+	case TUP(OAND, CTRUNE):
 		mpandfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(OANDNOT, CTINT):
+	case TUP(OANDNOT, CTRUNE):
 		mpandnotfixfix(v.u.xval, rv.u.xval);
 		break;
 	case TUP(OXOR, CTINT):
+	case TUP(OXOR, CTRUNE):
 		mpxorfixfix(v.u.xval, rv.u.xval);
 		break;
 
@@ -618,6 +662,14 @@ evconst(Node *n)
 		}
 		mpdivfltflt(v.u.fval, rv.u.fval);
 		break;
+	case TUP(OMOD, CTFLT):
+		// The default case above would print 'ideal % ideal',
+		// which is not quite an ideal error.
+		if(!n->diag) {
+			yyerror("illegal constant expression: floating-point %% operation");
+			n->diag = 1;
+		}
+		return;
 
 	case TUP(OADD, CTCPLX):
 		mpaddfltflt(&v.u.cval->real, &rv.u.cval->real);
@@ -647,26 +699,32 @@ evconst(Node *n)
 		goto setfalse;
 
 	case TUP(OEQ, CTINT):
+	case TUP(OEQ, CTRUNE):
 		if(mpcmpfixfix(v.u.xval, rv.u.xval) == 0)
 			goto settrue;
 		goto setfalse;
 	case TUP(ONE, CTINT):
+	case TUP(ONE, CTRUNE):
 		if(mpcmpfixfix(v.u.xval, rv.u.xval) != 0)
 			goto settrue;
 		goto setfalse;
 	case TUP(OLT, CTINT):
+	case TUP(OLT, CTRUNE):
 		if(mpcmpfixfix(v.u.xval, rv.u.xval) < 0)
 			goto settrue;
 		goto setfalse;
 	case TUP(OLE, CTINT):
+	case TUP(OLE, CTRUNE):
 		if(mpcmpfixfix(v.u.xval, rv.u.xval) <= 0)
 			goto settrue;
 		goto setfalse;
 	case TUP(OGE, CTINT):
+	case TUP(OGE, CTRUNE):
 		if(mpcmpfixfix(v.u.xval, rv.u.xval) >= 0)
 			goto settrue;
 		goto setfalse;
 	case TUP(OGT, CTINT):
+	case TUP(OGT, CTRUNE):
 		if(mpcmpfixfix(v.u.xval, rv.u.xval) > 0)
 			goto settrue;
 		goto setfalse;
@@ -784,17 +842,21 @@ unary:
 		}
 		// fall through
 	case TUP(OCONV, CTINT):
+	case TUP(OCONV, CTRUNE):
 	case TUP(OCONV, CTFLT):
 	case TUP(OCONV, CTSTR):
 		convlit1(&nl, n->type, 1);
 		break;
 
 	case TUP(OPLUS, CTINT):
+	case TUP(OPLUS, CTRUNE):
 		break;
 	case TUP(OMINUS, CTINT):
+	case TUP(OMINUS, CTRUNE):
 		mpnegfix(v.u.xval);
 		break;
 	case TUP(OCOM, CTINT):
+	case TUP(OCOM, CTRUNE):
 		et = Txxx;
 		if(nl->type != T)
 			et = nl->type->etype;
@@ -840,8 +902,15 @@ unary:
 	}
 
 ret:
-	// rewrite n in place.
+	if(n == n->orig) {
+		// duplicate node for n->orig.
+		norig = nod(OLITERAL, N, N);
+		*norig = *n;
+	} else
+		norig = n->orig;
 	*n = *nl;
+	// restore value of n->orig.
+	n->orig = norig;
 	n->val = v;
 
 	// check range.
@@ -880,6 +949,7 @@ nodlit(Val v)
 		n->type = idealbool;
 		break;
 	case CTINT:
+	case CTRUNE:
 	case CTFLT:
 	case CTCPLX:
 		n->type = types[TIDEAL];
@@ -937,10 +1007,14 @@ defaultlit(Node **np, Type *t)
 		defaultlit(&n->left, t);
 		t = n->left->type;
 		if(t != T && !isint[t->etype]) {
-			yyerror("invalid operation: %#N (shift of type %T)", n, t);
+			yyerror("invalid operation: %N (shift of type %T)", n, t);
 			t = T;
 		}
 		n->type = t;
+		return;
+	case ONOT:
+		defaultlit(&n->left, t);
+		n->type = n->left->type;
 		return;
 	default:
 		if(n->left == N) {
@@ -961,13 +1035,18 @@ defaultlit(Node **np, Type *t)
 		} else if(t == T && (n->left->op == OLSH || n->left->op == ORSH)) {
 			defaultlit(&n->right, T);
 			defaultlit(&n->left, n->right->type);
+		} else if(iscmp[n->op]) {
+			defaultlit2(&n->left, &n->right, 1);
 		} else {
 			defaultlit(&n->left, t);
 			defaultlit(&n->right, t);
 		}
-		if(n->type == idealbool || n->type == idealstring)
-			n->type = types[n->type->etype];
-		else
+		if(n->type == idealbool || n->type == idealstring) {
+			if(t != T && t->etype == n->type->etype)
+				n->type = t;
+			else
+				n->type = types[n->type->etype];
+		} else
 			n->type = n->left->type;
 		return;
 	}
@@ -989,7 +1068,7 @@ defaultlit(Node **np, Type *t)
 			n->type = types[TSTRING];
 			break;
 		}
-		yyerror("defaultlit: unknown literal: %#N", n);
+		yyerror("defaultlit: unknown literal: %N", n);
 		break;
 	case CTBOOL:
 		n->type = types[TBOOL];
@@ -998,6 +1077,9 @@ defaultlit(Node **np, Type *t)
 		break;
 	case CTINT:
 		n->type = types[TINT];
+		goto num;
+	case CTRUNE:
+		n->type = runetype;
 		goto num;
 	case CTFLT:
 		n->type = types[TFLOAT64];
@@ -1053,6 +1135,10 @@ defaultlit2(Node **lp, Node **rp, int force)
 	}
 	if(!force)
 		return;
+	if(l->type->etype == TBOOL) {
+		convlit(lp, types[TBOOL]);
+		convlit(rp, types[TBOOL]);
+	}
 	if(isconst(l, CTCPLX) || isconst(r, CTCPLX)) {
 		convlit(lp, types[TCOMPLEX128]);
 		convlit(rp, types[TCOMPLEX128]);
@@ -1063,6 +1149,13 @@ defaultlit2(Node **lp, Node **rp, int force)
 		convlit(rp, types[TFLOAT64]);
 		return;
 	}
+
+	if(isconst(l, CTRUNE) || isconst(r, CTRUNE)) {
+		convlit(lp, runetype);
+		convlit(rp, runetype);
+		return;
+	}
+
 	convlit(lp, types[TINT]);
 	convlit(rp, types[TINT]);
 }
@@ -1099,7 +1192,7 @@ cmpslit(Node *l, Node *r)
 int
 smallintconst(Node *n)
 {
-	if(n->op == OLITERAL && n->type != T)
+	if(n->op == OLITERAL && isconst(n, CTINT) && n->type != T)
 	switch(simtype[n->type->etype]) {
 	case TINT8:
 	case TUINT8:
@@ -1110,6 +1203,7 @@ smallintconst(Node *n)
 	case TBOOL:
 	case TPTR32:
 		return 1;
+	case TIDEAL:
 	case TINT64:
 	case TUINT64:
 		if(mpcmpfixfix(n->val.u.xval, minintval[TINT32]) < 0
@@ -1200,6 +1294,7 @@ convconst(Node *con, Type *t, Val *val)
 		default:
 			fatal("convconst ctype=%d %lT", val->ctype, t);
 		case CTINT:
+		case CTRUNE:
 			i = mpgetfix(val->u.xval);
 			break;
 		case CTBOOL:

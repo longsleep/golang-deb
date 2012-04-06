@@ -6,7 +6,7 @@
 // provided in a variety of forms (see the various Parse* functions); the
 // output is an abstract syntax tree (AST) representing the Go source. The
 // parser is invoked through one of the Parse* functions.
-//
+
 package parser
 
 import (
@@ -52,7 +52,7 @@ type parser struct {
 	// Non-syntactic parser control
 	exprLev int // < 0: in control clause, >= 0: in expression
 
-	// Ordinary identifer scopes
+	// Ordinary identifier scopes
 	pkgScope   *ast.Scope        // pkgScope.Outer == nil
 	topScope   *ast.Scope        // top-most scope; may be pkgScope
 	unresolved []*ast.Ident      // unresolved identifiers
@@ -1999,7 +1999,7 @@ func (p *parser) parseReceiver(scope *ast.Scope) *ast.FieldList {
 	if par.NumFields() != 1 {
 		p.errorExpected(pos, "exactly one receiver")
 		// TODO determine a better range for BadExpr below
-		par.List = []*ast.Field{&ast.Field{Type: &ast.BadExpr{pos, pos}}}
+		par.List = []*ast.Field{{Type: &ast.BadExpr{pos, pos}}}
 		return par
 	}
 
@@ -2008,7 +2008,7 @@ func (p *parser) parseReceiver(scope *ast.Scope) *ast.FieldList {
 	base := deref(recv.Type)
 	if _, isIdent := base.(*ast.Ident); !isIdent {
 		p.errorExpected(base.Pos(), "(unqualified) identifier")
-		par.List = []*ast.Field{&ast.Field{Type: &ast.BadExpr{recv.Pos(), recv.End()}}}
+		par.List = []*ast.Field{{Type: &ast.BadExpr{recv.Pos(), recv.End()}}}
 	}
 
 	return par

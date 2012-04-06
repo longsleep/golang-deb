@@ -266,7 +266,7 @@ loop:
 		if(cases == C)
 			diag(n, "case/default outside a switch");
 		if(l == Z) {
-			cas();
+			newcase();
 			cases->val = 0;
 			cases->def = 1;
 			cases->label = pc;
@@ -278,7 +278,7 @@ loop:
 			goto rloop;
 		if(l->op == OCONST)
 		if(typeword[l->type->etype] && l->type->etype != TIND) {
-			cas();
+			newcase();
 			cases->val = l->vconst;
 			cases->def = 0;
 			cases->label = pc;
@@ -293,7 +293,7 @@ loop:
 		complex(l);
 		if(l->type == T)
 			break;
-		if(!typeword[l->type->etype] || l->type->etype == TIND) {
+		if(!typechlvp[l->type->etype] || l->type->etype == TIND) {
 			diag(n, "switch expression must be integer");
 			break;
 		}
@@ -303,7 +303,7 @@ loop:
 
 		cn = cases;
 		cases = C;
-		cas();
+		newcase();
 
 		sbc = breakpc;
 		breakpc = pc;
@@ -320,15 +320,7 @@ loop:
 		}
 
 		patch(sp, pc);
-		regalloc(&nod, l, Z);
-		/* always signed */
-		if(typev[l->type->etype])
-			nod.type = types[TVLONG];
-		else
-			nod.type = types[TLONG];
-		cgen(l, &nod);
-		doswit(&nod);
-		regfree(&nod);
+		doswit(l);
 		patch(spb, pc);
 
 		cases = cn;

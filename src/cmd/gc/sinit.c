@@ -6,11 +6,24 @@
  * static initialization
  */
 
+#include	<u.h>
+#include	<libc.h>
 #include	"go.h"
 
+enum
+{
+	InitNotStarted = 0,
+	InitDone = 1,
+	InitPending = 2,
+};
+
+static int iszero(Node*);
+static void initplan(Node*);
 static NodeList *initlist;
 static void init2(Node*, NodeList**);
 static void init2list(NodeList*, NodeList**);
+static int staticinit(Node*, NodeList**);
+static Node *staticname(Type*, int);
 
 static void
 init1(Node *n, NodeList **out)
@@ -31,16 +44,16 @@ init1(Node *n, NodeList **out)
 	case PFUNC:
 		break;
 	default:
-		if(isblank(n) && n->defn != N && !n->defn->initorder) {
-			n->defn->initorder = 1;
+		if(isblank(n) && n->defn != N && n->defn->initorder == InitNotStarted) {
+			n->defn->initorder = InitDone;
 			*out = list(*out, n->defn);
 		}
 		return;
 	}
 
-	if(n->initorder == 1)
+	if(n->initorder == InitDone)
 		return;
-	if(n->initorder == 2) {
+	if(n->initorder == InitPending) {
 		if(n->class == PFUNC)
 			return;
 		
@@ -52,7 +65,7 @@ init1(Node *n, NodeList **out)
 		if(nerrors > 0)
 			errorexit();
 
-		print("initialization loop:\n");
+		print("%L: initialization loop:\n", n->lineno);
 		for(l=initlist;; l=l->next) {
 			if(l->next == nil)
 				break;
@@ -63,7 +76,7 @@ init1(Node *n, NodeList **out)
 		print("\t%L %S\n", n->lineno, n->sym);
 		errorexit();
 	}
-	n->initorder = 2;
+	n->initorder = InitPending;
 	l = malloc(sizeof *l);
 	l->next = initlist;
 	l->n = n;
@@ -84,20 +97,38 @@ init1(Node *n, NodeList **out)
 		case OAS:
 			if(n->defn->left != n)
 				goto bad;
+		/*
 			n->defn->dodata = 1;
 			init1(n->defn->right, out);
 			if(debug['j'])
 				print("%S\n", n->sym);
 			*out = list(*out, n->defn);
 			break;
+		*/
+			if(1) {
+				init2(n->defn->right, out);
+				if(debug['j'])
+					print("%S\n", n->sym);
+				if(!staticinit(n, out)) {
+if(debug['%']) dump("nonstatic", n->defn);
+					*out = list(*out, n->defn);
+				}
+			} else if(0) {
+				n->defn->dodata = 1;
+				init1(n->defn->right, out);
+				if(debug['j'])
+					print("%S\n", n->sym);
+				*out = list(*out, n->defn);
+			}
+			break;
 		
 		case OAS2FUNC:
 		case OAS2MAPR:
 		case OAS2DOTTYPE:
 		case OAS2RECV:
-			if(n->defn->initorder)
+			if(n->defn->initorder != InitNotStarted)
 				break;
-			n->defn->initorder = 1;
+			n->defn->initorder = InitDone;
 			for(l=n->defn->rlist; l; l=l->next)
 				init1(l->n, out);
 			*out = list(*out, n->defn);
@@ -109,7 +140,7 @@ init1(Node *n, NodeList **out)
 	if(l->n != n)
 		fatal("bad initlist");
 	free(l);
-	n->initorder = 1;
+	n->initorder = InitDone;
 	return;
 
 bad:
@@ -121,8 +152,12 @@ bad:
 static void
 init2(Node *n, NodeList **out)
 {
-	if(n == N || n->initorder == 1)
+	if(n == N || n->initorder == InitDone)
 		return;
+
+	if(n->op == ONAME && n->ninit)
+		fatal("name %S with ninit: %+N\n", n->sym, n);
+
 	init1(n, out);
 	init2(n->left, out);
 	init2(n->right, out);
@@ -140,7 +175,6 @@ init2list(NodeList *l, NodeList **out)
 	for(; l; l=l->next)
 		init2(l->n, out);
 }
-
 
 static void
 initreorder(NodeList *l, NodeList **out)
@@ -165,10 +199,232 @@ NodeList*
 initfix(NodeList *l)
 {
 	NodeList *lout;
+	int lno;
 
 	lout = nil;
+	lno = lineno;
 	initreorder(l, &lout);
+	lineno = lno;
 	return lout;
+}
+
+/*
+ * compilation of top-level (static) assignments
+ * into DATA statements if at all possible.
+ */
+
+static int staticassign(Node*, Node*, NodeList**);
+
+static int
+staticinit(Node *n, NodeList **out)
+{
+	Node *l, *r;
+
+	if(n->op != ONAME || n->class != PEXTERN || n->defn == N || n->defn->op != OAS)
+		fatal("staticinit");
+
+	lineno = n->lineno;
+	l = n->defn->left;
+	r = n->defn->right;
+	return staticassign(l, r, out);
+}
+
+// like staticassign but we are copying an already
+// initialized value r.
+static int
+staticcopy(Node *l, Node *r, NodeList **out)
+{
+	int i;
+	InitEntry *e;
+	InitPlan *p;
+	Node *a, *ll, *rr, *orig, n1;
+
+	if(r->op != ONAME || r->class != PEXTERN || r->sym->pkg != localpkg)
+		return 0;
+	if(r->defn == N)	// zeroed
+		return 1;
+	if(r->defn->op != OAS)
+		return 0;
+	orig = r;
+	r = r->defn->right;
+	
+	switch(r->op) {
+	case ONAME:
+		if(staticcopy(l, r, out))
+			return 1;
+		*out = list(*out, nod(OAS, l, r));
+		return 1;
+	
+	case OLITERAL:
+		if(iszero(r))
+			return 1;
+		gdata(l, r, l->type->width);
+		return 1;
+
+	case OADDR:
+		switch(r->left->op) {
+		case ONAME:
+			gdata(l, r, l->type->width);
+			return 1;
+		}
+		break;
+	
+	case OPTRLIT:
+		switch(r->left->op) {
+		default:
+			//dump("not static addr", r);
+			break;
+		case OARRAYLIT:
+		case OSTRUCTLIT:
+		case OMAPLIT:
+			// copy pointer
+			gdata(l, nod(OADDR, r->nname, N), l->type->width);
+			return 1;
+		}
+		break;
+
+	case OARRAYLIT:
+		if(isslice(r->type)) {
+			// copy slice
+			a = r->nname;
+			n1 = *l;
+			n1.xoffset = l->xoffset + Array_array;
+			gdata(&n1, nod(OADDR, a, N), widthptr);
+			n1.xoffset = l->xoffset + Array_nel;
+			gdata(&n1, r->right, 4);
+			n1.xoffset = l->xoffset + Array_cap;
+			gdata(&n1, r->right, 4);
+			return 1;
+		}
+		// fall through
+	case OSTRUCTLIT:
+		p = r->initplan;
+		n1 = *l;
+		for(i=0; i<p->len; i++) {
+			e = &p->e[i];
+			n1.xoffset = l->xoffset + e->xoffset;
+			n1.type = e->expr->type;
+			if(e->expr->op == OLITERAL)
+				gdata(&n1, e->expr, n1.type->width);
+			else {
+				ll = nod(OXXX, N, N);
+				*ll = n1;
+				if(!staticassign(ll, e->expr, out)) {
+					// Requires computation, but we're
+					// copying someone else's computation.
+					rr = nod(OXXX, N, N);
+					*rr = *orig;
+					rr->type = ll->type;
+					rr->xoffset += e->xoffset;
+					*out = list(*out, nod(OAS, ll, rr));
+				}
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+
+static int
+staticassign(Node *l, Node *r, NodeList **out)
+{
+	Node *a, n1;
+	Type *ta;
+	InitPlan *p;
+	InitEntry *e;
+	int i;
+	
+	switch(r->op) {
+	default:
+		//dump("not static", r);
+		break;
+	
+	case ONAME:
+		if(r->class == PEXTERN && r->sym->pkg == localpkg)
+			return staticcopy(l, r, out);
+		break;
+
+	case OLITERAL:
+		if(iszero(r))
+			return 1;
+		gdata(l, r, l->type->width);
+		return 1;
+
+	case OADDR:
+		switch(r->left->op) {
+		default:
+			//dump("not static addr", r);
+			break;
+
+		case ONAME:
+			gdata(l, r, l->type->width);
+			return 1;
+		}
+	
+	case OPTRLIT:
+		switch(r->left->op) {
+		default:
+			//dump("not static ptrlit", r);
+			break;
+
+		case OARRAYLIT:
+		case OMAPLIT:
+		case OSTRUCTLIT:
+			// Init pointer.
+			a = staticname(r->left->type, 1);
+			r->nname = a;
+			gdata(l, nod(OADDR, a, N), l->type->width);
+			// Init underlying literal.
+			if(!staticassign(a, r->left, out))
+				*out = list(*out, nod(OAS, a, r->left));
+			return 1;
+		}
+		break;
+
+	case OARRAYLIT:
+		initplan(r);
+		if(isslice(r->type)) {
+			// Init slice.
+			ta = typ(TARRAY);
+			ta->type = r->type->type;
+			ta->bound = mpgetfix(r->right->val.u.xval);
+			a = staticname(ta, 1);
+			r->nname = a;
+			n1 = *l;
+			n1.xoffset = l->xoffset + Array_array;
+			gdata(&n1, nod(OADDR, a, N), widthptr);
+			n1.xoffset = l->xoffset + Array_nel;
+			gdata(&n1, r->right, 4);
+			n1.xoffset = l->xoffset + Array_cap;
+			gdata(&n1, r->right, 4);
+			// Fall through to init underlying array.
+			l = a;
+		}
+		// fall through
+	case OSTRUCTLIT:
+		initplan(r);
+		p = r->initplan;
+		n1 = *l;
+		for(i=0; i<p->len; i++) {
+			e = &p->e[i];
+			n1.xoffset = l->xoffset + e->xoffset;
+			n1.type = e->expr->type;
+			if(e->expr->op == OLITERAL)
+				gdata(&n1, e->expr, n1.type->width);
+			else {
+				a = nod(OXXX, N, N);
+				*a = n1;
+				if(!staticassign(a, e->expr, out))
+					*out = list(*out, nod(OAS, a, e->expr));
+			}
+		}
+		return 1;
+
+	case OMAPLIT:
+		// TODO: Table-driven map insert.
+		break;
+	}
+	return 0;
 }
 
 /*
@@ -408,7 +664,6 @@ slicelit(int ctxt, Node *n, Node *var, NodeList **init)
 	dowidth(t);
 
 	if(ctxt != 0) {
-
 		// put everything into static array
 		vstat = staticname(t, ctxt);
 		arraylit(ctxt, 1, n, vstat, init);
@@ -452,12 +707,18 @@ slicelit(int ctxt, Node *n, Node *var, NodeList **init)
 	}
 
 	// make new auto *array (3 declare)
-	vauto = nod(OXXX, N, N);
-	tempname(vauto, ptrto(t));
+	vauto = temp(ptrto(t));
 
-	// set auto to point at new heap (3 assign)
-	a = nod(ONEW, N, N);
-	a->list = list1(typenod(t));
+	// set auto to point at new temp or heap (3 assign)
+	if(n->esc == EscNone) {
+		a = nod(OAS, temp(t), N);
+		typecheck(&a, Etop);
+		*init = list(*init, a);  // zero new temp
+		a = nod(OADDR, a->left, N);
+	} else {
+		a = nod(ONEW, N, N);
+		a->list = list1(typenod(t));
+	}
 	a = nod(OAS, vauto, a);
 	typecheck(&a, Etop);
 	walkexpr(&a, init);
@@ -522,6 +783,7 @@ maplit(int ctxt, Node *n, Node *var, NodeList **init)
 	Node *vstat, *index, *value;
 	Sym *syma, *symb;
 
+USED(ctxt);
 ctxt = 0;
 
 	// make the map var
@@ -545,7 +807,6 @@ ctxt = 0;
 			b++;
 	}
 
-	t = T;
 	if(b != 0) {
 		// build type [count]struct { a Tindex, b Tvalue }
 		t = n->type;
@@ -615,8 +876,7 @@ ctxt = 0;
 		// for i = 0; i < len(vstat); i++ {
 		//	map[vstat[i].a] = vstat[i].b
 		// }
-		index = nod(OXXX, N, N);
-		tempname(index, types[TINT]);
+		index = temp(types[TINT]);
 
 		a = nod(OINDEX, vstat, index);
 		a->etype = 1;	// no bounds checking
@@ -676,6 +936,19 @@ anylit(int ctxt, Node *n, Node *var, NodeList **init)
 	switch(n->op) {
 	default:
 		fatal("anylit: not lit");
+
+	case OPTRLIT:
+		if(!isptr[t->etype])
+			fatal("anylit: not ptr");
+
+		a = nod(OAS, var, callnew(t->type));
+		typecheck(&a, Etop);
+		*init = list(*init, a);
+
+		var = nod(OIND, var, N);
+		typecheck(&var, Erv | Easgn);
+		anylit(ctxt, n->left, var, init);
+		break;
 
 	case OSTRUCTLIT:
 		if(t->etype != TSTRUCT)
@@ -917,18 +1190,15 @@ gen_as_init(Node *n)
 	case TPTR64:
 	case TFLOAT32:
 	case TFLOAT64:
-		gused(N); // in case the data is the dest of a goto
 		gdata(&nam, nr, nr->type->width);
 		break;
 
 	case TCOMPLEX64:
 	case TCOMPLEX128:
-		gused(N); // in case the data is the dest of a goto
 		gdatacomplex(&nam, nr->val.u.cval);
 		break;
 
 	case TSTRING:
-		gused(N); // in case the data is the dest of a goto
 		gdatastring(&nam, nr->val.u.sval);
 		break;
 	}
@@ -969,3 +1239,152 @@ no:
 	return 0;
 }
 
+static int iszero(Node*);
+static int isvaluelit(Node*);
+static InitEntry* entry(InitPlan*);
+static void addvalue(InitPlan*, vlong, Node*, Node*);
+
+static void
+initplan(Node *n)
+{
+	InitPlan *p;
+	Node *a;
+	NodeList *l;
+
+	if(n->initplan != nil)
+		return;
+	p = mal(sizeof *p);
+	n->initplan = p;
+	switch(n->op) {
+	default:
+		fatal("initplan");
+	case OARRAYLIT:
+		for(l=n->list; l; l=l->next) {
+			a = l->n;
+			if(a->op != OKEY || !smallintconst(a->left))
+				fatal("initplan arraylit");
+			addvalue(p, n->type->type->width*mpgetfix(a->left->val.u.xval), N, a->right);
+		}
+		break;
+	case OSTRUCTLIT:
+		for(l=n->list; l; l=l->next) {
+			a = l->n;
+			if(a->op != OKEY || a->left->type == T)
+				fatal("initplan structlit");
+			addvalue(p, a->left->type->width, N, a->right);
+		}
+		break;
+	case OMAPLIT:
+		for(l=n->list; l; l=l->next) {
+			a = l->n;
+			if(a->op != OKEY)
+				fatal("initplan maplit");
+			addvalue(p, -1, a->left, a->right);
+		}
+		break;
+	}
+}
+
+static void
+addvalue(InitPlan *p, vlong xoffset, Node *key, Node *n)
+{
+	int i;
+	InitPlan *q;
+	InitEntry *e;
+
+	USED(key);
+
+	// special case: zero can be dropped entirely
+	if(iszero(n)) {
+		p->zero += n->type->width;
+		return;
+	}
+	
+	// special case: inline struct and array (not slice) literals
+	if(isvaluelit(n)) {
+		initplan(n);
+		q = n->initplan;
+		for(i=0; i<q->len; i++) {
+			e = entry(p);
+			*e = q->e[i];
+			e->xoffset += xoffset;
+		}
+		return;
+	}
+	
+	// add to plan
+	if(n->op == OLITERAL)
+		p->lit += n->type->width;
+	else
+		p->expr += n->type->width;
+
+	e = entry(p);
+	e->xoffset = xoffset;
+	e->expr = n;
+}
+
+static int
+iszero(Node *n)
+{
+	NodeList *l;
+
+	switch(n->op) {
+	case OLITERAL:
+		switch(n->val.ctype) {
+		default:
+			dump("unexpected literal", n);
+			fatal("iszero");
+	
+		case CTNIL:
+			return 1;
+		
+		case CTSTR:
+			return n->val.u.sval == nil || n->val.u.sval->len == 0;
+	
+		case CTBOOL:
+			return n->val.u.bval == 0;
+			
+		case CTINT:
+		case CTRUNE:
+			return mpcmpfixc(n->val.u.xval, 0) == 0;
+	
+		case CTFLT:
+			return mpcmpfltc(n->val.u.fval, 0) == 0;
+	
+		case CTCPLX:
+			return mpcmpfltc(&n->val.u.cval->real, 0) == 0 && mpcmpfltc(&n->val.u.cval->imag, 0) == 0;
+		}
+		break;
+	case OARRAYLIT:
+		if(isslice(n->type))
+			break;
+		// fall through
+	case OSTRUCTLIT:
+		for(l=n->list; l; l=l->next)
+			if(!iszero(l->n->right))
+				return 0;
+		return 1;
+	}
+	return 0;
+}
+
+static int
+isvaluelit(Node *n)
+{
+	return (n->op == OARRAYLIT && isfixedarray(n->type)) || n->op == OSTRUCTLIT;
+}
+
+static InitEntry*
+entry(InitPlan *p)
+{
+	if(p->len >= p->cap) {
+		if(p->cap == 0)
+			p->cap = 4;
+		else
+			p->cap *= 2;
+		p->e = realloc(p->e, p->cap*sizeof p->e[0]);
+		if(p->e == nil)
+			fatal("out of memory");
+	}
+	return &p->e[p->len++];
+}

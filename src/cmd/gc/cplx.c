@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 static	void	subnode(Node *nr, Node *ni, Node *nc);
@@ -131,6 +133,9 @@ complexgen(Node *n, Node *res)
 		dump("\ncomplexgen-n", n);
 		dump("complexgen-res", res);
 	}
+	
+	while(n->op == OCONVNOP)
+		n = n->left;
 
 	// pick off float/complex opcodes
 	switch(n->op) {
@@ -199,6 +204,8 @@ complexgen(Node *n, Node *res)
 	case OIND:
 	case ONAME:	// PHEAP or PPARAMREF var
 	case OCALLFUNC:
+	case OCALLMETH:
+	case OCALLINTER:
 		igen(n, &n1, res);
 		complexmove(&n1, res);
 		regfree(&n1);

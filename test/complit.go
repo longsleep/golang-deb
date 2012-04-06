@@ -1,8 +1,10 @@
-// $G $F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+// Test composite literals.
 
 package main
 
@@ -31,6 +33,18 @@ func eq(a []*R) {
 	}
 }
 
+func teq(t *T, n int) {
+	for i := 0; i < n; i++ {
+		if t == nil || t.i != i {
+			panic("bad")
+		}
+		t = t.next
+	}
+	if t != nil {
+		panic("bad")
+	}
+}
+
 type P struct {
 	a, b int
 }
@@ -45,6 +59,9 @@ func main() {
 
 	var tp *T
 	tp = &T{0, 7.2, "hi", &t}
+
+	tl := &T{i: 0, next: &T{i: 1, next: &T{i: 2, next: &T{i: 3, next: &T{i: 4}}}}}
+	teq(tl, 5)
 
 	a1 := []int{1, 2, 3}
 	if len(a1) != 3 {
@@ -93,6 +110,7 @@ func main() {
 	}
 
 	eq([]*R{itor(0), itor(1), itor(2), itor(3), itor(4), itor(5)})
+	eq([]*R{{0}, {1}, {2}, {3}, {4}, {5}})
 
 	p1 := NewP(1, 2)
 	p2 := NewP(1, 2)

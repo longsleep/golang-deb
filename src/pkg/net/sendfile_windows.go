@@ -16,7 +16,7 @@ type sendfileOp struct {
 	n   uint32
 }
 
-func (o *sendfileOp) Submit() (errno int) {
+func (o *sendfileOp) Submit() (err error) {
 	return syscall.TransmitFile(o.fd.sysfd, o.src, o.n, 0, &o.o, nil, syscall.TF_WRITE_BEHIND)
 }
 
@@ -33,7 +33,7 @@ func (o *sendfileOp) Name() string {
 // if handled == false, sendFile performed no work.
 //
 // Note that sendfile for windows does not suppport >2GB file.
-func sendFile(c *netFD, r io.Reader) (written int64, err os.Error, handled bool) {
+func sendFile(c *netFD, r io.Reader) (written int64, err error, handled bool) {
 	var n int64 = 0 // by default, copy until EOF
 
 	lr, ok := r.(*io.LimitedReader)
@@ -50,13 +50,15 @@ func sendFile(c *netFD, r io.Reader) (written int64, err os.Error, handled bool)
 
 	c.wio.Lock()
 	defer c.wio.Unlock()
-	c.incref()
+	if err := c.incref(false); err != nil {
+		return 0, err, true
+	}
 	defer c.decref()
 
 	var o sendfileOp
-	o.Init(c)
+	o.Init(c, 'w')
 	o.n = uint32(n)
-	o.src = f.Fd()
+	o.src = syscall.Handle(f.Fd())
 	done, err := iosrv.ExecIO(&o, 0)
 	if err != nil {
 		return 0, err, false

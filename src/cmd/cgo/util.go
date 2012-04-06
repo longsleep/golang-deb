@@ -5,11 +5,11 @@
 package main
 
 import (
-	"exec"
 	"fmt"
 	"go/token"
 	"io/ioutil"
 	"os"
+	"os/exec"
 )
 
 // run runs the command argv, feeding in stdin on standard input.
@@ -36,7 +36,6 @@ func run(stdin []byte, argv []string) (stdout, stderr []byte, ok bool) {
 	if err != nil {
 		fatalf("%s", err)
 	}
-	defer p.Release()
 	r0.Close()
 	w1.Close()
 	w2.Close()
@@ -56,23 +55,31 @@ func run(stdin []byte, argv []string) (stdout, stderr []byte, ok bool) {
 	<-c
 	<-c
 
-	w, err := p.Wait(0)
+	state, err := p.Wait()
 	if err != nil {
 		fatalf("%s", err)
 	}
-	ok = w.Exited() && w.ExitStatus() == 0
+	ok = state.Success()
 	return
+}
+
+func lineno(pos token.Pos) string {
+	return fset.Position(pos).String()
 }
 
 // Die with an error message.
 func fatalf(msg string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, msg+"\n", args...)
+	// If we've already printed other errors, they might have
+	// caused the fatal condition.  Assume they're enough.
+	if nerrors == 0 {
+		fmt.Fprintf(os.Stderr, msg+"\n", args...)
+	}
 	os.Exit(2)
 }
 
 var nerrors int
 
-func error(pos token.Pos, msg string, args ...interface{}) {
+func error_(pos token.Pos, msg string, args ...interface{}) {
 	nerrors++
 	if pos.IsValid() {
 		fmt.Fprintf(os.Stderr, "%s: ", fset.Position(pos).String())
@@ -102,7 +109,7 @@ func creat(name string) *os.File {
 	return f
 }
 
-func slashToUnderscore(c int) int {
+func slashToUnderscore(c rune) rune {
 	if c == '/' || c == '\\' || c == ':' {
 		c = '_'
 	}

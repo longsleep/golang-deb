@@ -259,7 +259,7 @@ patch(void)
 				// Convert
 				//   op	  n(GS), reg
 				// to
-				//   MOVL 0x2C(FS), reg
+				//   MOVL 0x14(FS), reg
 				//   op	  n(reg), reg
 				// The purpose of this patch is to fix some accesses
 				// to extern register variables (TLS) on Windows, as
@@ -273,7 +273,7 @@ patch(void)
 					q->as = p->as;
 					p->as = AMOVL;
 					p->from.type = D_INDIR+D_FS;
-					p->from.offset = 0x2C;
+					p->from.offset = 0x14;
 				}
 			}
 			if(HEADTYPE == Hlinux) {
@@ -307,9 +307,12 @@ patch(void)
 					p->from.offset = 0;
 				}
 			}
-			if(p->as == ACALL || (p->as == AJMP && p->to.type != D_BRANCH)) {
+			if((p->as == ACALL && p->to.type != D_BRANCH) || (p->as == AJMP && p->to.type != D_BRANCH)) {
 				s = p->to.sym;
-				if(s) {
+				if(p->to.type == D_INDIR+D_ADDR) {
+					 /* skip check if this is an indirect call (CALL *symbol(SB)) */
+					 continue;
+				} else if(s) {
 					if(debug['c'])
 						Bprint(&bso, "%s calls %s\n", TNAME, s->name);
 					if((s->type&~SSUB) != STEXT) {
@@ -421,7 +424,7 @@ dostkoff(void)
 			case Hwindows:
 				p->as = AMOVL;
 				p->from.type = D_INDIR+D_FS;
-				p->from.offset = 0x2c;
+				p->from.offset = 0x14;
 				p->to.type = D_CX;
 
 				p = appendp(p);
@@ -524,10 +527,18 @@ dostkoff(void)
 			p = appendp(p);	// save frame size in DX
 			p->as = AMOVL;
 			p->to.type = D_DX;
-			/* 160 comes from 3 calls (3*8) 4 safes (4*8) and 104 guard */
 			p->from.type = D_CONST;
-			if(autoffset+160+cursym->text->to.offset2 > 4096)
-				p->from.offset = (autoffset+160) & ~7LL;
+
+			// If we ask for more stack, we'll get a minimum of StackMin bytes.
+			// We need a stack frame large enough to hold the top-of-stack data,
+			// the function arguments+results, our caller's PC, our frame,
+			// a word for the return PC of the next call, and then the StackLimit bytes
+			// that must be available on entry to any function called from a function
+			// that did a stack check.  If StackMin is enough, don't ask for a specific
+			// amount: then we can use the custom functions and save a few
+			// instructions.
+			if(StackTop + cursym->text->to.offset2 + PtrSize + autoffset + PtrSize + StackLimit >= StackMin)
+				p->from.offset = (autoffset+7) & ~7LL;
 
 			p = appendp(p);	// save arg size in AX
 			p->as = AMOVL;

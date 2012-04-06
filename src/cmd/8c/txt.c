@@ -146,7 +146,9 @@ gclean(void)
 			continue;
 		if(s->type == types[TENUM])
 			continue;
+		textflag = s->dataflag;
 		gpseudo(AGLOBL, s, nodconst(s->type->width));
+		textflag = 0;
 	}
 	nextpc();
 	p->as = AEND;
@@ -372,7 +374,7 @@ regfree(Node *n)
 	if(n->op != OREGISTER && n->op != OINDREG)
 		goto err;
 	i = n->reg;
-	if(i < 0 || i >= sizeof(reg))
+	if(i < 0 || i >= nelem(reg))
 		goto err;
 	if(reg[i] <= 0)
 		goto err;

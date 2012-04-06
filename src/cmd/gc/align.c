@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 /*
@@ -283,6 +285,9 @@ dowidth(Type *t)
 		break;
 	}
 
+	if(widthptr == 4 && w != (int32)w)
+		yyerror("type %T too large", t);
+
 	t->width = w;
 	if(t->align == 0) {
 		if(w > 8 || (w&(w-1)) != 0)
@@ -489,12 +494,13 @@ typeinit(void)
 	okforeq[TPTR64] = 1;
 	okforeq[TUNSAFEPTR] = 1;
 	okforeq[TINTER] = 1;
-	okforeq[TMAP] = 1;
 	okforeq[TCHAN] = 1;
-	okforeq[TFUNC] = 1;
 	okforeq[TSTRING] = 1;
 	okforeq[TBOOL] = 1;
-	okforeq[TARRAY] = 1;	// refined in typecheck
+	okforeq[TMAP] = 1;	// nil only; refined in typecheck
+	okforeq[TFUNC] = 1;	// nil only; refined in typecheck
+	okforeq[TARRAY] = 1;	// nil slice only; refined in typecheck
+	okforeq[TSTRUCT] = 1;	// it's complicated; refined in typecheck
 
 	okforcmp[TSTRING] = 1;
 

@@ -69,6 +69,9 @@ func deepValueEqual(v1, v2 Value, visited map[uintptr]*visit, depth int) (b bool
 		}
 		return true
 	case Slice:
+		if v1.IsNil() != v2.IsNil() {
+			return false
+		}
 		if v1.Len() != v2.Len() {
 			return false
 		}
@@ -93,6 +96,9 @@ func deepValueEqual(v1, v2 Value, visited map[uintptr]*visit, depth int) (b bool
 		}
 		return true
 	case Map:
+		if v1.IsNil() != v2.IsNil() {
+			return false
+		}
 		if v1.Len() != v2.Len() {
 			return false
 		}
@@ -102,6 +108,12 @@ func deepValueEqual(v1, v2 Value, visited map[uintptr]*visit, depth int) (b bool
 			}
 		}
 		return true
+	case Func:
+		if v1.IsNil() && v2.IsNil() {
+			return true
+		}
+		// Can't do better than this:
+		return false
 	default:
 		// Normal equality suffices
 		return valueInterface(v1, false) == valueInterface(v2, false)
@@ -111,8 +123,8 @@ func deepValueEqual(v1, v2 Value, visited map[uintptr]*visit, depth int) (b bool
 }
 
 // DeepEqual tests for deep equality. It uses normal == equality where possible
-// but will scan members of arrays, slices, and fields of structs. It correctly
-// handles recursive types.
+// but will scan members of arrays, slices, maps, and fields of structs. It correctly
+// handles recursive types. Functions are equal only if they are both nil.
 func DeepEqual(a1, a2 interface{}) bool {
 	if a1 == nil || a2 == nil {
 		return a1 == a2

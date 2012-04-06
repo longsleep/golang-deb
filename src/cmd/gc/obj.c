@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 /*
@@ -21,17 +23,13 @@ dumpobj(void)
 		errorexit();
 	}
 
-	Bprint(bout, "go object %s %s %s\n", getgoos(), thestring, getgoversion());
+	Bprint(bout, "go object %s %s %s %s\n", getgoos(), thestring, getgoversion(), expstring());
 	Bprint(bout, "  exports automatically generated from\n");
 	Bprint(bout, "  %s in package \"%s\"\n", curio.infile, localpkg->name);
 	dumpexport();
 	Bprint(bout, "\n!\n");
 
 	outhist(bout);
-
-	// add nil plist w AEND to catch
-	// auto-generated trampolines, data
-	newplist();
 
 	dumpglobls();
 	dumptypestructs();
@@ -54,7 +52,7 @@ dumpglobls(void)
 			continue;
 
 		if(n->type == T)
-			fatal("external %#N nil type\n", n);
+			fatal("external %N nil type\n", n);
 		if(n->class == PFUNC)
 			continue;
 		if(n->sym->pkg != localpkg)
@@ -128,10 +126,37 @@ outhist(Biobuf *b)
 {
 	Hist *h;
 	char *p, ds[] = {'c', ':', '/', 0};
+	char *tofree;
+	int n;
+	static int first = 1;
+	static char *goroot, *goroot_final;
 
+	if(first) {
+		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
+		first = 0;
+		goroot = getenv("GOROOT");
+		goroot_final = getenv("GOROOT_FINAL");
+		if(goroot == nil)
+			goroot = "";
+		if(goroot_final == nil)
+			goroot_final = goroot;
+		if(strcmp(goroot, goroot_final) == 0) {
+			goroot = nil;
+			goroot_final = nil;
+		}
+	}
+
+	tofree = nil;
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
 		if(p) {
+			if(goroot != nil) {
+				n = strlen(goroot);
+				if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
+					tofree = smprint("%s%s", goroot_final, p+n);
+					p = tofree;
+				}
+			}
 			if(windows) {
 				// if windows variable is set, then, we know already,
 				// pathname is started with windows drive specifier
@@ -163,9 +188,12 @@ outhist(Biobuf *b)
 					outzfile(b, p);
 				}
 			}
-		
 		}
 		zhist(b, h->line, h->offset);
+		if(tofree) {
+			free(tofree);
+			tofree = nil;
+		}
 	}
 }
 
@@ -260,7 +288,7 @@ stringsym(char *s, int len)
 		tmp.lit.len = len;
 		memmove(tmp.lit.s, s, len);
 		tmp.lit.s[len] = '\0';
-		snprint(namebuf, sizeof(namebuf), "\"%Z\"", &tmp);
+		snprint(namebuf, sizeof(namebuf), "\"%Z\"", &tmp.lit);
 		pkg = gostringpkg;
 	}
 	sym = pkglookup(namebuf, pkg);
@@ -269,8 +297,8 @@ stringsym(char *s, int len)
 	if(sym->flags & SymUniq)
 		return sym;
 	sym->flags |= SymUniq;
-	
-	data();
+	sym->def = newname(sym);
+
 	off = 0;
 	
 	// string header
@@ -287,7 +315,6 @@ stringsym(char *s, int len)
 	off = duint8(sym, off, 0);  // terminating NUL for runtime
 	off = (off+widthptr-1)&~(widthptr-1);  // round to pointer alignment
 	ggloblsym(sym, off, 1);
-	text();
-	
+
 	return sym;	
 }

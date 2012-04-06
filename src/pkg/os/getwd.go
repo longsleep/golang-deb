@@ -12,7 +12,7 @@ import (
 // current directory.  If the current directory can be
 // reached via multiple paths (due to symbolic links),
 // Getwd may return any one of them.
-func Getwd() (string, Error) {
+func Getwd() (pwd string, err error) {
 	// If the operating system provides a Getwd call, use it.
 	if syscall.ImplementsGetwd {
 		s, e := syscall.Getwd()
@@ -27,10 +27,10 @@ func Getwd() (string, Error) {
 
 	// Clumsy but widespread kludge:
 	// if $PWD is set and matches ".", use it.
-	pwd := Getenv("PWD")
+	pwd = Getenv("PWD")
 	if len(pwd) > 0 && pwd[0] == '/' {
 		d, err := Stat(pwd)
-		if err == nil && d.Dev == dot.Dev && d.Ino == dot.Ino {
+		if err == nil && SameFile(dot, d) {
 			return pwd, nil
 		}
 	}
@@ -42,7 +42,7 @@ func Getwd() (string, Error) {
 		// Can't stat root - no hope.
 		return "", err
 	}
-	if root.Dev == dot.Dev && root.Ino == dot.Ino {
+	if SameFile(root, dot) {
 		return "/", nil
 	}
 
@@ -52,7 +52,7 @@ func Getwd() (string, Error) {
 	pwd = ""
 	for parent := ".."; ; parent = "../" + parent {
 		if len(parent) >= 1024 { // Sanity check
-			return "", ENAMETOOLONG
+			return "", syscall.ENAMETOOLONG
 		}
 		fd, err := Open(parent)
 		if err != nil {
@@ -67,14 +67,14 @@ func Getwd() (string, Error) {
 			}
 			for _, name := range names {
 				d, _ := Lstat(parent + "/" + name)
-				if d.Dev == dot.Dev && d.Ino == dot.Ino {
+				if SameFile(d, dot) {
 					pwd = "/" + name + pwd
 					goto Found
 				}
 			}
 		}
 		fd.Close()
-		return "", ENOENT
+		return "", ErrNotExist
 
 	Found:
 		pd, err := fd.Stat()
@@ -82,7 +82,7 @@ func Getwd() (string, Error) {
 			return "", err
 		}
 		fd.Close()
-		if pd.Dev == root.Dev && pd.Ino == root.Ino {
+		if SameFile(pd, root) {
 			break
 		}
 		// Set up for next round.

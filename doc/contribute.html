@@ -1,11 +1,13 @@
-<!-- Contribution Guidelines -->
+<!--{
+	"Title": "Contribution Guidelines"
+}-->
 
 <h2 id="Introduction">Introduction</h2>
 
 <p>
 This document explains how to contribute changes to the Go project.
 It assumes you have installed Go using the
-<a href="install.html">installation instructions</a> and
+<a href="/doc/install">installation instructions</a> and
 have <a href="code.html">written and tested your code</a>.
 (Note that the <code>gccgo</code> frontend lives elsewhere;
 see <a href="gccgo_contribute.html">Contributing to gccgo</a>.)
@@ -210,10 +212,10 @@ to this change, and the <code>CC</code> line lists people to
 notify about the change.
 These can be code review nicknames or arbitrary email addresses.
 Unless explicitly told otherwise, such as in the discussion leading
-up to sending in the change list, set the
-reviewer field to the
+up to sending in the change list, leave the reviewer field blank.
+This means that the
 <a href="http://groups.google.com/group/golang-dev">golang-dev@googlegroups.com</a>
-mailing list.
+mailing list will be used as the reviewer.
 </p>
 
 <p>
@@ -402,7 +404,7 @@ $ hg mail -r golang-dev@googlegroups.com --cc math-nuts@swtch.com 99999
 
 <p>
 Running <code>hg mail</code> will send an email to you and the reviewers
-asking them to visit the issue's URL and make coments on the change.
+asking them to visit the issue's URL and make comments on the change.
 When done, the reviewer clicks &ldquo;Publish and Mail comments&rdquo;
 to send comments back.
 </p>
@@ -523,7 +525,7 @@ This rigmarole needs to be done only for your first submission.
 <p>Code that you contribute should use the standard copyright header:</p>
 
 <pre>
-// Copyright 2011 The Go Authors. All rights reserved.
+// Copyright 2012 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 </pre>

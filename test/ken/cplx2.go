@@ -1,8 +1,10 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2010 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+// Test arithmetic on complex numbers, including multiplication and division.
 
 package main
 
@@ -103,6 +105,18 @@ func main() {
 	ce := cd * c6
 	if ce != Ce {
 		println("opcode x", ce, Ce)
+		panic("fail")
+	}
+	
+	r32 := real(complex64(ce))
+	if r32 != float32(real(Ce)) {
+		println("real(complex64(ce))", r32, real(Ce))
+		panic("fail")
+	}
+	
+	r64 := real(complex128(ce))
+	if r64 != real(Ce) {
+		println("real(complex128(ce))", r64, real(Ce))
 		panic("fail")
 	}
 }

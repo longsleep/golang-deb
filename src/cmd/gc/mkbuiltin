@@ -3,29 +3,29 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# Generate builtin.c and builtin.c.boot from $* (runtime.go and unsafe.go).
+# Generate builtin.c from $* (runtime.go and unsafe.go).
 # Run this after changing runtime.go and unsafe.go
 # or after changing the export metadata format in the compiler.
 # Either way, you need to have a working compiler binary first.
 
 set -e
 
-eval $(gomake --no-print-directory -f ../../Make.inc go-env)
-if [ -z "$GC" ]; then
-	echo 'missing $GC - gomake failed?' 1>&2
+eval $(go tool dist env)
+if [ -z "$GOCHAR" ]; then
+	echo 'missing $GOCHAR - go tool dist failed?' 1>&2
 	exit 1
 fi
 
-gomake mkbuiltin1
+GC=${GOCHAR}g
+gcc -o mkbuiltin1 mkbuiltin1.c
 rm -f _builtin.c
 for i in runtime unsafe
 do
-	$GC -A $i.go
-	O=$O ./mkbuiltin1 $i >>_builtin.c
+	go tool $GC -A $i.go
+	O=$GOCHAR ./mkbuiltin1 $i >>_builtin.c
 done
 
-# If _builtin.c has changed vs builtin.c.boot,
+# If _builtin.c has changed vs builtin.c,
 # check in the new change.
-cmp -s _builtin.c builtin.c.boot || cp _builtin.c builtin.c.boot
-
-mv _builtin.c builtin.c
+cmp -s _builtin.c builtin.c || cp _builtin.c builtin.c
+rm _builtin.c mkbuiltin1 unsafe.$GOCHAR runtime.$GOCHAR

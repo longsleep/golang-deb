@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include	<u.h>
+#include	<libc.h>
 #include	"go.h"
 #include	"md5.h"
 #include	"y.tab.h"
-#include	"opnames.h"
 #include	"yerr.h"
-
-static	void	dodump(Node*, int);
 
 typedef struct Error Error;
 struct Error
@@ -27,7 +26,7 @@ errorexit(void)
 	flusherrors();
 	if(outfile)
 		remove(outfile);
-	exit(1);
+	exits("error");
 }
 
 extern int yychar;
@@ -45,12 +44,10 @@ adderr(int line, char *fmt, va_list arg)
 	Fmt f;
 	Error *p;
 
-	erroring++;
 	fmtstrinit(&f);
 	fmtprint(&f, "%L: ", line);
 	fmtvprint(&f, fmt, arg);
 	fmtprint(&f, "\n");
-	erroring--;
 
 	if(nerr >= merr) {
 		if(merr == 0)
@@ -106,7 +103,7 @@ hcrash(void)
 	if(debug['h']) {
 		flusherrors();
 		if(outfile)
-			unlink(outfile);
+			remove(outfile);
 		*(volatile int*)0 = 0;
 	}
 }
@@ -122,7 +119,7 @@ yyerrorl(int line, char *fmt, ...)
 
 	hcrash();
 	nerrors++;
-	if(nerrors >= 10 && !debug['e']) {
+	if(nsavederrors+nerrors >= 10 && !debug['e']) {
 		flusherrors();
 		print("%L: too many errors\n", line);
 		errorexit();
@@ -190,7 +187,7 @@ yyerror(char *fmt, ...)
 
 	hcrash();
 	nerrors++;
-	if(nerrors >= 10 && !debug['e']) {
+	if(nsavederrors+nerrors >= 10 && !debug['e']) {
 		flusherrors();
 		print("%L: too many errors\n", parserline());
 		errorexit();
@@ -207,6 +204,16 @@ warn(char *fmt, ...)
 	va_end(arg);
 
 	hcrash();
+}
+
+void
+warnl(int line, char *fmt, ...)
+{
+	va_list arg;
+
+	va_start(arg, fmt);
+	adderr(line, fmt, arg);
+	va_end(arg);
 }
 
 void
@@ -393,7 +400,7 @@ importdot(Pkg *opkg, Node *pack)
 	}
 	if(n == 0) {
 		// can't possibly be used - there were no symbols
-		yyerrorl(pack->lineno, "imported and not used: %Z", opkg->path);
+		yyerrorl(pack->lineno, "imported and not used: \"%Z\"", opkg->path);
 	}
 }
 
@@ -483,49 +490,125 @@ nod(int op, Node *nleft, Node *nright)
 	n->lineno = parserline();
 	n->xoffset = BADWIDTH;
 	n->orig = n;
+	n->curfn = curfn;
 	return n;
+}
+
+int
+algtype1(Type *t, Type **bad)
+{
+	int a, ret;
+	Type *t1;
+	
+	if(bad)
+		*bad = T;
+
+	switch(t->etype) {
+	case TINT8:
+	case TUINT8:
+	case TINT16:
+	case TUINT16:
+	case TINT32:
+	case TUINT32:
+	case TINT64:
+	case TUINT64:
+	case TINT:
+	case TUINT:
+	case TUINTPTR:
+	case TBOOL:
+	case TPTR32:
+	case TPTR64:
+	case TCHAN:
+	case TUNSAFEPTR:
+		return AMEM;
+
+	case TFUNC:
+	case TMAP:
+		if(bad)
+			*bad = t;
+		return ANOEQ;
+
+	case TFLOAT32:
+		return AFLOAT32;
+
+	case TFLOAT64:
+		return AFLOAT64;
+
+	case TCOMPLEX64:
+		return ACPLX64;
+
+	case TCOMPLEX128:
+		return ACPLX128;
+
+	case TSTRING:
+		return ASTRING;
+	
+	case TINTER:
+		if(isnilinter(t))
+			return ANILINTER;
+		return AINTER;
+	
+	case TARRAY:
+		if(isslice(t)) {
+			if(bad)
+				*bad = t;
+			return ANOEQ;
+		}
+		if(t->bound == 0)
+			return AMEM;
+		a = algtype1(t->type, bad);
+		if(a == ANOEQ || a == AMEM) {
+			if(a == ANOEQ && bad)
+				*bad = t;
+			return a;
+		}
+		return -1;  // needs special compare
+
+	case TSTRUCT:
+		if(t->type != T && t->type->down == T) {
+			// One-field struct is same as that one field alone.
+			return algtype1(t->type->type, bad);
+		}
+		ret = AMEM;
+		for(t1=t->type; t1!=T; t1=t1->down) {
+			if(isblanksym(t1->sym))
+				continue;
+			a = algtype1(t1->type, bad);
+			if(a == ANOEQ)
+				return ANOEQ;  // not comparable
+			if(a != AMEM)
+				ret = -1;  // needs special compare
+		}
+		return ret;
+	}
+
+	fatal("algtype1: unexpected type %T", t);
+	return 0;
 }
 
 int
 algtype(Type *t)
 {
 	int a;
-
-	if(issimple[t->etype] || isptr[t->etype] ||
-		t->etype == TCHAN || t->etype == TFUNC || t->etype == TMAP) {
-		if(t->width == 1)
-			a = AMEM8;
-		else if(t->width == 2)
-			a = AMEM16;
-		else if(t->width == 4)
-			a = AMEM32;
-		else if(t->width == 8)
-			a = AMEM64;
-		else if(t->width == 16)
-			a = AMEM128;
-		else
-			a = AMEM;	// just bytes (int, ptr, etc)
-	} else if(t->etype == TSTRING)
-		a = ASTRING;	// string
-	else if(isnilinter(t))
-		a = ANILINTER;	// nil interface
-	else if(t->etype == TINTER)
-		a = AINTER;	// interface
-	else if(isslice(t))
-		a = ASLICE;	// slice
-	else {
-		if(t->width == 1)
-			a = ANOEQ8;
-		else if(t->width == 2)
-			a = ANOEQ16;
-		else if(t->width == 4)
-			a = ANOEQ32;
-		else if(t->width == 8)
-			a = ANOEQ64;
-		else if(t->width == 16)
-			a = ANOEQ128;
-		else
-			a = ANOEQ;	// just bytes, but no hash/eq
+	
+	a = algtype1(t, nil);
+	if(a == AMEM || a == ANOEQ) {
+		if(isslice(t))
+			return ASLICE;
+		switch(t->width) {
+		case 0:
+			return a + AMEM0 - AMEM;
+		case 1:
+			return a + AMEM8 - AMEM;
+		case 2:
+			return a + AMEM16 - AMEM;
+		case 4:
+			return a + AMEM32 - AMEM;
+		case 8:
+			return a + AMEM64 - AMEM;
+		case 16:
+			return a + AMEM128 - AMEM;
+		}
 	}
 	return a;
 }
@@ -535,9 +618,16 @@ maptype(Type *key, Type *val)
 {
 	Type *t;
 
-
-	if(key != nil && key->etype != TANY && algtype(key) == ANOEQ) {
-		if(key->etype == TFORW) {
+	if(key != nil) {
+		switch(key->etype) {
+		default:
+			if(algtype1(key, nil) == ANOEQ)
+				yyerror("invalid map key type %T", key);
+			break;
+		case TANY:
+			// will be resolved later.
+			break;
+		case TFORW:
 			// map[key] used during definition of key.
 			// postpone check until key is fully defined.
 			// if there are multiple uses of map[key]
@@ -546,8 +636,8 @@ maptype(Type *key, Type *val)
 			// good enough.
 			if(key->maplineno == 0)
 				key->maplineno = lineno;
-		} else
-			yyerror("invalid map key type %T", key);
+			break;
+		}
 	}
 	t = typ(TMAP);
 	t->down = key;
@@ -696,6 +786,7 @@ aindex(Node *b, Type *t)
 			yyerror("array bound must be an integer expression");
 			break;
 		case CTINT:
+		case CTRUNE:
 			bound = mpgetfix(b->val.u.xval);
 			if(bound < 0)
 				yyerror("array bound must be non negative");
@@ -708,892 +799,6 @@ aindex(Node *b, Type *t)
 	r->type = t;
 	r->bound = bound;
 	return r;
-}
-
-static void
-indent(int dep)
-{
-	int i;
-
-	for(i=0; i<dep; i++)
-		print(".   ");
-}
-
-static void
-dodumplist(NodeList *l, int dep)
-{
-	for(; l; l=l->next)
-		dodump(l->n, dep);
-}
-
-static void
-dodump(Node *n, int dep)
-{
-	if(n == N)
-		return;
-
-	indent(dep);
-	if(dep > 10) {
-		print("...\n");
-		return;
-	}
-
-	if(n->ninit != nil) {
-		print("%O-init\n", n->op);
-		dodumplist(n->ninit, dep+1);
-		indent(dep);
-	}
-
-	switch(n->op) {
-	default:
-		print("%N\n", n);
-		dodump(n->left, dep+1);
-		dodump(n->right, dep+1);
-		break;
-
-	case OTYPE:
-		print("%O %S type=%T\n", n->op, n->sym, n->type);
-		if(n->type == T && n->ntype) {
-			indent(dep);
-			print("%O-ntype\n", n->op);
-			dodump(n->ntype, dep+1);
-		}
-		break;
-
-	case OIF:
-		print("%O%J\n", n->op, n);
-		dodump(n->ntest, dep+1);
-		if(n->nbody != nil) {
-			indent(dep);
-			print("%O-then\n", n->op);
-			dodumplist(n->nbody, dep+1);
-		}
-		if(n->nelse != nil) {
-			indent(dep);
-			print("%O-else\n", n->op);
-			dodumplist(n->nelse, dep+1);
-		}
-		break;
-
-	case OSELECT:
-		print("%O%J\n", n->op, n);
-		dodumplist(n->nbody, dep+1);
-		break;
-
-	case OSWITCH:
-	case OFOR:
-		print("%O%J\n", n->op, n);
-		dodump(n->ntest, dep+1);
-
-		if(n->nbody != nil) {
-			indent(dep);
-			print("%O-body\n", n->op);
-			dodumplist(n->nbody, dep+1);
-		}
-
-		if(n->nincr != N) {
-			indent(dep);
-			print("%O-incr\n", n->op);
-			dodump(n->nincr, dep+1);
-		}
-		break;
-
-	case OCASE:
-		// the right side points to label of the body
-		if(n->right != N && n->right->op == OGOTO && n->right->left->op == ONAME)
-			print("%O%J GOTO %N\n", n->op, n, n->right->left);
-		else
-			print("%O%J\n", n->op, n);
-		dodump(n->left, dep+1);
-		break;
-
-	case OXCASE:
-		print("%N\n", n);
-		dodump(n->left, dep+1);
-		dodump(n->right, dep+1);
-		indent(dep);
-		print("%O-nbody\n", n->op);
-		dodumplist(n->nbody, dep+1);
-		break;
-	}
-
-	if(0 && n->ntype != nil) {
-		indent(dep);
-		print("%O-ntype\n", n->op);
-		dodump(n->ntype, dep+1);
-	}
-	if(n->list != nil) {
-		indent(dep);
-		print("%O-list\n", n->op);
-		dodumplist(n->list, dep+1);
-	}
-	if(n->rlist != nil) {
-		indent(dep);
-		print("%O-rlist\n", n->op);
-		dodumplist(n->rlist, dep+1);
-	}
-	if(n->op != OIF && n->nbody != nil) {
-		indent(dep);
-		print("%O-nbody\n", n->op);
-		dodumplist(n->nbody, dep+1);
-	}
-}
-
-void
-dumplist(char *s, NodeList *l)
-{
-	print("%s\n", s);
-	dodumplist(l, 1);
-}
-
-void
-dump(char *s, Node *n)
-{
-	print("%s [%p]\n", s, n);
-	dodump(n, 1);
-}
-
-static char*
-goopnames[] =
-{
-	[OADDR]		= "&",
-	[OADD]		= "+",
-	[OANDAND]	= "&&",
-	[OANDNOT]	= "&^",
-	[OAND]		= "&",
-	[OAPPEND]	= "append",
-	[OAS]		= "=",
-	[OAS2]		= "=",
-	[OBREAK]	= "break",
-	[OCALL]	= "function call",
-	[OCAP]		= "cap",
-	[OCASE]		= "case",
-	[OCLOSE]	= "close",
-	[OCOMPLEX]	= "complex",
-	[OCOM]		= "^",
-	[OCONTINUE]	= "continue",
-	[OCOPY]		= "copy",
-	[ODEC]		= "--",
-	[ODEFER]	= "defer",
-	[ODIV]		= "/",
-	[OEQ]		= "==",
-	[OFALL]		= "fallthrough",
-	[OFOR]		= "for",
-	[OGE]		= ">=",
-	[OGOTO]		= "goto",
-	[OGT]		= ">",
-	[OIF]		= "if",
-	[OIMAG]		= "imag",
-	[OINC]		= "++",
-	[OIND]		= "*",
-	[OLEN]		= "len",
-	[OLE]		= "<=",
-	[OLSH]		= "<<",
-	[OLT]		= "<",
-	[OMAKE]		= "make",
-	[OMINUS]	= "-",
-	[OMOD]		= "%",
-	[OMUL]		= "*",
-	[ONEW]		= "new",
-	[ONE]		= "!=",
-	[ONOT]		= "!",
-	[OOROR]		= "||",
-	[OOR]		= "|",
-	[OPANIC]	= "panic",
-	[OPLUS]		= "+",
-	[OPRINTN]	= "println",
-	[OPRINT]	= "print",
-	[ORANGE]	= "range",
-	[OREAL]		= "real",
-	[ORECV]		= "<-",
-	[ORETURN]	= "return",
-	[ORSH]		= ">>",
-	[OSELECT]	= "select",
-	[OSEND]		= "<-",
-	[OSUB]		= "-",
-	[OSWITCH]	= "switch",
-	[OXOR]		= "^",
-};
-
-int
-Oconv(Fmt *fp)
-{
-	int o;
-
-	o = va_arg(fp->args, int);
-	if((fp->flags & FmtSharp) && o >= 0 && o < nelem(goopnames) && goopnames[o] != nil)
-		return fmtstrcpy(fp, goopnames[o]);
-	if(o < 0 || o >= nelem(opnames) || opnames[o] == nil)
-		return fmtprint(fp, "O-%d", o);
-	return fmtstrcpy(fp, opnames[o]);
-}
-
-int
-Lconv(Fmt *fp)
-{
-	struct
-	{
-		Hist*	incl;	/* start of this include file */
-		int32	idel;	/* delta line number to apply to include */
-		Hist*	line;	/* start of this #line directive */
-		int32	ldel;	/* delta line number to apply to #line */
-	} a[HISTSZ];
-	int32 lno, d;
-	int i, n;
-	Hist *h;
-
-	lno = va_arg(fp->args, int32);
-
-	n = 0;
-	for(h=hist; h!=H; h=h->link) {
-		if(h->offset < 0)
-			continue;
-		if(lno < h->line)
-			break;
-		if(h->name) {
-			if(h->offset > 0) {
-				// #line directive
-				if(n > 0 && n < HISTSZ) {
-					a[n-1].line = h;
-					a[n-1].ldel = h->line - h->offset + 1;
-				}
-			} else {
-				// beginning of file
-				if(n < HISTSZ) {
-					a[n].incl = h;
-					a[n].idel = h->line;
-					a[n].line = 0;
-				}
-				n++;
-			}
-			continue;
-		}
-		n--;
-		if(n > 0 && n < HISTSZ) {
-			d = h->line - a[n].incl->line;
-			a[n-1].ldel += d;
-			a[n-1].idel += d;
-		}
-	}
-
-	if(n > HISTSZ)
-		n = HISTSZ;
-
-	for(i=n-1; i>=0; i--) {
-		if(i != n-1) {
-			if(fp->flags & ~(FmtWidth|FmtPrec))
-				break;
-			fmtprint(fp, " ");
-		}
-		if(debug['L'])
-			fmtprint(fp, "%s/", pathname);
-		if(a[i].line)
-			fmtprint(fp, "%s:%d[%s:%d]",
-				a[i].line->name, lno-a[i].ldel+1,
-				a[i].incl->name, lno-a[i].idel+1);
-		else
-			fmtprint(fp, "%s:%d",
-				a[i].incl->name, lno-a[i].idel+1);
-		lno = a[i].incl->line - 1;	// now print out start of this file
-	}
-	if(n == 0)
-		fmtprint(fp, "<epoch>");
-
-	return 0;
-}
-
-/*
-s%,%,\n%g
-s%\n+%\n%g
-s%^[ 	]*T%%g
-s%,.*%%g
-s%.+%	[T&]		= "&",%g
-s%^	........*\]%&~%g
-s%~	%%g
-*/
-
-static char*
-etnames[] =
-{
-	[TINT]		= "INT",
-	[TUINT]		= "UINT",
-	[TINT8]		= "INT8",
-	[TUINT8]	= "UINT8",
-	[TINT16]	= "INT16",
-	[TUINT16]	= "UINT16",
-	[TINT32]	= "INT32",
-	[TUINT32]	= "UINT32",
-	[TINT64]	= "INT64",
-	[TUINT64]	= "UINT64",
-	[TUINTPTR]	= "UINTPTR",
-	[TFLOAT32]	= "FLOAT32",
-	[TFLOAT64]	= "FLOAT64",
-	[TCOMPLEX64]	= "COMPLEX64",
-	[TCOMPLEX128]	= "COMPLEX128",
-	[TBOOL]		= "BOOL",
-	[TPTR32]	= "PTR32",
-	[TPTR64]	= "PTR64",
-	[TFUNC]		= "FUNC",
-	[TARRAY]	= "ARRAY",
-	[TSTRUCT]	= "STRUCT",
-	[TCHAN]		= "CHAN",
-	[TMAP]		= "MAP",
-	[TINTER]	= "INTER",
-	[TFORW]		= "FORW",
-	[TFIELD]	= "FIELD",
-	[TSTRING]	= "STRING",
-	[TANY]		= "ANY",
-};
-
-int
-Econv(Fmt *fp)
-{
-	int et;
-
-	et = va_arg(fp->args, int);
-	if(et < 0 || et >= nelem(etnames) || etnames[et] == nil)
-		return fmtprint(fp, "E-%d", et);
-	return fmtstrcpy(fp, etnames[et]);
-}
-
-static const char* classnames[] = {
-	"Pxxx",
-	"PEXTERN",
-	"PAUTO",
-	"PPARAM",
-	"PPARAMOUT",
-	"PPARAMREF",
-	"PFUNC",
-};
-
-int
-Jconv(Fmt *fp)
-{
-	Node *n;
-	char *s;
-	int c;
-
-	n = va_arg(fp->args, Node*);
-
-	c = fp->flags&FmtShort;
-
-	if(!c && n->ullman != 0)
-		fmtprint(fp, " u(%d)", n->ullman);
-
-	if(!c && n->addable != 0)
-		fmtprint(fp, " a(%d)", n->addable);
-
-	if(!c && n->vargen != 0)
-		fmtprint(fp, " g(%d)", n->vargen);
-
-	if(n->lineno != 0)
-		fmtprint(fp, " l(%d)", n->lineno);
-
-	if(!c && n->xoffset != BADWIDTH)
-		fmtprint(fp, " x(%lld%+d)", n->xoffset, n->stkdelta);
-
-	if(n->class != 0) {
-		s = "";
-		if (n->class & PHEAP) s = ",heap";
-		if ((n->class & ~PHEAP) < nelem(classnames))
-			fmtprint(fp, " class(%s%s)", classnames[n->class&~PHEAP], s);
-		else
-			fmtprint(fp, " class(%d?%s)", n->class&~PHEAP, s);
-	}
- 
-	if(n->colas != 0)
-		fmtprint(fp, " colas(%d)", n->colas);
-
-	if(n->funcdepth != 0)
-		fmtprint(fp, " f(%d)", n->funcdepth);
-
-	if(n->noescape != 0)
-		fmtprint(fp, " ne(%d)", n->noescape);
-
-	if(!c && n->typecheck != 0)
-		fmtprint(fp, " tc(%d)", n->typecheck);
-
-	if(!c && n->dodata != 0)
-		fmtprint(fp, " dd(%d)", n->dodata);
-
-	if(n->isddd != 0)
-		fmtprint(fp, " isddd(%d)", n->isddd);
-
-	if(n->implicit != 0)
-		fmtprint(fp, " implicit(%d)", n->implicit);
-
-	if(!c && n->pun != 0)
-		fmtprint(fp, " pun(%d)", n->pun);
-
-	if(!c && n->used != 0)
-		fmtprint(fp, " used(%d)", n->used);
-	return 0;
-}
-
-int
-Sconv(Fmt *fp)
-{
-	Sym *s;
-
-	s = va_arg(fp->args, Sym*);
-	if(s == S) {
-		fmtstrcpy(fp, "<S>");
-		return 0;
-	}
-
-	if(fp->flags & FmtShort)
-		goto shrt;
-
-	if(exporting || (fp->flags & FmtSharp)) {
-		if(packagequotes)
-			fmtprint(fp, "\"%Z\"", s->pkg->path);
-		else
-			fmtprint(fp, "%s", s->pkg->prefix);
-		fmtprint(fp, ".%s", s->name);
-		return 0;
-	}
-
-	if(s->pkg && s->pkg != localpkg || longsymnames || (fp->flags & FmtLong)) {
-		// This one is for the user.  If the package name
-		// was used by multiple packages, give the full
-		// import path to disambiguate.
-		if(erroring && pkglookup(s->pkg->name, nil)->npkg > 1) {
-			fmtprint(fp, "\"%Z\".%s", s->pkg->path, s->name);
-			return 0;
-		}
-		fmtprint(fp, "%s.%s", s->pkg->name, s->name);
-		return 0;
-	}
-
-shrt:
-	fmtstrcpy(fp, s->name);
-	return 0;
-}
-
-static char*
-basicnames[] =
-{
-	[TINT]		= "int",
-	[TUINT]		= "uint",
-	[TINT8]		= "int8",
-	[TUINT8]	= "uint8",
-	[TINT16]	= "int16",
-	[TUINT16]	= "uint16",
-	[TINT32]	= "int32",
-	[TUINT32]	= "uint32",
-	[TINT64]	= "int64",
-	[TUINT64]	= "uint64",
-	[TUINTPTR]	= "uintptr",
-	[TFLOAT32]	= "float32",
-	[TFLOAT64]	= "float64",
-	[TCOMPLEX64]	= "complex64",
-	[TCOMPLEX128]	= "complex128",
-	[TBOOL]		= "bool",
-	[TANY]		= "any",
-	[TSTRING]	= "string",
-	[TNIL]		= "nil",
-	[TIDEAL]	= "ideal",
-	[TBLANK]	= "blank",
-};
-
-int
-Tpretty(Fmt *fp, Type *t)
-{
-	Type *t1;
-	Sym *s;
-	
-	if(0 && debug['r']) {
-		debug['r'] = 0;
-		fmtprint(fp, "%T (orig=%T)", t, t->orig);
-		debug['r'] = 1;
-		return 0;
-	}
-
-	if(t->etype != TFIELD
-	&& t->sym != S
-	&& !(fp->flags&FmtLong)) {
-		s = t->sym;
-		if(t == types[t->etype] && t->etype != TUNSAFEPTR)
-			return fmtprint(fp, "%s", s->name);
-		if(exporting) {
-			if(fp->flags & FmtShort)
-				fmtprint(fp, "%hS", s);
-			else
-				fmtprint(fp, "%S", s);
-			if(s->pkg != localpkg)
-				return 0;
-			if(t->vargen)
-				fmtprint(fp, "·%d", t->vargen);
-			return 0;
-		}
-		return fmtprint(fp, "%S", s);
-	}
-
-	if(t->etype < nelem(basicnames) && basicnames[t->etype] != nil) {
-		if(isideal(t) && t->etype != TIDEAL && t->etype != TNIL)
-			fmtprint(fp, "ideal ");
-		return fmtprint(fp, "%s", basicnames[t->etype]);
-	}
-
-	switch(t->etype) {
-	case TPTR32:
-	case TPTR64:
-		if(fp->flags&FmtShort)	// pass flag thru for methodsym
-			return fmtprint(fp, "*%hT", t->type);
-		return fmtprint(fp, "*%T", t->type);
-
-	case TCHAN:
-		switch(t->chan) {
-		case Crecv:
-			return fmtprint(fp, "<-chan %T", t->type);
-		case Csend:
-			return fmtprint(fp, "chan<- %T", t->type);
-		}
-		if(t->type != T && t->type->etype == TCHAN && t->type->sym == S && t->type->chan == Crecv)
-			return fmtprint(fp, "chan (%T)", t->type);
-		return fmtprint(fp, "chan %T", t->type);
-
-	case TMAP:
-		return fmtprint(fp, "map[%T] %T", t->down, t->type);
-
-	case TFUNC:
-		// t->type is method struct
-		// t->type->down is result struct
-		// t->type->down->down is arg struct
-		if(t->thistuple && !(fp->flags&FmtSharp) && !(fp->flags&FmtShort)) {
-			fmtprint(fp, "method(");
-			for(t1=getthisx(t)->type; t1; t1=t1->down) {
-				fmtprint(fp, "%T", t1);
-				if(t1->down)
-					fmtprint(fp, ", ");
-			}
-			fmtprint(fp, ")");
-		}
-
-		if(!(fp->flags&FmtByte))
-			fmtprint(fp, "func");
-		fmtprint(fp, "(");
-		for(t1=getinargx(t)->type; t1; t1=t1->down) {
-			if(noargnames && t1->etype == TFIELD) {
-				if(t1->isddd)
-					fmtprint(fp, "...%T", t1->type->type);
-				else
-					fmtprint(fp, "%T", t1->type);
-			} else
-				fmtprint(fp, "%T", t1);
-			if(t1->down)
-				fmtprint(fp, ", ");
-		}
-		fmtprint(fp, ")");
-		switch(t->outtuple) {
-		case 0:
-			break;
-		case 1:
-			t1 = getoutargx(t)->type;
-			if(t1 == T) {
-				// failure to typecheck earlier; don't know the type
-				fmtprint(fp, " ?unknown-type?");
-				break;
-			}
-			if(t1->etype == TFIELD)
-				t1 = t1->type;
-			fmtprint(fp, " %T", t1);
-			break;
-		default:
-			t1 = getoutargx(t)->type;
-			fmtprint(fp, " (");
-			for(; t1; t1=t1->down) {
-				if(noargnames && t1->etype == TFIELD)
-					fmtprint(fp, "%T", t1->type);
-				else
-					fmtprint(fp, "%T", t1);
-				if(t1->down)
-					fmtprint(fp, ", ");
-			}
-			fmtprint(fp, ")");
-			break;
-		}
-		return 0;
-
-	case TARRAY:
-		if(t->bound >= 0)
-			return fmtprint(fp, "[%d]%T", (int)t->bound, t->type);
-		if(t->bound == -100)
-			return fmtprint(fp, "[...]%T", t->type);
-		return fmtprint(fp, "[]%T", t->type);
-
-	case TINTER:
-		fmtprint(fp, "interface {");
-		for(t1=t->type; t1!=T; t1=t1->down) {
-			fmtprint(fp, " ");
-			if(exportname(t1->sym->name))
-				fmtprint(fp, "%hS", t1->sym);
-			else
-				fmtprint(fp, "%S", t1->sym);
-			fmtprint(fp, "%hhT", t1->type);
-			if(t1->down)
-				fmtprint(fp, ";");
-		}
-		return fmtprint(fp, " }");
-
-	case TSTRUCT:
-		if(t->funarg) {
-			fmtprint(fp, "(");
-			for(t1=t->type; t1!=T; t1=t1->down) {
-				fmtprint(fp, "%T", t1);
-				if(t1->down)
-					fmtprint(fp, ", ");
-			}
-			return fmtprint(fp, ")");
-		}
-		fmtprint(fp, "struct {");
-		for(t1=t->type; t1!=T; t1=t1->down) {
-			fmtprint(fp, " %T", t1);
-			if(t1->down)
-				fmtprint(fp, ";");
-		}
-		return fmtprint(fp, " }");
-
-	case TFIELD:
-		if(t->sym == S || t->embedded) {
-			if(exporting)
-				fmtprint(fp, "? ");
-		} else
-			fmtprint(fp, "%hS ", t->sym);
-		if(t->isddd)
-			fmtprint(fp, "...%T", t->type->type);
-		else
-			fmtprint(fp, "%T", t->type);
-		if(t->note) {
-			fmtprint(fp, " ");
-			if(exporting)
-				fmtprint(fp, ":");
-			fmtprint(fp, "\"%Z\"", t->note);
-		}
-		return 0;
-
-	case TFORW:
-		if(exporting)
-			yyerror("undefined type %S", t->sym);
-		if(t->sym)
-			return fmtprint(fp, "undefined %S", t->sym);
-		return fmtprint(fp, "undefined");
-	
-	case TUNSAFEPTR:
-		if(exporting)
-			return fmtprint(fp, "\"unsafe\".Pointer");
-		return fmtprint(fp, "unsafe.Pointer");
-	}
-
-	// Don't know how to handle - fall back to detailed prints.
-	return -1;
-}
-
-int
-Tconv(Fmt *fp)
-{
-	Type *t, *t1;
-	int r, et, sharp, minus;
-
-	sharp = (fp->flags & FmtSharp);
-	minus = (fp->flags & FmtLeft);
-	fp->flags &= ~(FmtSharp|FmtLeft);
-
-	t = va_arg(fp->args, Type*);
-	if(t == T)
-		return fmtstrcpy(fp, "<T>");
-
-	t->trecur++;
-	if(t->trecur > 5) {
-		fmtprint(fp, "...");
-		goto out;
-	}
-
-	if(!debug['t']) {
-		if(sharp)
-			exporting++;
-		if(minus)
-			noargnames++;
-		r = Tpretty(fp, t);
-		if(sharp)
-			exporting--;
-		if(minus)
-			noargnames--;
-		if(r >= 0) {
-			t->trecur--;
-			return 0;
-		}
-	}
-
-	if(sharp || exporting)
-		fatal("missing %E case during export", t->etype);
-
-	et = t->etype;
-	fmtprint(fp, "%E ", et);
-	if(t->sym != S)
-		fmtprint(fp, "<%S>", t->sym);
-
-	switch(et) {
-	default:
-		if(t->type != T)
-			fmtprint(fp, " %T", t->type);
-		break;
-
-	case TFIELD:
-		fmtprint(fp, "%T", t->type);
-		break;
-
-	case TFUNC:
-		if(fp->flags & FmtLong)
-			fmtprint(fp, "%d%d%d(%lT,%lT)%lT",
-				t->thistuple, t->intuple, t->outtuple,
-				t->type, t->type->down->down, t->type->down);
-		else
-			fmtprint(fp, "%d%d%d(%T,%T)%T",
-				t->thistuple, t->intuple, t->outtuple,
-				t->type, t->type->down->down, t->type->down);
-		break;
-
-	case TINTER:
-		fmtprint(fp, "{");
-		if(fp->flags & FmtLong)
-			for(t1=t->type; t1!=T; t1=t1->down)
-				fmtprint(fp, "%lT;", t1);
-		fmtprint(fp, "}");
-		break;
-
-	case TSTRUCT:
-		fmtprint(fp, "{");
-		if(fp->flags & FmtLong)
-			for(t1=t->type; t1!=T; t1=t1->down)
-				fmtprint(fp, "%lT;", t1);
-		fmtprint(fp, "}");
-		break;
-
-	case TMAP:
-		fmtprint(fp, "[%T]%T", t->down, t->type);
-		break;
-
-	case TARRAY:
-		if(t->bound >= 0)
-			fmtprint(fp, "[%d]%T", t->bound, t->type);
-		else
-			fmtprint(fp, "[]%T", t->type);
-		break;
-
-	case TPTR32:
-	case TPTR64:
-		fmtprint(fp, "%T", t->type);
-		break;
-	}
-
-out:
-	t->trecur--;
-	return 0;
-}
-
-int
-Nconv(Fmt *fp)
-{
-	char buf1[500];
-	Node *n;
-
-	n = va_arg(fp->args, Node*);
-	if(n == N) {
-		fmtprint(fp, "<N>");
-		goto out;
-	}
-
-	if(fp->flags & FmtSign) {
-		if(n->type == T)
-			fmtprint(fp, "%#N", n);
-		else if(n->type->etype == TNIL)
-			fmtprint(fp, "nil");
-		else
-			fmtprint(fp, "%#N (type %T)", n, n->type);
-		goto out;
-	}
-
-	if(fp->flags & FmtSharp) {
-		if(n->orig != N)
-			n = n->orig;
-		exprfmt(fp, n, 0);
-		goto out;
-	}
-
-	switch(n->op) {
-	default:
-		if (fp->flags & FmtShort)
-			fmtprint(fp, "%O%hJ", n->op, n);
-		else
-			fmtprint(fp, "%O%J", n->op, n);
-		break;
-
-	case ONAME:
-	case ONONAME:
-		if(n->sym == S) {
-			if (fp->flags & FmtShort)
-				fmtprint(fp, "%O%hJ", n->op, n);
-			else
-				fmtprint(fp, "%O%J", n->op, n);
-			break;
-		}
-		if (fp->flags & FmtShort)
-			fmtprint(fp, "%O-%S%hJ", n->op, n->sym, n);
-		else
-			fmtprint(fp, "%O-%S%J", n->op, n->sym, n);
-		goto ptyp;
-
-	case OREGISTER:
-		fmtprint(fp, "%O-%R%J", n->op, n->val.u.reg, n);
-		break;
-
-	case OLITERAL:
-		switch(n->val.ctype) {
-		default:
-			snprint(buf1, sizeof(buf1), "LITERAL-ctype=%d", n->val.ctype);
-			break;
-		case CTINT:
-			snprint(buf1, sizeof(buf1), "I%B", n->val.u.xval);
-			break;
-		case CTFLT:
-			snprint(buf1, sizeof(buf1), "F%g", mpgetflt(n->val.u.fval));
-			break;
-		case CTCPLX:
-			snprint(buf1, sizeof(buf1), "(F%g+F%gi)",
-				mpgetflt(&n->val.u.cval->real),
-				mpgetflt(&n->val.u.cval->imag));
-			break;
-		case CTSTR:
-			snprint(buf1, sizeof(buf1), "S\"%Z\"", n->val.u.sval);
-			break;
-		case CTBOOL:
-			snprint(buf1, sizeof(buf1), "B%d", n->val.u.bval);
-			break;
-		case CTNIL:
-			snprint(buf1, sizeof(buf1), "N");
-			break;
-		}
-		fmtprint(fp, "%O-%s%J", n->op, buf1, n);
-		break;
-
-	case OASOP:
-		fmtprint(fp, "%O-%O%J", n->op, n->etype, n);
-		break;
-
-	case OTYPE:
-		fmtprint(fp, "%O %T", n->op, n->type);
-		break;
-	}
-	if(n->sym != S)
-		fmtprint(fp, " %S G%d", n->sym, n->vargen);
-
-ptyp:
-	if(n->type != T)
-		fmtprint(fp, " %T", n->type);
-
-out:
-	return 0;
 }
 
 Node*
@@ -1636,52 +841,6 @@ treecopy(Node *n)
 	return m;
 }
 
-int
-Zconv(Fmt *fp)
-{
-	Rune r;
-	Strlit *sp;
-	char *s, *se;
-	int n;
-
-	sp = va_arg(fp->args, Strlit*);
-	if(sp == nil)
-		return fmtstrcpy(fp, "<nil>");
-
-	s = sp->s;
-	se = s + sp->len;
-	while(s < se) {
-		n = chartorune(&r, s);
-		s += n;
-		switch(r) {
-		case Runeerror:
-			if(n == 1) {
-				fmtprint(fp, "\\x%02x", (uchar)*(s-1));
-				break;
-			}
-			// fall through
-		default:
-			if(r < ' ') {
-				fmtprint(fp, "\\x%02x", r);
-				break;
-			}
-			fmtrune(fp, r);
-			break;
-		case '\t':
-			fmtstrcpy(fp, "\\t");
-			break;
-		case '\n':
-			fmtstrcpy(fp, "\\n");
-			break;
-		case '\"':
-		case '\\':
-			fmtrune(fp, '\\');
-			fmtrune(fp, r);
-			break;
-		}
-	}
-	return 0;
-}
 
 int
 isnil(Node *n)
@@ -1731,11 +890,19 @@ isslice(Type *t)
 int
 isblank(Node *n)
 {
+	if(n == N)
+		return 0;
+	return isblanksym(n->sym);
+}
+
+int
+isblanksym(Sym *s)
+{
 	char *p;
 
-	if(n == N || n->sym == S)
+	if(s == S)
 		return 0;
-	p = n->sym->name;
+	p = s->name;
 	if(p == nil)
 		return 0;
 	return p[0] == '_' && p[1] == '\0';
@@ -1777,7 +944,7 @@ isideal(Type *t)
  * return type to hang methods off (r).
  */
 Type*
-methtype(Type *t)
+methtype(Type *t, int mustname)
 {
 	if(t == T)
 		return T;
@@ -1792,7 +959,7 @@ methtype(Type *t)
 	}
 
 	// need a type name
-	if(t->sym == S)
+	if(t->sym == S && (mustname || t->etype != TSTRUCT))
 		return T;
 
 	// check types
@@ -1837,6 +1004,25 @@ eqnote(Strlit *a, Strlit *b)
 	return memcmp(a->s, b->s, a->len) == 0;
 }
 
+typedef struct TypePairList TypePairList;
+struct TypePairList
+{
+	Type *t1;
+	Type *t2;
+	TypePairList *next;
+};
+
+static int
+onlist(TypePairList *l, Type *t1, Type *t2) 
+{
+	for(; l; l=l->next)
+		if((l->t1 == t1 && l->t2 == t2) || (l->t1 == t2 && l->t2 == t1))
+			return 1;
+	return 0;
+}
+
+static int eqtype1(Type*, Type*, TypePairList*);
+
 // Return 1 if t1 and t2 are identical, following the spec rules.
 //
 // Any cyclic type must go through a named type, and if one is
@@ -1846,10 +1032,40 @@ eqnote(Strlit *a, Strlit *b)
 int
 eqtype(Type *t1, Type *t2)
 {
+	return eqtype1(t1, t2, nil);
+}
+
+static int
+eqtype1(Type *t1, Type *t2, TypePairList *assumed_equal)
+{
+	TypePairList l;
+
 	if(t1 == t2)
 		return 1;
-	if(t1 == T || t2 == T || t1->etype != t2->etype || t1->sym || t2->sym)
+	if(t1 == T || t2 == T || t1->etype != t2->etype)
 		return 0;
+	if(t1->sym || t2->sym) {
+		// Special case: we keep byte and uint8 separate
+		// for error messages.  Treat them as equal.
+		switch(t1->etype) {
+		case TUINT8:
+			if((t1 == types[TUINT8] || t1 == bytetype) && (t2 == types[TUINT8] || t2 == bytetype))
+				return 1;
+			break;
+		case TINT:
+		case TINT32:
+			if((t1 == types[runetype->etype] || t1 == runetype) && (t2 == types[runetype->etype] || t2 == runetype))
+				return 1;
+			break;
+		}
+		return 0;
+	}
+
+	if(onlist(assumed_equal, t1, t2))
+		return 1;
+	l.next = assumed_equal;
+	l.t1 = t1;
+	l.t2 = t2;
 
 	switch(t1->etype) {
 	case TINTER:
@@ -1857,10 +1073,12 @@ eqtype(Type *t1, Type *t2)
 		for(t1=t1->type, t2=t2->type; t1 && t2; t1=t1->down, t2=t2->down) {
 			if(t1->etype != TFIELD || t2->etype != TFIELD)
 				fatal("struct/interface missing field: %T %T", t1, t2);
-			if(t1->sym != t2->sym || t1->embedded != t2->embedded || !eqtype(t1->type, t2->type) || !eqnote(t1->note, t2->note))
-				return 0;
+			if(t1->sym != t2->sym || t1->embedded != t2->embedded || !eqtype1(t1->type, t2->type, &l) || !eqnote(t1->note, t2->note))
+				goto no;
 		}
-		return t1 == T && t2 == T;
+		if(t1 == T && t2 == T)
+			goto yes;
+		goto no;
 
 	case TFUNC:
 		// Loop over structs: receiver, in, out.
@@ -1874,26 +1092,36 @@ eqtype(Type *t1, Type *t2)
 			for(ta=t1->type, tb=t2->type; ta && tb; ta=ta->down, tb=tb->down) {
 				if(ta->etype != TFIELD || tb->etype != TFIELD)
 					fatal("func struct missing field: %T %T", ta, tb);
-				if(ta->isddd != tb->isddd || !eqtype(ta->type, tb->type))
-					return 0;
+				if(ta->isddd != tb->isddd || !eqtype1(ta->type, tb->type, &l))
+					goto no;
 			}
 			if(ta != T || tb != T)
-				return 0;
+				goto no;
 		}
-		return t1 == T && t2 == T;
+		if(t1 == T && t2 == T)
+			goto yes;
+		goto no;
 	
 	case TARRAY:
 		if(t1->bound != t2->bound)
-			return 0;
+			goto no;
 		break;
 	
 	case TCHAN:
 		if(t1->chan != t2->chan)
-			return 0;
+			goto no;
 		break;
 	}
 
-	return eqtype(t1->down, t2->down) && eqtype(t1->type, t2->type);
+	if(eqtype1(t1->down, t2->down, &l) && eqtype1(t1->type, t2->type, &l))
+		goto yes;
+	goto no;
+
+yes:
+	return 1;
+
+no:
+	return 0;
 }
 
 // Are t1 and t2 equal struct types when field names are ignored?
@@ -1920,9 +1148,6 @@ eqtypenoname(Type *t1, Type *t2)
 // Is type src assignment compatible to type dst?
 // If so, return op code to use in conversion.
 // If not, return 0.
-//
-// It is the caller's responsibility to call exportassignok
-// to check for assignments to other packages' unexported fields,
 int
 assignop(Type *src, Type *dst, char **why)
 {
@@ -1932,7 +1157,9 @@ assignop(Type *src, Type *dst, char **why)
 	if(why != nil)
 		*why = "";
 
-	if(safemode && src != T && src->etype == TUNSAFEPTR) {
+	// TODO(rsc,lvd): This behaves poorly in the presence of inlining.
+	// https://code.google.com/p/go/issues/detail?id=2795
+	if(safemode && importpkg == nil && src != T && src->etype == TUNSAFEPTR) {
 		yyerror("cannot use unsafe.Pointer");
 		errorexit();
 	}
@@ -1956,6 +1183,11 @@ assignop(Type *src, Type *dst, char **why)
 	if(dst->etype == TINTER && src->etype != TNIL) {
 		if(implements(src, dst, &missing, &have, &ptr))
 			return OCONVIFACE;
+
+		// we'll have complained about this method anyway, supress spurious messages.
+		if(have && have->sym == missing->sym && (have->type->broke || missing->type->broke))
+			return OCONVIFACE;
+
 		if(why != nil) {
 			if(isptrto(src, TINTER))
 				*why = smprint(":\n\t%T is pointer to interface, not interface", src);
@@ -2072,29 +1304,25 @@ convertop(Type *src, Type *dst, char **why)
 		return OCONV;
 	}
 
-	// 6. src is an integer or has type []byte or []int
+	// 6. src is an integer or has type []byte or []rune
 	// and dst is a string type.
 	if(isint[src->etype] && dst->etype == TSTRING)
 		return ORUNESTR;
 
-	if(isslice(src) && src->sym == nil &&  src->type == types[src->type->etype] && dst->etype == TSTRING) {
-		switch(src->type->etype) {
-		case TUINT8:
+	if(isslice(src) && dst->etype == TSTRING) {
+		if(src->type->etype == bytetype->etype)
 			return OARRAYBYTESTR;
-		case TINT:
+		if(src->type->etype == runetype->etype)
 			return OARRAYRUNESTR;
-		}
 	}
 	
-	// 7. src is a string and dst is []byte or []int.
+	// 7. src is a string and dst is []byte or []rune.
 	// String to slice.
-	if(src->etype == TSTRING && isslice(dst) && dst->sym == nil && dst->type == types[dst->type->etype]) {
-		switch(dst->type->etype) {
-		case TUINT8:
+	if(src->etype == TSTRING && isslice(dst)) {
+		if(dst->type->etype == bytetype->etype)
 			return OSTRARRAYBYTE;
-		case TINT:
+		if(dst->type->etype == runetype->etype)
 			return OSTRARRAYRUNE;
-		}
 	}
 	
 	// 8. src is a pointer or uintptr and dst is unsafe.Pointer.
@@ -2126,13 +1354,24 @@ assignconv(Node *n, Type *t, char *context)
 	if(t->etype == TBLANK)
 		return n;
 
-	exportassignok(n->type, context);
+	// Convert ideal bool from comparison to plain bool
+	// if the next step is non-bool (like interface{}).
+	if(n->type == idealbool && t->etype != TBOOL) {
+		if(n->op == ONAME || n->op == OLITERAL) {
+			r = nod(OCONVNOP, n, N);
+			r->type = types[TBOOL];
+			r->typecheck = 1;
+			r->implicit = 1;
+			n = r;
+		}
+	}
+
 	if(eqtype(n->type, t))
 		return n;
 
 	op = assignop(n->type, t, &why);
 	if(op == 0) {
-		yyerror("cannot use %+N as type %T in %s%s", n, t, context, why);
+		yyerror("cannot use %lN as type %T in %s%s", n, t, context, why);
 		op = OCONV;
 	}
 
@@ -2357,7 +1596,7 @@ syslook(char *name, int copy)
  * compute a hash value for type t.
  * if t is a method type, ignore the receiver
  * so that the hash can be used in interface checks.
- * %-T (which calls Tpretty, above) already contains
+ * %T already contains
  * all the necessary logic to generate a representation
  * of the type that completely describes it.
  * using smprint here avoids duplicating that code.
@@ -2371,15 +1610,14 @@ typehash(Type *t)
 	char *p;
 	MD5 d;
 
-	longsymnames = 1;
 	if(t->thistuple) {
 		// hide method receiver from Tpretty
 		t->thistuple = 0;
-		p = smprint("%-T", t);
+		p = smprint("%-uT", t);
 		t->thistuple = 1;
-	}else
-		p = smprint("%-T", t);
-	longsymnames = 0;
+	} else
+		p = smprint("%-uT", t);
+	//print("typehash: %s\n", p);
 	md5reset(&d);
 	md5write(&d, (uchar*)p, strlen(p));
 	free(p);
@@ -2392,7 +1630,7 @@ ptrto(Type *t)
 	Type *t1;
 
 	if(tptr == 0)
-		fatal("ptrto: nil");
+		fatal("ptrto: no tptr");
 	t1 = typ(tptr);
 	t1->type = t;
 	t1->width = widthptr;
@@ -2451,6 +1689,11 @@ ullmancalc(Node *n)
 
 	if(n == N)
 		return;
+
+	if(n->ninit != nil) {
+		ul = UINF;
+		goto out;
+	}
 
 	switch(n->op) {
 	case OREGISTER:
@@ -2749,13 +1992,12 @@ safeexpr(Node *n, NodeList **init)
 	return cheapexpr(n, init);
 }
 
-static Node*
+Node*
 copyexpr(Node *n, Type *t, NodeList **init)
 {
 	Node *a, *l;
 	
-	l = nod(OXXX, N, N);
-	tempname(l, t);
+	l = temp(t);
 	a = nod(OAS, l, n);
 	typecheck(&a, Etop);
 	walkexpr(&a, init);
@@ -2806,10 +2048,12 @@ setmaxarg(Type *t)
 		maxarg = w;
 }
 
-/* unicode-aware case-insensitive strcmp */
+/*
+ * unicode-aware case-insensitive strcmp
+ */
 
 static int
-cistrcmp(char *p, char *q)
+ucistrcmp(char *p, char *q)
 {
 	Rune rp, rq;
 
@@ -2851,16 +2095,16 @@ lookdot0(Sym *s, Type *t, Type **save, int ignorecase)
 	c = 0;
 	if(u->etype == TSTRUCT || u->etype == TINTER) {
 		for(f=u->type; f!=T; f=f->down)
-			if(f->sym == s || (ignorecase && cistrcmp(f->sym->name, s->name) == 0)) {
+			if(f->sym == s || (ignorecase && ucistrcmp(f->sym->name, s->name) == 0)) {
 				if(save)
 					*save = f;
 				c++;
 			}
 	}
-	u = methtype(t);
+	u = methtype(t, 0);
 	if(u != T) {
 		for(f=u->method; f!=T; f=f->down)
-			if(f->embedded == 0 && (f->sym == s || (ignorecase && cistrcmp(f->sym->name, s->name) == 0))) {
+			if(f->embedded == 0 && (f->sym == s || (ignorecase && ucistrcmp(f->sym->name, s->name) == 0))) {
 				if(save)
 					*save = f;
 				c++;
@@ -2869,7 +2113,7 @@ lookdot0(Sym *s, Type *t, Type **save, int ignorecase)
 	return c;
 }
 
-// search depth d --
+// search depth d for field/method s --
 // return count of fields+methods
 // found at search depth.
 // answer is in dotlist array and
@@ -2946,8 +2190,11 @@ adddot(Node *n)
 	goto ret;
 
 out:
-	if(c > 1)
-		yyerror("ambiguous DOT reference %T.%S", t, s);
+	if(c > 1) {
+		yyerror("ambiguous selector %N", n);
+		n->left = N;
+		return n;
+	}
 
 	// rebuild elided dots
 	for(c=d-1; c>=0; c--)
@@ -2992,8 +2239,6 @@ expand0(Type *t, int followptr)
 
 	if(u->etype == TINTER) {
 		for(f=u->type; f!=T; f=f->down) {
-			if(!exportname(f->sym->name) && f->sym->pkg != localpkg)
-				continue;
 			if(f->sym->flags & SymUniq)
 				continue;
 			f->sym->flags |= SymUniq;
@@ -3006,11 +2251,9 @@ expand0(Type *t, int followptr)
 		return;
 	}
 
-	u = methtype(t);
+	u = methtype(t, 0);
 	if(u != T) {
 		for(f=u->method; f!=T; f=f->down) {
-			if(!exportname(f->sym->name) && f->sym->pkg != localpkg)
-				continue;
 			if(f->sym->flags & SymUniq)
 				continue;
 			f->sym->flags |= SymUniq;
@@ -3058,14 +2301,12 @@ out:
 }
 
 void
-expandmeth(Sym *s, Type *t)
+expandmeth(Type *t)
 {
 	Symlink *sl;
 	Type *f;
 	int c, d;
 
-	if(s == S)
-		return;
 	if(t == T || t->xmethod != nil)
 		return;
 
@@ -3086,8 +2327,11 @@ expandmeth(Sym *s, Type *t)
 			if(c == 0)
 				continue;
 			if(c == 1) {
-				sl->good = 1;
-				sl->field = f;
+				// addot1 may have dug out arbitrary fields, we only want methods.
+				if(f->type->etype == TFUNC && f->type->thistuple > 0) {
+					sl->good = 1;
+					sl->field = f;
+				}
 			}
 			break;
 		}
@@ -3128,13 +2372,12 @@ structargs(Type **tl, int mustname)
 	gen = 0;
 	for(t = structfirst(&savet, tl); t != T; t = structnext(&savet)) {
 		n = N;
-		if(t->sym)
-			n = newname(t->sym);
-		else if(mustname) {
-			// have to give it a name so we can refer to it in trampoline
+		if(mustname && (t->sym == nil || strcmp(t->sym->name, "_") == 0)) {
+			// invent a name so that we can refer to it in the trampoline
 			snprint(buf, sizeof buf, ".anon%d", gen++);
 			n = newname(lookup(buf));
-		}
+		} else if(t->sym)
+			n = newname(t->sym);
 		a = nod(ODCLFIELD, n, typenod(t->type));
 		a->isddd = t->isddd;
 		if(n != N)
@@ -3190,8 +2433,6 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 	in = structargs(getinarg(method->type), 1);
 	out = structargs(getoutarg(method->type), 0);
 
-	fn = nod(ODCLFUNC, N, N);
-	fn->nname = newname(newnam);
 	t = nod(OTFUNC, N, N);
 	l = list1(this);
 	if(iface && rcvr->width < types[tptr]->width) {
@@ -3208,7 +2449,12 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 	}
 	t->list = concat(l, in);
 	t->rlist = out;
+
+	fn = nod(ODCLFUNC, N, N);
+	fn->nname = newname(newnam);
+	fn->nname->defn = fn;
 	fn->nname->ntype = t;
+	declare(fn->nname, PFUNC);
 	funchdr(fn);
 
 	// arg list
@@ -3260,6 +2506,448 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 	typechecklist(fn->nbody, Etop);
 	curfn = nil;
 	funccompile(fn, 0);
+}
+
+static Node*
+hashmem(Type *t)
+{
+	Node *tfn, *n;
+	Sym *sym;
+	
+	sym = pkglookup("memhash", runtimepkg);
+
+	n = newname(sym);
+	n->class = PFUNC;
+	tfn = nod(OTFUNC, N, N);
+	tfn->list = list(tfn->list, nod(ODCLFIELD, N, typenod(ptrto(types[TUINTPTR]))));
+	tfn->list = list(tfn->list, nod(ODCLFIELD, N, typenod(types[TUINTPTR])));
+	tfn->list = list(tfn->list, nod(ODCLFIELD, N, typenod(ptrto(t))));
+	typecheck(&tfn, Etype);
+	n->type = tfn->type;
+	return n;
+}
+
+static Node*
+hashfor(Type *t)
+{
+	int a;
+	Sym *sym;
+	Node *tfn, *n;
+
+	a = algtype1(t, nil);
+	switch(a) {
+	case AMEM:
+		return hashmem(t);
+	case AINTER:
+		sym = pkglookup("interhash", runtimepkg);
+		break;
+	case ANILINTER:
+		sym = pkglookup("nilinterhash", runtimepkg);
+		break;
+	case ASTRING:
+		sym = pkglookup("strhash", runtimepkg);
+		break;
+	case AFLOAT32:
+		sym = pkglookup("f32hash", runtimepkg);
+		break;
+	case AFLOAT64:
+		sym = pkglookup("f64hash", runtimepkg);
+		break;
+	case ACPLX64:
+		sym = pkglookup("c64hash", runtimepkg);
+		break;
+	case ACPLX128:
+		sym = pkglookup("c128hash", runtimepkg);
+		break;
+	default:
+		sym = typesymprefix(".hash", t);
+		break;
+	}
+
+	n = newname(sym);
+	n->class = PFUNC;
+	tfn = nod(OTFUNC, N, N);
+	tfn->list = list(tfn->list, nod(ODCLFIELD, N, typenod(ptrto(types[TUINTPTR]))));
+	tfn->list = list(tfn->list, nod(ODCLFIELD, N, typenod(types[TUINTPTR])));
+	tfn->list = list(tfn->list, nod(ODCLFIELD, N, typenod(ptrto(t))));
+	typecheck(&tfn, Etype);
+	n->type = tfn->type;
+	return n;
+}
+
+/*
+ * Generate a helper function to compute the hash of a value of type t.
+ */
+void
+genhash(Sym *sym, Type *t)
+{
+	Node *n, *fn, *np, *nh, *ni, *call, *nx, *na, *tfn;
+	Node *hashel;
+	Type *first, *t1;
+	int old_safemode;
+	int64 size, mul;
+
+	if(debug['r'])
+		print("genhash %S %T\n", sym, t);
+
+	lineno = 1;  // less confusing than end of input
+	dclcontext = PEXTERN;
+	markdcl();
+
+	// func sym(h *uintptr, s uintptr, p *T)
+	fn = nod(ODCLFUNC, N, N);
+	fn->nname = newname(sym);
+	fn->nname->class = PFUNC;
+	tfn = nod(OTFUNC, N, N);
+	fn->nname->ntype = tfn;
+
+	n = nod(ODCLFIELD, newname(lookup("h")), typenod(ptrto(types[TUINTPTR])));
+	tfn->list = list(tfn->list, n);
+	nh = n->left;
+	n = nod(ODCLFIELD, newname(lookup("s")), typenod(types[TUINTPTR]));
+	tfn->list = list(tfn->list, n);
+	n = nod(ODCLFIELD, newname(lookup("p")), typenod(ptrto(t)));
+	tfn->list = list(tfn->list, n);
+	np = n->left;
+
+	funchdr(fn);
+	typecheck(&fn->nname->ntype, Etype);
+
+	// genhash is only called for types that have equality but
+	// cannot be handled by the standard algorithms,
+	// so t must be either an array or a struct.
+	switch(t->etype) {
+	default:
+		fatal("genhash %T", t);
+	case TARRAY:
+		if(isslice(t))
+			fatal("genhash %T", t);
+		// An array of pure memory would be handled by the
+		// standard algorithm, so the element type must not be
+		// pure memory.
+		hashel = hashfor(t->type);
+		n = nod(ORANGE, N, nod(OIND, np, N));
+		ni = newname(lookup("i"));
+		ni->type = types[TINT];
+		n->list = list1(ni);
+		n->colas = 1;
+		colasdefn(n->list, n);
+		ni = n->list->n;
+
+		// *h = *h<<3 | *h>>61
+		n->nbody = list(n->nbody,
+			nod(OAS,
+				nod(OIND, nh, N),
+				nod(OOR,
+					nod(OLSH, nod(OIND, nh, N), nodintconst(3)),
+					nod(ORSH, nod(OIND, nh, N), nodintconst(widthptr*8-3)))));
+
+		// *h *= mul
+		// Same multipliers as in runtime.memhash.
+		if(widthptr == 4)
+			mul = 3267000013LL;
+		else
+			mul = 23344194077549503LL;
+		n->nbody = list(n->nbody,
+			nod(OAS,
+				nod(OIND, nh, N),
+				nod(OMUL, nod(OIND, nh, N), nodintconst(mul))));
+
+		// hashel(h, sizeof(p[i]), &p[i])
+		call = nod(OCALL, hashel, N);
+		call->list = list(call->list, nh);
+		call->list = list(call->list, nodintconst(t->type->width));
+		nx = nod(OINDEX, np, ni);
+		nx->etype = 1;  // no bounds check
+		na = nod(OADDR, nx, N);
+		na->etype = 1;  // no escape to heap
+		call->list = list(call->list, na);
+		n->nbody = list(n->nbody, call);
+
+		fn->nbody = list(fn->nbody, n);
+		break;
+
+	case TSTRUCT:
+		// Walk the struct using memhash for runs of AMEM
+		// and calling specific hash functions for the others.
+		first = T;
+		for(t1=t->type;; t1=t1->down) {
+			if(t1 != T && (isblanksym(t1->sym) || algtype1(t1->type, nil) == AMEM)) {
+				if(first == T)
+					first = t1;
+				continue;
+			}
+			// Run memhash for fields up to this one.
+			while(first != T && isblanksym(first->sym))
+				first = first->down;
+			if(first != T) {
+				if(first->down == t1)
+					size = first->type->width;
+				else if(t1 == T)
+					size = t->width - first->width;  // first->width is offset
+				else
+					size = t1->width - first->width;  // both are offsets
+				hashel = hashmem(first->type);
+				// hashel(h, size, &p.first)
+				call = nod(OCALL, hashel, N);
+				call->list = list(call->list, nh);
+				call->list = list(call->list, nodintconst(size));
+				nx = nod(OXDOT, np, newname(first->sym));  // TODO: fields from other packages?
+				na = nod(OADDR, nx, N);
+				na->etype = 1;  // no escape to heap
+				call->list = list(call->list, na);
+				fn->nbody = list(fn->nbody, call);
+
+				first = T;
+			}
+			if(t1 == T)
+				break;
+
+			// Run hash for this field.
+			hashel = hashfor(t1->type);
+			// hashel(h, size, &p.t1)
+			call = nod(OCALL, hashel, N);
+			call->list = list(call->list, nh);
+			call->list = list(call->list, nodintconst(t1->type->width));
+			nx = nod(OXDOT, np, newname(t1->sym));  // TODO: fields from other packages?
+			na = nod(OADDR, nx, N);
+			na->etype = 1;  // no escape to heap
+			call->list = list(call->list, na);
+			fn->nbody = list(fn->nbody, call);
+		}
+		break;
+	}
+
+	if(debug['r'])
+		dumplist("genhash body", fn->nbody);
+
+	funcbody(fn);
+	curfn = fn;
+	fn->dupok = 1;
+	typecheck(&fn, Etop);
+	typechecklist(fn->nbody, Etop);
+	curfn = nil;
+
+	// Disable safemode while compiling this code: the code we
+	// generate internally can refer to unsafe.Pointer.
+	// In this case it can happen if we need to generate an ==
+	// for a struct containing a reflect.Value, which itself has
+	// an unexported field of type unsafe.Pointer.
+	old_safemode = safemode;
+	safemode = 0;
+	funccompile(fn, 0);
+	safemode = old_safemode;
+}
+
+// Return node for
+//	if p.field != q.field { *eq = false; return }
+static Node*
+eqfield(Node *p, Node *q, Node *field, Node *eq)
+{
+	Node *nif, *nx, *ny;
+
+	nx = nod(OXDOT, p, field);
+	ny = nod(OXDOT, q, field);
+	nif = nod(OIF, N, N);
+	nif->ntest = nod(ONE, nx, ny);
+	nif->nbody = list(nif->nbody, nod(OAS, nod(OIND, eq, N), nodbool(0)));
+	nif->nbody = list(nif->nbody, nod(ORETURN, N, N));
+	return nif;
+}
+
+static Node*
+eqmemfunc(vlong size, Type *type)
+{
+	char buf[30];
+	Node *fn;
+
+	switch(size) {
+	default:
+		fn = syslook("memequal", 1);
+		break;
+	case 1:
+	case 2:
+	case 4:
+	case 8:
+	case 16:
+		snprint(buf, sizeof buf, "memequal%d", (int)size*8);
+		fn = syslook(buf, 1);
+		break;
+	}
+	argtype(fn, type);
+	argtype(fn, type);
+	return fn;
+}
+
+// Return node for
+//	if memequal(size, &p.field, &q.field, eq); !*eq { return }
+static Node*
+eqmem(Node *p, Node *q, Node *field, vlong size, Node *eq)
+{
+	Node *nif, *nx, *ny, *call;
+
+	nx = nod(OADDR, nod(OXDOT, p, field), N);
+	nx->etype = 1;  // does not escape
+	ny = nod(OADDR, nod(OXDOT, q, field), N);
+	ny->etype = 1;  // does not escape
+	typecheck(&nx, Erv);
+	typecheck(&ny, Erv);
+
+	call = nod(OCALL, eqmemfunc(size, nx->type->type), N);
+	call->list = list(call->list, eq);
+	call->list = list(call->list, nodintconst(size));
+	call->list = list(call->list, nx);
+	call->list = list(call->list, ny);
+
+	nif = nod(OIF, N, N);
+	nif->ninit = list(nif->ninit, call);
+	nif->ntest = nod(ONOT, nod(OIND, eq, N), N);
+	nif->nbody = list(nif->nbody, nod(ORETURN, N, N));
+	return nif;
+}
+
+/*
+ * Generate a helper function to check equality of two values of type t.
+ */
+void
+geneq(Sym *sym, Type *t)
+{
+	Node *n, *fn, *np, *neq, *nq, *tfn, *nif, *ni, *nx, *ny, *nrange;
+	Type *t1, *first;
+	int old_safemode;
+	int64 size;
+
+	if(debug['r'])
+		print("geneq %S %T\n", sym, t);
+
+	lineno = 1;  // less confusing than end of input
+	dclcontext = PEXTERN;
+	markdcl();
+
+	// func sym(eq *bool, s uintptr, p, q *T)
+	fn = nod(ODCLFUNC, N, N);
+	fn->nname = newname(sym);
+	fn->nname->class = PFUNC;
+	tfn = nod(OTFUNC, N, N);
+	fn->nname->ntype = tfn;
+
+	n = nod(ODCLFIELD, newname(lookup("eq")), typenod(ptrto(types[TBOOL])));
+	tfn->list = list(tfn->list, n);
+	neq = n->left;
+	n = nod(ODCLFIELD, newname(lookup("s")), typenod(types[TUINTPTR]));
+	tfn->list = list(tfn->list, n);
+	n = nod(ODCLFIELD, newname(lookup("p")), typenod(ptrto(t)));
+	tfn->list = list(tfn->list, n);
+	np = n->left;
+	n = nod(ODCLFIELD, newname(lookup("q")), typenod(ptrto(t)));
+	tfn->list = list(tfn->list, n);
+	nq = n->left;
+
+	funchdr(fn);
+
+	// geneq is only called for types that have equality but
+	// cannot be handled by the standard algorithms,
+	// so t must be either an array or a struct.
+	switch(t->etype) {
+	default:
+		fatal("geneq %T", t);
+	case TARRAY:
+		if(isslice(t))
+			fatal("geneq %T", t);
+		// An array of pure memory would be handled by the
+		// standard memequal, so the element type must not be
+		// pure memory.  Even if we unrolled the range loop,
+		// each iteration would be a function call, so don't bother
+		// unrolling.
+		nrange = nod(ORANGE, N, nod(OIND, np, N));
+		ni = newname(lookup("i"));
+		ni->type = types[TINT];
+		nrange->list = list1(ni);
+		nrange->colas = 1;
+		colasdefn(nrange->list, nrange);
+		ni = nrange->list->n;
+		
+		// if p[i] != q[i] { *eq = false; return }
+		nx = nod(OINDEX, np, ni);
+		nx->etype = 1;  // no bounds check
+		ny = nod(OINDEX, nq, ni);
+		ny->etype = 1;  // no bounds check
+
+		nif = nod(OIF, N, N);
+		nif->ntest = nod(ONE, nx, ny);
+		nif->nbody = list(nif->nbody, nod(OAS, nod(OIND, neq, N), nodbool(0)));
+		nif->nbody = list(nif->nbody, nod(ORETURN, N, N));
+		nrange->nbody = list(nrange->nbody, nif);
+		fn->nbody = list(fn->nbody, nrange);
+
+		// *eq = true;
+		fn->nbody = list(fn->nbody, nod(OAS, nod(OIND, neq, N), nodbool(1)));
+		break;
+
+	case TSTRUCT:
+		// Walk the struct using memequal for runs of AMEM
+		// and calling specific equality tests for the others.
+		first = T;
+		for(t1=t->type;; t1=t1->down) {
+			if(t1 != T && (isblanksym(t1->sym) || algtype1(t1->type, nil) == AMEM)) {
+				if(first == T)
+					first = t1;
+				continue;
+			}
+			// Run memequal for fields up to this one.
+			// TODO(rsc): All the calls to newname are wrong for
+			// cross-package unexported fields.
+			while(first != T && isblanksym(first->sym))
+				first = first->down;
+			if(first != T) {
+				if(first->down == t1) {
+					fn->nbody = list(fn->nbody, eqfield(np, nq, newname(first->sym), neq));
+				} else if(first->down->down == t1) {
+					fn->nbody = list(fn->nbody, eqfield(np, nq, newname(first->sym), neq));
+					first = first->down;
+					if(!isblanksym(first->sym))
+						fn->nbody = list(fn->nbody, eqfield(np, nq, newname(first->sym), neq));
+				} else {
+					// More than two fields: use memequal.
+					if(t1 == T)
+						size = t->width - first->width;  // first->width is offset
+					else
+						size = t1->width - first->width;  // both are offsets
+					fn->nbody = list(fn->nbody, eqmem(np, nq, newname(first->sym), size, neq));
+				}
+				first = T;
+			}
+			if(t1 == T)
+				break;
+
+			// Check this field, which is not just memory.
+			fn->nbody = list(fn->nbody, eqfield(np, nq, newname(t1->sym), neq));
+		}
+
+		// *eq = true;
+		fn->nbody = list(fn->nbody, nod(OAS, nod(OIND, neq, N), nodbool(1)));
+		break;
+	}
+
+	if(debug['r'])
+		dumplist("geneq body", fn->nbody);
+
+	funcbody(fn);
+	curfn = fn;
+	fn->dupok = 1;
+	typecheck(&fn, Etop);
+	typechecklist(fn->nbody, Etop);
+	curfn = nil;
+	
+	// Disable safemode while compiling this code: the code we
+	// generate internally can refer to unsafe.Pointer.
+	// In this case it can happen if we need to generate an ==
+	// for a struct containing a reflect.Value, which itself has
+	// an unexported field of type unsafe.Pointer.
+	old_safemode = safemode;
+	safemode = 0;
+	funccompile(fn, 0);
+	safemode = old_safemode;
 }
 
 static Type*
@@ -3331,9 +3019,9 @@ implements(Type *t, Type *iface, Type **m, Type **samename, int *ptr)
 		return 1;
 	}
 
-	t = methtype(t);
+	t = methtype(t, 0);
 	if(t != T)
-		expandmeth(t->sym, t);
+		expandmeth(t);
 	for(im=iface->type; im; im=im->down) {
 		imtype = methodfunc(im->type, 0);
 		tm = ifacelookdot(im->sym, t, &followptr, 0);
@@ -3410,8 +3098,13 @@ list1(Node *n)
 
 	if(n == nil)
 		return nil;
-	if(n->op == OBLOCK && n->ninit == nil)
-		return n->list;
+	if(n->op == OBLOCK && n->ninit == nil) {
+		// Flatten list and steal storage.
+		// Poison pointer to catch errant uses.
+		l = n->list;
+		n->list = (NodeList*)1;
+		return l;
+	}
 	l = mal(sizeof *l);
 	l->n = n;
 	l->end = l;
@@ -3453,7 +3146,7 @@ listsort(NodeList** l, int(*f)(Node*, Node*))
 	listsort(&l1, f);
 	listsort(&l2, f);
 
-	if ((*f)(l1->n, l2->n) < 0) {
+	if((*f)(l1->n, l2->n) < 0) {
 		*l = l1;
 	} else {
 		*l = l2;
@@ -3469,7 +3162,7 @@ listsort(NodeList** l, int(*f)(Node*, Node*))
 		
 		// l1 is last one from l1 that is < l2
 		le = l1->next;		// le is the rest of l1, first one that is >= l2
-		if (le != nil)
+		if(le != nil)
 			le->end = (*l)->end;
 
 		(*l)->end = l1;		// cut *l at l1
@@ -3814,21 +3507,31 @@ ngotype(Node *n)
 }
 
 /*
- * Convert raw string to the prefix that will be used in the symbol table.
- * Invalid bytes turn into %xx.  Right now the only bytes that need
- * escaping are %, ., and ", but we escape all control characters too.
+ * Convert raw string to the prefix that will be used in the symbol
+ * table.  All control characters, space, '%' and '"', as well as
+ * non-7-bit clean bytes turn into %xx.  The period needs escaping
+ * only in the last segment of the path, and it makes for happier
+ * users if we escape that as little as possible.
+ *
+ * If you edit this, edit ../ld/lib.c:/^pathtoprefix copy too.
  */
 static char*
 pathtoprefix(char *s)
 {
 	static char hex[] = "0123456789abcdef";
-	char *p, *r, *w;
+	char *p, *r, *w, *l;
 	int n;
+
+	// find first character past the last slash, if any.
+	l = s;
+	for(r=s; *r; r++)
+		if(*r == '/')
+			l = r+1;
 
 	// check for chars that need escaping
 	n = 0;
 	for(r=s; *r; r++)
-		if(*r <= ' ' || *r == '.' || *r == '%' || *r == '"')
+		if(*r <= ' ' || (*r == '.' && r >= l) || *r == '%' || *r == '"' || *r >= 0x7f)
 			n++;
 
 	// quick exit
@@ -3838,7 +3541,7 @@ pathtoprefix(char *s)
 	// escape
 	p = mal((r-s)+1+2*n);
 	for(r=s, w=p; *r; r++) {
-		if(*r <= ' ' || *r == '.' || *r == '%' || *r == '"') {
+		if(*r <= ' ' || (*r == '.' && r >= l) || *r == '%' || *r == '"' || *r >= 0x7f) {
 			*w++ = '%';
 			*w++ = hex[(*r>>4)&0xF];
 			*w++ = hex[*r&0xF];
@@ -3854,11 +3557,9 @@ mkpkg(Strlit *path)
 {
 	Pkg *p;
 	int h;
-	
-	if(strlen(path->s) != path->len) {
-		yyerror("import path contains NUL byte");
+
+	if(isbadimport(path))
 		errorexit();
-	}
 	
 	h = stringhash(path->s) & (nelem(phash)-1);
 	for(p=phash[h]; p; p=p->link)
@@ -3882,4 +3583,66 @@ strlit(char *s)
 	strcpy(t->s, s);
 	t->len = strlen(s);
 	return t;
+}
+
+void
+addinit(Node **np, NodeList *init)
+{
+	Node *n;
+	
+	if(init == nil)
+		return;
+
+	n = *np;
+	switch(n->op) {
+	case ONAME:
+	case OLITERAL:
+		// There may be multiple refs to this node;
+		// introduce OCONVNOP to hold init list.
+		n = nod(OCONVNOP, n, N);
+		n->type = n->left->type;
+		n->typecheck = 1;
+		*np = n;
+		break;
+	}
+	n->ninit = concat(init, n->ninit);
+	n->ullman = UINF;
+}
+
+int
+isbadimport(Strlit *path)
+{
+	char *s;
+	Rune r;
+
+	if(strlen(path->s) != path->len) {
+		yyerror("import path contains NUL");
+		return 1;
+	}
+
+	s = path->s;
+	while(*s) {
+		s += chartorune(&r, s);
+		if(r == Runeerror) {
+			yyerror("import path contains invalid UTF-8 sequence: \"%Z\"", path);
+			return 1;
+		}
+		if(r < 0x20 || r == 0x7f) {
+			yyerror("import path contains control character: \"%Z\"", path);
+			return 1;
+		}
+		if(r == '\\') {
+			yyerror("import path contains backslash; use slash: \"%Z\"", path);
+			return 1;
+		}
+		if(isspacerune(r)) {
+			yyerror("import path contains space character: \"%Z\"", path);
+			return 1;
+		}
+		if(utfrune("!\"#$%&'()*,:;<=>?[]^`{|}", r)) {
+			yyerror("import path contains invalid character '%C': \"%Z\"", r, path);
+			return 1;
+		}
+	}
+	return 0;
 }

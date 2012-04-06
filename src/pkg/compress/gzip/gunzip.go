@@ -9,14 +9,12 @@ package gzip
 import (
 	"bufio"
 	"compress/flate"
+	"errors"
 	"hash"
 	"hash/crc32"
 	"io"
-	"os"
+	"time"
 )
-
-// BUG(nigeltao): Comments and Names don't properly map UTF-8 character codes outside of
-// the 0x00-0x7f range to ISO 8859-1 (Latin-1).
 
 const (
 	gzipID1     = 0x1f
@@ -36,34 +34,38 @@ func makeReader(r io.Reader) flate.Reader {
 	return bufio.NewReader(r)
 }
 
-var HeaderError = os.NewError("invalid gzip header")
-var ChecksumError = os.NewError("gzip checksum error")
+var (
+	// ErrChecksum is returned when reading GZIP data that has an invalid checksum.
+	ErrChecksum = errors.New("gzip: invalid checksum")
+	// ErrHeader is returned when reading GZIP data that has an invalid header.
+	ErrHeader = errors.New("gzip: invalid header")
+)
 
 // The gzip file stores a header giving metadata about the compressed file.
-// That header is exposed as the fields of the Compressor and Decompressor structs.
+// That header is exposed as the fields of the Writer and Reader structs.
 type Header struct {
-	Comment string // comment
-	Extra   []byte // "extra data"
-	Mtime   uint32 // modification time (seconds since January 1, 1970)
-	Name    string // file name
-	OS      byte   // operating system type
+	Comment string    // comment
+	Extra   []byte    // "extra data"
+	ModTime time.Time // modification time
+	Name    string    // file name
+	OS      byte      // operating system type
 }
 
-// An Decompressor is an io.Reader that can be read to retrieve
+// A Reader is an io.Reader that can be read to retrieve
 // uncompressed data from a gzip-format compressed file.
 //
 // In general, a gzip file can be a concatenation of gzip files,
-// each with its own header.  Reads from the Decompressor
+// each with its own header.  Reads from the Reader
 // return the concatenation of the uncompressed data of each.
-// Only the first header is recorded in the Decompressor fields.
+// Only the first header is recorded in the Reader fields.
 //
 // Gzip files store a length and checksum of the uncompressed data.
-// The Decompressor will return a ChecksumError when Read
+// The Reader will return a ErrChecksum when Read
 // reaches the end of the uncompressed data if it does not
 // have the expected length or checksum.  Clients should treat data
-// returned by Read as tentative until they receive the successful
-// (zero length, nil error) Read marking the end of the data.
-type Decompressor struct {
+// returned by Read as tentative until they receive the io.EOF
+// marking the end of the data.
+type Reader struct {
 	Header
 	r            flate.Reader
 	decompressor io.ReadCloser
@@ -71,18 +73,17 @@ type Decompressor struct {
 	size         uint32
 	flg          byte
 	buf          [512]byte
-	err          os.Error
+	err          error
 }
 
-// NewReader creates a new Decompressor reading the given reader.
+// NewReader creates a new Reader reading the given reader.
 // The implementation buffers input and may read more data than necessary from r.
-// It is the caller's responsibility to call Close on the Decompressor when done.
-func NewReader(r io.Reader) (*Decompressor, os.Error) {
-	z := new(Decompressor)
+// It is the caller's responsibility to call Close on the Reader when done.
+func NewReader(r io.Reader) (*Reader, error) {
+	z := new(Reader)
 	z.r = makeReader(r)
 	z.digest = crc32.NewIEEE()
 	if err := z.readHeader(true); err != nil {
-		z.err = err
 		return nil, err
 	}
 	return z, nil
@@ -93,26 +94,36 @@ func get4(p []byte) uint32 {
 	return uint32(p[0]) | uint32(p[1])<<8 | uint32(p[2])<<16 | uint32(p[3])<<24
 }
 
-func (z *Decompressor) readString() (string, os.Error) {
-	var err os.Error
+func (z *Reader) readString() (string, error) {
+	var err error
+	needconv := false
 	for i := 0; ; i++ {
 		if i >= len(z.buf) {
-			return "", HeaderError
+			return "", ErrHeader
 		}
 		z.buf[i], err = z.r.ReadByte()
 		if err != nil {
 			return "", err
 		}
+		if z.buf[i] > 0x7f {
+			needconv = true
+		}
 		if z.buf[i] == 0 {
 			// GZIP (RFC 1952) specifies that strings are NUL-terminated ISO 8859-1 (Latin-1).
-			// TODO(nigeltao): Convert from ISO 8859-1 (Latin-1) to UTF-8.
+			if needconv {
+				s := make([]rune, 0, i)
+				for _, v := range z.buf[0:i] {
+					s = append(s, rune(v))
+				}
+				return string(s), nil
+			}
 			return string(z.buf[0:i]), nil
 		}
 	}
 	panic("not reached")
 }
 
-func (z *Decompressor) read2() (uint32, os.Error) {
+func (z *Reader) read2() (uint32, error) {
 	_, err := io.ReadFull(z.r, z.buf[0:2])
 	if err != nil {
 		return 0, err
@@ -120,17 +131,17 @@ func (z *Decompressor) read2() (uint32, os.Error) {
 	return uint32(z.buf[0]) | uint32(z.buf[1])<<8, nil
 }
 
-func (z *Decompressor) readHeader(save bool) os.Error {
+func (z *Reader) readHeader(save bool) error {
 	_, err := io.ReadFull(z.r, z.buf[0:10])
 	if err != nil {
 		return err
 	}
 	if z.buf[0] != gzipID1 || z.buf[1] != gzipID2 || z.buf[2] != gzipDeflate {
-		return HeaderError
+		return ErrHeader
 	}
 	z.flg = z.buf[3]
 	if save {
-		z.Mtime = get4(z.buf[4:8])
+		z.ModTime = time.Unix(int64(get4(z.buf[4:8])), 0)
 		// z.buf[8] is xfl, ignored
 		z.OS = z.buf[9]
 	}
@@ -177,7 +188,7 @@ func (z *Decompressor) readHeader(save bool) os.Error {
 		}
 		sum := z.digest.Sum32() & 0xFFFF
 		if n != sum {
-			return HeaderError
+			return ErrHeader
 		}
 	}
 
@@ -186,7 +197,7 @@ func (z *Decompressor) readHeader(save bool) os.Error {
 	return nil
 }
 
-func (z *Decompressor) Read(p []byte) (n int, err os.Error) {
+func (z *Reader) Read(p []byte) (n int, err error) {
 	if z.err != nil {
 		return 0, z.err
 	}
@@ -197,7 +208,7 @@ func (z *Decompressor) Read(p []byte) (n int, err os.Error) {
 	n, err = z.decompressor.Read(p)
 	z.digest.Write(p[0:n])
 	z.size += uint32(n)
-	if n != 0 || err != os.EOF {
+	if n != 0 || err != io.EOF {
 		z.err = err
 		return
 	}
@@ -210,7 +221,7 @@ func (z *Decompressor) Read(p []byte) (n int, err os.Error) {
 	crc32, isize := get4(z.buf[0:4]), get4(z.buf[4:8])
 	sum := z.digest.Sum32()
 	if sum != crc32 || isize != z.size {
-		z.err = ChecksumError
+		z.err = ErrChecksum
 		return 0, z.err
 	}
 
@@ -226,5 +237,5 @@ func (z *Decompressor) Read(p []byte) (n int, err os.Error) {
 	return z.Read(p)
 }
 
-// Calling Close does not close the wrapped io.Reader originally passed to NewReader.
-func (z *Decompressor) Close() os.Error { return z.decompressor.Close() }
+// Close closes the Reader. It does not close the underlying io.Reader.
+func (z *Reader) Close() error { return z.decompressor.Close() }

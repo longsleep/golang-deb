@@ -2,15 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include <u.h>
-#include <libc.h>
-
-#include "../gc/go.h"
-#include "../8l/8.out.h"
-
 #ifndef	EXTERN
 #define	EXTERN	extern
 #endif
+
+#include "../gc/go.h"
+#include "../8l/8.out.h"
 
 typedef	struct	Addr	Addr;
 
@@ -46,6 +43,8 @@ struct	Prog
 	void*	reg;		// pointer to containing Reg struct
 };
 
+#define TEXTFLAG from.scale
+
 // foptoas flags
 enum
 {
@@ -54,15 +53,12 @@ enum
 	Fpop2 = 1<<2,
 };
 
-EXTERN	Biobuf*	bout;
 EXTERN	int32	dynloc;
 EXTERN	uchar	reg[D_NONE];
 EXTERN	int32	pcloc;		// instruction counter
 EXTERN	Strlit	emptystring;
 extern	char*	anames[];
-EXTERN	Hist*	hist;
 EXTERN	Prog	zprog;
-EXTERN	Node*	curfn;
 EXTERN	Node*	newproc;
 EXTERN	Node*	deferproc;
 EXTERN	Node*	deferreturn;
@@ -103,7 +99,7 @@ void	agenr(Node *n, Node *a, Node *res);
 void	igen(Node*, Node*, Node*);
 vlong	fieldoffset(Type*, Node*);
 void	bgen(Node*, int, Prog*);
-void	sgen(Node*, Node*, int32);
+void	sgen(Node*, Node*, int64);
 void	gmove(Node*, Node*);
 Prog*	gins(int, Node*, Node*);
 int	samaddr(Node*, Node*);
@@ -168,12 +164,6 @@ void	complexgen(Node*, Node*);
 void	complexbool(int, Node*, Node*, int, Prog*);
 
 /*
- * gobj.c
- */
-void	data(void);
-void	text(void);
-
-/*
  * list.c
  */
 int	Aconv(Fmt*);
@@ -185,3 +175,5 @@ void	listinit(void);
 
 void	zaddr(Biobuf*, Addr*, int, int);
 
+#pragma	varargck	type	"D"	Addr*
+#pragma	varargck	type	"lD"	Addr*

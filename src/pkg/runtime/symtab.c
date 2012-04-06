@@ -13,9 +13,9 @@
 // and figure out exactly what we want.
 
 #include "runtime.h"
-#include "defs.h"
-#include "os.h"
-#include "arch.h"
+#include "defs_GOOS_GOARCH.h"
+#include "os_GOOS.h"
+#include "arch_GOARCH.h"
 
 extern byte pclntab[], epclntab[], symtab[], esymtab[];
 
@@ -381,6 +381,15 @@ runtime·funcline(Func *f, uintptr targetpc)
 	return line;
 }
 
+void
+runtime·funcline_go(Func *f, uintptr targetpc, String retfile, int32 retline)
+{
+	retfile = f->src;
+	retline = runtime·funcline(f, targetpc);
+	FLUSH(&retfile);
+	FLUSH(&retline);
+}
+
 static void
 buildfuncs(void)
 {
@@ -428,13 +437,17 @@ runtime·findfunc(uintptr addr)
 	// (Before enabling the signal handler,
 	// SetCPUProfileRate calls findfunc to trigger
 	// the initialization outside the handler.)
-	if(runtime·atomicload(&funcinit) == 0) {
-		runtime·lock(&funclock);
-		if(funcinit == 0) {
-			buildfuncs();
-			runtime·atomicstore(&funcinit, 1);
+	// Avoid deadlock on fault during malloc
+	// by not calling buildfuncs if we're already in malloc.
+	if(!m->mallocing && !m->gcing) {
+		if(runtime·atomicload(&funcinit) == 0) {
+			runtime·lock(&funclock);
+			if(funcinit == 0) {
+				buildfuncs();
+				runtime·atomicstore(&funcinit, 1);
+			}
+			runtime·unlock(&funclock);
 		}
-		runtime·unlock(&funclock);
 	}
 
 	if(nfunc == 0)
@@ -463,4 +476,44 @@ runtime·findfunc(uintptr addr)
 	// by address or if the binary search above is buggy.
 	runtime·prints("findfunc unreachable\n");
 	return nil;
+}
+
+static bool
+hasprefix(String s, int8 *p)
+{
+	int32 i;
+	
+	for(i=0; i<s.len; i++) {
+		if(p[i] == 0)
+			return 1;
+		if(p[i] != s.str[i])
+			return 0;
+	}
+	return p[i] == 0;
+}
+
+static bool
+contains(String s, int8 *p)
+{
+	int32 i;
+	
+	if(p[0] == 0)
+		return 1;
+	for(i=0; i<s.len; i++) {
+		if(s.str[i] != p[0])
+			continue;
+		if(hasprefix((String){s.str + i, s.len - i}, p))
+			return 1;
+	}
+	return 0;
+}
+
+bool
+runtime·showframe(Func *f)
+{
+	static int32 traceback = -1;
+	
+	if(traceback < 0)
+		traceback = runtime·gotraceback();
+	return traceback > 1 || contains(f->name, ".") && !hasprefix(f->name, "runtime.");
 }

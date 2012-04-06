@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include	<u.h>
+#include	<libc.h>
 #include	"go.h"
 #include	"y.tab.h"
 
 static	void	funcargs(Node*);
+static	void	funcargs2(Type*);
 
 static int
 dflag(void)
@@ -115,6 +118,8 @@ dumpdcl(char *st)
 	Sym *s, *d;
 	int i;
 
+	USED(st);
+
 	i = 0;
 	for(d=dclstack; d!=S; d=d->link) {
 		i++;
@@ -170,6 +175,11 @@ declare(Node *n, int ctxt)
 
 	n->lineno = parserline();
 	s = n->sym;
+
+	// kludgy: typecheckok means we're past parsing.  Eg genwrapper may declare out of package names later.
+	if(importpkg == nil && !typecheckok && s->pkg != localpkg)
+		yyerror("cannot declare name %S", s);
+
 	gen = 0;
 	if(ctxt == PEXTERN) {
 		externdcl = list(externdcl, n);
@@ -188,7 +198,7 @@ declare(Node *n, int ctxt)
 		n->curfn = curfn;
 	}
 	if(ctxt == PAUTO)
-		n->xoffset = BADWIDTH;
+		n->xoffset = 0;
 
 	if(s->block == block)
 		redeclare(s, "in this block");
@@ -411,6 +421,7 @@ oldname(Sym *s)
 			c->funcdepth = funcdepth;
 			c->outer = n->closure;
 			n->closure = c;
+			n->addrtaken = 1;
 			c->closure = n;
 			c->xoffset = 0;
 			curfn->cvars = list(curfn->cvars, c);
@@ -468,7 +479,7 @@ colasdefn(NodeList *left, Node *defn)
 		if(isblank(n))
 			continue;
 		if(!colasname(n)) {
-			yyerror("non-name %#N on left side of :=", n);
+			yyerror("non-name %N on left side of :=", n);
 			nerr++;
 			continue;
 		}
@@ -542,13 +553,6 @@ ifacedcl(Node *n)
 void
 funchdr(Node *n)
 {
-
-	if(n->nname != N) {
-		n->nname->op = ONAME;
-		declare(n->nname, PFUNC);
-		n->nname->defn = n;
-	}
-
 	// change the declaration context from extern to auto
 	if(funcdepth == 0 && dclcontext != PEXTERN)
 		fatal("funchdr: dclcontext");
@@ -559,16 +563,19 @@ funchdr(Node *n)
 
 	n->outer = curfn;
 	curfn = n;
+
 	if(n->nname)
 		funcargs(n->nname->ntype);
-	else
+	else if (n->ntype)
 		funcargs(n->ntype);
+	else
+		funcargs2(n->type);
 }
 
 static void
 funcargs(Node *nt)
 {
-	Node *n;
+	Node *n, *nn;
 	NodeList *l;
 	int gen;
 
@@ -577,11 +584,11 @@ funcargs(Node *nt)
 
 	// declare the receiver and in arguments.
 	// no n->defn because type checking of func header
-	// will fill in the types before we can demand them.
+	// will not fill in the types until later
 	if(nt->left != N) {
 		n = nt->left;
 		if(n->op != ODCLFIELD)
-			fatal("funcargs1 %O", n->op);
+			fatal("funcargs receiver %O", n->op);
 		if(n->left != N) {
 			n->left->op = ONAME;
 			n->left->ntype = n->right;
@@ -591,7 +598,7 @@ funcargs(Node *nt)
 	for(l=nt->list; l; l=l->next) {
 		n = l->n;
 		if(n->op != ODCLFIELD)
-			fatal("funcargs2 %O", n->op);
+			fatal("funcargs in %O", n->op);
 		if(n->left != N) {
 			n->left->op = ONAME;
 			n->left->ntype = n->right;
@@ -604,18 +611,64 @@ funcargs(Node *nt)
 	for(l=nt->rlist; l; l=l->next) {
 		n = l->n;
 		if(n->op != ODCLFIELD)
-			fatal("funcargs3 %O", n->op);
+			fatal("funcargs out %O", n->op);
 		if(n->left != N) {
 			n->left->op = ONAME;
 			n->left->ntype = n->right;
 			if(isblank(n->left)) {
 				// Give it a name so we can assign to it during return.
+				// preserve the original in ->orig
+				nn = nod(OXXX, N, N);
+				*nn = *n->left;
+				n->left = nn;
 				snprint(namebuf, sizeof(namebuf), ".anon%d", gen++);
 				n->left->sym = lookup(namebuf);
 			}
 			declare(n->left, PPARAMOUT);
 		}
 	}
+}
+
+/*
+ * Same as funcargs, except run over an already constructed TFUNC.
+ * This happens during import, where the hidden_fndcl rule has
+ * used functype directly to parse the function's type.
+ */
+static void
+funcargs2(Type *t)
+{
+	Type *ft;
+	Node *n;
+
+	if(t->etype != TFUNC)
+		fatal("funcargs2 %T", t);
+	
+	if(t->thistuple)
+		for(ft=getthisx(t)->type; ft; ft=ft->down) {
+			if(!ft->nname || !ft->nname->sym)
+				continue;
+			n = ft->nname;  // no need for newname(ft->nname->sym)
+			n->type = ft->type;
+			declare(n, PPARAM);
+		}
+
+	if(t->intuple)
+		for(ft=getinargx(t)->type; ft; ft=ft->down) {
+			if(!ft->nname || !ft->nname->sym)
+				continue;
+			n = ft->nname;
+			n->type = ft->type;
+			declare(n, PPARAM);
+		}
+
+	if(t->outtuple)
+		for(ft=getoutargx(t)->type; ft; ft=ft->down) {
+			if(!ft->nname || !ft->nname->sym)
+				continue;
+			n = ft->nname;
+			n->type = ft->type;
+			declare(n, PPARAMOUT);
+		}
 }
 
 /*
@@ -645,7 +698,7 @@ typedcl0(Sym *s)
 {
 	Node *n;
 
-	n = dclname(s);
+	n = newname(s);
 	n->op = OTYPE;
 	declare(n, dclcontext);
 	return n;
@@ -665,216 +718,264 @@ typedcl1(Node *n, Node *t, int local)
 }
 
 /*
- * typedcl1 but during imports
- */
-void
-typedcl2(Type *pt, Type *t)
-{
-	Node *n;
-
-	// override declaration in unsafe.go for Pointer.
-	// there is no way in Go code to define unsafe.Pointer
-	// so we have to supply it.
-	if(incannedimport &&
-	   strcmp(importpkg->name, "unsafe") == 0 &&
-	   strcmp(pt->nod->sym->name, "Pointer") == 0) {
-		t = types[TUNSAFEPTR];
-	}
-
-	if(pt->etype == TFORW)
-		goto ok;
-	if(!eqtype(pt->orig, t))
-		yyerror("inconsistent definition for type %S during import\n\t%lT\n\t%lT", pt->sym, pt->orig, t);
-	return;
-
-ok:
-	n = pt->nod;
-	copytype(pt->nod, t);
-	// unzero nod
-	pt->nod = n;
-
-	pt->sym->lastlineno = parserline();
-	declare(n, PEXTERN);
-
-	checkwidth(pt);
-}
-
-/*
  * structs, functions, and methods.
  * they don't belong here, but where do they belong?
  */
 
-
-/*
- * turn a parsed struct into a type
- */
-static Type**
-stotype(NodeList *l, int et, Type **t, int funarg)
+static void
+checkembeddedtype(Type *t)
 {
-	Type *f, *t1, *t2, **t0;
-	Strlit *note;
+	if (t == T)
+		return;
+
+	if(t->sym == S && isptr[t->etype]) {
+		t = t->type;
+		if(t->etype == TINTER)
+			yyerror("embedded type cannot be a pointer to interface");
+	}
+	if(isptr[t->etype])
+		yyerror("embedded type cannot be a pointer");
+	else if(t->etype == TFORW && t->embedlineno == 0)
+		t->embedlineno = lineno;
+}
+
+static Type*
+structfield(Node *n)
+{
+	Type *f;
 	int lno;
-	Node *n, *left;
-	char *what;
 
-	t0 = t;
 	lno = lineno;
-	what = "field";
-	if(et == TINTER)
-		what = "method";
+	lineno = n->lineno;
 
-	for(; l; l=l->next) {
-		n = l->n;
-		lineno = n->lineno;
-		note = nil;
+	if(n->op != ODCLFIELD)
+		fatal("structfield: oops %N\n", n);
 
-		if(n->op != ODCLFIELD)
-			fatal("stotype: oops %N\n", n);
-		left = n->left;
-		if(funarg && isblank(left))
-			left = N;
-		if(n->right != N) {
-			if(et == TINTER && left != N) {
-				// queue resolution of method type for later.
-				// right now all we need is the name list.
-				// avoids cycles for recursive interface types.
-				n->type = typ(TINTERMETH);
-				n->type->nname = n->right;
-				n->right = N;
-				left->type = n->type;
-				queuemethod(n);
-			} else {
-				typecheck(&n->right, Etype);
-				n->type = n->right->type;
-				if(n->type == T)
-					continue;
-				if(left != N)
-					left->type = n->type;
-				n->right = N;
-				if(n->embedded && n->type != T) {
-					t1 = n->type;
-					if(t1->sym == S && isptr[t1->etype]) {
-						t1 = t1->type;
-						if(t1->etype == TINTER)
-							yyerror("embedded type cannot be a pointer to interface");
-					}
-					if(isptr[t1->etype])
-						yyerror("embedded type cannot be a pointer");
-					else if(t1->etype == TFORW && t1->embedlineno == 0)
-						t1->embedlineno = lineno;
-				}
-			}
-		}
+	f = typ(TFIELD);
+	f->isddd = n->isddd;
 
-		if(n->type == T) {
-			// assume error already printed
-			continue;
-		}
+	if(n->right != N) {
+		typecheck(&n->right, Etype);
+		n->type = n->right->type;
+		if(n->left != N)
+			n->left->type = n->type;
+		if(n->embedded)
+			checkembeddedtype(n->type);
+	}
+	n->right = N;
+		
+	f->type = n->type;
+	if(f->type == T)
+		f->broke = 1;
 
-		switch(n->val.ctype) {
-		case CTSTR:
-			if(et != TSTRUCT)
-				yyerror("interface method cannot have annotation");
-			note = n->val.u.sval;
-			break;
-		default:
-			if(et != TSTRUCT)
-				yyerror("interface method cannot have annotation");
-			else
-				yyerror("field annotation must be string");
-		case CTxxx:
-			note = nil;
-			break;
-		}
-
-		if(et == TINTER && left == N) {
-			// embedded interface - inline the methods
-			if(n->type->etype != TINTER) {
-				if(n->type->etype == TFORW)
-					yyerror("interface type loop involving %T", n->type);
-				else
-					yyerror("interface contains embedded non-interface %T", n->type);
-				continue;
-			}
-			for(t1=n->type->type; t1!=T; t1=t1->down) {
-				f = typ(TFIELD);
-				f->type = t1->type;
-				f->width = BADWIDTH;
-				f->nname = newname(t1->sym);
-				f->sym = t1->sym;
-				for(t2=*t0; t2!=T; t2=t2->down) {
-					if(t2->sym == f->sym) {
-						yyerror("duplicate method %s", t2->sym->name);
-						break;
-					}
-				}
-				*t = f;
-				t = &f->down;
-			}
-			continue;
-		}
-
-		f = typ(TFIELD);
-		f->type = n->type;
-		f->note = note;
-		f->width = BADWIDTH;
-		f->isddd = n->isddd;
-
-		if(left != N && left->op == ONAME) {
-			f->nname = left;
-			f->embedded = n->embedded;
-			f->sym = f->nname->sym;
-			if(importpkg && !exportname(f->sym->name))
-				f->sym = pkglookup(f->sym->name, structpkg);
-			if(f->sym && !isblank(f->nname)) {
-				for(t1=*t0; t1!=T; t1=t1->down) {
-					if(t1->sym == f->sym) {
-						yyerror("duplicate %s %s", what, t1->sym->name);
-						break;
-					}
-				}
-			}
-		}
-
-		*t = f;
-		t = &f->down;
+	switch(n->val.ctype) {
+	case CTSTR:
+		f->note = n->val.u.sval;
+		break;
+	default:
+		yyerror("field annotation must be string");
+		// fallthrough
+	case CTxxx:
+		f->note = nil;
+		break;
 	}
 
-	*t = T;
+	if(n->left && n->left->op == ONAME) {
+		f->nname = n->left;
+		f->embedded = n->embedded;
+		f->sym = f->nname->sym;
+	}
+
 	lineno = lno;
+	return f;
+}
+
+static void
+checkdupfields(Type *t, char* what)
+{
+	Type* t1;
+	int lno;
+
+	lno = lineno;
+
+	for( ; t; t=t->down)
+		if(t->sym && t->nname && !isblank(t->nname))
+			for(t1=t->down; t1; t1=t1->down)
+				if(t1->sym == t->sym) {
+					lineno = t->nname->lineno;
+					yyerror("duplicate %s %s", what, t->sym->name);
+					break;
+				}
+
+	lineno = lno;
+}
+
+/*
+ * convert a parsed id/type list into
+ * a type for struct/interface/arglist
+ */
+Type*
+tostruct(NodeList *l)
+{
+	Type *t, *f, **tp;
+	t = typ(TSTRUCT);
+
+	for(tp = &t->type; l; l=l->next) {
+		f = structfield(l->n);
+
+		*tp = f;
+		tp = &f->down;
+	}
+
+	for(f=t->type; f && !t->broke; f=f->down)
+		if(f->broke)
+			t->broke = 1;
+
+	checkdupfields(t->type, "field");
+
+	if (!t->broke)
+		checkwidth(t);
+
 	return t;
+}
+
+static Type*
+tofunargs(NodeList *l)
+{
+	Type *t, *f, **tp;
+
+	t = typ(TSTRUCT);
+	t->funarg = 1;
+
+	for(tp = &t->type; l; l=l->next) {
+		f = structfield(l->n);
+		f->funarg = 1;
+
+		// esc.c needs to find f given a PPARAM to add the tag.
+		if(l->n->left && l->n->left->class == PPARAM)
+			l->n->left->paramfld = f;
+
+		*tp = f;
+		tp = &f->down;
+	}
+
+	for(f=t->type; f && !t->broke; f=f->down)
+		if(f->broke)
+			t->broke = 1;
+
+	checkdupfields(t->type, "argument");
+	return t;
+}
+
+static Type*
+interfacefield(Node *n)
+{
+	Type *f;
+	int lno;
+
+	lno = lineno;
+	lineno = n->lineno;
+
+	if(n->op != ODCLFIELD)
+		fatal("interfacefield: oops %N\n", n);
+
+	if (n->val.ctype != CTxxx)
+		yyerror("interface method cannot have annotation");
+
+	f = typ(TFIELD);
+	f->isddd = n->isddd;
+	
+	if(n->right != N) {
+		if(n->left != N) {
+			// queue resolution of method type for later.
+			// right now all we need is the name list.
+			// avoids cycles for recursive interface types.
+			n->type = typ(TINTERMETH);
+			n->type->nname = n->right;
+			n->left->type = n->type;
+			queuemethod(n);
+
+			if(n->left->op == ONAME) {
+				f->nname = n->left;
+				f->embedded = n->embedded;
+				f->sym = f->nname->sym;
+				if(importpkg && !exportname(f->sym->name))
+					f->sym = pkglookup(f->sym->name, structpkg);
+			}
+
+		} else {
+
+			typecheck(&n->right, Etype);
+			n->type = n->right->type;
+
+			if(n->embedded)
+				checkembeddedtype(n->type);
+
+			if(n->type)
+				switch(n->type->etype) {
+				case TINTER:
+					break;
+				case TFORW:
+					yyerror("interface type loop involving %T", n->type);
+					f->broke = 1;
+					break;
+				default:
+					yyerror("interface contains embedded non-interface %T", n->type);
+					f->broke = 1;
+					break;
+				}
+		}
+	}
+
+	n->right = N;
+	
+	f->type = n->type;
+	if(f->type == T)
+		f->broke = 1;
+	
+	lineno = lno;
+	return f;
 }
 
 Type*
-dostruct(NodeList *l, int et)
+tointerface(NodeList *l)
 {
-	Type *t;
-	int funarg;
+	Type *t, *f, **tp, *t1;
 
-	/*
-	 * convert a parsed id/type list into
-	 * a type for struct/interface/arglist
-	 */
+	t = typ(TINTER);
 
-	funarg = 0;
-	if(et == TFUNC) {
-		funarg = 1;
-		et = TSTRUCT;
+	tp = &t->type;
+	for(; l; l=l->next) {
+		f = interfacefield(l->n);
+
+		if (l->n->left == N && f->type->etype == TINTER) {
+			// embedded interface, inline methods
+			for(t1=f->type->type; t1; t1=t1->down) {
+				f = typ(TFIELD);
+				f->type = t1->type;
+				f->broke = t1->broke;
+				f->sym = t1->sym;
+				if(f->sym)
+					f->nname = newname(f->sym);
+				*tp = f;
+				tp = &f->down;
+			}
+		} else {
+			*tp = f;
+			tp = &f->down;
+		}
 	}
-	t = typ(et);
-	t->funarg = funarg;
-	stotype(l, et, &t->type, funarg);
-	if(t->type == T && l != nil) {
-		t->broke = 1;
-		return t;
-	}
-	if(et == TINTER)
-		t = sortinter(t);
-	if(!funarg)
-		checkwidth(t);
+
+	for(f=t->type; f && !t->broke; f=f->down)
+		if(f->broke)
+			t->broke = 1;
+
+	checkdupfields(t->type, "method");
+	t = sortinter(t);
+	checkwidth(t);
+
 	return t;
 }
-
 
 Node*
 embedded(Sym *s)
@@ -892,7 +993,10 @@ embedded(Sym *s)
 		*utfrune(name, CenterDot) = 0;
 	}
 
-	n = newname(lookup(name));
+	if(exportname(name) || s->pkg == builtinpkg)  // old behaviour, tests pass, but is it correct?
+		n = newname(lookup(name));
+	else
+		n = newname(pkglookup(name, s->pkg));
 	n = nod(ODCLFIELD, n, oldname(s));
 	n->embedded = 1;
 	return n;
@@ -957,6 +1061,17 @@ checkarglist(NodeList *all, int input)
 			t = n;
 			n = N;
 		}
+
+		// during import l->n->op is OKEY, but l->n->left->sym == S
+		// means it was a '?', not that it was
+		// a lone type This doesn't matter for the exported
+		// declarations, which are parsed by rules that don't
+		// use checkargs, but can happen for func literals in
+		// the inline bodies.
+		// TODO(rsc) this can go when typefmt case TFIELD in exportmode fmt.c prints _ instead of ?
+		if(importpkg && n->sym == S)
+			n = N;
+
 		if(n != N && n->sym == S) {
 			t = n;
 			n = N;
@@ -1030,9 +1145,12 @@ functype(Node *this, NodeList *in, NodeList *out)
 	rcvr = nil;
 	if(this)
 		rcvr = list1(this);
-	t->type = dostruct(rcvr, TFUNC);
-	t->type->down = dostruct(out, TFUNC);
-	t->type->down->down = dostruct(in, TFUNC);
+	t->type = tofunargs(rcvr);
+	t->type->down = tofunargs(out);
+	t->type->down->down = tofunargs(in);
+
+	if (t->type->broke || t->type->down->broke || t->type->down->down->broke)
+		t->broke = 1;
 
 	if(this)
 		t->thistuple = 1;
@@ -1050,21 +1168,22 @@ methodsym(Sym *nsym, Type *t0, int iface)
 	char *p;
 	Type *t;
 	char *suffix;
+	Pkg *spkg;
+	static Pkg *toppkg;
 
 	t = t0;
 	if(t == T)
 		goto bad;
 	s = t->sym;
-	if(s == S) {
-		if(!isptr[t->etype])
-			goto bad;
+	if(s == S && isptr[t->etype]) {
 		t = t->type;
 		if(t == T)
 			goto bad;
 		s = t->sym;
-		if(s == S)
-			goto bad;
 	}
+	spkg = nil;
+	if(s != S)
+		spkg = s->pkg;
 
 	// if t0 == *t and t0 has a sym,
 	// we want to see *t, not t0, in the method name.
@@ -1077,11 +1196,23 @@ methodsym(Sym *nsym, Type *t0, int iface)
 		if(t0->width < types[tptr]->width)
 			suffix = "·i";
 	}
-	if(t0->sym == S && isptr[t0->etype])
-		p = smprint("(%#hT).%s%s", t0, nsym->name, suffix);
-	else
-		p = smprint("%#hT.%s%s", t0, nsym->name, suffix);
-	s = pkglookup(p, s->pkg);
+	if((spkg == nil || nsym->pkg != spkg) && !exportname(nsym->name)) {
+		if(t0->sym == S && isptr[t0->etype])
+			p = smprint("(%-hT).%s.%s%s", t0, nsym->pkg->prefix, nsym->name, suffix);
+		else
+			p = smprint("%-hT.%s.%s%s", t0, nsym->pkg->prefix, nsym->name, suffix);
+	} else {
+		if(t0->sym == S && isptr[t0->etype])
+			p = smprint("(%-hT).%s%s", t0, nsym->name, suffix);
+		else
+			p = smprint("%-hT.%s%s", t0, nsym->name, suffix);
+	}
+	if(spkg == nil) {
+		if(toppkg == nil)
+			toppkg = mkpkg(strlit("go"));
+		spkg = toppkg;
+	}
+	s = pkglookup(p, spkg);
 	free(p);
 	return s;
 
@@ -1114,11 +1245,16 @@ methodname1(Node *n, Node *t)
 	}
 	if(t->sym == S || isblank(n))
 		return newname(n->sym);
+
 	if(star)
 		p = smprint("(%s%S).%S", star, t->sym, n->sym);
 	else
 		p = smprint("%S.%S", t->sym, n->sym);
-	n = newname(pkglookup(p, t->sym->pkg));
+
+	if(exportname(t->sym->name))
+		n = newname(lookup(p));
+	else
+		n = newname(pkglookup(p, t->sym->pkg));
 	free(p);
 	return n;
 }
@@ -1133,8 +1269,6 @@ addmethod(Sym *sf, Type *t, int local)
 	Type *f, *d, *pa;
 	Node *n;
 
-	pa = nil;
-
 	// get field sym
 	if(sf == S)
 		fatal("no method symbol");
@@ -1147,7 +1281,7 @@ addmethod(Sym *sf, Type *t, int local)
 	}
 
 	pa = pa->type;
-	f = methtype(pa);
+	f = methtype(pa, 1);
 	if(f == T) {
 		t = pa;
 		if(t != T) {
@@ -1159,6 +1293,8 @@ addmethod(Sym *sf, Type *t, int local)
 				t = t->type;
 			}
 		}
+		if(t->broke) // rely on typecheck having complained before
+			return;
 		if(t != T) {
 			if(t->sym == S) {
 				yyerror("invalid receiver type %T (%T is an unnamed type)", pa, t);
@@ -1180,8 +1316,14 @@ addmethod(Sym *sf, Type *t, int local)
 	}
 
 	pa = f;
-	if(importpkg && !exportname(sf->name))
-		sf = pkglookup(sf->name, importpkg);
+	if(pa->etype == TSTRUCT) {
+		for(f=pa->type; f; f=f->down) {
+			if(f->sym == sf) {
+				yyerror("type %T has both field and method named %S", pa, sf);
+				return;
+			}
+		}
+	}
 
 	n = nod(ODCLFIELD, newname(sf), N);
 	n->type = t;
@@ -1204,10 +1346,16 @@ addmethod(Sym *sf, Type *t, int local)
 		return;
 	}
 
+	f = structfield(n);
+
+	// during import unexported method names should be in the type's package
+	if(importpkg && f->sym && !exportname(f->sym->name) && f->sym->pkg != structpkg)
+		fatal("imported method name %+S in wrong package %s\n", f->sym, structpkg->name);
+
 	if(d == T)
-		stotype(list1(n), 0, &pa->method, 0);
+		pa->method = f;
 	else
-		stotype(list1(n), 0, &d->down, 0);
+		d->down = f;
 	return;
 }
 
@@ -1249,6 +1397,3 @@ funccompile(Node *n, int isclosure)
 	funcdepth = 0;
 	dclcontext = PEXTERN;
 }
-
-
-

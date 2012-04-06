@@ -1,15 +1,17 @@
+// Copyright 2011 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package cgotest
 
 /*
 void callback(void *f);
-void callGoFoo(void) {
-	extern void goFoo(void);
-	goFoo();
-}
+void callGoFoo(void);
 */
 import "C"
 
 import (
+	"./backdoor"
 	"runtime"
 	"testing"
 	"unsafe"
@@ -39,7 +41,7 @@ func testCallbackGC(t *testing.T) {
 	nestedCall(runtime.GC)
 }
 
-func lockedOSThread() bool // in runtime.c
+var lockedOSThread = backdoor.LockedOSThread
 
 func testCallbackPanic(t *testing.T) {
 	// Make sure panic during callback unwinds properly.
@@ -65,7 +67,7 @@ func testCallbackPanic(t *testing.T) {
 func testCallbackPanicLoop(t *testing.T) {
 	// Make sure we don't blow out m->g0 stack.
 	for i := 0; i < 100000; i++ {
-		TestCallbackPanic(t)
+		testCallbackPanic(t)
 	}
 }
 

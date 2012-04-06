@@ -4,28 +4,59 @@
 
 package os
 
-// An Error can represent any printable error condition.
-type Error interface {
-	String() string
-}
+import (
+	"errors"
+)
 
-// // errorString is a helper type used by NewError.
-type errorString string
-
-func (e errorString) String() string { return string(e) }
-
-// Note: If the name of the function NewError changes,
-// pkg/go/doc/doc.go should be adjusted since it hardwires
-// this name in a heuristic.
-
-// // NewError returns a new error with error.String() == s.
-func NewError(s string) Error { return errorString(s) }
+// Portable analogs of some common system call errors.
+var (
+	ErrInvalid    = errors.New("invalid argument")
+	ErrPermission = errors.New("permission denied")
+	ErrExist      = errors.New("file already exists")
+	ErrNotExist   = errors.New("file does not exist")
+)
 
 // PathError records an error and the operation and file path that caused it.
 type PathError struct {
-	Op    string
-	Path  string
-	Error Error
+	Op   string
+	Path string
+	Err  error
 }
 
-func (e *PathError) String() string { return e.Op + " " + e.Path + ": " + e.Error.String() }
+func (e *PathError) Error() string { return e.Op + " " + e.Path + ": " + e.Err.Error() }
+
+// SyscallError records an error from a specific system call.
+type SyscallError struct {
+	Syscall string
+	Err     error
+}
+
+func (e *SyscallError) Error() string { return e.Syscall + ": " + e.Err.Error() }
+
+// NewSyscallError returns, as an error, a new SyscallError
+// with the given system call name and error details.
+// As a convenience, if err is nil, NewSyscallError returns nil.
+func NewSyscallError(syscall string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &SyscallError{syscall, err}
+}
+
+// IsExist returns whether the error is known to report that a file or directory 
+// already exists. It is satisfied by ErrExist as well as some syscall errors.
+func IsExist(err error) bool {
+	return isExist(err)
+}
+
+// IsNotExist returns whether the error is known to report that a file or directory
+// does not exist. It is satisfied by ErrNotExist as well as some syscall errors.
+func IsNotExist(err error) bool {
+	return isNotExist(err)
+}
+
+// IsPermission returns whether the error is known to report that permission is denied.
+// It is satisfied by ErrPermission as well as some syscall errors.
+func IsPermission(err error) bool {
+	return isPermission(err)
+}

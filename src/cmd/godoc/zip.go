@@ -22,11 +22,11 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"sort"
 	"strings"
+	"time"
 )
 
 // zipFI is the zip-file based implementation of FileInfo
@@ -46,28 +46,41 @@ func (fi zipFI) Size() int64 {
 	return 0 // directory
 }
 
-func (fi zipFI) Mtime_ns() int64 {
+func (fi zipFI) ModTime() time.Time {
 	if f := fi.file; f != nil {
-		return f.Mtime_ns()
+		return f.ModTime()
 	}
-	return 0 // directory has no modified time entry
+	return time.Time{} // directory has no modified time entry
 }
 
-func (fi zipFI) IsDirectory() bool {
+func (fi zipFI) Mode() os.FileMode {
+	if fi.file == nil {
+		// Unix directories typically are executable, hence 555.
+		return os.ModeDir | 0555
+	}
+	return 0444
+}
+
+func (fi zipFI) IsDir() bool {
 	return fi.file == nil
 }
 
-func (fi zipFI) IsRegular() bool {
-	return fi.file != nil
+func (fi zipFI) Sys() interface{} {
+	return nil
 }
 
 // zipFS is the zip-file based implementation of FileSystem
 type zipFS struct {
 	*zip.ReadCloser
 	list zipList
+	name string
 }
 
-func (fs *zipFS) Close() os.Error {
+func (fs *zipFS) String() string {
+	return "zip(" + fs.name + ")"
+}
+
+func (fs *zipFS) Close() error {
 	fs.list = nil
 	return fs.ReadCloser.Close()
 }
@@ -80,7 +93,7 @@ func zipPath(name string) string {
 	return name[1:] // strip leading '/'
 }
 
-func (fs *zipFS) stat(abspath string) (int, zipFI, os.Error) {
+func (fs *zipFS) stat(abspath string) (int, zipFI, error) {
 	i, exact := fs.list.lookup(abspath)
 	if i < 0 {
 		// abspath has leading '/' stripped - print it explicitly
@@ -94,38 +107,60 @@ func (fs *zipFS) stat(abspath string) (int, zipFI, os.Error) {
 	return i, zipFI{name, file}, nil
 }
 
-func (fs *zipFS) Open(abspath string) (io.ReadCloser, os.Error) {
+func (fs *zipFS) Open(abspath string) (readSeekCloser, error) {
 	_, fi, err := fs.stat(zipPath(abspath))
 	if err != nil {
 		return nil, err
 	}
-	if fi.IsDirectory() {
+	if fi.IsDir() {
 		return nil, fmt.Errorf("Open: %s is a directory", abspath)
 	}
-	return fi.file.Open()
+	r, err := fi.file.Open()
+	if err != nil {
+		return nil, err
+	}
+	return &zipSeek{fi.file, r}, nil
 }
 
-func (fs *zipFS) Lstat(abspath string) (FileInfo, os.Error) {
+type zipSeek struct {
+	file *zip.File
+	io.ReadCloser
+}
+
+func (f *zipSeek) Seek(offset int64, whence int) (int64, error) {
+	if whence == 0 && offset == 0 {
+		r, err := f.file.Open()
+		if err != nil {
+			return 0, err
+		}
+		f.Close()
+		f.ReadCloser = r
+		return 0, nil
+	}
+	return 0, fmt.Errorf("unsupported Seek in %s", f.file.Name)
+}
+
+func (fs *zipFS) Lstat(abspath string) (os.FileInfo, error) {
 	_, fi, err := fs.stat(zipPath(abspath))
 	return fi, err
 }
 
-func (fs *zipFS) Stat(abspath string) (FileInfo, os.Error) {
+func (fs *zipFS) Stat(abspath string) (os.FileInfo, error) {
 	_, fi, err := fs.stat(zipPath(abspath))
 	return fi, err
 }
 
-func (fs *zipFS) ReadDir(abspath string) ([]FileInfo, os.Error) {
+func (fs *zipFS) ReadDir(abspath string) ([]os.FileInfo, error) {
 	path := zipPath(abspath)
 	i, fi, err := fs.stat(path)
 	if err != nil {
 		return nil, err
 	}
-	if !fi.IsDirectory() {
+	if !fi.IsDir() {
 		return nil, fmt.Errorf("ReadDir: %s is not a directory", abspath)
 	}
 
-	var list []FileInfo
+	var list []os.FileInfo
 	dirname := path + "/"
 	prevname := ""
 	for _, e := range fs.list[i:] {
@@ -153,19 +188,11 @@ func (fs *zipFS) ReadDir(abspath string) ([]FileInfo, os.Error) {
 	return list, nil
 }
 
-func (fs *zipFS) ReadFile(abspath string) ([]byte, os.Error) {
-	rc, err := fs.Open(abspath)
-	if err != nil {
-		return nil, err
-	}
-	return ioutil.ReadAll(rc)
-}
-
-func NewZipFS(rc *zip.ReadCloser) FileSystem {
+func NewZipFS(rc *zip.ReadCloser, name string) FileSystem {
 	list := make(zipList, len(rc.File))
 	copy(list, rc.File) // sort a copy of rc.File
 	sort.Sort(list)
-	return &zipFS{rc, list}
+	return &zipFS{rc, list, name}
 }
 
 type zipList []*zip.File
@@ -183,9 +210,10 @@ func (z zipList) lookup(name string) (index int, exact bool) {
 	i := sort.Search(len(z), func(i int) bool {
 		return name <= z[i].Name
 	})
-	if i < 0 {
+	if i >= len(z) {
 		return -1, false
 	}
+	// 0 <= i < len(z)
 	if z[i].Name == name {
 		return i, true
 	}
@@ -196,9 +224,10 @@ func (z zipList) lookup(name string) (index int, exact bool) {
 	j := sort.Search(len(z), func(i int) bool {
 		return name <= z[i].Name
 	})
-	if j < 0 {
+	if j >= len(z) {
 		return -1, false
 	}
+	// 0 <= j < len(z)
 	if strings.HasPrefix(z[j].Name, name) {
 		return i + j, false
 	}

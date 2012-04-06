@@ -15,34 +15,6 @@ GCC=gcc
 
 uname=$(uname)
 
-includes_Linux='
-#define _LARGEFILE_SOURCE
-#define _LARGEFILE64_SOURCE
-#define _FILE_OFFSET_BITS 64
-#define _GNU_SOURCE
-
-#include <bits/sockaddr.h>
-#include <sys/epoll.h>
-#include <sys/inotify.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/mount.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <linux/if_addr.h>
-#include <linux/if_ether.h>
-#include <linux/if_tun.h>
-#include <linux/filter.h>
-#include <linux/netlink.h>
-#include <linux/reboot.h>
-#include <linux/rtnetlink.h>
-#include <linux/ptrace.h>
-#include <linux/wait.h>
-#include <net/if.h>
-#include <net/if_arp.h>
-#include <netpacket/packet.h>
-'
-
 includes_Darwin='
 #define _DARWIN_C_SOURCE
 #define KERNEL
@@ -83,8 +55,82 @@ includes_FreeBSD='
 #include <netinet/ip_mroute.h>
 '
 
+includes_Linux='
+#define _LARGEFILE_SOURCE
+#define _LARGEFILE64_SOURCE
+#define _FILE_OFFSET_BITS 64
+#define _GNU_SOURCE
+
+#include <bits/sockaddr.h>
+#include <sys/epoll.h>
+#include <sys/inotify.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/mount.h>
+#include <sys/prctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <linux/if_addr.h>
+#include <linux/if_ether.h>
+#include <linux/if_tun.h>
+#include <linux/filter.h>
+#include <linux/netlink.h>
+#include <linux/reboot.h>
+#include <linux/rtnetlink.h>
+#include <linux/ptrace.h>
+#include <linux/wait.h>
+#include <net/if.h>
+#include <net/if_arp.h>
+#include <net/route.h>
+#include <netpacket/packet.h>
+'
+
+includes_NetBSD='
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/sockio.h>
+#include <sys/sysctl.h>
+#include <sys/termios.h>
+#include <sys/ttycom.h>
+#include <sys/wait.h>
+#include <net/bpf.h>
+#include <net/if.h>
+#include <net/if_types.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/ip_mroute.h>
+#include <netinet/if_ether.h>
+'
+
+includes_OpenBSD='
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/sockio.h>
+#include <sys/sysctl.h>
+#include <sys/termios.h>
+#include <sys/ttycom.h>
+#include <sys/wait.h>
+#include <net/bpf.h>
+#include <net/if.h>
+#include <net/if_types.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
+#include <netinet/ip_mroute.h>
+#include <netinet/if_ether.h>
+#include <net/if_bridge.h>
+'
+
 includes='
 #include <sys/types.h>
+#include <sys/file.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <sys/socket.h>
@@ -95,32 +141,28 @@ includes='
 #include <errno.h>
 #include <sys/signal.h>
 #include <signal.h>
+#include <sys/resource.h>
 '
 
-ccflags=""
-next=false
-for i
-do
-	if $next; then
-		ccflags="$ccflags $i"
-		next=false
-	elif [ "$i" = "-f" ]; then
-		next=true
-	fi
-done
+ccflags="$@"
 
-# Write godefs input.
+# Write go tool cgo -godefs input.
 (
+	echo package syscall
+	echo
+	echo '/*'
 	indirect="includes_$(uname)"
 	echo "${!indirect} $includes"
+	echo '*/'
+	echo 'import "C"'
 	echo
-	echo 'enum {'
+	echo 'const ('
 
 	# The gcc command line prints all the #defines
 	# it encounters while processing the input
 	echo "${!indirect} $includes" | $GCC -x c - -E -dM $ccflags |
 	awk '
-		$1 != "#define" || $2 ~ /\(/ {next}
+		$1 != "#define" || $2 ~ /\(/ || $3 == "" {next}
 
 		$2 ~ /^E([ABCD]X|[BIS]P|[SD]I|S|FL)$/ {next}  # 386 registers
 		$2 ~ /^(SIGEV_|SIGSTKSZ|SIGRT(MIN|MAX))/ {next}
@@ -134,7 +176,8 @@ done
 		$2 ~ /^E[A-Z0-9_]+$/ ||
 		$2 ~ /^SIG[^_]/ ||
 		$2 ~ /^IN_/ ||
-		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|MCL|DT|MADV)_/ ||
+		$2 ~ /^LOCK_(SH|EX|NB|UN)$/ ||
+		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|NOTE|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|MCL|DT|MADV|PR)_/ ||
 		$2 == "SOMAXCONN" ||
 		$2 == "NAME_MAX" ||
 		$2 == "IFNAMSIZ" ||
@@ -146,43 +189,75 @@ done
 		$2 ~ /^LINUX_REBOOT_CMD_/ ||
 		$2 ~ /^LINUX_REBOOT_MAGIC[12]$/ ||
 		$2 !~ "NLA_TYPE_MASK" &&
-		$2 ~ /^(NETLINK|NLM|NLMSG|NLA|IFA|RTM|RTN|RTPROT|RTA|RTAX|RTNH|ARPHRD|ETH_P)_/ ||
+		$2 ~ /^(NETLINK|NLM|NLMSG|NLA|IFA|RT|RTCF|RTN|RTPROT|RTNH|ARPHRD|ETH_P)_/ ||
 		$2 ~ /^SIOC/ ||
 		$2 ~ /^TIOC/ ||
 		$2 ~ /^(IFF|IFT|NET_RT|RTM|RTF|RTV|RTA|RTAX)_/ ||
 		$2 ~ /^BIOC/ ||
+		$2 ~ /^RUSAGE_(SELF|CHILDREN|THREAD)/ ||
+		$2 ~ /^RLIMIT_(AS|CORE|CPU|DATA|FSIZE|NOFILE|STACK)|RLIM_INFINITY/ ||
 		$2 !~ /^(BPF_TIMEVAL)$/ &&
 		$2 ~ /^(BPF|DLT)_/ ||
 		$2 !~ "WMESGLEN" &&
-		$2 ~ /^W[A-Z0-9]+$/ {printf("\t$%s = %s,\n", $2, $2)}
+		$2 ~ /^W[A-Z0-9]+$/ {printf("\t%s = C.%s\n", $2, $2)}
 		$2 ~ /^__WCOREFLAG$/ {next}
-		$2 ~ /^__W[A-Z0-9]+$/ {printf("\t$%s = %s,\n", substr($2,3), $2)}
+		$2 ~ /^__W[A-Z0-9]+$/ {printf("\t%s = C.%s\n", substr($2,3), $2)}
 
 		{next}
 	' | sort
 
-	echo '};'
-) >_const.c
+	echo ')'
+) >_const.go
 
-# Pull out just the error names for later.
+# Pull out the error names for later.
 errors=$(
 	echo '#include <errno.h>' | $GCC -x c - -E -dM $ccflags |
 	awk '$1=="#define" && $2 ~ /^E[A-Z0-9_]+$/ { print $2 }' |
 	sort
 )
 
+# Pull out the signal names for later.
+signals=$(
+	echo '#include <signal.h>' | $GCC -x c - -E -dM $ccflags |
+	awk '$1=="#define" && $2 ~ /^SIG[A-Z0-9]+$/ { print $2 }' |
+	egrep -v '(SIGSTKSIZE|SIGSTKSZ|SIGRT)' |
+	sort
+)
+
+# Again, writing regexps to a file.
+echo '#include <errno.h>' | $GCC -x c - -E -dM $ccflags |
+	awk '$1=="#define" && $2 ~ /^E[A-Z0-9_]+$/ { print "^\t" $2 "[ \t]*=" }' |
+	sort >_error.grep
+echo '#include <signal.h>' | $GCC -x c - -E -dM $ccflags |
+	awk '$1=="#define" && $2 ~ /^SIG[A-Z0-9]+$/ { print "^\t" $2 "[ \t]*=" }' |
+	egrep -v '(SIGSTKSIZE|SIGSTKSZ|SIGRT)' |
+	sort >_signal.grep
+
 echo '// mkerrors.sh' "$@"
 echo '// MACHINE GENERATED BY THE COMMAND ABOVE; DO NOT EDIT'
 echo
-godefs -c $GCC "$@" -gsyscall "$@" _const.c
+go tool cgo -godefs -- "$@" _const.go >_error.out
+cat _error.out | grep -vf _error.grep | grep -vf _signal.grep
+echo
+echo '// Errors'
+echo 'const ('
+cat _error.out | grep -f _error.grep | sed 's/=\(.*\)/= Errno(\1)/'
+echo ')'
 
-# Run C program to print error strings.
+echo
+echo '// Signals'
+echo 'const ('
+cat _error.out | grep -f _signal.grep | sed 's/=\(.*\)/= Signal(\1)/'
+echo ')'
+
+# Run C program to print error and syscall strings.
 (
 	/bin/echo "
 #include <stdio.h>
 #include <errno.h>
 #include <ctype.h>
 #include <string.h>
+#include <signal.h>
 
 #define nelem(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -191,6 +266,16 @@ enum { A = 'A', Z = 'Z', a = 'a', z = 'z' }; // avoid need for single quotes bel
 int errors[] = {
 "
 	for i in $errors
+	do
+		/bin/echo '	'$i,
+	done
+
+	/bin/echo "
+};
+
+int signals[] = {
+"
+	for i in $signals
 	do
 		/bin/echo '	'$i,
 	done
@@ -210,7 +295,7 @@ int
 main(void)
 {
 	int i, j, e;
-	char buf[1024];
+	char buf[1024], *p;
 
 	printf("\n\n// Error table\n");
 	printf("var errors = [...]string {\n");
@@ -226,10 +311,30 @@ main(void)
 		printf("\t%d: \"%s\",\n", e, buf);
 	}
 	printf("}\n\n");
+	
+	printf("\n\n// Signal table\n");
+	printf("var signals = [...]string {\n");
+	qsort(signals, nelem(signals), sizeof signals[0], intcmp);
+	for(i=0; i<nelem(signals); i++) {
+		e = signals[i];
+		if(i > 0 && signals[i-1] == e)
+			continue;
+		strcpy(buf, strsignal(e));
+		// lowercase first letter: Bad -> bad, but STREAM -> STREAM.
+		if(A <= buf[0] && buf[0] <= Z && a <= buf[1] && buf[1] <= z)
+			buf[0] += a - A;
+		// cut trailing : number.
+		p = strrchr(buf, ":"[0]);
+		if(p)
+			*p = '\0';
+		printf("\t%d: \"%s\",\n", e, buf);
+	}
+	printf("}\n\n");
+
 	return 0;
 }
 
 '
 ) >_errors.c
 
-$GCC $ccflags -o _errors _errors.c && $GORUN ./_errors && rm -f _errors.c _errors _const.c
+$GCC $ccflags -o _errors _errors.c && $GORUN ./_errors && rm -f _errors.c _errors _const.go _error.grep _signal.grep _error.out

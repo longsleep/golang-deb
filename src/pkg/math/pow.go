@@ -36,8 +36,6 @@ func isOddInt(x float64) bool {
 //	Pow(-Inf, y) = Pow(-0, -y)
 //	Pow(x, y) = NaN for finite x < 0 and finite non-integer y
 func Pow(x, y float64) float64 {
-	// TODO(rsc): Remove manual inlining of IsNaN, IsInf
-	// when compiler does it for us
 	switch {
 	case y == 0 || x == 1:
 		return 1
@@ -47,7 +45,7 @@ func Pow(x, y float64) float64 {
 		return Sqrt(x)
 	case y == -0.5:
 		return 1 / Sqrt(x)
-	case x != x || y != y: // IsNaN(x) || IsNaN(y):
+	case IsNaN(x) || IsNaN(y):
 		return NaN()
 	case x == 0:
 		switch {
@@ -62,16 +60,16 @@ func Pow(x, y float64) float64 {
 			}
 			return 0
 		}
-	case y > MaxFloat64 || y < -MaxFloat64: // IsInf(y, 0):
+	case IsInf(y, 0):
 		switch {
 		case x == -1:
 			return 1
-		case (Fabs(x) < 1) == IsInf(y, 1):
+		case (Abs(x) < 1) == IsInf(y, 1):
 			return 0
 		default:
 			return Inf(1)
 		}
-	case x > MaxFloat64 || x < -MaxFloat64: // IsInf(x, 0):
+	case IsInf(x, 0):
 		if IsInf(x, -1) {
 			return Pow(1/x, -y) // Pow(-0, -y)
 		}

@@ -6,6 +6,8 @@
  * select
  */
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 void
@@ -59,7 +61,7 @@ typecheckselect(Node *sel)
 				break;
 
 			case OAS2RECV:
-				// convert x, ok = <-c into OSELRECV(x, <-c) with ntest=ok
+				// convert x, ok = <-c into OSELRECV2(x, <-c) with ntest=ok
 				if(n->right->op != ORECV) {
 					yyerror("select assignment must have receive on right hand side");
 					break;
@@ -73,6 +75,7 @@ typecheckselect(Node *sel)
 			case ORECV:
 				// convert <-c into OSELRECV(N, <-c)
 				n = nod(OSELRECV, N, n);
+				n->typecheck = 1;
 				ncase->left = n;
 				break;
 
@@ -191,8 +194,7 @@ walkselect(Node *sel)
 					n->ntest->etype = 1;  // pointer does not escape
 					typecheck(&n->ntest, Erv);
 				} else {
-					tmp = nod(OXXX, N, N);
-					tempname(tmp, types[TBOOL]);
+					tmp = temp(types[TBOOL]);
 					a = nod(OADDR, tmp, N);
 					a->etype = 1;  // pointer does not escape
 					typecheck(&a, Erv);
@@ -212,8 +214,7 @@ walkselect(Node *sel)
 				n->left->etype = 1;  // pointer does not escape
 				typecheck(&n->left, Erv);
 			} else {
-				tmp = nod(OXXX, N, N);
-				tempname(tmp, ch->type->type);
+				tmp = temp(ch->type->type);
 				a = nod(OADDR, tmp, N);
 				a->etype = 1;  // pointer does not escape
 				typecheck(&a, Erv);
@@ -284,8 +285,7 @@ walkselect(Node *sel)
 
 	// generate sel-struct
 	setlineno(sel);
-	var = nod(OXXX, N, N);
-	tempname(var, ptrto(types[TUINT8]));
+	var = temp(ptrto(types[TUINT8]));
 	r = nod(OAS, var, mkcall("newselect", var->type, nil, nodintconst(sel->xoffset)));
 	typecheck(&r, Etop);
 	init = list(init, r);

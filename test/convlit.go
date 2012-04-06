@@ -1,14 +1,15 @@
-// errchk $G -e $D/$F.go
+// errorcheck
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Verify that illegal assignments with both explicit and implicit conversions of literals are detected.
+// Does not compile.
+
 package main
 
-// explicit conversion of constants is work in progress.
-// the ERRORs in this block are debatable, but they're what
-// the language spec says for now.
+// explicit conversion of constants
 var x1 = string(1)
 var x2 string = string(1)
 var x3 = int(1.5)     // ERROR "convert|truncate"
@@ -36,7 +37,7 @@ var good3 int = 1e9
 var good4 float64 = 1e20
 
 // explicit conversion of string is okay
-var _ = []int("abc")
+var _ = []rune("abc")
 var _ = []byte("abc")
 
 // implicit is not
@@ -47,20 +48,20 @@ var _ []byte = "abc" // ERROR "cannot use|incompatible|invalid"
 type Tstring string
 
 var ss Tstring = "abc"
-var _ = []int(ss)
+var _ = []rune(ss)
 var _ = []byte(ss)
 
 // implicit is still not
-var _ []int = ss  // ERROR "cannot use|incompatible|invalid"
+var _ []rune = ss // ERROR "cannot use|incompatible|invalid"
 var _ []byte = ss // ERROR "cannot use|incompatible|invalid"
 
-// named slice is not
-type Tint []int
+// named slice is now ok
+type Trune []rune
 type Tbyte []byte
 
-var _ = Tint("abc")  // ERROR "convert|incompatible|invalid"
-var _ = Tbyte("abc") // ERROR "convert|incompatible|invalid"
+var _ = Trune("abc") // ok
+var _ = Tbyte("abc") // ok
 
 // implicit is still not
-var _ Tint = "abc"  // ERROR "cannot use|incompatible|invalid"
+var _ Trune = "abc" // ERROR "cannot use|incompatible|invalid"
 var _ Tbyte = "abc" // ERROR "cannot use|incompatible|invalid"

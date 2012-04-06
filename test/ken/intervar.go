@@ -1,13 +1,15 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Test interface assignment.
+
 package main
 
 type	Iputs	interface {
-	puts	(s string);
+	puts	(s string) string;
 }
 
 // ---------
@@ -17,9 +19,9 @@ type	Print	struct {
 	put	Iputs;
 }
 
-func (p *Print) dop() {
-	print(" print ", p.whoami);
-	p.put.puts("abc");
+func (p *Print) dop() string {
+	r := " print " + string(p.whoami + '0')
+	return r + p.put.puts("abc");
 }
 
 // ---------
@@ -29,9 +31,9 @@ type	Bio	struct {
 	put	Iputs;
 }
 
-func (b *Bio) puts(s string) {
-	print(" bio ", b.whoami);
-	b.put.puts(s);
+func (b *Bio) puts(s string) string {
+	r := " bio " + string(b.whoami + '0')
+	return r + b.put.puts(s);
 }
 
 // ---------
@@ -41,8 +43,8 @@ type	File	struct {
 	put	Iputs;
 }
 
-func (f *File) puts(s string) {
-	print(" file ", f.whoami, " -- ", s);
+func (f *File) puts(s string) string {
+	return " file " + string(f.whoami + '0') + " -- " + s
 }
 
 func
@@ -59,6 +61,9 @@ main() {
 
 	f.whoami = 3;
 
-	p.dop();
-	print("\n");
+	r := p.dop();
+	expected := " print 1 bio 2 file 3 -- abc"
+	if r != expected {
+		panic(r + " != " + expected)
+	}
 }

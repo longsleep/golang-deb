@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#define		EXTERN
+#include	<u.h>
+#include	<libc.h>
 #include	"go.h"
 #include	"y.tab.h"
 #include	<ar.h>
@@ -18,6 +19,7 @@ int yyprev;
 int yylast;
 
 static void	lexinit(void);
+static void	lexinit1(void);
 static void	lexfini(void);
 static void	yytinit(void);
 static int	getc(void);
@@ -27,6 +29,61 @@ static int	escchar(int, int*, vlong*);
 static void	addidir(char*);
 static int	getlinepragma(void);
 static char *goos, *goarch, *goroot;
+
+// Compiler experiments.
+// These are controlled by the GOEXPERIMENT environment
+// variable recorded when the compiler is built.
+static struct {
+	char *name;
+	int *val;
+} exper[] = {
+//	{"rune32", &rune32},
+	{nil, nil},
+};
+
+static void
+addexp(char *s)
+{
+	int i;
+	
+	for(i=0; exper[i].name != nil; i++) {
+		if(strcmp(exper[i].name, s) == 0) {
+			*exper[i].val = 1;
+			return;
+		}
+	}
+	
+	print("unknown experiment %s\n", s);
+	exits("unknown experiment");
+}
+
+static void
+setexp(void)
+{
+	char *f[20];
+	int i, nf;
+	
+	// The makefile #defines GOEXPERIMENT for us.
+	nf = getfields(GOEXPERIMENT, f, nelem(f), 1, ",");
+	for(i=0; i<nf; i++)
+		addexp(f[i]);
+}
+
+char*
+expstring(void)
+{
+	int i;
+	static char buf[512];
+
+	strcpy(buf, "X");
+	for(i=0; exper[i].name != nil; i++)
+		if(*exper[i].val)
+			seprint(buf+strlen(buf), buf+sizeof buf, ",%s", exper[i].name);
+	if(strlen(buf) == 1)
+		strcpy(buf, "X,none");
+	buf[1] = ':';
+	return buf;
+}
 
 // Our own isdigit, isspace, isalpha, isalnum that take care 
 // of EOF and other out of range arguments.
@@ -64,7 +121,7 @@ yy_isalnum(int c)
 #define isalpha use_yy_isalpha_instead_of_isalpha
 #define isalnum use_yy_isalnum_instead_of_isalnum
 
-#define	DBG	if(!debug['x']);else print
+#define	DBG	if(!debug['x']){}else print
 enum
 {
 	EOF		= -1,
@@ -75,24 +132,48 @@ usage(void)
 {
 	print("gc: usage: %cg [flags] file.go...\n", thechar);
 	print("flags:\n");
-	// -A is allow use of "any" type, for bootstrapping
+	// -A allow use of "any" type, for bootstrapping
+	// -B disable bounds checking
+	// -E print imported declarations
+	// -K warn when lineno is zero
+	// -M print arguments to gmove
+	// -P print peephole diagnostics
+	// -R print optimizer diagnostics
+	// -g print code generation diagnostics
+	// -i print line history
+	// -j print variables to be initialized at runtime
+	// -r print generated helper functions
+	// -s print redundant types in composite literals
+	// -v print more information with -P or -R
+	// -y print declarations in cannedimports (used with -d)
+	// -% print non-static initializers
+	// -+ indicate that the runtime is being compiled
+	print("  -D PATH interpret local imports relative to this import path\n");
 	print("  -I DIR search for packages in DIR\n");
+	print("  -L show full path in file:line prints\n");
+	print("  -N disable optimizations\n");
+	print("  -S print the assembly language\n");
+	print("  -V print the compiler version\n");
+	print("  -W print the parse tree after typing\n");
 	print("  -d print declarations\n");
 	print("  -e no limit on number of errors printed\n");
 	print("  -f print stack frame structure\n");
 	print("  -h panic on an error\n");
+	print("  -l disable inlining\n");
+	print("  -m print optimization decisions\n");
 	print("  -o file specify output file\n");
-	print("  -S print the assembly language\n");
-	print("  -V print the compiler version\n");
+	print("  -p assumed import path for this code\n");
 	print("  -u disable package unsafe\n");
-	print("  -w print the parse tree after typing\n");
+	print("  -w print type checking details\n");
 	print("  -x print lex tokens\n");
-	exit(0);
+	exits("usage");
 }
 
 void
 fault(int s)
 {
+	USED(s);
+
 	// If we've already complained about things
 	// in the program, don't bother complaining
 	// about the seg fault too; let the user clean up
@@ -106,11 +187,13 @@ int
 main(int argc, char *argv[])
 {
 	int i, c;
-	NodeList *l;
+	NodeList *l, *batch;
 	char *p;
-	
+
+#ifdef	SIGBUS	
 	signal(SIGBUS, fault);
 	signal(SIGSEGV, fault);
+#endif
 
 	localpkg = mkpkg(strlit(""));
 	localpkg->prefix = "\"\"";
@@ -127,12 +210,18 @@ main(int argc, char *argv[])
 	typepkg = mkpkg(strlit("type"));
 	typepkg->name = "type";
 
+	weaktypepkg = mkpkg(strlit("weak.type"));
+	weaktypepkg->name = "weak.type";
+	weaktypepkg->prefix = "weak.type";  // not weak%2etype
+
 	unsafepkg = mkpkg(strlit("unsafe"));
 	unsafepkg->name = "unsafe";
 
 	goroot = getgoroot();
 	goos = getgoos();
 	goarch = thestring;
+	
+	setexp();
 
 	outfile = nil;
 	ARGBEGIN {
@@ -145,19 +234,37 @@ main(int argc, char *argv[])
 	case 'o':
 		outfile = EARGF(usage());
 		break;
+	
+	case 'p':
+		myimportpath = EARGF(usage());
+		break;
+
+	case 'u':
+		safemode = 1;
+		break;
+
+	case 'D':
+		localimport = EARGF(usage());
+		break;
 
 	case 'I':
 		addidir(EARGF(usage()));
 		break;
 	
-	case 'u':
-		safemode = 1;
-		break;
-
 	case 'V':
-		print("%cg version %s\n", thechar, getgoversion());
-		exit(0);
+		p = expstring();
+		if(strcmp(p, "X:none") == 0)
+			p = "";
+		print("%cg version %s%s%s\n", thechar, getgoversion(), *p ? " " : "", p);
+		exits(0);
 	} ARGEND
+	
+	// enable inlining.  for now:
+	//	default: inlining on.  (debug['l'] == 1)
+	//	-l: inlining off  (debug['l'] == 0)
+	//	-ll, -lll: inlining on again, with extra debugging (debug['l'] > 1)
+	if(debug['l'] <= 1)
+		debug['l'] = 1 - debug['l'];
 
 	if(argc < 1)
 		usage();
@@ -179,23 +286,14 @@ main(int argc, char *argv[])
 				*p = '/';
 	}
 
-	fmtinstall('O', Oconv);		// node opcodes
-	fmtinstall('E', Econv);		// etype opcodes
-	fmtinstall('J', Jconv);		// all the node flags
-	fmtinstall('S', Sconv);		// sym pointer
-	fmtinstall('T', Tconv);		// type pointer
-	fmtinstall('N', Nconv);		// node pointer
-	fmtinstall('Z', Zconv);		// escaped string
-	fmtinstall('L', Lconv);		// line number
-	fmtinstall('B', Bconv);		// big numbers
-	fmtinstall('F', Fconv);		// big float numbers
-
+	fmtinstallgo();
 	betypeinit();
 	if(widthptr == 0)
 		fatal("betypeinit failed");
 
 	lexinit();
 	typeinit();
+	lexinit1();
 	yytinit();
 
 	blockgen = 1;
@@ -236,24 +334,24 @@ main(int argc, char *argv[])
 	if(debug['f'])
 		frame(1);
 
-	// Process top-level declarations in four phases.
+	// Process top-level declarations in phases.
 	// Phase 1: const, type, and names and types of funcs.
 	//   This will gather all the information about types
 	//   and methods but doesn't depend on any of it.
-	// Phase 2: Variable assignments.
-	//   To check interface assignments, depends on phase 1.
-	// Phase 3: Type check function bodies.
-	// Phase 4: Compile function bodies.
 	defercheckwidth();
 	for(l=xtop; l; l=l->next)
 		if(l->n->op != ODCL && l->n->op != OAS)
 			typecheck(&l->n, Etop);
+
+	// Phase 2: Variable assignments.
+	//   To check interface assignments, depends on phase 1.
 	for(l=xtop; l; l=l->next)
 		if(l->n->op == ODCL || l->n->op == OAS)
 			typecheck(&l->n, Etop);
 	resumetypecopy();
 	resumecheckwidth();
 
+	// Phase 3: Type check function bodies.
 	for(l=xtop; l; l=l->next) {
 		if(l->n->op == ODCLFUNC || l->n->op == OCLOSURE) {
 			curfn = l->n;
@@ -269,6 +367,37 @@ main(int argc, char *argv[])
 	if(nsavederrors+nerrors)
 		errorexit();
 
+	// Phase 4: Inlining
+	if (debug['l'] > 1) {
+		// Typecheck imported function bodies if debug['l'] > 1,
+		// otherwise lazily when used or re-exported.
+		for(l=importlist; l; l=l->next)
+			if (l->n->inl) {
+				saveerrors();
+				typecheckinl(l->n);
+			}
+		
+		if(nsavederrors+nerrors)
+			errorexit();
+	}
+
+	if (debug['l']) {
+		// Find functions that can be inlined and clone them before walk expands them.
+		for(l=xtop; l; l=l->next)
+			if(l->n->op == ODCLFUNC)
+				caninl(l->n);
+		
+		// Expand inlineable calls in all functions
+		for(l=xtop; l; l=l->next)
+			if(l->n->op == ODCLFUNC)
+				inlcalls(l->n);
+	}
+
+	// Phase 5: escape analysis.
+	if(!debug['N'])
+		escapes(xtop);
+
+	// Phase 6: Compile top level functions.
 	for(l=xtop; l; l=l->next)
 		if(l->n->op == ODCLFUNC)
 			funccompile(l->n, 0);
@@ -276,14 +405,21 @@ main(int argc, char *argv[])
 	if(nsavederrors+nerrors == 0)
 		fninit(xtop);
 
+	// Phase 6b: Compile all closures.
+	// Can generate more closures, so run in batches.
 	while(closures) {
-		l = closures;
+		batch = closures;
 		closures = nil;
-		for(; l; l=l->next) {
+		if(debug['l'])
+			for(l=batch; l; l=l->next)
+				inlcalls(l->n);
+		if(!debug['N'])
+			escapes(batch);
+		for(l=batch; l; l=l->next)
 			funccompile(l->n, 1);
-		}
 	}
 
+	// Phase 7: check external declarations.
 	for(l=externdcl; l; l=l->next)
 		if(l->n->op == ONAME)
 			typecheck(&l->n, Erv);
@@ -297,7 +433,7 @@ main(int argc, char *argv[])
 		errorexit();
 
 	flusherrors();
-	exit(0);
+	exits(0);
 	return 0;
 }
 
@@ -308,18 +444,30 @@ saveerrors(void)
 	nerrors = 0;
 }
 
+/*
+ *	macro to portably read/write archive header.
+ *	'cmd' is read/write/Bread/Bwrite, etc.
+ */
+#define	HEADER_IO(cmd, f, h)	cmd(f, h.name, sizeof(h.name)) != sizeof(h.name)\
+				|| cmd(f, h.date, sizeof(h.date)) != sizeof(h.date)\
+				|| cmd(f, h.uid, sizeof(h.uid)) != sizeof(h.uid)\
+				|| cmd(f, h.gid, sizeof(h.gid)) != sizeof(h.gid)\
+				|| cmd(f, h.mode, sizeof(h.mode)) != sizeof(h.mode)\
+				|| cmd(f, h.size, sizeof(h.size)) != sizeof(h.size)\
+				|| cmd(f, h.fmag, sizeof(h.fmag)) != sizeof(h.fmag)
+
 static int
 arsize(Biobuf *b, char *name)
 {
-	struct ar_hdr *a;
+	struct ar_hdr a;
 
-	if((a = Brdline(b, '\n')) == nil)
+	if (HEADER_IO(Bread, b, a))
 		return -1;
-	if(Blinelen(b) != sizeof(struct ar_hdr))
+
+	if(strncmp(a.name, name, strlen(name)) != 0)
 		return -1;
-	if(strncmp(a->name, name, strlen(name)) != 0)
-		return -1;
-	return atoi(a->size);
+
+	return atoi(a.size);
 }
 
 static int
@@ -366,14 +514,18 @@ addidir(char* dir)
 static int
 islocalname(Strlit *name)
 {
-	if(!windows && name->len >= 1 && name->s[0] == '/')
+	if(name->len >= 1 && name->s[0] == '/')
 		return 1;
 	if(windows && name->len >= 3 &&
 	   yy_isalpha(name->s[0]) && name->s[1] == ':' && name->s[2] == '/')
 	   	return 1;
 	if(name->len >= 2 && strncmp(name->s, "./", 2) == 0)
 		return 1;
+	if(name->len == 1 && strncmp(name->s, ".", 1) == 0)
+		return 1;
 	if(name->len >= 3 && strncmp(name->s, "../", 3) == 0)
+		return 1;
+	if(name->len == 2 && strncmp(name->s, "..", 2) == 0)
 		return 1;
 	return 0;
 }
@@ -400,8 +552,8 @@ findpkg(Strlit *name)
 	}
 
 	// local imports should be canonicalized already.
-	// don't want to see "container/../container/vector"
-	// as different from "container/vector".
+	// don't want to see "encoding/../encoding/base64"
+	// as different from "encoding/base64".
 	q = mal(name->len+1);
 	memmove(q, name->s, name->len);
 	q[name->len] = '\0';
@@ -430,6 +582,13 @@ findpkg(Strlit *name)
 	return 0;
 }
 
+static void
+fakeimport(void)
+{
+	importpkg = mkpkg(strlit("fake"));
+	cannedimports("fake.6", "$$\n");
+}
+
 void
 importfile(Val *f, int line)
 {
@@ -438,18 +597,27 @@ importfile(Val *f, int line)
 	int32 c;
 	int len;
 	Strlit *path;
-	char *cleanbuf;
+	char *cleanbuf, *prefix;
+
+	USED(line);
 
 	// TODO(rsc): don't bother reloading imports more than once?
 
 	if(f->ctype != CTSTR) {
 		yyerror("import statement not a string");
+		fakeimport();
 		return;
 	}
 
-	if(strlen(f->u.sval->s) != f->u.sval->len) {
-		yyerror("import path contains NUL");
-		errorexit();
+	if(f->u.sval->len == 0) {
+		yyerror("import path is empty");
+		fakeimport();
+		return;
+	}
+
+	if(isbadimport(f->u.sval)) {
+		fakeimport();
+		return;
 	}
 
 	// The package name main is no longer reserved,
@@ -458,6 +626,11 @@ importfile(Val *f, int line)
 	// path "math" to identify the standard math package.
 	if(strcmp(f->u.sval->s, "main") == 0) {
 		yyerror("cannot import \"main\"");
+		errorexit();
+	}
+
+	if(myimportpath != nil && strcmp(f->u.sval->s, myimportpath) == 0) {
+		yyerror("import \"%Z\" while compiling that package (import cycle)", f->u.sval);
 		errorexit();
 	}
 
@@ -473,8 +646,16 @@ importfile(Val *f, int line)
 	
 	path = f->u.sval;
 	if(islocalname(path)) {
-		cleanbuf = mal(strlen(pathname) + strlen(path->s) + 2);
-		strcpy(cleanbuf, pathname);
+		if(path->s[0] == '/') {
+			yyerror("import path cannot be absolute path");
+			fakeimport();
+			return;
+		}
+		prefix = pathname;
+		if(localimport != nil)
+			prefix = localimport;
+		cleanbuf = mal(strlen(prefix) + strlen(path->s) + 2);
+		strcpy(cleanbuf, prefix);
 		strcat(cleanbuf, "/");
 		strcat(cleanbuf, path->s);
 		cleanname(cleanbuf);
@@ -482,14 +663,14 @@ importfile(Val *f, int line)
 	}
 
 	if(!findpkg(path)) {
-		yyerror("can't find import: %Z", f->u.sval);
+		yyerror("can't find import: \"%Z\"", f->u.sval);
 		errorexit();
 	}
 	importpkg = mkpkg(path);
 
 	imp = Bopen(namebuf, OREAD);
 	if(imp == nil) {
-		yyerror("can't open import: %Z: %r", f->u.sval);
+		yyerror("can't open import: \"%Z\": %r", f->u.sval);
 		errorexit();
 	}
 	file = strdup(namebuf);
@@ -509,7 +690,7 @@ importfile(Val *f, int line)
 			yyerror("import %s: not a go object file", file);
 			errorexit();
 		}
-		q = smprint("%s %s %s", getgoos(), thestring, getgoversion());
+		q = smprint("%s %s %s %s", getgoos(), thestring, getgoversion(), expstring());
 		if(strcmp(p+10, q) != 0) {
 			yyerror("import %s: object is [%s] expected [%s]", file, p+10, q);
 			errorexit();
@@ -546,7 +727,7 @@ importfile(Val *f, int line)
 			continue;
 		return;
 	}
-	yyerror("no import in: %Z", f->u.sval);
+	yyerror("no import in \"%Z\"", f->u.sval);
 	unimportfile();
 }
 
@@ -665,7 +846,6 @@ l0:
 			ep = lexbuf+sizeof lexbuf;
 			*cp++ = c;
 			c = c1;
-			c1 = 0;
 			goto casedot;
 		}
 		if(c1 == '.') {
@@ -717,6 +897,8 @@ l0:
 				ncp += ncp;
 			}
 			c = getr();
+			if(c == '\r')
+				continue;
 			if(c == EOF) {
 				yyerror("eof in string");
 				break;
@@ -750,7 +932,7 @@ l0:
 		}
 		yylval.val.u.xval = mal(sizeof(*yylval.val.u.xval));
 		mpmovecfix(yylval.val.u.xval, v);
-		yylval.val.ctype = CTINT;
+		yylval.val.ctype = CTRUNE;
 		DBG("lex: codepoint literal\n");
 		strcpy(litbuf, "string literal");
 		return LLITERAL;
@@ -1008,7 +1190,7 @@ lx:
 	return c;
 
 asop:
-	yylval.lint = c;	// rathole to hold which asop
+	yylval.i = c;	// rathole to hold which asop
 	DBG("lex: TOKEN ASOP %c\n", c);
 	return LASOP;
 
@@ -1056,7 +1238,6 @@ talph:
 	return s->lexical;
 
 tnum:
-	c1 = 0;
 	cp = lexbuf;
 	ep = lexbuf+sizeof lexbuf;
 	if(c != '0') {
@@ -1247,7 +1428,7 @@ static int
 getlinepragma(void)
 {
 	int i, c, n;
-	char *cp, *ep;
+	char *cp, *ep, *linep;
 	Hist *h;
 
 	for(i=0; i<5; i++) {
@@ -1258,32 +1439,36 @@ getlinepragma(void)
 
 	cp = lexbuf;
 	ep = lexbuf+sizeof(lexbuf)-5;
+	linep = nil;
 	for(;;) {
 		c = getr();
-		if(c == '\n' || c == EOF)
+		if(c == EOF)
 			goto out;
+		if(c == '\n')
+			break;
 		if(c == ' ')
 			continue;
 		if(c == ':')
-			break;
+			linep = cp;
 		if(cp < ep)
 			*cp++ = c;
 	}
 	*cp = 0;
 
+	if(linep == nil || linep >= ep)
+		goto out;
+	*linep++ = '\0';
 	n = 0;
-	for(;;) {
-		c = getr();
-		if(!yy_isdigit(c))
-			break;
-		n = n*10 + (c-'0');
+	for(cp=linep; *cp; cp++) {
+		if(*cp < '0' || *cp > '9')
+			goto out;
+		n = n*10 + *cp - '0';
 		if(n > 1e8) {
 			yyerror("line number out of range");
 			errorexit();
 		}
 	}
-
-	if(c != '\n' || n <= 0)
+	if(n <= 0)
 		goto out;
 
 	// try to avoid allocating file name over and over
@@ -1334,7 +1519,7 @@ yylex(void)
 	// Track last two tokens returned by yylex.
 	yyprev = yylast;
 	yylast = lx;
- 	return lx;
+	return lx;
 }
 
 static int
@@ -1561,7 +1746,6 @@ static	struct
 	"complex128",	LNAME,		TCOMPLEX128,	OXXX,
 
 	"bool",		LNAME,		TBOOL,		OXXX,
-	"byte",		LNAME,		TUINT8,		OXXX,
 	"string",	LNAME,		TSTRING,	OXXX,
 
 	"any",		LNAME,		TANY,		OXXX,
@@ -1592,11 +1776,12 @@ static	struct
 	"type",		LTYPE,		Txxx,		OXXX,
 	"var",		LVAR,		Txxx,		OXXX,
 
-	"append",		LNAME,		Txxx,		OAPPEND,
+	"append",	LNAME,		Txxx,		OAPPEND,
 	"cap",		LNAME,		Txxx,		OCAP,
 	"close",	LNAME,		Txxx,		OCLOSE,
 	"complex",	LNAME,		Txxx,		OCOMPLEX,
 	"copy",		LNAME,		Txxx,		OCOPY,
+	"delete",	LNAME,		Txxx,		ODELETE,
 	"imag",		LNAME,		Txxx,		OIMAG,
 	"len",		LNAME,		Txxx,		OLEN,
 	"make",		LNAME,		Txxx,		OMAKE,
@@ -1621,6 +1806,7 @@ lexinit(void)
 	Sym *s, *s1;
 	Type *t;
 	int etype;
+	Val v;
 
 	/*
 	 * initialize basic types array
@@ -1649,6 +1835,16 @@ lexinit(void)
 			s1->def = typenod(t);
 			continue;
 		}
+
+		etype = syms[i].op;
+		if(etype != OXXX) {
+			s1 = pkglookup(syms[i].name, builtinpkg);
+			s1->lexical = LNAME;
+			s1->def = nod(ONAME, N, N);
+			s1->def->sym = s1;
+			s1->def->etype = etype;
+			s1->def->builtin = 1;
+		}
 	}
 
 	// logically, the type of a string literal.
@@ -1676,6 +1872,77 @@ lexinit(void)
 	types[TBLANK] = typ(TBLANK);
 	s->def->type = types[TBLANK];
 	nblank = s->def;
+
+	s = pkglookup("_", builtinpkg);
+	s->block = -100;
+	s->def = nod(ONAME, N, N);
+	s->def->sym = s;
+	types[TBLANK] = typ(TBLANK);
+	s->def->type = types[TBLANK];
+
+	types[TNIL] = typ(TNIL);
+	s = pkglookup("nil", builtinpkg);
+	v.ctype = CTNIL;
+	s->def = nodlit(v);
+	s->def->sym = s;
+}
+
+static void
+lexinit1(void)
+{
+	Sym *s, *s1;
+	Type *t, *f, *rcvr, *in, *out;
+
+	// t = interface { Error() string }
+	rcvr = typ(TSTRUCT);
+	rcvr->type = typ(TFIELD);
+	rcvr->type->type = ptrto(typ(TSTRUCT));
+	rcvr->funarg = 1;
+	in = typ(TSTRUCT);
+	in->funarg = 1;
+	out = typ(TSTRUCT);
+	out->type = typ(TFIELD);
+	out->type->type = types[TSTRING];
+	out->funarg = 1;
+	f = typ(TFUNC);
+	*getthis(f) = rcvr;
+	*getoutarg(f) = out;
+	*getinarg(f) = in;
+	f->thistuple = 1;
+	f->intuple = 0;
+	f->outnamed = 0;
+	f->outtuple = 1;
+	t = typ(TINTER);
+	t->type = typ(TFIELD);
+	t->type->sym = lookup("Error");
+	t->type->type = f;
+
+	// error type
+	s = lookup("error");
+	s->lexical = LNAME;
+	errortype = t;
+	errortype->sym = s;
+	s1 = pkglookup("error", builtinpkg);
+	s1->lexical = LNAME;
+	s1->def = typenod(errortype);
+
+	// byte alias
+	s = lookup("byte");
+	s->lexical = LNAME;
+	bytetype = typ(TUINT8);
+	bytetype->sym = s;
+	s1 = pkglookup("byte", builtinpkg);
+	s1->lexical = LNAME;
+	s1->def = typenod(bytetype);
+
+	// rune alias
+	s = lookup("rune");
+	s->lexical = LNAME;
+	runetype = typ(TINT32);
+	runetype->sym = s;
+	s1 = pkglookup("rune", builtinpkg);
+	s1->lexical = LNAME;
+	s1->def = typenod(runetype);
 }
 
 static void
@@ -1713,7 +1980,18 @@ lexfini(void)
 
 	// there's only so much table-driven we can handle.
 	// these are special cases.
-	types[TNIL] = typ(TNIL);
+	s = lookup("byte");
+	if(s->def == N)
+		s->def = typenod(bytetype);
+	
+	s = lookup("error");
+	if(s->def == N)
+		s->def = typenod(errortype);
+
+	s = lookup("rune");
+	if(s->def == N)
+		s->def = typenod(runetype);
+
 	s = lookup("nil");
 	if(s->def == N) {
 		v.ctype = CTNIL;
@@ -1740,7 +2018,6 @@ lexfini(void)
 	}
 	
 	nodfp = nod(ONAME, N, N);
-	nodfp->noescape = 1;
 	nodfp->type = types[TINT32];
 	nodfp->xoffset = 0;
 	nodfp->class = PPARAM;
@@ -1923,7 +2200,7 @@ mkpackage(char* pkgname)
 					// errors if a conflicting top-level name is
 					// introduced by a different file.
 					if(!s->def->used && !nsyntaxerrors)
-						yyerrorl(s->def->lineno, "imported and not used: %Z", s->def->pkg->path);
+						yyerrorl(s->def->lineno, "imported and not used: \"%Z\"", s->def->pkg->path);
 					s->def = N;
 					continue;
 				}
@@ -1931,7 +2208,7 @@ mkpackage(char* pkgname)
 					// throw away top-level name left over
 					// from previous import . "x"
 					if(s->def->pack != N && !s->def->pack->used && !nsyntaxerrors) {
-						yyerrorl(s->def->pack->lineno, "imported and not used: %Z", s->def->pack->pkg->path);
+						yyerrorl(s->def->pack->lineno, "imported and not used: \"%Z\"", s->def->pack->pkg->path);
 						s->def->pack->used = 1;
 					}
 					s->def = N;

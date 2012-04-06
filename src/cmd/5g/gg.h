@@ -2,15 +2,12 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include <u.h>
-#include <libc.h>
+#ifndef	EXTERN
+#define	EXTERN	extern
+#endif
 
 #include "../gc/go.h"
 #include "../5l/5.out.h"
-
-#ifndef	EXTERN
-#define EXTERN	extern
-#endif
 
 typedef	struct	Addr	Addr;
 
@@ -46,27 +43,26 @@ struct	Prog
 	uchar	scond;
 };
 
+#define TEXTFLAG reg
+
 #define REGALLOC_R0 0
 #define REGALLOC_RMAX REGEXT
 #define REGALLOC_F0 (REGALLOC_RMAX+1)
 #define REGALLOC_FMAX (REGALLOC_F0 + FREGEXT)
 
-EXTERN	Biobuf*	bout;
 EXTERN	int32	dynloc;
 EXTERN	uchar	reg[REGALLOC_FMAX+1];
 EXTERN	int32	pcloc;		// instruction counter
 EXTERN	Strlit	emptystring;
 extern	char*	anames[];
-EXTERN	Hist*	hist;
 EXTERN	Prog	zprog;
-EXTERN	Node*	curfn;
 EXTERN	Node*	newproc;
 EXTERN	Node*	deferproc;
 EXTERN	Node*	deferreturn;
 EXTERN	Node*	panicindex;
 EXTERN	Node*	panicslice;
 EXTERN	Node*	throwreturn;
-EXTERN	long	unmappedzero;
+extern	long	unmappedzero;
 EXTERN	int	maxstksize;
 
 /*
@@ -98,7 +94,7 @@ void	igen(Node*, Node*, Node*);
 void agenr(Node *n, Node *a, Node *res);
 vlong	fieldoffset(Type*, Node*);
 void	bgen(Node*, int, Prog*);
-void	sgen(Node*, Node*, int32);
+void	sgen(Node*, Node*, int64);
 void	gmove(Node*, Node*);
 Prog*	gins(int, Node*, Node*);
 int	samaddr(Node*, Node*);
@@ -169,3 +165,6 @@ int	Yconv(Fmt*);
 void	listinit(void);
 
 void	zaddr(Biobuf*, Addr*, int);
+
+#pragma	varargck	type	"D"	Addr*
+#pragma	varargck	type	"M"	Addr*

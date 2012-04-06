@@ -21,52 +21,52 @@ func bytePtrToString(p *uint8) string {
 	return string(a[:i])
 }
 
-func getAdapterList() (*syscall.IpAdapterInfo, os.Error) {
+func getAdapterList() (*syscall.IpAdapterInfo, error) {
 	b := make([]byte, 1000)
 	l := uint32(len(b))
 	a := (*syscall.IpAdapterInfo)(unsafe.Pointer(&b[0]))
-	e := syscall.GetAdaptersInfo(a, &l)
-	if e == syscall.ERROR_BUFFER_OVERFLOW {
+	err := syscall.GetAdaptersInfo(a, &l)
+	if err == syscall.ERROR_BUFFER_OVERFLOW {
 		b = make([]byte, l)
 		a = (*syscall.IpAdapterInfo)(unsafe.Pointer(&b[0]))
-		e = syscall.GetAdaptersInfo(a, &l)
+		err = syscall.GetAdaptersInfo(a, &l)
 	}
-	if e != 0 {
-		return nil, os.NewSyscallError("GetAdaptersInfo", e)
+	if err != nil {
+		return nil, os.NewSyscallError("GetAdaptersInfo", err)
 	}
 	return a, nil
 }
 
-func getInterfaceList() ([]syscall.InterfaceInfo, os.Error) {
-	s, e := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
-	if e != 0 {
-		return nil, os.NewSyscallError("Socket", e)
+func getInterfaceList() ([]syscall.InterfaceInfo, error) {
+	s, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP)
+	if err != nil {
+		return nil, os.NewSyscallError("Socket", err)
 	}
 	defer syscall.Closesocket(s)
 
 	ii := [20]syscall.InterfaceInfo{}
 	ret := uint32(0)
 	size := uint32(unsafe.Sizeof(ii))
-	e = syscall.WSAIoctl(s, syscall.SIO_GET_INTERFACE_LIST, nil, 0, (*byte)(unsafe.Pointer(&ii[0])), size, &ret, nil, 0)
-	if e != 0 {
-		return nil, os.NewSyscallError("WSAIoctl", e)
+	err = syscall.WSAIoctl(s, syscall.SIO_GET_INTERFACE_LIST, nil, 0, (*byte)(unsafe.Pointer(&ii[0])), size, &ret, nil, 0)
+	if err != nil {
+		return nil, os.NewSyscallError("WSAIoctl", err)
 	}
 	c := ret / uint32(unsafe.Sizeof(ii[0]))
 	return ii[:c-1], nil
 }
 
 // If the ifindex is zero, interfaceTable returns mappings of all
-// network interfaces.  Otheriwse it returns a mapping of a specific
+// network interfaces.  Otherwise it returns a mapping of a specific
 // interface.
-func interfaceTable(ifindex int) ([]Interface, os.Error) {
-	ai, e := getAdapterList()
-	if e != nil {
-		return nil, e
+func interfaceTable(ifindex int) ([]Interface, error) {
+	ai, err := getAdapterList()
+	if err != nil {
+		return nil, err
 	}
 
-	ii, e := getInterfaceList()
-	if e != nil {
-		return nil, e
+	ii, err := getInterfaceList()
+	if err != nil {
+		return nil, err
 	}
 
 	var ift []Interface
@@ -77,7 +77,7 @@ func interfaceTable(ifindex int) ([]Interface, os.Error) {
 
 			row := syscall.MibIfRow{Index: index}
 			e := syscall.GetIfEntry(&row)
-			if e != 0 {
+			if e != nil {
 				return nil, os.NewSyscallError("GetIfEntry", e)
 			}
 
@@ -129,10 +129,10 @@ func interfaceTable(ifindex int) ([]Interface, os.Error) {
 // If the ifindex is zero, interfaceAddrTable returns addresses
 // for all network interfaces.  Otherwise it returns addresses
 // for a specific interface.
-func interfaceAddrTable(ifindex int) ([]Addr, os.Error) {
-	ai, e := getAdapterList()
-	if e != nil {
-		return nil, e
+func interfaceAddrTable(ifindex int) ([]Addr, error) {
+	ai, err := getAdapterList()
+	if err != nil {
+		return nil, err
 	}
 
 	var ifat []Addr
@@ -153,6 +153,6 @@ func interfaceAddrTable(ifindex int) ([]Addr, os.Error) {
 // If the ifindex is zero, interfaceMulticastAddrTable returns
 // addresses for all network interfaces.  Otherwise it returns
 // addresses for a specific interface.
-func interfaceMulticastAddrTable(ifindex int) ([]Addr, os.Error) {
+func interfaceMulticastAddrTable(ifindex int) ([]Addr, error) {
 	return nil, nil
 }

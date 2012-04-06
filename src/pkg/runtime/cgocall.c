@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 #include "runtime.h"
-#include "arch.h"
+#include "arch_GOARCH.h"
 #include "stack.h"
 #include "cgocall.h"
 
@@ -17,7 +17,7 @@
 // so as not to block other goroutines or the garbage collector,
 // and then calls runtime.asmcgocall(_cgo_Cfunc_f, frame). 
 //
-// runtime.asmcgocall (in $GOARCH/asm.s) switches to the m->g0 stack
+// runtime.asmcgocall (in asm_$GOARCH.s) switches to the m->g0 stack
 // (assumed to be an operating system-allocated stack, so safe to run
 // gcc-compiled code on) and calls _cgo_Cfunc_f(frame).
 //
@@ -55,7 +55,7 @@
 // with 6c instead of gcc, can refer to dotted names like
 // runtime.cgocallback and p.GoF.)
 //
-// runtime.cgocallback (in $GOOS/asm.s) switches from m->g0's
+// runtime.cgocallback (in asm_$GOARCH.s) switches from m->g0's
 // stack to the original g (m->curg)'s stack, on which it calls
 // runtime.cgocallbackg(p.GoF, frame, framesize).
 // As part of the stack switch, runtime.cgocallback saves the current
@@ -68,7 +68,7 @@
 // stack (not an m->g0 stack).  First it calls runtime.exitsyscall, which will
 // block until the $GOMAXPROCS limit allows running this goroutine.
 // Once exitsyscall has returned, it is safe to do things like call the memory
-// allocator or invoke the Go callback function p.GoF.  runtime.cgocallback
+// allocator or invoke the Go callback function p.GoF.  runtime.cgocallbackg
 // first defers a function to unwind m->g0.sched.sp, so that if p.GoF
 // panics, m->g0.sched.sp will be restored to its old value: the m->g0 stack
 // and the m->curg stack will be unwound in lock step.
@@ -92,9 +92,9 @@ static void unwindm(void);
 void
 runtime·cgocall(void (*fn)(void*), void *arg)
 {
-	Defer *d;
+	Defer d;
 
-	if(!runtime·iscgo)
+	if(!runtime·iscgo && !Windows)
 		runtime·throw("cgocall unavailable");
 
 	if(fn == 0)
@@ -106,18 +106,18 @@ runtime·cgocall(void (*fn)(void*), void *arg)
 	 * Lock g to m to ensure we stay on the same stack if we do a
 	 * cgo callback.
 	 */
-	d = nil;
+	d.nofree = false;
 	if(m->lockedg == nil) {
 		m->lockedg = g;
 		g->lockedm = m;
 
 		// Add entry to defer stack in case of panic.
-		d = runtime·malloc(sizeof(*d));
-		d->fn = (byte*)unlockm;
-		d->siz = 0;
-		d->link = g->defer;
-		d->argp = (void*)-1;  // unused because unwindm never recovers
-		g->defer = d;
+		d.fn = (byte*)unlockm;
+		d.siz = 0;
+		d.link = g->defer;
+		d.argp = (void*)-1;  // unused because unlockm never recovers
+		d.nofree = true;
+		g->defer = &d;
 	}
 
 	/*
@@ -135,11 +135,10 @@ runtime·cgocall(void (*fn)(void*), void *arg)
 	runtime·asmcgocall(fn, arg);
 	runtime·exitsyscall();
 
-	if(d != nil) {
-		if(g->defer != d || d->fn != (byte*)unlockm)
+	if(d.nofree) {
+		if(g->defer != &d || d.fn != (byte*)unlockm)
 			runtime·throw("runtime: bad defer entry in cgocallback");
-		g->defer = d->link;
-		runtime·free(d);
+		g->defer = d.link;
 		unlockm();
 	}
 }
@@ -152,7 +151,7 @@ unlockm(void)
 }
 
 void
-runtime·Cgocalls(int64 ret)
+runtime·NumCgoCall(int64 ret)
 {
 	M *m;
 
@@ -192,7 +191,7 @@ runtime·cfree(void *p)
 void
 runtime·cgocallbackg(void (*fn)(void), void *arg, uintptr argsize)
 {
-	Defer *d;
+	Defer d;
 
 	if(g != m->curg)
 		runtime·throw("runtime: bad g in cgocallback");
@@ -200,12 +199,12 @@ runtime·cgocallbackg(void (*fn)(void), void *arg, uintptr argsize)
 	runtime·exitsyscall();	// coming out of cgo call
 
 	// Add entry to defer stack in case of panic.
-	d = runtime·malloc(sizeof(*d));
-	d->fn = (byte*)unwindm;
-	d->siz = 0;
-	d->link = g->defer;
-	d->argp = (void*)-1;  // unused because unwindm never recovers
-	g->defer = d;
+	d.fn = (byte*)unwindm;
+	d.siz = 0;
+	d.link = g->defer;
+	d.argp = (void*)-1;  // unused because unwindm never recovers
+	d.nofree = true;
+	g->defer = &d;
 
 	// Invoke callback.
 	reflect·call((byte*)fn, arg, argsize);
@@ -213,10 +212,9 @@ runtime·cgocallbackg(void (*fn)(void), void *arg, uintptr argsize)
 	// Pop defer.
 	// Do not unwind m->g0->sched.sp.
 	// Our caller, cgocallback, will do that.
-	if(g->defer != d || d->fn != (byte*)unwindm)
+	if(g->defer != &d || d.fn != (byte*)unwindm)
 		runtime·throw("runtime: bad defer entry in cgocallback");
-	g->defer = d->link;
-	runtime·free(d);
+	g->defer = d.link;
 
 	runtime·entersyscall();	// going back to cgo call
 }

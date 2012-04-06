@@ -1,3 +1,5 @@
+// +build ignore
+
 /*
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -38,7 +40,7 @@ POSSIBILITY OF SUCH DAMAGE.
 package main
 
 import (
-	big "gmp"
+	big "."
 	"fmt"
 	"runtime"
 )
@@ -100,5 +102,5 @@ func main() {
 		}
 	}
 
-	fmt.Printf("\n%d calls; bit sizes: %d %d %d\n", runtime.Cgocalls(), numer.Len(), accum.Len(), denom.Len())
+	fmt.Printf("\n%d calls; bit sizes: %d %d %d\n", runtime.NumCgoCall(), numer.Len(), accum.Len(), denom.Len())
 }

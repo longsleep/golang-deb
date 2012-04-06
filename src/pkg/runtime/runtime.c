@@ -51,12 +51,15 @@ runtime·dopanic(int32 unused)
 	static bool didothers;
 
 	if(g->sig != 0)
-		runtime·printf("\n[signal %x code=%p addr=%p pc=%p]\n",
+		runtime·printf("[signal %x code=%p addr=%p pc=%p]\n",
 			g->sig, g->sigcode0, g->sigcode1, g->sigpc);
 
-	runtime·printf("\n");
 	if(runtime·gotraceback()){
-		runtime·traceback(runtime·getcallerpc(&unused), runtime·getcallersp(&unused), 0, g);
+		if(g != m->g0) {
+			runtime·printf("\n");
+			runtime·goroutineheader(g);
+			runtime·traceback(runtime·getcallerpc(&unused), runtime·getcallersp(&unused), 0, g);
+		}
 		if(!didothers) {
 			didothers = true;
 			runtime·tracebackothers(g);
@@ -116,7 +119,7 @@ void
 runtime·panicstring(int8 *s)
 {
 	Eface err;
-	
+
 	if(m->gcing) {
 		runtime·printf("panic: %s\n", s);
 		runtime·throw("panic during gc");
@@ -169,7 +172,7 @@ static int32	argc;
 static uint8**	argv;
 
 Slice os·Args;
-Slice os·Envs;
+Slice syscall·envs;
 
 void
 runtime·args(int32 c, uint8 **v)
@@ -186,7 +189,7 @@ runtime·goargs(void)
 {
 	String *s;
 	int32 i;
-	
+
 	// for windows implementation see "os" package
 	if(Windows)
 		return;
@@ -204,16 +207,16 @@ runtime·goenvs_unix(void)
 {
 	String *s;
 	int32 i, n;
-	
+
 	for(n=0; argv[argc+1+n] != 0; n++)
 		;
 
 	s = runtime·malloc(n*sizeof s[0]);
 	for(i=0; i<n; i++)
 		s[i] = runtime·gostringnocopy(argv[argc+1+i]);
-	os·Envs.array = (byte*)s;
-	os·Envs.len = n;
-	os·Envs.cap = n;
+	syscall·envs.array = (byte*)s;
+	syscall·envs.len = n;
+	syscall·envs.cap = n;
 }
 
 byte*
@@ -226,8 +229,8 @@ runtime·getenv(int8 *s)
 
 	bs = (byte*)s;
 	len = runtime·findnull(bs);
-	envv = (String*)os·Envs.array;
-	envc = os·Envs.len;
+	envv = (String*)syscall·envs.array;
+	envc = syscall·envs.len;
 	for(i=0; i<envc; i++){
 		if(envv[i].len <= len)
 			continue;
@@ -275,8 +278,8 @@ runtime·check(void)
 	uint32 f;
 	int64 g;
 	uint64 h;
-	float32 i;
-	float64 j;
+	float32 i, i1;
+	float64 j, j1;
 	void* k;
 	uint16* l;
 	struct x1 {
@@ -316,351 +319,29 @@ runtime·check(void)
 	if(z != 4)
 		runtime·throw("cas4");
 
-	runtime·initsig(0);
-}
+	*(uint64*)&j = ~0ULL;
+	if(j == j)
+		runtime·throw("float64nan");
+	if(!(j != j))
+		runtime·throw("float64nan1");
 
-/*
- * map and chan helpers for
- * dealing with unknown types
- */
-static uintptr
-memhash(uint32 s, void *a)
-{
-	byte *b;
-	uintptr hash;
+	*(uint64*)&j1 = ~1ULL;
+	if(j == j1)
+		runtime·throw("float64nan2");
+	if(!(j != j1))
+		runtime·throw("float64nan3");
 
-	b = a;
-	if(sizeof(hash) == 4)
-		hash = 2860486313U;
-	else
-		hash = 33054211828000289ULL;
-	while(s > 0) {
-		if(sizeof(hash) == 4)
-			hash = (hash ^ *b) * 3267000013UL;
-		else
-			hash = (hash ^ *b) * 23344194077549503ULL;
-		b++;
-		s--;
-	}
-	return hash;
-}
+	*(uint32*)&i = ~0UL;
+	if(i == i)
+		runtime·throw("float32nan");
+	if(!(i != i))
+		runtime·throw("float32nan1");
 
-static uint32
-memequal(uint32 s, void *a, void *b)
-{
-	byte *ba, *bb, *aend;
-
-	if(a == b)
-	  return 1;
-	ba = a;
-	bb = b;
-	aend = ba+s;
-	while(ba != aend) {
-		if(*ba != *bb)
-			return 0;
-		ba++;
-		bb++;
-	}
-	return 1;
-}
-
-static void
-memprint(uint32 s, void *a)
-{
-	uint64 v;
-
-	v = 0xbadb00b;
-	switch(s) {
-	case 1:
-		v = *(uint8*)a;
-		break;
-	case 2:
-		v = *(uint16*)a;
-		break;
-	case 4:
-		v = *(uint32*)a;
-		break;
-	case 8:
-		v = *(uint64*)a;
-		break;
-	}
-	runtime·printint(v);
-}
-
-static void
-memcopy(uint32 s, void *a, void *b)
-{
-	if(b == nil) {
-		runtime·memclr(a,s);
-		return;
-	}
-	runtime·memmove(a,b,s);
-}
-
-static uint32
-memequal8(uint32 s, uint8 *a, uint8 *b)
-{
-	USED(s);
-	return *a == *b;
-}
-
-static void
-memcopy8(uint32 s, uint8 *a, uint8 *b)
-{
-	USED(s);
-	if(b == nil) {
-		*a = 0;
-		return;
-	}
-	*a = *b;
-}
-
-static uint32
-memequal16(uint32 s, uint16 *a, uint16 *b)
-{
-	USED(s);
-	return *a == *b;
-}
-
-static void
-memcopy16(uint32 s, uint16 *a, uint16 *b)
-{
-	USED(s);
-	if(b == nil) {
-		*a = 0;
-		return;
-	}
-	*a = *b;
-}
-
-static uint32
-memequal32(uint32 s, uint32 *a, uint32 *b)
-{
-	USED(s);
-	return *a == *b;
-}
-
-static void
-memcopy32(uint32 s, uint32 *a, uint32 *b)
-{
-	USED(s);
-	if(b == nil) {
-		*a = 0;
-		return;
-	}
-	*a = *b;
-}
-
-static uint32
-memequal64(uint32 s, uint64 *a, uint64 *b)
-{
-	USED(s);
-	return *a == *b;
-}
-
-static void
-memcopy64(uint32 s, uint64 *a, uint64 *b)
-{
-	USED(s);
-	if(b == nil) {
-		*a = 0;
-		return;
-	}
-	*a = *b;
-}
-
-static uint32
-memequal128(uint32 s, uint64 *a, uint64 *b)
-{
-	USED(s);
-	return a[0] == b[0] && a[1] == b[1];
-}
-
-static void
-memcopy128(uint32 s, uint64 *a, uint64 *b)
-{
-	USED(s);
-	if(b == nil) {
-		a[0] = 0;
-		a[1] = 0;
-		return;
-	}
-	a[0] = b[0];
-	a[1] = b[1];
-}
-
-static void
-slicecopy(uint32 s, Slice *a, Slice *b)
-{
-	USED(s);
-	if(b == nil) {
-		a->array = 0;
-		a->len = 0;
-		a->cap = 0;
-		return;
-	}
-	a->array = b->array;
-	a->len = b->len;
-	a->cap = b->cap;
-}
-
-static uintptr
-strhash(uint32 s, String *a)
-{
-	USED(s);
-	return memhash((*a).len, (*a).str);
-}
-
-static uint32
-strequal(uint32 s, String *a, String *b)
-{
-	int32 alen;
-
-	USED(s);
-	alen = a->len;
-	if(alen != b->len)
-		return false;
-	return memequal(alen, a->str, b->str);
-}
-
-static void
-strprint(uint32 s, String *a)
-{
-	USED(s);
-	runtime·printstring(*a);
-}
-
-static void
-strcopy(uint32 s, String *a, String *b)
-{
-	USED(s);
-	if(b == nil) {
-		a->str = 0;
-		a->len = 0;
-		return;
-	}
-	a->str = b->str;
-	a->len = b->len;
-}
-
-static uintptr
-interhash(uint32 s, Iface *a)
-{
-	USED(s);
-	return runtime·ifacehash(*a);
-}
-
-static void
-interprint(uint32 s, Iface *a)
-{
-	USED(s);
-	runtime·printiface(*a);
-}
-
-static uint32
-interequal(uint32 s, Iface *a, Iface *b)
-{
-	USED(s);
-	return runtime·ifaceeq_c(*a, *b);
-}
-
-static void
-intercopy(uint32 s, Iface *a, Iface *b)
-{
-	USED(s);
-	if(b == nil) {
-		a->tab = 0;
-		a->data = 0;
-		return;
-	}
-	a->tab = b->tab;
-	a->data = b->data;
-}
-
-static uintptr
-nilinterhash(uint32 s, Eface *a)
-{
-	USED(s);
-	return runtime·efacehash(*a);
-}
-
-static void
-nilinterprint(uint32 s, Eface *a)
-{
-	USED(s);
-	runtime·printeface(*a);
-}
-
-static uint32
-nilinterequal(uint32 s, Eface *a, Eface *b)
-{
-	USED(s);
-	return runtime·efaceeq_c(*a, *b);
-}
-
-static void
-nilintercopy(uint32 s, Eface *a, Eface *b)
-{
-	USED(s);
-	if(b == nil) {
-		a->type = 0;
-		a->data = 0;
-		return;
-	}
-	a->type = b->type;
-	a->data = b->data;
-}
-
-uintptr
-runtime·nohash(uint32 s, void *a)
-{
-	USED(s);
-	USED(a);
-	runtime·panicstring("hash of unhashable type");
-	return 0;
-}
-
-uint32
-runtime·noequal(uint32 s, void *a, void *b)
-{
-	USED(s);
-	USED(a);
-	USED(b);
-	runtime·panicstring("comparing uncomparable types");
-	return 0;
-}
-
-Alg
-runtime·algarray[] =
-{
-[AMEM]	{ memhash, memequal, memprint, memcopy },
-[ANOEQ]	{ runtime·nohash, runtime·noequal, memprint, memcopy },
-[ASTRING]	{ strhash, strequal, strprint, strcopy },
-[AINTER]		{ interhash, interequal, interprint, intercopy },
-[ANILINTER]	{ nilinterhash, nilinterequal, nilinterprint, nilintercopy },
-[ASLICE]	{ runtime·nohash, runtime·noequal, memprint, slicecopy },
-[AMEM8]		{ memhash, memequal8, memprint, memcopy8 },
-[AMEM16]	{ memhash, memequal16, memprint, memcopy16 },
-[AMEM32]	{ memhash, memequal32, memprint, memcopy32 },
-[AMEM64]	{ memhash, memequal64, memprint, memcopy64 },
-[AMEM128]	{ memhash, memequal128, memprint, memcopy128 },
-[ANOEQ8]	{ runtime·nohash, runtime·noequal, memprint, memcopy8 },
-[ANOEQ16]	{ runtime·nohash, runtime·noequal, memprint, memcopy16 },
-[ANOEQ32]	{ runtime·nohash, runtime·noequal, memprint, memcopy32 },
-[ANOEQ64]	{ runtime·nohash, runtime·noequal, memprint, memcopy64 },
-[ANOEQ128]	{ runtime·nohash, runtime·noequal, memprint, memcopy128 },
-};
-
-int64
-runtime·nanotime(void)
-{
-	int64 sec;
-	int32 usec;
-
-	sec = 0;
-	usec = 0;
-	runtime·gettime(&sec, &usec);
-	return sec*1000000000 + (int64)usec*1000;
+	*(uint32*)&i1 = ~1UL;
+	if(i == i1)
+		runtime·throw("float32nan2");
+	if(!(i != i1))
+		runtime·throw("float32nan3");
 }
 
 void
@@ -703,7 +384,13 @@ runtime·Caller(int32 skip, uintptr retpc, String retfile, int32 retline, bool r
 void
 runtime·Callers(int32 skip, Slice pc, int32 retn)
 {
-	retn = runtime·callers(skip, (uintptr*)pc.array, pc.len);
+	// runtime.callers uses pc.array==nil as a signal
+	// to print a stack trace.  Pick off 0-length pc here
+	// so that we don't let a nil pc slice get to it.
+	if(pc.len == 0)
+		retn = 0;
+	else
+		retn = runtime·callers(skip, (uintptr*)pc.array, pc.len);
 	FLUSH(&retn);
 }
 

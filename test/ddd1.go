@@ -1,8 +1,11 @@
-// errchk $G -e $D/$F.go
+// errorcheck
 
 // Copyright 2010 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+// Verify that illegal uses of ... are detected.
+// Does not compile.
 
 package main
 
@@ -15,8 +18,8 @@ var (
 	_ = sum()
 	_ = sum(1.0, 2.0)
 	_ = sum(1.5)      // ERROR "integer"
-	_ = sum("hello")  // ERROR "string.*as type int|incompatible"
-	_ = sum([]int{1}) // ERROR "slice literal.*as type int|incompatible"
+	_ = sum("hello")  // ERROR ".hello. .type string. as type int|incompatible"
+	_ = sum([]int{1}) // ERROR "\[\]int literal.*as type int|incompatible"
 )
 
 type T []T

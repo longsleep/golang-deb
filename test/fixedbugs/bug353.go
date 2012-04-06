@@ -1,4 +1,4 @@
-// errchk $G $D/$F.go
+// errorcheck
 
 // Copyright 2011 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -13,7 +13,7 @@ import (
 	"os"
 )
 
-func echo(fd io.ReadWriterCloser) { // ERROR "undefined: io.ReadWriterCloser"
+func echo(fd io.ReadWriterCloser) { // ERROR "undefined.*io.ReadWriterCloser"
 	var buf [1024]byte
 	for {
 		n, err := fd.Read(buf)

@@ -7,9 +7,9 @@ package bytes
 // Simple byte buffer for marshaling data.
 
 import (
+	"errors"
 	"io"
-	"os"
-	"utf8"
+	"unicode/utf8"
 )
 
 // A Buffer is a variable-sized buffer of bytes with Read and Write methods.
@@ -33,6 +33,9 @@ const (
 	opRead                   // Any other read operation.
 )
 
+// ErrTooLarge is passed to panic if memory cannot be allocated to store data in a buffer.
+var ErrTooLarge = errors.New("bytes.Buffer: too large")
+
 // Bytes returns a slice of the contents of the unread portion of the buffer;
 // len(b.Bytes()) == b.Len().  If the caller changes the contents of the
 // returned slice, the contents of the buffer will change provided there
@@ -54,10 +57,13 @@ func (b *Buffer) String() string {
 func (b *Buffer) Len() int { return len(b.buf) - b.off }
 
 // Truncate discards all but the first n unread bytes from the buffer.
-// It is an error to call b.Truncate(n) with n > b.Len().
+// It panics if n is negative or greater than the length of the buffer.
 func (b *Buffer) Truncate(n int) {
 	b.lastRead = opInvalid
-	if n == 0 {
+	switch {
+	case n < 0 || n > b.Len():
+		panic("bytes.Buffer: truncation out of range")
+	case n == 0:
 		// Reuse buffer space.
 		b.off = 0
 	}
@@ -68,8 +74,9 @@ func (b *Buffer) Truncate(n int) {
 // b.Reset() is the same as b.Truncate(0).
 func (b *Buffer) Reset() { b.Truncate(0) }
 
-// Grow buffer to guarantee space for n more bytes.
-// Return index where bytes should be written.
+// grow grows the buffer to guarantee space for n more bytes.
+// It returns the index where bytes should be written.
+// If the buffer can't grow it will panic with ErrTooLarge.
 func (b *Buffer) grow(n int) int {
 	m := b.Len()
 	// If buffer is empty, reset to recover space.
@@ -82,7 +89,7 @@ func (b *Buffer) grow(n int) int {
 			buf = b.bootstrap[0:]
 		} else {
 			// not enough space anywhere
-			buf = make([]byte, 2*cap(b.buf)+n)
+			buf = makeSlice(2*cap(b.buf) + n)
 			copy(buf, b.buf[b.off:])
 		}
 		b.buf = buf
@@ -94,16 +101,19 @@ func (b *Buffer) grow(n int) int {
 
 // Write appends the contents of p to the buffer.  The return
 // value n is the length of p; err is always nil.
-func (b *Buffer) Write(p []byte) (n int, err os.Error) {
+// If the buffer becomes too large, Write will panic with
+// ErrTooLarge.
+func (b *Buffer) Write(p []byte) (n int, err error) {
 	b.lastRead = opInvalid
 	m := b.grow(len(p))
-	copy(b.buf[m:], p)
-	return len(p), nil
+	return copy(b.buf[m:], p), nil
 }
 
 // WriteString appends the contents of s to the buffer.  The return
 // value n is the length of s; err is always nil.
-func (b *Buffer) WriteString(s string) (n int, err os.Error) {
+// If the buffer becomes too large, WriteString will panic with
+// ErrTooLarge.
+func (b *Buffer) WriteString(s string) (n int, err error) {
 	b.lastRead = opInvalid
 	m := b.grow(len(s))
 	return copy(b.buf[m:], s), nil
@@ -117,33 +127,33 @@ const MinRead = 512
 
 // ReadFrom reads data from r until EOF and appends it to the buffer.
 // The return value n is the number of bytes read.
-// Any error except os.EOF encountered during the read
+// Any error except io.EOF encountered during the read
 // is also returned.
-func (b *Buffer) ReadFrom(r io.Reader) (n int64, err os.Error) {
+// If the buffer becomes too large, ReadFrom will panic with
+// ErrTooLarge.
+func (b *Buffer) ReadFrom(r io.Reader) (n int64, err error) {
 	b.lastRead = opInvalid
 	// If buffer is empty, reset to recover space.
 	if b.off >= len(b.buf) {
 		b.Truncate(0)
 	}
 	for {
-		if cap(b.buf)-len(b.buf) < MinRead {
-			var newBuf []byte
-			// can we get space without allocation?
-			if b.off+cap(b.buf)-len(b.buf) >= MinRead {
-				// reuse beginning of buffer
-				newBuf = b.buf[0 : len(b.buf)-b.off]
-			} else {
-				// not enough space at end; put space on end
-				newBuf = make([]byte, len(b.buf)-b.off, 2*(cap(b.buf)-b.off)+MinRead)
+		if free := cap(b.buf) - len(b.buf); free < MinRead {
+			// not enough space at end
+			newBuf := b.buf
+			if b.off+free < MinRead {
+				// not enough space using beginning of buffer;
+				// double buffer capacity
+				newBuf = makeSlice(2*cap(b.buf) + MinRead)
 			}
 			copy(newBuf, b.buf[b.off:])
-			b.buf = newBuf
+			b.buf = newBuf[:len(b.buf)-b.off]
 			b.off = 0
 		}
 		m, e := r.Read(b.buf[len(b.buf):cap(b.buf)])
 		b.buf = b.buf[0 : len(b.buf)+m]
 		n += int64(m)
-		if e == os.EOF {
+		if e == io.EOF {
 			break
 		}
 		if e != nil {
@@ -153,21 +163,40 @@ func (b *Buffer) ReadFrom(r io.Reader) (n int64, err os.Error) {
 	return n, nil // err is EOF, so return nil explicitly
 }
 
+// makeSlice allocates a slice of size n. If the allocation fails, it panics
+// with ErrTooLarge.
+func makeSlice(n int) []byte {
+	// If the make fails, give a known error.
+	defer func() {
+		if recover() != nil {
+			panic(ErrTooLarge)
+		}
+	}()
+	return make([]byte, n)
+}
+
 // WriteTo writes data to w until the buffer is drained or an error
 // occurs. The return value n is the number of bytes written; it always
 // fits into an int, but it is int64 to match the io.WriterTo interface.
 // Any error encountered during the write is also returned.
-func (b *Buffer) WriteTo(w io.Writer) (n int64, err os.Error) {
+func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {
 	b.lastRead = opInvalid
 	if b.off < len(b.buf) {
+		nBytes := b.Len()
 		m, e := w.Write(b.buf[b.off:])
+		if m > nBytes {
+			panic("bytes.Buffer.WriteTo: invalid Write count")
+		}
 		b.off += m
 		n = int64(m)
 		if e != nil {
 			return n, e
 		}
-		// otherwise all bytes were written, by definition of
+		// all bytes should have been written, by definition of
 		// Write method in io.Writer
+		if m != nBytes {
+			return n, io.ErrShortWrite
+		}
 	}
 	// Buffer is now empty; reset.
 	b.Truncate(0)
@@ -177,7 +206,9 @@ func (b *Buffer) WriteTo(w io.Writer) (n int64, err os.Error) {
 // WriteByte appends the byte c to the buffer.
 // The returned error is always nil, but is included
 // to match bufio.Writer's WriteByte.
-func (b *Buffer) WriteByte(c byte) os.Error {
+// If the buffer becomes too large, WriteByte will panic with
+// ErrTooLarge.
+func (b *Buffer) WriteByte(c byte) error {
 	b.lastRead = opInvalid
 	m := b.grow(1)
 	b.buf[m] = c
@@ -188,7 +219,9 @@ func (b *Buffer) WriteByte(c byte) os.Error {
 // code point r to the buffer, returning its length and
 // an error, which is always nil but is included
 // to match bufio.Writer's WriteRune.
-func (b *Buffer) WriteRune(r int) (n int, err os.Error) {
+// If the buffer becomes too large, WriteRune will panic with
+// ErrTooLarge.
+func (b *Buffer) WriteRune(r rune) (n int, err error) {
 	if r < utf8.RuneSelf {
 		b.WriteByte(byte(r))
 		return 1, nil
@@ -200,14 +233,17 @@ func (b *Buffer) WriteRune(r int) (n int, err os.Error) {
 
 // Read reads the next len(p) bytes from the buffer or until the buffer
 // is drained.  The return value n is the number of bytes read.  If the
-// buffer has no data to return, err is os.EOF even if len(p) is zero;
+// buffer has no data to return, err is io.EOF (unless len(p) is zero);
 // otherwise it is nil.
-func (b *Buffer) Read(p []byte) (n int, err os.Error) {
+func (b *Buffer) Read(p []byte) (n int, err error) {
 	b.lastRead = opInvalid
 	if b.off >= len(b.buf) {
 		// Buffer is empty, reset to recover space.
 		b.Truncate(0)
-		return 0, os.EOF
+		if len(p) == 0 {
+			return
+		}
+		return 0, io.EOF
 	}
 	n = copy(p, b.buf[b.off:])
 	b.off += n
@@ -236,13 +272,13 @@ func (b *Buffer) Next(n int) []byte {
 }
 
 // ReadByte reads and returns the next byte from the buffer.
-// If no byte is available, it returns error os.EOF.
-func (b *Buffer) ReadByte() (c byte, err os.Error) {
+// If no byte is available, it returns error io.EOF.
+func (b *Buffer) ReadByte() (c byte, err error) {
 	b.lastRead = opInvalid
 	if b.off >= len(b.buf) {
 		// Buffer is empty, reset to recover space.
 		b.Truncate(0)
-		return 0, os.EOF
+		return 0, io.EOF
 	}
 	c = b.buf[b.off]
 	b.off++
@@ -252,21 +288,21 @@ func (b *Buffer) ReadByte() (c byte, err os.Error) {
 
 // ReadRune reads and returns the next UTF-8-encoded
 // Unicode code point from the buffer.
-// If no bytes are available, the error returned is os.EOF.
+// If no bytes are available, the error returned is io.EOF.
 // If the bytes are an erroneous UTF-8 encoding, it
 // consumes one byte and returns U+FFFD, 1.
-func (b *Buffer) ReadRune() (r int, size int, err os.Error) {
+func (b *Buffer) ReadRune() (r rune, size int, err error) {
 	b.lastRead = opInvalid
 	if b.off >= len(b.buf) {
 		// Buffer is empty, reset to recover space.
 		b.Truncate(0)
-		return 0, 0, os.EOF
+		return 0, 0, io.EOF
 	}
 	b.lastRead = opReadRune
 	c := b.buf[b.off]
 	if c < utf8.RuneSelf {
 		b.off++
-		return int(c), 1, nil
+		return rune(c), 1, nil
 	}
 	r, n := utf8.DecodeRune(b.buf[b.off:])
 	b.off += n
@@ -278,9 +314,9 @@ func (b *Buffer) ReadRune() (r int, size int, err os.Error) {
 // not a ReadRune, UnreadRune returns an error.  (In this regard
 // it is stricter than UnreadByte, which will unread the last byte
 // from any read operation.)
-func (b *Buffer) UnreadRune() os.Error {
+func (b *Buffer) UnreadRune() error {
 	if b.lastRead != opReadRune {
-		return os.NewError("bytes.Buffer: UnreadRune: previous operation was not ReadRune")
+		return errors.New("bytes.Buffer: UnreadRune: previous operation was not ReadRune")
 	}
 	b.lastRead = opInvalid
 	if b.off > 0 {
@@ -293,9 +329,9 @@ func (b *Buffer) UnreadRune() os.Error {
 // UnreadByte unreads the last byte returned by the most recent
 // read operation.  If write has happened since the last read, UnreadByte
 // returns an error.
-func (b *Buffer) UnreadByte() os.Error {
+func (b *Buffer) UnreadByte() error {
 	if b.lastRead != opReadRune && b.lastRead != opRead {
-		return os.NewError("bytes.Buffer: UnreadByte: previous operation was not a read")
+		return errors.New("bytes.Buffer: UnreadByte: previous operation was not a read")
 	}
 	b.lastRead = opInvalid
 	if b.off > 0 {
@@ -307,15 +343,15 @@ func (b *Buffer) UnreadByte() os.Error {
 // ReadBytes reads until the first occurrence of delim in the input,
 // returning a slice containing the data up to and including the delimiter.
 // If ReadBytes encounters an error before finding a delimiter,
-// it returns the data read before the error and the error itself (often os.EOF).
+// it returns the data read before the error and the error itself (often io.EOF).
 // ReadBytes returns err != nil if and only if the returned data does not end in
 // delim.
-func (b *Buffer) ReadBytes(delim byte) (line []byte, err os.Error) {
+func (b *Buffer) ReadBytes(delim byte) (line []byte, err error) {
 	i := IndexByte(b.buf[b.off:], delim)
 	size := i + 1
 	if i < 0 {
 		size = len(b.buf) - b.off
-		err = os.EOF
+		err = io.EOF
 	}
 	line = make([]byte, size)
 	copy(line, b.buf[b.off:])
@@ -326,23 +362,29 @@ func (b *Buffer) ReadBytes(delim byte) (line []byte, err os.Error) {
 // ReadString reads until the first occurrence of delim in the input,
 // returning a string containing the data up to and including the delimiter.
 // If ReadString encounters an error before finding a delimiter,
-// it returns the data read before the error and the error itself (often os.EOF).
+// it returns the data read before the error and the error itself (often io.EOF).
 // ReadString returns err != nil if and only if the returned data does not end
 // in delim.
-func (b *Buffer) ReadString(delim byte) (line string, err os.Error) {
+func (b *Buffer) ReadString(delim byte) (line string, err error) {
 	bytes, err := b.ReadBytes(delim)
 	return string(bytes), err
 }
 
 // NewBuffer creates and initializes a new Buffer using buf as its initial
 // contents.  It is intended to prepare a Buffer to read existing data.  It
-// can also be used to size the internal buffer for writing.  To do that,
+// can also be used to size the internal buffer for writing. To do that,
 // buf should have the desired capacity but a length of zero.
+//
+// In most cases, new(Buffer) (or just declaring a Buffer variable) is
+// sufficient to initialize a Buffer.
 func NewBuffer(buf []byte) *Buffer { return &Buffer{buf: buf} }
 
 // NewBufferString creates and initializes a new Buffer using string s as its
-// initial contents.  It is intended to prepare a buffer to read an existing
+// initial contents. It is intended to prepare a buffer to read an existing
 // string.
+//
+// In most cases, new(Buffer) (or just declaring a Buffer variable) is
+// sufficient to initialize a Buffer.
 func NewBufferString(s string) *Buffer {
 	return &Buffer{buf: []byte(s)}
 }

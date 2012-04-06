@@ -10,22 +10,20 @@ import (
 )
 
 func TestTicker(t *testing.T) {
-	const (
-		Delta = 100 * 1e6
-		Count = 10
-	)
+	const Count = 10
+	Delta := 100 * Millisecond
 	ticker := NewTicker(Delta)
-	t0 := Nanoseconds()
+	t0 := Now()
 	for i := 0; i < Count; i++ {
 		<-ticker.C
 	}
 	ticker.Stop()
-	t1 := Nanoseconds()
-	ns := t1 - t0
-	target := int64(Delta * Count)
+	t1 := Now()
+	dt := t1.Sub(t0)
+	target := Delta * Count
 	slop := target * 2 / 10
-	if ns < target-slop || ns > target+slop {
-		t.Fatalf("%d ticks of %g ns took %g ns, expected %g", Count, float64(Delta), float64(ns), float64(target))
+	if dt < target-slop || (!testing.Short() && dt > target+slop) {
+		t.Fatalf("%d %s ticks took %s, expected [%s,%s]", Count, Delta, dt, target-slop, target+slop)
 	}
 	// Now test that the ticker stopped
 	Sleep(2 * Delta)
@@ -39,8 +37,12 @@ func TestTicker(t *testing.T) {
 
 // Test that a bug tearing down a ticker has been fixed.  This routine should not deadlock.
 func TestTeardown(t *testing.T) {
+	Delta := 100 * Millisecond
+	if testing.Short() {
+		Delta = 20 * Millisecond
+	}
 	for i := 0; i < 3; i++ {
-		ticker := NewTicker(1e8)
+		ticker := NewTicker(Delta)
 		<-ticker.C
 		ticker.Stop()
 	}

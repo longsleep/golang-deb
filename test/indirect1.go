@@ -1,8 +1,11 @@
-// errchk $G -e $D/$F.go
+// errorcheck
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+// Verify that illegal uses of indirection are caught by the compiler.
+// Does not compile.
 
 package main
 
@@ -65,4 +68,5 @@ func f() {
 		cap(b2)+	// ERROR "illegal|invalid|must be"
 		cap(b3)+
 		cap(b4)	// ERROR "illegal|invalid|must be"
+	_ = x
 }

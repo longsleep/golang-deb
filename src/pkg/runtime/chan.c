@@ -92,11 +92,6 @@ runtime·makechan_c(ChanType *t, int64 hint)
 	if(hint < 0 || (int32)hint != hint || (elem->size > 0 && hint > ((uintptr)-1) / elem->size))
 		runtime·panicstring("makechan: size out of range");
 
-	if(elem->alg >= nelem(runtime·algarray)) {
-		runtime·printf("chan(alg=%d)\n", elem->alg);
-		runtime·throw("runtime.makechan: unsupported elem type");
-	}
-
 	// calculate rounded size of Hchan
 	n = sizeof(*c);
 	while(n & MAXALIGN)
@@ -104,16 +99,13 @@ runtime·makechan_c(ChanType *t, int64 hint)
 
 	// allocate memory in one call
 	c = (Hchan*)runtime·mal(n + hint*elem->size);
-	if(runtime·destroylock)
-		runtime·addfinalizer(c, destroychan, 0);
-
 	c->elemsize = elem->size;
-	c->elemalg = &runtime·algarray[elem->alg];
+	c->elemalg = elem->alg;
 	c->elemalign = elem->align;
 	c->dataqsiz = hint;
 
 	if(debug)
-		runtime·printf("makechan: chan=%p; elemsize=%D; elemalg=%d; elemalign=%d; dataqsiz=%d\n",
+		runtime·printf("makechan: chan=%p; elemsize=%D; elemalg=%p; elemalign=%d; dataqsiz=%d\n",
 			c, (int64)elem->size, elem->alg, elem->align, c->dataqsiz);
 
 	return c;
@@ -127,13 +119,6 @@ reflect·makechan(ChanType *t, uint32 size, Hchan *c)
 	c = runtime·makechan_c(t, size);
 	FLUSH(&c);
 }
-
-static void
-destroychan(Hchan *c)
-{
-	runtime·destroylock(&c->Lock);
-}
-
 
 // makechan(t *ChanType, hint int64) (hchan *chan any);
 void
@@ -171,6 +156,7 @@ runtime·chansend(ChanType *t, Hchan *c, byte *ep, bool *pres)
 			return;
 		}
 		g->status = Gwaiting;
+		g->waitreason = "chan send (nil chan)";
 		runtime·gosched();
 		return;  // not reached
 	}
@@ -217,6 +203,7 @@ runtime·chansend(ChanType *t, Hchan *c, byte *ep, bool *pres)
 	mysg.selgen = NOSELGEN;
 	g->param = nil;
 	g->status = Gwaiting;
+	g->waitreason = "chan send";
 	enqueue(&c->sendq, &mysg);
 	runtime·unlock(c);
 	runtime·gosched();
@@ -244,6 +231,7 @@ asynch:
 		mysg.elem = nil;
 		mysg.selgen = NOSELGEN;
 		g->status = Gwaiting;
+		g->waitreason = "chan send";
 		enqueue(&c->sendq, &mysg);
 		runtime·unlock(c);
 		runtime·gosched();
@@ -293,6 +281,7 @@ runtime·chanrecv(ChanType *t, Hchan* c, byte *ep, bool *selected, bool *receive
 			return;
 		}
 		g->status = Gwaiting;
+		g->waitreason = "chan receive (nil chan)";
 		runtime·gosched();
 		return;  // not reached
 	}
@@ -332,6 +321,7 @@ runtime·chanrecv(ChanType *t, Hchan* c, byte *ep, bool *selected, bool *receive
 	mysg.selgen = NOSELGEN;
 	g->param = nil;
 	g->status = Gwaiting;
+	g->waitreason = "chan receive";
 	enqueue(&c->recvq, &mysg);
 	runtime·unlock(c);
 	runtime·gosched();
@@ -363,6 +353,7 @@ asynch:
 		mysg.elem = nil;
 		mysg.selgen = NOSELGEN;
 		g->status = Gwaiting;
+		g->waitreason = "chan receive";
 		enqueue(&c->recvq, &mysg);
 		runtime·unlock(c);
 		runtime·gosched();
@@ -595,6 +586,10 @@ newselect(int32 size, Select **selp)
 	if(size > 1)
 		n = size-1;
 
+	// allocate all the memory we need in a single allocation
+	// start with Select with size cases
+	// then lockorder with size entries
+	// then pollorder with size entries
 	sel = runtime·mal(sizeof(*sel) +
 		n*sizeof(sel->scase[0]) +
 		size*sizeof(sel->lockorder[0]) +
@@ -602,8 +597,8 @@ newselect(int32 size, Select **selp)
 
 	sel->tcase = size;
 	sel->ncase = 0;
-	sel->pollorder = (void*)(sel->scase + size);
-	sel->lockorder = (void*)(sel->pollorder + size);
+	sel->lockorder = (void*)(sel->scase + size);
+	sel->pollorder = (void*)(sel->lockorder + size);
 	*selp = sel;
 
 	if(debug)
@@ -780,6 +775,7 @@ void
 runtime·block(void)
 {
 	g->status = Gwaiting;	// forever
+	g->waitreason = "select (no cases)";
 	runtime·gosched();
 }
 
@@ -912,6 +908,7 @@ loop:
 
 	g->param = nil;
 	g->status = Gwaiting;
+	g->waitreason = "select";
 	selunlock(sel);
 	runtime·gosched();
 
@@ -1016,7 +1013,8 @@ syncsend:
 	selunlock(sel);
 	if(debug)
 		runtime·printf("syncsend: sel=%p c=%p o=%d\n", sel, c, o);
-	c->elemalg->copy(c->elemsize, sg->elem, cas->sg.elem);
+	if(sg->elem != nil)
+		c->elemalg->copy(c->elemsize, sg->elem, cas->sg.elem);
 	gp = sg->g;
 	gp->param = sg;
 	runtime·ready(gp);
@@ -1042,6 +1040,9 @@ runtime·closechan(Hchan *c)
 {
 	SudoG *sg;
 	G* gp;
+
+	if(c == nil)
+		runtime·panicstring("close of nil channel");
 
 	if(runtime·gcwaiting)
 		runtime·gosched();

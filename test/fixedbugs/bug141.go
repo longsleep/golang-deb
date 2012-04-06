@@ -1,4 +1,4 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out || echo BUG: should run
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -20,7 +20,7 @@ type Getter interface {
 
 func f1(p Empty) {
 	switch x := p.(type) {
-	default: println("failed to match interface"); os.Exit(1);
+	default: println("failed to match interface", x); os.Exit(1);
 	case Getter: break;
 	}
 

@@ -14,21 +14,21 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
+	pathpkg "path"
 )
 
-func parseFiles(fset *token.FileSet, filenames []string) (pkgs map[string]*ast.Package, first os.Error) {
+func parseFile(fset *token.FileSet, filename string, mode parser.Mode) (*ast.File, error) {
+	src, err := ReadFile(fs, filename)
+	if err != nil {
+		return nil, err
+	}
+	return parser.ParseFile(fset, filename, src, mode)
+}
+
+func parseFiles(fset *token.FileSet, filenames []string) (pkgs map[string]*ast.Package, first error) {
 	pkgs = make(map[string]*ast.Package)
 	for _, filename := range filenames {
-		src, err := fs.ReadFile(filename)
-		if err != nil {
-			if first == nil {
-				first = err
-			}
-			continue
-		}
-
-		file, err := parser.ParseFile(fset, filename, src, parser.ParseComments)
+		file, err := parseFile(fset, filename, parser.ParseComments)
 		if err != nil {
 			if first == nil {
 				first = err
@@ -40,7 +40,7 @@ func parseFiles(fset *token.FileSet, filenames []string) (pkgs map[string]*ast.P
 		pkg, found := pkgs[name]
 		if !found {
 			// TODO(gri) Use NewPackage here; reconsider ParseFiles API.
-			pkg = &ast.Package{name, nil, nil, make(map[string]*ast.File)}
+			pkg = &ast.Package{Name: name, Files: make(map[string]*ast.File)}
 			pkgs[name] = pkg
 		}
 		pkg.Files[filename] = file
@@ -48,7 +48,7 @@ func parseFiles(fset *token.FileSet, filenames []string) (pkgs map[string]*ast.P
 	return
 }
 
-func parseDir(fset *token.FileSet, path string, filter func(FileInfo) bool) (map[string]*ast.Package, os.Error) {
+func parseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool) (map[string]*ast.Package, error) {
 	list, err := fs.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func parseDir(fset *token.FileSet, path string, filter func(FileInfo) bool) (map
 	i := 0
 	for _, d := range list {
 		if filter == nil || filter(d) {
-			filenames[i] = filepath.Join(path, d.Name())
+			filenames[i] = pathpkg.Join(path, d.Name())
 			i++
 		}
 	}

@@ -1,4 +1,4 @@
-// errchk $G $D/$F.go
+// errorcheck
 
 // Copyright 2011 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -14,6 +14,6 @@
 package main
 
 func main() {
-	len("foo")	// ERROR "len"
+	len("foo")	// ERROR "len|value computed is not used"
 }
 

@@ -182,7 +182,11 @@ relocsym(Sym *s)
 			o = symaddr(r->sym) + r->add;
 			break;
 		case D_PCREL:
-			o = symaddr(r->sym) + r->add - (s->value + r->off + r->siz);
+			// r->sym can be null when CALL $(constant) is transformed from absoulte PC to relative PC call.
+			o = 0;
+			if(r->sym)
+				o += symaddr(r->sym);
+			o += r->add - (s->value + r->off + r->siz);
 			break;
 		case D_SIZE:
 			o = r->sym->size + r->add;
@@ -410,13 +414,13 @@ savedata(Sym *s, Prog *p, char *pn)
 }
 
 static void
-blk(Sym *allsym, int32 addr, int32 size)
+blk(Sym *start, int32 addr, int32 size)
 {
 	Sym *sym;
 	int32 eaddr;
 	uchar *p, *ep;
 
-	for(sym = allsym; sym != nil; sym = sym->next)
+	for(sym = start; sym != nil; sym = sym->next)
 		if(!(sym->type&SSUB) && sym->value >= addr)
 			break;
 
@@ -585,6 +589,25 @@ strnput(char *s, int n)
 	}
 }
 
+void
+addstrdata(char *name, char *value)
+{
+	Sym *s, *sp;
+	char *p;
+	
+	p = smprint("%s.str", name);
+	sp = lookup(p, 0);
+	free(p);
+	addstring(sp, value);
+
+	s = lookup(name, 0);
+	s->dupok = 1;
+	addaddr(s, sp);
+	adduint32(s, strlen(value));
+	if(PtrSize == 8)
+		adduint32(s, 0);  // round struct to pointer width
+}
+
 vlong
 addstring(Sym *s, char *str)
 {
@@ -592,7 +615,7 @@ addstring(Sym *s, char *str)
 	int32 r;
 
 	if(s->type == 0)
-		s->type = SDATA;
+		s->type = SNOPTRDATA;
 	s->reachable = 1;
 	r = s->size;
 	n = strlen(str)+1;
@@ -756,10 +779,25 @@ addsize(Sym *s, Sym *t)
 }
 
 void
+dosymtype(void)
+{
+	Sym *s;
+
+	for(s = allsym; s != nil; s = s->allsym) {
+		if(s->np > 0) {
+			if(s->type == SBSS)
+				s->type = SDATA;
+			if(s->type == SNOPTRBSS)
+				s->type = SNOPTRDATA;
+		}
+	}
+}
+
+void
 dodata(void)
 {
 	int32 t, datsize;
-	Section *sect;
+	Section *sect, *noptr;
 	Sym *s, *last, **l;
 
 	if(debug['v'])
@@ -783,13 +821,12 @@ dodata(void)
 	}
 
 	for(s = datap; s != nil; s = s->next) {
-		if(s->np > 0 && s->type == SBSS)
-			s->type = SDATA;
 		if(s->np > s->size)
 			diag("%s: initialize bounds (%lld < %d)",
 				s->name, (vlong)s->size, s->np);
 	}
-	
+
+
 	/*
 	 * now that we have the datap list, but before we start
 	 * to assign addresses, record all the necessary
@@ -820,6 +857,8 @@ dodata(void)
 	datsize = 0;
 	s = datap;
 	for(; s != nil && s->type < SSYMTAB; s = s->next) {
+		if(s->align != 0)
+			datsize = rnd(datsize, s->align);
 		s->type = SRODATA;
 		s->value = datsize;
 		datsize += rnd(s->size, PtrSize);
@@ -851,6 +890,8 @@ dodata(void)
 	/* read-only ELF sections */
 	for(; s != nil && s->type < SELFSECT; s = s->next) {
 		sect = addsection(&segtext, s->name, 04);
+		if(s->align != 0)
+			datsize = rnd(datsize, s->align);
 		sect->vaddr = datsize;
 		s->type = SRODATA;
 		s->value = datsize;
@@ -860,30 +901,43 @@ dodata(void)
 
 	/* writable ELF sections */
 	datsize = 0;
-	for(; s != nil && s->type < SDATA; s = s->next) {
+	for(; s != nil && s->type < SNOPTRDATA; s = s->next) {
 		sect = addsection(&segdata, s->name, 06);
+		if(s->align != 0)
+			datsize = rnd(datsize, s->align);
 		sect->vaddr = datsize;
 		s->type = SDATA;
 		s->value = datsize;
 		datsize += rnd(s->size, PtrSize);
 		sect->len = datsize - sect->vaddr;
 	}
-
-	/* data */
-	sect = addsection(&segdata, ".data", 06);
+	
+	/* pointer-free data, then data */
+	sect = addsection(&segdata, ".noptrdata", 06);
 	sect->vaddr = datsize;
-	for(; s != nil && s->type < SBSS; s = s->next) {
+	noptr = sect;
+	for(; ; s = s->next) {
+		if((s == nil || s->type >= SDATA) && sect == noptr) {
+			// finish noptrdata, start data
+			datsize = rnd(datsize, 8);
+			sect->len = datsize - sect->vaddr;
+			sect = addsection(&segdata, ".data", 06);
+			sect->vaddr = datsize;
+		}
+		if(s == nil || s->type >= SBSS) {
+			// finish data
+			sect->len = datsize - sect->vaddr;
+			break;
+		}
 		s->type = SDATA;
 		t = s->size;
-		if(t == 0 && s->name[0] != '.') {
-			diag("%s: no size", s->name);
-			t = 1;
-		}
 		if(t >= PtrSize)
 			t = rnd(t, PtrSize);
 		else if(t > 2)
 			t = rnd(t, 4);
-		if(t & 1) {
+		if(s->align != 0)
+			datsize = rnd(datsize, s->align);
+		else if(t & 1) {
 			;
 		} else if(t & 2)
 			datsize = rnd(datsize, 2);
@@ -894,13 +948,25 @@ dodata(void)
 		s->value = datsize;
 		datsize += t;
 	}
-	sect->len = datsize - sect->vaddr;
 
-	/* bss */
+	/* bss, then pointer-free bss */
+	noptr = nil;
 	sect = addsection(&segdata, ".bss", 06);
 	sect->vaddr = datsize;
-	for(; s != nil; s = s->next) {
-		if(s->type != SBSS) {
+	for(; ; s = s->next) {
+		if((s == nil || s->type >= SNOPTRBSS) && noptr == nil) {
+			// finish bss, start noptrbss
+			datsize = rnd(datsize, 8);
+			sect->len = datsize - sect->vaddr;
+			sect = addsection(&segdata, ".noptrbss", 06);
+			sect->vaddr = datsize;
+			noptr = sect;
+		}
+		if(s == nil) {
+			sect->len = datsize - sect->vaddr;
+			break;
+		}
+		if(s->type > SNOPTRBSS) {
 			cursym = s;
 			diag("unexpected symbol type %d", s->type);
 		}
@@ -909,7 +975,9 @@ dodata(void)
 			t = rnd(t, PtrSize);
 		else if(t > 2)
 			t = rnd(t, 4);
-		if(t & 1) {
+		if(s->align != 0)
+			datsize = rnd(datsize, s->align);
+		else if(t & 1) {
 			;
 		} else if(t & 2)
 			datsize = rnd(datsize, 2);
@@ -920,7 +988,6 @@ dodata(void)
 		s->value = datsize;
 		datsize += t;
 	}
-	sect->len = datsize - sect->vaddr;
 }
 
 // assign addresses to text
@@ -943,6 +1010,8 @@ textaddress(void)
 	for(sym = textp; sym != nil; sym = sym->next) {
 		if(sym->type & SSUB)
 			continue;
+		if(sym->align != 0)
+			va = rnd(va, sym->align);
 		sym->value = 0;
 		for(sub = sym; sub != S; sub = sub->sub) {
 			sub->value += va;
@@ -954,6 +1023,11 @@ textaddress(void)
 		}
 		va += sym->size;
 	}
+	
+	// Align end of code so that rodata starts aligned.
+	// 128 bytes is likely overkill but definitely cheap.
+	va = rnd(va, 128);
+
 	sect->len = va - sect->vaddr;
 }
 
@@ -961,7 +1035,7 @@ textaddress(void)
 void
 address(void)
 {
-	Section *s, *text, *data, *rodata, *symtab, *pclntab;
+	Section *s, *text, *data, *rodata, *symtab, *pclntab, *noptr, *bss, *noptrbss;
 	Sym *sym, *sub;
 	uvlong va;
 
@@ -987,6 +1061,9 @@ address(void)
 	if(HEADTYPE == Hplan9x32)
 		segdata.fileoff = segtext.fileoff + segtext.filelen;
 	data = nil;
+	noptr = nil;
+	bss = nil;
+	noptrbss = nil;
 	for(s=segdata.sect; s != nil; s=s->next) {
 		s->vaddr = va;
 		va += s->len;
@@ -994,8 +1071,14 @@ address(void)
 		segdata.len = va - segdata.vaddr;
 		if(strcmp(s->name, ".data") == 0)
 			data = s;
+		if(strcmp(s->name, ".noptrdata") == 0)
+			noptr = s;
+		if(strcmp(s->name, ".bss") == 0)
+			bss = s;
+		if(strcmp(s->name, ".noptrbss") == 0)
+			noptrbss = s;
 	}
-	segdata.filelen -= data->next->len; // deduct .bss
+	segdata.filelen -= bss->len + noptrbss->len; // deduct .bss
 
 	text = segtext.sect;
 	rodata = text->next;
@@ -1004,7 +1087,7 @@ address(void)
 
 	for(sym = datap; sym != nil; sym = sym->next) {
 		cursym = sym;
-		if(sym->type < SDATA)
+		if(sym->type < SNOPTRDATA)
 			sym->value += rodata->vaddr;
 		else
 			sym->value += segdata.sect->vaddr;
@@ -1020,7 +1103,13 @@ address(void)
 	xdefine("esymtab", SRODATA, symtab->vaddr + symtab->len);
 	xdefine("pclntab", SRODATA, pclntab->vaddr);
 	xdefine("epclntab", SRODATA, pclntab->vaddr + pclntab->len);
-	xdefine("data", SBSS, data->vaddr);
-	xdefine("edata", SBSS, data->vaddr + data->len);
+	xdefine("noptrdata", SNOPTRDATA, noptr->vaddr);
+	xdefine("enoptrdata", SNOPTRDATA, noptr->vaddr + noptr->len);
+	xdefine("bss", SBSS, bss->vaddr);
+	xdefine("ebss", SBSS, bss->vaddr + bss->len);
+	xdefine("data", SDATA, data->vaddr);
+	xdefine("edata", SDATA, data->vaddr + data->len);
+	xdefine("noptrbss", SNOPTRBSS, noptrbss->vaddr);
+	xdefine("enoptrbss", SNOPTRBSS, noptrbss->vaddr + noptrbss->len);
 	xdefine("end", SBSS, segdata.vaddr + segdata.len);
 }

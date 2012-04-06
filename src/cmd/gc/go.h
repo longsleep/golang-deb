@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include	<u.h>
-#include	<libc.h>
 #include	<bio.h>
 
 #undef OAPPEND
@@ -18,6 +16,12 @@
 
 #undef	BUFSIZ
 
+// The parser's maximum stack size.
+// We have to use a #define macro here since yacc
+// or bison will check for its definition and use
+// a potentially smaller value if it is undefined.
+#define YYMAXDEPTH 500
+
 enum
 {
 	NHUNK		= 50000,
@@ -25,7 +29,6 @@ enum
 	NSYMB		= 500,
 	NHASH		= 1024,
 	STRINGSZ	= 200,
-	YYMAXDEPTH	= 500,
 	MAXALIGN	= 7,
 	UINF		= 100,
 	HISTSZ		= 10,
@@ -34,23 +37,30 @@ enum
 
 	AUNK		= 100,
 
-	// these values are known by runtime
+	// These values are known by runtime.
+	// The MEMx and NOEQx values must run in parallel.  See algtype.
 	AMEM		= 0,
-	ANOEQ,
-	ASTRING,
-	AINTER,
-	ANILINTER,
-	ASLICE,
+	AMEM0,
 	AMEM8,
 	AMEM16,
 	AMEM32,
 	AMEM64,
 	AMEM128,
+	ANOEQ,
+	ANOEQ0,
 	ANOEQ8,
 	ANOEQ16,
 	ANOEQ32,
 	ANOEQ64,
 	ANOEQ128,
+	ASTRING,
+	AINTER,
+	ANILINTER,
+	ASLICE,
+	AFLOAT32,
+	AFLOAT64,
+	ACPLX64,
+	ACPLX128,
 
 	BADWIDTH	= -1000000000,
 };
@@ -67,33 +77,6 @@ struct	Strlit
 {
 	int32	len;
 	char	s[3];	// variable
-};
-
-/*
- * note this is the runtime representation
- * of hashmap iterator. it is probably
- * insafe to use it this way, but it puts
- * all the changes in one place.
- * only flag is referenced from go.
- * actual placement does not matter as long
- * as the size is >= actual size.
- */
-typedef	struct	Hiter	Hiter;
-struct	Hiter
-{
-	uchar	data[8];		// return val from next
-	int32	elemsize;		// size of elements in table */
-	int32	changes;		// number of changes observed last time */
-	int32	i;			// stack pointer in subtable_state */
-	uchar	last[8];		// last hash value returned */
-	uchar	h[8];			// the hash table */
-	struct
-	{
-		uchar	sub[8];		// pointer into subtable */
-		uchar	start[8];	// pointer into start of subtable */
-		uchar	end[8];		// pointer into end of subtable */
-		uchar	pad[8];
-	} sub[4];
 };
 
 enum
@@ -137,7 +120,7 @@ struct	Val
 	{
 		short	reg;		// OREGISTER
 		short	bval;		// bool value CTBOOL
-		Mpint*	xval;		// int CTINT
+		Mpint*	xval;		// int CTINT, rune CTRUNE
 		Mpflt*	fval;		// float CTFLT
 		Mpcplx*	cval;		// float CTCPLX
 		Strlit*	sval;		// string CTSTR
@@ -155,17 +138,16 @@ struct	Type
 {
 	uchar	etype;
 	uchar	chan;
-	uchar	recur;		// to detect loops
 	uchar	trecur;		// to detect loops
 	uchar	printed;
 	uchar	embedded;	// TFIELD embedded type
 	uchar	siggen;
-	uchar	funarg;
+	uchar	funarg;		// on TSTRUCT and TFIELD
 	uchar	copyany;
 	uchar	local;		// created in this file
 	uchar	deferwidth;
 	uchar	broke;
-	uchar	isddd;	// TFIELD is ... argument
+	uchar	isddd;		// TFIELD is ... argument
 	uchar	align;
 
 	Node*	nod;		// canonical OTYPE node
@@ -203,8 +185,50 @@ struct	Type
 };
 #define	T	((Type*)0)
 
+typedef struct InitEntry InitEntry;
+typedef struct InitPlan InitPlan;
+
+struct InitEntry
+{
+	vlong xoffset;  // struct, array only
+	Node *key;  // map only
+	Node *expr;
+};
+
+struct InitPlan
+{
+	vlong lit;  // bytes of initialized non-zero literals
+	vlong zero;  // bytes of zeros
+	vlong expr;  // bytes of run-time computed expressions
+
+	InitEntry *e;
+	int len;
+	int cap;
+};
+
+enum
+{
+	EscUnknown,
+	EscHeap,
+	EscScope,
+	EscNone,
+	EscNever,
+};
+
 struct	Node
 {
+	// Tree structure.
+	// Generic recursive walks should follow these fields.
+	Node*	left;
+	Node*	right;
+	Node*	ntest;
+	Node*	nincr;
+	NodeList*	ninit;
+	NodeList*	nbody;
+	NodeList*	nelse;
+	NodeList*	list;
+	NodeList*	rlist;
+
 	uchar	op;
 	uchar	ullman;		// sethi/ullman number
 	uchar	addable;	// type of addressability - 0 is not addressable
@@ -215,40 +239,25 @@ struct	Node
 	uchar	embedded;	// ODCLFIELD embedded type
 	uchar	colas;		// OAS resulting from :=
 	uchar	diag;		// already printed error about this
-	uchar	noescape;	// ONAME never move to heap
+	uchar	esc;		// EscXXX
 	uchar	funcdepth;
 	uchar	builtin;	// built-in name, like len or close
 	uchar	walkdef;
 	uchar	typecheck;
 	uchar	local;
+	uchar	dodata;
 	uchar	initorder;
-	uchar	dodata;		// compile literal assignment as data statement
 	uchar	used;
 	uchar	isddd;
-	uchar	pun;		// don't registerize variable ONAME
 	uchar	readonly;
-	uchar	implicit;	// don't show in printout
+	uchar	implicit;
+	uchar	addrtaken;	// address taken, even if not moved to heap
+	uchar	dupok;	// duplicate definitions ok (for func)
 
 	// most nodes
-	Node*	left;
-	Node*	right;
 	Type*	type;
 	Type*	realtype;	// as determined by typecheck
-	NodeList*	list;
-	NodeList*	rlist;
 	Node*	orig;		// original form, for printing, and tracking copies of ONAMEs
-
-	// for-body
-	NodeList*	ninit;
-	Node*	ntest;
-	Node*	nincr;
-	NodeList*	nbody;
-
-	// if-body
-	NodeList*	nelse;
-
-	// cases
-	Node*	ncase;
 
 	// func
 	Node*	nname;
@@ -257,15 +266,17 @@ struct	Node
 	NodeList*	exit;
 	NodeList*	cvars;	// closure params
 	NodeList*	dcl;	// autodcl for this func/closure
+	NodeList*	inl;	// copy of the body for use in inlining
 
 	// OLITERAL/OREGISTER
 	Val	val;
 
 	// ONAME
 	Node*	ntype;
-	Node*	defn;
+	Node*	defn;	// ONAME: initializing assignment; OLABEL: labeled statement
 	Node*	pack;	// real package for import . names
 	Node*	curfn;	// function for local variables
+	Type*	paramfld; // TFIELD for this PPARAM
 
 	// ONAME func param with PHEAP
 	Node*	heapaddr;	// temp holding heap address of param
@@ -276,8 +287,18 @@ struct	Node
 	Node*	outer;	// outer PPARAMREF in nested closure
 	Node*	closure;	// ONAME/PHEAP <-> ONAME/PPARAMREF
 
+	// ONAME substitute while inlining
+	Node* inlvar;
+
 	// OPACK
 	Pkg*	pkg;
+	
+	// OARRAYLIT, OMAPLIT, OSTRUCTLIT.
+	InitPlan*	initplan;
+
+	// Escape analysis.
+	NodeList* escflowsrc;	// flow(this, src)
+	int	escloopdepth;	// -1: global, 0: not set, function top level:1, increased inside function for every loop or label to mark scopes
 
 	Sym*	sym;		// various
 	int32	vargen;		// unique name for OTYPE/ONAME
@@ -287,9 +308,25 @@ struct	Node
 	int32	stkdelta;	// offset added by stack frame compaction phase.
 	int32	ostk;
 	int32	iota;
+	uint32	walkgen;
 };
 #define	N	((Node*)0)
-EXTERN	int32	walkgen;
+
+/*
+ * Every node has a walkgen field.
+ * If you want to do a traversal of a node graph that
+ * might contain duplicates and want to avoid
+ * visiting the same nodes twice, increment walkgen
+ * before starting.  Then before processing a node, do
+ *
+ *	if(n->walkgen == walkgen)
+ *		return;
+ *	n->walkgen = walkgen;
+ *
+ * Such a walk cannot call another such walk recursively,
+ * because of the use of the global walkgen.
+ */
+EXTERN	uint32	walkgen;
 
 struct	NodeList
 {
@@ -300,9 +337,9 @@ struct	NodeList
 
 enum
 {
-	SymExport	= 1<<0,
+	SymExport	= 1<<0,	// to be exported
 	SymPackage	= 1<<1,
-	SymExported	= 1<<2,
+	SymExported	= 1<<2,	// already written out by export
 	SymUniq		= 1<<3,
 	SymSiggen	= 1<<4,
 };
@@ -329,10 +366,10 @@ EXTERN	Sym*	dclstack;
 
 struct	Pkg
 {
-	char*	name;
-	Strlit*	path;
+	char*	name;		// package name
+	Strlit*	path;		// string literal used in import statement
 	Sym*	pathsym;
-	char*	prefix;
+	char*	prefix;		// escaped path for use in symbol table
 	Pkg*	link;
 	char	exported;	// import line written in export data
 	char	direct;	// imported directly
@@ -374,20 +411,21 @@ enum
 	OADDR,
 	OANDAND,
 	OAPPEND,
-	OARRAY,
 	OARRAYBYTESTR, OARRAYRUNESTR,
 	OSTRARRAYBYTE, OSTRARRAYRUNE,
-	OAS, OAS2, OAS2MAPW, OAS2FUNC, OAS2RECV, OAS2MAPR, OAS2DOTTYPE, OASOP,
+	OAS, OAS2, OAS2FUNC, OAS2RECV, OAS2MAPR, OAS2DOTTYPE,
+	OASOP,
 	OBAD,
 	OCALL, OCALLFUNC, OCALLMETH, OCALLINTER,
 	OCAP,
 	OCLOSE,
 	OCLOSURE,
 	OCMPIFACE, OCMPSTR,
-	OCOMPLIT, OMAPLIT, OSTRUCTLIT, OARRAYLIT,
+	OCOMPLIT, OMAPLIT, OSTRUCTLIT, OARRAYLIT, OPTRLIT,
 	OCONV, OCONVIFACE, OCONVNOP,
 	OCOPY,
 	ODCL, ODCLFUNC, ODCLFIELD, ODCLCONST, ODCLTYPE,
+	ODELETE,
 	ODOT, ODOTPTR, ODOTMETH, ODOTINTER, OXDOT,
 	ODOTTYPE,
 	ODOTTYPE2,
@@ -444,6 +482,9 @@ enum
 
 	// misc
 	ODDD,
+	ODDDARG,
+	OINLCALL,	// intermediary representation of an inlined call
+	OITAB,	// itable word of interface value
 
 	// for back ends
 	OCMP, ODEC, OEXTEND, OINC, OREGISTER, OINDREG,
@@ -500,6 +541,7 @@ enum
 	CTxxx,
 
 	CTINT,
+	CTRUNE,
 	CTFLT,
 	CTCPLX,
 	CTSTR,
@@ -561,7 +603,6 @@ typedef	struct	Var	Var;
 struct	Var
 {
 	vlong	offset;
-	Sym*	sym;
 	Sym*	gotype;
 	Node*	node;
 	int	width;
@@ -644,6 +685,7 @@ struct	Magic
 };
 
 typedef struct	Prog Prog;
+#pragma incomplete Prog
 
 struct	Label
 {
@@ -722,16 +764,22 @@ EXTERN	Pkg*	gostringpkg;	// fake pkg for Go strings
 EXTERN	Pkg*	runtimepkg;	// package runtime
 EXTERN	Pkg*	stringpkg;	// fake package for C strings
 EXTERN	Pkg*	typepkg;	// fake package for runtime type info
+EXTERN	Pkg*	weaktypepkg;	// weak references to runtime type info
 EXTERN	Pkg*	unsafepkg;	// package unsafe
 EXTERN	Pkg*	phash[128];
 EXTERN	int	tptr;		// either TPTR32 or TPTR64
 extern	char*	runtimeimport;
 extern	char*	unsafeimport;
+EXTERN	char*	myimportpath;
 EXTERN	Idir*	idirs;
+EXTERN	char*	localimport;
 
 EXTERN	Type*	types[NTYPE];
 EXTERN	Type*	idealstring;
 EXTERN	Type*	idealbool;
+EXTERN	Type*	bytetype;
+EXTERN	Type*	runetype;
+EXTERN	Type*	errortype;
 EXTERN	uchar	simtype[NTYPE];
 EXTERN	uchar	isptr[NTYPE];
 EXTERN	uchar	isforw[NTYPE];
@@ -763,7 +811,7 @@ EXTERN	NodeList*	xtop;
 EXTERN	NodeList*	externdcl;
 EXTERN	NodeList*	closures;
 EXTERN	NodeList*	exportlist;
-EXTERN	NodeList*	typelist;
+EXTERN	NodeList*	importlist;	// imported functions and methods with inlinable bodies
 EXTERN	int	dclcontext;		// PEXTERN/PAUTO
 EXTERN	int	incannedimport;
 EXTERN	int	statuniqgen;		// name generator for static temps
@@ -787,18 +835,13 @@ EXTERN	Node*	nblank;
 
 extern	int	thechar;
 extern	char*	thestring;
+
 EXTERN	char*	hunk;
 EXTERN	int32	nhunk;
 EXTERN	int32	thunk;
 
-EXTERN	int	exporting;
-EXTERN	int	erroring;
-EXTERN	int	noargnames;
-
 EXTERN	int	funcdepth;
 EXTERN	int	typecheckok;
-EXTERN	int	packagequotes;
-EXTERN	int	longsymnames;
 EXTERN	int	compiling_runtime;
 
 /*
@@ -883,7 +926,6 @@ void	colasdefn(NodeList *left, Node *defn);
 NodeList*	constiter(NodeList *vl, Node *t, NodeList *cl);
 Node*	dclname(Sym *s);
 void	declare(Node *n, int ctxt);
-Type*	dostruct(NodeList *l, int et);
 void	dumpdcl(char *st);
 Node*	embedded(Sym *s);
 Node*	fakethis(void);
@@ -904,11 +946,17 @@ void	popdcl(void);
 void	poptodcl(void);
 void	redeclare(Sym *s, char *where);
 void	testdclstack(void);
+Type*	tointerface(NodeList *l);
+Type*	tostruct(NodeList *l);
 Node*	typedcl0(Sym *s);
 Node*	typedcl1(Node *n, Node *t, int local);
-void	typedcl2(Type *pt, Type *t);
 Node*	typenod(Type *t);
 NodeList*	variter(NodeList *vl, Node *t, NodeList *el);
+
+/*
+ *	esc.c
+ */
+void	escapes(NodeList*);
 
 /*
  *	export.c
@@ -917,17 +965,24 @@ void	autoexport(Node *n, int ctxt);
 void	dumpexport(void);
 int	exportname(char *s);
 void	exportsym(Node *n);
-void	importconst(Sym *s, Type *t, Node *n);
-void	importmethod(Sym *s, Type *t);
-Sym*	importsym(Sym *s, int op);
-void	importtype(Type *pt, Type *t);
-void	importvar(Sym *s, Type *t, int ctxt);
+void    importconst(Sym *s, Type *t, Node *n);
+void	importimport(Sym *s, Strlit *z);
+Sym*    importsym(Sym *s, int op);
+void    importtype(Type *pt, Type *t);
+void    importvar(Sym *s, Type *t);
 Type*	pkgtype(Sym *s);
+
+/*
+ *	fmt.c
+ */
+void	fmtinstallgo(void);
+void	dump(char *s, Node *n);
+void	dumplist(char *s, NodeList *l);
 
 /*
  *	gen.c
  */
-void	allocparams(void);
+void	addrescapes(Node *n);
 void	cgen_as(Node *nl, Node *nr);
 void	cgen_callmeth(Node *n, int proc);
 void	clearlabels(void);
@@ -937,12 +992,20 @@ void	gen(Node *n);
 void	genlist(NodeList *l);
 Node*	sysfunc(char *name);
 void	tempname(Node *n, Type *t);
+Node*	temp(Type*);
 
 /*
  *	init.c
  */
 void	fninit(NodeList *n);
-Node*	renameinit(Node *n);
+Sym*	renameinit(void);
+
+/*
+ *	inl.c
+ */
+void	caninl(Node *fn);
+void	inlcalls(Node *fn);
+void	typecheckinl(Node *fn);
 
 /*
  *	lex.c
@@ -950,6 +1013,7 @@ Node*	renameinit(Node *n);
 void	cannedimports(char *file, char *cp);
 void	importfile(Val *f, int line);
 char*	lexname(int lex);
+char*	expstring(void);
 void	mkpackage(char* pkgname);
 void	unimportfile(void);
 int32	yylex(void);
@@ -987,7 +1051,7 @@ void	mpsubfltflt(Mpflt *a, Mpflt *b);
 /*
  *	mparith2.c
  */
-void	mpaddfixfix(Mpint *a, Mpint *b);
+void	mpaddfixfix(Mpint *a, Mpint *b, int);
 void	mpandfixfix(Mpint *a, Mpint *b);
 void	mpandnotfixfix(Mpint *a, Mpint *b);
 void	mpdivfract(Mpint *a, Mpint *b);
@@ -1032,10 +1096,9 @@ void	ieeedtod(uint64 *ieee, double native);
 Sym*	stringsym(char*, int);
 
 /*
- *	print.c
+ *	order.c
  */
-void	exprfmt(Fmt *f, Node *n, int prec);
-void	exprlistfmt(Fmt *f, NodeList *l);
+void	order(Node *fn);
 
 /*
  *	range.c
@@ -1050,6 +1113,8 @@ void	dumptypestructs(void);
 Type*	methodfunc(Type *f, Type*);
 Node*	typename(Type *t);
 Sym*	typesym(Type *t);
+Sym*	typesymprefix(char *prefix, Type *t);
+int	haspointers(Type *t);
 
 /*
  *	select.c
@@ -1069,19 +1134,12 @@ int	stataddr(Node *nam, Node *n);
 /*
  *	subr.c
  */
-int	Econv(Fmt *fp);
-int	Jconv(Fmt *fp);
-int	Lconv(Fmt *fp);
-int	Nconv(Fmt *fp);
-int	Oconv(Fmt *fp);
-int	Sconv(Fmt *fp);
-int	Tconv(Fmt *fp);
-int	Tpretty(Fmt *fp, Type *t);
-int	Zconv(Fmt *fp);
 Node*	adddot(Node *n);
 int	adddot1(Sym *s, Type *t, int d, Type **save, int ignorecase);
+void	addinit(Node**, NodeList*);
 Type*	aindex(Node *b, Type *t);
 int	algtype(Type *t);
+int	algtype1(Type *t, Type **bad);
 void	argtype(Node *on, Type *t);
 Node*	assignconv(Node *n, Type *t, char *context);
 int	assignop(Type *src, Type *dst, char **why);
@@ -1090,20 +1148,21 @@ int	brcom(int a);
 int	brrev(int a);
 NodeList*	concat(NodeList *a, NodeList *b);
 int	convertop(Type *src, Type *dst, char **why);
+Node*	copyexpr(Node*, Type*, NodeList**);
 int	count(NodeList *l);
 int	cplxsubtype(int et);
-void	dump(char *s, Node *n);
-void	dumplist(char *s, NodeList *l);
 int	eqtype(Type *t1, Type *t2);
 int	eqtypenoname(Type *t1, Type *t2);
 void	errorexit(void);
-void	expandmeth(Sym *s, Type *t);
+void	expandmeth(Type *t);
 void	fatal(char *fmt, ...);
 void	flusherrors(void);
 void	frame(int context);
 Type*	funcfirst(Iter *s, Type *t);
 Type*	funcnext(Iter *s);
 void	genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface);
+void	genhash(Sym *sym, Type *t);
+void	geneq(Sym *sym, Type *t);
 Type**	getinarg(Type *t);
 Type*	getinargx(Type *t);
 Type**	getoutarg(Type *t);
@@ -1113,7 +1172,9 @@ Type*	getthisx(Type *t);
 int	implements(Type *t, Type *iface, Type **missing, Type **have, int *ptr);
 void	importdot(Pkg *opkg, Node *pack);
 int	is64(Type *t);
+int	isbadimport(Strlit *s);
 int	isblank(Node *n);
+int	isblanksym(Sym *s);
 int	isfixedarray(Type *t);
 int	isideal(Type *t);
 int	isinter(Type *t);
@@ -1131,7 +1192,7 @@ NodeList*	listtreecopy(NodeList *l);
 Sym*	lookup(char *name);
 void*	mal(int32 n);
 Type*	maptype(Type *key, Type *val);
-Type*	methtype(Type *t);
+Type*	methtype(Type *t, int mustname);
 Pkg*	mkpkg(Strlit *path);
 Sym*	ngotype(Node *n);
 int	noconv(Type *t1, Type *t2);
@@ -1170,6 +1231,7 @@ uint32	typehash(Type *t);
 void	ullmancalc(Node *n);
 void	umagic(Magic *m);
 void	warn(char *fmt, ...);
+void	warnl(int line, char *fmt, ...);
 void	yyerror(char *fmt, ...);
 void	yyerrorl(int line, char *fmt, ...);
 
@@ -1182,7 +1244,6 @@ void	walkswitch(Node *sw);
 /*
  *	typecheck.c
  */
-int	exportassignok(Type *t, char *desc);
 int	islvalue(Node *n);
 Node*	typecheck(Node **np, int top);
 void	typechecklist(NodeList *l, int top);
@@ -1195,6 +1256,7 @@ void	queuemethod(Node *n);
 /*
  *	unsafe.c
  */
+int	isunsafebuiltin(Node *n);
 Node*	unsafenmagic(Node *n);
 
 /*
@@ -1211,6 +1273,7 @@ void	walkexprlist(NodeList *l, NodeList **init);
 void	walkexprlistsafe(NodeList *l, NodeList **init);
 void	walkstmt(Node **np);
 void	walkstmtlist(NodeList *l);
+Node*	conv(Node*, Type*);
 
 /*
  *	arch-specific ggen.c/gsubr.c/gobj.c/pgen.c
@@ -1274,6 +1337,30 @@ Prog*	unpatch(Prog*);
 void	zfile(Biobuf *b, char *p, int n);
 void	zhist(Biobuf *b, int line, vlong offset);
 void	zname(Biobuf *b, Sym *s, int t);
-void	data(void);
-void	text(void);
 
+#pragma	varargck	type	"A"	int
+#pragma	varargck	type	"B"	Mpint*
+#pragma	varargck	type	"D"	Addr*
+#pragma	varargck	type	"lD"	Addr*
+#pragma	varargck	type	"E"	int
+#pragma	varargck	type	"E"	uint
+#pragma	varargck	type	"F"	Mpflt*
+#pragma	varargck	type	"H"	NodeList*
+#pragma	varargck	type	"J"	Node*
+#pragma	varargck	type	"lL"	int
+#pragma	varargck	type	"lL"	uint
+#pragma	varargck	type	"L"	int
+#pragma	varargck	type	"L"	uint
+#pragma	varargck	type	"N"	Node*
+#pragma	varargck	type	"lN"	Node*
+#pragma	varargck	type	"O"	uint
+#pragma	varargck	type	"P"	Prog*
+#pragma	varargck	type	"Q"	Bits
+#pragma	varargck	type	"R"	int
+#pragma	varargck	type	"S"	Sym*
+#pragma	varargck	type	"lS"	Sym*
+#pragma	varargck	type	"T"	Type*
+#pragma	varargck	type	"lT"	Type*
+#pragma	varargck	type	"V"	Val*
+#pragma	varargck	type	"Y"	char*
+#pragma	varargck	type	"Z"	Strlit*

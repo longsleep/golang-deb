@@ -7,10 +7,7 @@
 // http://dwarfstd.org/doc/dwarf-2.0.0.pdf
 package dwarf
 
-import (
-	"encoding/binary"
-	"os"
-)
+import "encoding/binary"
 
 // Data represents the DWARF debugging information
 // loaded from an executable file (for example, an ELF or Mach-O executable).
@@ -34,13 +31,14 @@ type Data struct {
 }
 
 // New returns a new Data object initialized from the given parameters.
-// Clients should typically use [TODO(rsc): method to be named later] instead of calling
-// New directly.
+// Rather than calling this function directly, clients should typically use
+// the DWARF method of the File type of the appropriate package debug/elf,
+// debug/macho, or debug/pe.
 //
 // The []byte arguments are the data from the corresponding debug section
 // in the object file; for example, for an ELF object, abbrev is the contents of
 // the ".debug_abbrev" section.
-func New(abbrev, aranges, frame, info, line, pubnames, ranges, str []byte) (*Data, os.Error) {
+func New(abbrev, aranges, frame, info, line, pubnames, ranges, str []byte) (*Data, error) {
 	d := &Data{
 		abbrev:      abbrev,
 		aranges:     aranges,

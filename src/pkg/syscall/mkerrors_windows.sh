@@ -76,7 +76,7 @@ done
 # These are go errors that will be mapped directly to windows errors
 goerrors='
 ENOENT:ERROR_FILE_NOT_FOUND
-ENOTDIR:ERROR_DIRECTORY
+ENOTDIR:ERROR_PATH_NOT_FOUND
 '
 
 # Pull out just the error names for later.
@@ -158,7 +158,7 @@ main(void)
 	printf("\n// Go names for Windows errors.\n");
 	printf("const (\n");
 	for(i=0; i<nelem(goerrors); i++) {
-		printf("\t%s = %s\n", goerrors[i].goname, goerrors[i].winname);
+		printf("\t%s Errno = %s\n", goerrors[i].goname, goerrors[i].winname);
 			
 	}
 	printf(")\n");
@@ -171,7 +171,7 @@ main(void)
 	for(i=0; i<nelem(errors); i++) {
 		printf("\t%s", errors[i].name);
 		if(iota) {
-			printf(" = APPLICATION_ERROR + iota");
+			printf(" Errno = APPLICATION_ERROR + iota");
 			iota = !iota;
 		}
 		printf("\n");

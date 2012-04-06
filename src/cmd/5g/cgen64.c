@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 /*
@@ -240,7 +242,7 @@ cgen64(Node *n, Node *res)
 			// shift is >= 1<<32
 			split64(r, &cl, &ch);
 			gmove(&ch, &s);
-			p1 = gins(ATST, &s, N);
+			gins(ATST, &s, N);
 			p6 = gbranch(ABNE, T);
 			gmove(&cl, &s);
 			splitclean();
@@ -248,7 +250,7 @@ cgen64(Node *n, Node *res)
 			gmove(r, &s);
 			p6 = P;
 		}
-		p1 = gins(ATST, &s, N);
+		gins(ATST, &s, N);
 
 		// shift == 0
 		p1 = gins(AMOVW, &bl, &al);
@@ -411,7 +413,7 @@ olsh_break:
 			gmove(r, &s);
 			p6 = P;
 		}
-		p1 = gins(ATST, &s, N);
+		gins(ATST, &s, N);
 
 		// shift == 0
 		p1 = gins(AMOVW, &bl, &al);
@@ -453,9 +455,9 @@ olsh_break:
 		p1 = gins(AMOVW, &bh, &al);
 		p1->scond = C_SCOND_EQ;
 		if(bh.type->etype == TINT32)
-			p1 = gshift(AMOVW, &bh, SHIFT_AR, 31, &ah);
+			gshift(AMOVW, &bh, SHIFT_AR, 31, &ah);
 		else
-			p1 = gins(AEOR, &ah, &ah);
+			gins(AEOR, &ah, &ah);
 		p4 = gbranch(ABEQ, T);
 
 		// check if shift is < 64

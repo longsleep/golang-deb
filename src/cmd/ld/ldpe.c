@@ -282,18 +282,16 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 					diag("%s: unknown relocation type %d;", pn, type);
 				case IMAGE_REL_I386_REL32:
 				case IMAGE_REL_AMD64_REL32:
+				case IMAGE_REL_AMD64_ADDR32: // R_X86_64_PC32
+				case IMAGE_REL_AMD64_ADDR32NB:
 					rp->type = D_PCREL;
-					rp->add = 0;
+					rp->add = le32(rsect->base+rp->off);
 					break;
 				case IMAGE_REL_I386_DIR32NB:
 				case IMAGE_REL_I386_DIR32:
 					rp->type = D_ADDR;
 					// load addend from image
 					rp->add = le32(rsect->base+rp->off);
-					break;
-				case IMAGE_REL_AMD64_ADDR32: // R_X86_64_PC32
-					rp->type = D_PCREL;
-					rp->add += 4;
 					break;
 				case IMAGE_REL_AMD64_ADDR64: // R_X86_64_64
 					rp->siz = 8;
@@ -408,13 +406,15 @@ readsym(PeObj *obj, int i, PeSym **y)
 	sym = &obj->pesym[i];
 	*y = sym;
 	
-	name = sym->name;
-	if(sym->sclass == IMAGE_SYM_CLASS_STATIC && sym->value == 0) // section
+	if(sym->name[0] == '.') // .section
 		name = obj->sect[sym->sectnum-1].sym->name;
-	if(strncmp(sym->name, "__imp__", 7) == 0)
-		name = &sym->name[7]; // __imp__Name => Name
-	else if(sym->name[0] == '_') 
-		name = &sym->name[1]; // _Name => Name
+	else {
+		name = sym->name;
+		if(strncmp(name, "__imp_", 6) == 0)
+			name = &name[6]; // __imp_Name => Name
+		if(thechar == '8' && name[0] == '_')
+			name = &name[1]; // _Name => Name
+	}
 	// remove last @XXX
 	p = strchr(name, '@');
 	if(p)
@@ -443,8 +443,8 @@ readsym(PeObj *obj, int i, PeSym **y)
 
 	if(s != nil && s->type == 0 && !(sym->sclass == IMAGE_SYM_CLASS_STATIC && sym->value == 0))
 		s->type = SXREF;
-	if(strncmp(sym->name, "__imp__", 7) == 0)
-		s->got = -2; // flag for __imp__
+	if(strncmp(sym->name, "__imp_", 6) == 0)
+		s->got = -2; // flag for __imp_
 	sym->sym = s;
 
 	return 0;

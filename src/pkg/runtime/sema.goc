@@ -17,8 +17,9 @@
 // See Mullender and Cox, ``Semaphores in Plan 9,''
 // http://swtch.com/semaphore.pdf
 
-package runtime
+package sync
 #include "runtime.h"
+#include "arch_GOARCH.h"
 
 typedef struct Sema Sema;
 struct Sema
@@ -45,11 +46,7 @@ struct SemaRoot
 static union
 {
 	SemaRoot;
-	// Modern processors tend to have 64-byte cache lines,
-	// potentially with 128-byte effective cache line size for reading.
-	// While there are hypothetical architectures
-	// with 16-4096 byte cache lines, 128 looks like a good compromise.
-	uint8 pad[128];
+	uint8 pad[CacheLineSize];
 } semtable[SEMTABLESZ];
 
 static SemaRoot*
@@ -129,6 +126,7 @@ runtime·semacquire(uint32 volatile *addr)
 		// (we set nwait above), so go to sleep.
 		semqueue(root, addr, &s);
 		g->status = Gwaiting;
+		g->waitreason = "semacquire";
 		runtime·unlock(root);
 		runtime·gosched();
 		if(cansemacquire(addr))
@@ -171,10 +169,10 @@ runtime·semrelease(uint32 volatile *addr)
 		runtime·ready(s->g);
 }
 
-func Semacquire(addr *uint32) {
+func runtime_Semacquire(addr *uint32) {
 	runtime·semacquire(addr);
 }
 
-func Semrelease(addr *uint32) {
+func runtime_Semrelease(addr *uint32) {
 	runtime·semrelease(addr);
 }

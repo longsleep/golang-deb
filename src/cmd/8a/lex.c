@@ -44,7 +44,11 @@ enum
 int
 systemtype(int sys)
 {
+#ifdef _WIN32
+	return sys&Windows;
+#else
 	return sys&Plan9;
+#endif
 }
 
 int
@@ -309,8 +313,8 @@ struct
 	"IDIVL",	LTYPE2,	AIDIVL,
 	"IDIVW",	LTYPE2,	AIDIVW,
 	"IMULB",	LTYPE2,	AIMULB,
-	"IMULL",	LTYPE2,	AIMULL,
-	"IMULW",	LTYPE2,	AIMULW,
+	"IMULL",	LTYPEI,	AIMULL,
+	"IMULW",	LTYPEI,	AIMULW,
 	"INB",		LTYPE0,	AINB,
 	"INL",		LTYPE0,	AINL,
 	"INW",		LTYPE0,	AINW,
@@ -371,7 +375,8 @@ struct
 	"JG",		LTYPER,	AJGT,	/* alternate */
 	"JNLE",		LTYPER,	AJGT,	/* alternate */
 
-	"JCXZ",		LTYPER,	AJCXZ,
+	"JCXZL",	LTYPER,	AJCXZL,
+	"JCXZW",	LTYPER,	AJCXZW,
 	"JMP",		LTYPEC,	AJMP,
 	"LAHF",		LTYPE0,	ALAHF,
 	"LARL",		LTYPE3,	ALARL,
@@ -440,6 +445,7 @@ struct
 	"RCRB",		LTYPE3,	ARCRB,
 	"RCRL",		LTYPE3,	ARCRL,
 	"RCRW",		LTYPE3,	ARCRW,
+	"RDTSC",	LTYPE0,	ARDTSC,
 	"REP",		LTYPE0,	AREP,
 	"REPN",		LTYPE0,	AREPN,
 	"RET",		LTYPE0,	ARET,
@@ -657,6 +663,10 @@ struct
 	"FXTRACT",	LTYPE0, AFXTRACT,
 	"FYL2X",	LTYPE0, AFYL2X,
 	"FYL2XP1",	LTYPE0, AFYL2XP1,
+	"LFENCE",	LTYPE0, ALFENCE,
+	"MFENCE",	LTYPE0, AMFENCE,
+	"SFENCE",	LTYPE0, ASFENCE,
+	"EMMS",		LTYPE0, AEMMS,
 
 	0
 };
@@ -911,17 +921,13 @@ outhist(void)
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
 		op = 0;
-		/* on windows skip drive specifier in pathname */
 		if(systemtype(Windows) && p && p[1] == ':'){
-			p += 2;
-			c = *p;
-		}
-		if(p && p[0] != c && h->offset == 0 && pathname){
-			/* on windows skip drive specifier in pathname */
+			c = p[2];
+		} else if(p && p[0] != c && h->offset == 0 && pathname){
 			if(systemtype(Windows) && pathname[1] == ':') {
 				op = p;
-				p = pathname+2;
-				c = *p;
+				p = pathname;
+				c = p[2];
 			} else if(pathname[0] == c){
 				op = p;
 				p = pathname;

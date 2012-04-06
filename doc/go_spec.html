@@ -1,5 +1,8 @@
-<!-- title The Go Programming Language Specification -->
-<!-- subtitle Version of July 14, 2011 -->
+<!--{
+	"Title": "The Go Programming Language Specification",
+	"Subtitle": "Version of March 17, 2012",
+	"Path": "/ref/spec"
+}-->
 
 <!--
 TODO
@@ -13,7 +16,6 @@ TODO
 [ ] should probably write something about evaluation order of statements even
 	though obvious
 [ ] review language on implicit dereferencing
-[ ] clarify what it means for two functions to be "the same" when comparing them
 -->
 
 
@@ -66,15 +68,15 @@ operators, in increasing precedence:
 
 <p>
 Lower-case production names are used to identify lexical tokens.
-Non-terminals are in CamelCase. Lexical symbols are enclosed in
+Non-terminals are in CamelCase. Lexical tokens are enclosed in
 double quotes <code>""</code> or back quotes <code>``</code>.
 </p>
 
 <p>
 The form <code>a … b</code> represents the set of characters from
 <code>a</code> through <code>b</code> as alternatives. The horizontal
-ellipis … is also used elsewhere in the spec to informally denote various
-enumerations or code snippets that are not further specified. The character …
+ellipsis <code>…</code> is also used elsewhere in the spec to informally denote various
+enumerations or code snippets that are not further specified. The character <code>…</code>
 (as opposed to the three characters <code>...</code>) is not a token of the Go
 language.
 </p>
@@ -146,7 +148,7 @@ and stop at the end of the line. A line comment acts like a newline.
 <li>
 <i>General comments</i> start with the character sequence <code>/*</code>
 and continue through the character sequence <code>*/</code>. A general
-comment that spans multiple lines acts like a newline, otherwise it acts
+comment containing one or more newlines acts like a newline, otherwise it acts
 like a space.
 </li>
 </ol>
@@ -191,7 +193,7 @@ token is
 	<li>an
 	    <a href="#Identifiers">identifier</a>
 	</li>
-	
+
 	<li>an
 	    <a href="#Integer_literals">integer</a>,
 	    <a href="#Floating-point_literals">floating-point</a>,
@@ -199,14 +201,14 @@ token is
 	    <a href="#Character_literals">character</a>, or
 	    <a href="#String_literals">string</a> literal
 	</li>
-	
+
 	<li>one of the <a href="#Keywords">keywords</a>
 	    <code>break</code>,
 	    <code>continue</code>,
 	    <code>fallthrough</code>, or
 	    <code>return</code>
 	</li>
-	
+
 	<li>one of the <a href="#Operators_and_Delimiters">operators and delimiters</a>
 	    <code>++</code>,
 	    <code>--</code>,
@@ -361,7 +363,7 @@ imaginary_lit = (decimals | float_lit) "i" .
 <h3 id="Character_literals">Character literals</h3>
 
 <p>
-A character literal represents an <a href="#Constants">integer constant</a>,
+A character literal represents a <a href="#Constants">character constant</a>,
 typically a Unicode code point, as one or more characters enclosed in single
 quotes.  Within the quotes, any character may appear except single
 quote and newline. A single quoted character represents itself,
@@ -453,12 +455,14 @@ Raw string literals are character sequences between back quotes
 back quote. The value of a raw string literal is the
 string composed of the uninterpreted characters between the quotes;
 in particular, backslashes have no special meaning and the string may
-span multiple lines.
+contain newlines.
+Carriage returns inside raw string literals
+are discarded from the raw string value.
 </p>
 <p>
 Interpreted string literals are character sequences between double
 quotes <code>&quot;&quot;</code>. The text between the quotes,
-which may not span multiple lines, forms the
+which may not contain newlines, forms the
 value of the literal, with backslash escapes interpreted as they
 are in character literals (except that <code>\'</code> is illegal and
 <code>\"</code> is legal).  The three-digit octal (<code>\</code><i>nnn</i>)
@@ -513,19 +517,22 @@ literal.
 
 <h2 id="Constants">Constants</h2>
 
-<p>There are <i>boolean constants</i>, <i>integer constants</i>,
+<p>There are <i>boolean constants</i>,
+<i>character constants</i>,
+<i>integer constants</i>,
 <i>floating-point constants</i>, <i>complex constants</i>,
-and <i>string constants</i>. Integer, floating-point,
+and <i>string constants</i>. Character, integer, floating-point,
 and complex constants are
 collectively called <i>numeric constants</i>.
 </p>
 
 <p>
-A constant value is represented by an
+A constant value is represented by a
+<a href="#Character_literals">character</a>,
 <a href="#Integer_literals">integer</a>,
 <a href="#Floating-point_literals">floating-point</a>,
 <a href="#Imaginary_literals">imaginary</a>,
-<a href="#Character_literals">character</a>, or
+or
 <a href="#String_literals">string</a> literal,
 an identifier denoting a constant,
 a <a href="#Constant_expressions">constant expression</a>,
@@ -583,11 +590,33 @@ functions return and test for those values at run time.
 </p>
 
 <p>
-Implementation restriction: A compiler may implement numeric constants by choosing
-an internal representation with at least twice as many bits as any machine type;
-for floating-point values, both the mantissa and exponent must be twice as large.
+Implementation restriction: Although numeric constants have arbitrary
+precision in the language, a compiler may implement them using an
+internal representation with limited precision.  That said, every
+implementation must:
 </p>
+<ul>
+	<li>Represent integer constants with at least 256 bits.</li>
 
+	<li>Represent floating-point constants, including the parts of
+	    a complex constant, with a mantissa of at least 256 bits
+	    and a signed exponent of at least 32 bits.</li>
+
+	<li>Give an error if unable to represent an integer constant
+	    precisely.</li>
+
+	<li>Give an error if unable to represent a floating-point or
+	    complex constant due to overflow.</li>
+
+	<li>Round to the nearest representable constant if unable to
+	    represent a floating-point or complex constant due to limits
+	    on precision.</li>
+</ul>
+<p>
+These requirements apply both to literal constants and to the result
+of evaluating <a href="#Constant_expressions">constant
+expressions</a>.
+</p>
 
 <h2 id="Types">Types</h2>
 
@@ -650,22 +679,30 @@ and <code>T4</code> is <code>[]T1</code>.
 A type may have a <i>method set</i> associated with it
 (§<a href="#Interface_types">Interface types</a>, §<a href="#Method_declarations">Method declarations</a>).
 The method set of an <a href="#Interface_types">interface type</a> is its interface.
-The method set of any other named type <code>T</code>
+The method set of any other type <code>T</code>
 consists of all methods with receiver type <code>T</code>.
 The method set of the corresponding pointer type <code>*T</code>
 is the set of all methods with receiver <code>*T</code> or <code>T</code>
 (that is, it also contains the method set of <code>T</code>).
 Any other type has an empty method set.
-In a method set, each method must have a unique name.
+In a method set, each method must have a
+<a href="#Uniqueness_of_identifiers">unique</a> <a href="#MethodName">method name</a>.
 </p>
 
+<p>
+The method set of a type determines the interfaces that the
+type <a href="#Interface_types">implements</a>
+and the methods that can be <a href="#Calls">called</a>
+using a receiver of that type.
+</p>
 
 <h3 id="Boolean_types">Boolean types</h3>
 
+<p>
 A <i>boolean type</i> represents the set of Boolean truth values
 denoted by the predeclared constants <code>true</code>
 and <code>false</code>. The predeclared boolean type is <code>bool</code>.
-
+</p>
 
 <h3 id="Numeric_types">Numeric types</h3>
 
@@ -691,7 +728,8 @@ float64     the set of all IEEE-754 64-bit floating-point numbers
 complex64   the set of all complex numbers with float32 real and imaginary parts
 complex128  the set of all complex numbers with float64 real and imaginary parts
 
-byte        familiar alias for uint8
+byte        alias for uint8
+rune        alias for int32
 </pre>
 
 <p>
@@ -711,7 +749,8 @@ uintptr  an unsigned integer large enough to store the uninterpreted bits of a p
 
 <p>
 To avoid portability issues all numeric types are distinct except
-<code>byte</code>, which is an alias for <code>uint8</code>.
+<code>byte</code>, which is an alias for <code>uint8</code>, and
+<code>rune</code>, which is an alias for <code>int32</code>.
 Conversions
 are required when different numeric types are mixed in an expression
 or assignment. For instance, <code>int32</code> and <code>int</code>
@@ -723,7 +762,7 @@ particular architecture.
 
 <p>
 A <i>string type</i> represents the set of string values.
-Strings behave like arrays of bytes but are immutable: once created,
+Strings behave like slices of bytes but are immutable: once created,
 it is impossible to change the contents of a string.
 The predeclared string type is <code>string</code>.
 
@@ -760,7 +799,7 @@ The length is part of the array's type and must be a
 integer value.  The length of array <code>a</code> can be discovered
 using the built-in function <a href="#Length_and_capacity"><code>len(a)</code></a>.
 The elements can be indexed by integer
-indices 0 through the <code>len(a)-1</code> (§<a href="#Indexes">Indexes</a>).
+indices 0 through <code>len(a)-1</code> (§<a href="#Indexes">Indexes</a>).
 Array types are always one-dimensional but may be composed to form
 multi-dimensional types.
 </p>
@@ -858,7 +897,7 @@ A struct is a sequence of named elements, called fields, each of which has a
 name and a type. Field names may be specified explicitly (IdentifierList) or
 implicitly (AnonymousField).
 Within a struct, non-<a href="#Blank_identifier">blank</a> field names must
-be unique.
+be <a href="#Uniqueness_of_identifiers">unique</a>.
 </p>
 
 <pre class="ebnf">
@@ -883,9 +922,9 @@ struct {
 </pre>
 
 <p>
-A field declared with a type but no explicit field name is an <i>anonymous field</i>
-(colloquially called an embedded field).
-Such a field type must be specified as
+A field declared with a type but no explicit field name is an <i>anonymous field</i>,
+also called an <i>embedded</i> field or an embedding of the type in the struct.
+An embedded type must be specified as
 a type name <code>T</code> or as a pointer to a non-interface type name <code>*T</code>,
 and <code>T</code> itself may not be
 a pointer type. The unqualified type name acts as the field name.
@@ -909,16 +948,16 @@ in a struct type:
 
 <pre>
 struct {
-	T         // conflicts with anonymous field *T and *P.T
-	*T        // conflicts with anonymous field T and *P.T
-	*P.T      // conflicts with anonymous field T and *T
+	T     // conflicts with anonymous field *T and *P.T
+	*T    // conflicts with anonymous field T and *P.T
+	*P.T  // conflicts with anonymous field T and *T
 }
 </pre>
 
 <p>
 Fields and methods (§<a href="#Method_declarations">Method declarations</a>) of an anonymous field are
 promoted to be ordinary fields and methods of the struct (§<a href="#Selectors">Selectors</a>).
-The following rules apply for a struct type named <code>S</code> and
+The following rules apply for a struct type <code>S</code> and
 a type named <code>T</code>:
 </p>
 <ul>
@@ -970,8 +1009,8 @@ BaseType = Type .
 </pre>
 
 <pre>
-*int
-*map[string] *chan int
+*Point
+*[4]int
 </pre>
 
 <h3 id="Function_types">Function types</h3>
@@ -1009,11 +1048,10 @@ may be invoked with zero or more arguments for that parameter.
 
 <pre>
 func()
-func(x int)
-func() int
-func(prefix string, values ...int)
-func(a, b int, z float32) bool
+func(x int) int
+func(a, _ int, z float32) bool
 func(a, b int, z float32) (bool)
+func(prefix string, values ...int)
 func(a, b int, z float64, opt ...interface{}) (success bool)
 func(int, int, float64) (float64, *[]int)
 func(n int) func(p *T)
@@ -1038,7 +1076,8 @@ InterfaceTypeName  = TypeName .
 </pre>
 
 <p>
-As with all method sets, in an interface type, each method must have a unique name.
+As with all method sets, in an interface type, each method must have a
+<a href="#Uniqueness_of_identifiers">unique</a> name.
 </p>
 
 <pre>
@@ -1106,9 +1145,10 @@ they implement the <code>Lock</code> interface as well
 as the <code>File</code> interface.
 </p>
 <p>
-An interface may contain an interface type name <code>T</code>
+An interface may use an interface type name <code>T</code>
 in place of a method specification.
-The effect is equivalent to enumerating the methods of <code>T</code> explicitly
+The effect, called embedding an interface,
+is equivalent to enumerating the methods of <code>T</code> explicitly
 in the interface.
 </p>
 
@@ -1122,6 +1162,26 @@ type File interface {
 	ReadWrite  // same as enumerating the methods in ReadWrite
 	Lock       // same as enumerating the methods in Lock
 	Close()
+}
+</pre>
+
+<p>
+An interface type <code>T</code> may not embed itself
+or any interface type that embeds <code>T</code>, recursively.
+</p>
+
+<pre>
+// illegal: Bad cannot embed itself
+type Bad interface {
+	Bad
+}
+
+// illegal: Bad1 cannot embed itself using Bad2
+type Bad1 interface {
+	Bad2
+}
+type Bad2 interface {
+	Bad1
 }
 </pre>
 
@@ -1142,7 +1202,8 @@ KeyType     = Type .
 <p>
 The comparison operators <code>==</code> and <code>!=</code>
 (§<a href="#Comparison_operators">Comparison operators</a>) must be fully defined
-for operands of the key type; thus the key type must not be a struct, array or slice.
+for operands of the key type; thus the key type must not be a function, map, or
+slice.
 If the key type is an interface type, these
 comparison operators must be defined for the dynamic key values;
 failure will cause a <a href="#Run_time_panics">run-time panic</a>.
@@ -1150,18 +1211,19 @@ failure will cause a <a href="#Run_time_panics">run-time panic</a>.
 </p>
 
 <pre>
-map [string] int
-map [*T] struct { x, y float64 }
-map [string] interface {}
+map[string]int
+map[*T]struct{ x, y float64 }
+map[string]interface{}
 </pre>
 
 <p>
 The number of map elements is called its length.
 For a map <code>m</code>, it can be discovered using the
 built-in function <a href="#Length_and_capacity"><code>len(m)</code></a>
-and may change during execution. Elements may be added and removed
-during execution using special forms of <a href="#Assignments">assignment</a>;
-and they may be accessed with <a href="#Indexes">index</a> expressions.
+and may change during execution. Elements may be added during execution
+using <a href="#Assignments">assignments</a> and retrieved with
+<a href="#Indexes">index</a> expressions; they may be removed with the
+<a href="#Deletion_of_map_elements"><code>delete</code></a> built-in function.
 </p>
 <p>
 A new, empty map value is made using the built-in
@@ -1170,8 +1232,8 @@ which takes the map type and an optional capacity hint as arguments:
 </p>
 
 <pre>
-make(map[string] int)
-make(map[string] int, 100)
+make(map[string]int)
+make(map[string]int, 100)
 </pre>
 
 <p>
@@ -1203,9 +1265,9 @@ A channel may be constrained only to send or only to receive by
 </p>
 
 <pre>
-chan T         // can be used to send and receive values of type T
-chan&lt;- float64 // can only be used to send float64s
-&lt;-chan int     // can only be used to receive ints
+chan T          // can be used to send and receive values of type T
+chan&lt;- float64  // can only be used to send float64s
+&lt;-chan int      // can only be used to receive ints
 </pre>
 
 <p>
@@ -1214,9 +1276,9 @@ possible:
 </p>
 
 <pre>
-chan&lt;- chan int     // same as chan&lt;- (chan int)
-chan&lt;- &lt;-chan int   // same as chan&lt;- (&lt;-chan int)
-&lt;-chan &lt;-chan int   // same as &lt;-chan (&lt;-chan int)
+chan&lt;- chan int    // same as chan&lt;- (chan int)
+chan&lt;- &lt;-chan int  // same as chan&lt;- (&lt;-chan int)
+&lt;-chan &lt;-chan int  // same as &lt;-chan (&lt;-chan int)
 chan (&lt;-chan int)
 </pre>
 
@@ -1233,7 +1295,7 @@ make(chan int, 100)
 
 <p>
 The capacity, in number of elements, sets the size of the buffer in the channel. If the
-capacity is greater than zero, the channel is asynchronous: communication operations 
+capacity is greater than zero, the channel is asynchronous: communication operations
 succeed without blocking if the buffer is not full (sends) or not empty (receives),
 and elements are received in the order they are sent.
 If the capacity is zero or absent, the communication succeeds only when both a sender and
@@ -1259,7 +1321,7 @@ Two types are either <i>identical</i> or <i>different</i>.
 
 <p>
 Two named types are identical if their type names originate in the same
-type <a href="#Declarations_and_scope">declaration</a>.
+<a href="#Type_declarations">TypeSpec</a>.
 A named and an unnamed type are always different. Two unnamed types are identical
 if the corresponding type literals are identical, that is, if they have the same
 literal structure and corresponding components have identical types. In detail:
@@ -1302,8 +1364,8 @@ Given the declarations
 type (
 	T0 []string
 	T1 []string
-	T2 struct { a, b int }
-	T3 struct { a, c int }
+	T2 struct{ a, b int }
+	T3 struct{ a, c int }
 	T4 func(int, float64) *T0
 	T5 func(x int, y float64) *[]string
 )
@@ -1316,7 +1378,7 @@ these types are identical:
 <pre>
 T0 and T0
 []int and []int
-struct { a, b *T5 } and struct { a, b *T5 }
+struct{ a, b *T5 } and struct{ a, b *T5 }
 func(x int, y float64) *[]string and func(int, float64) (result *[]string)
 </pre>
 
@@ -1362,15 +1424,6 @@ is a pointer, function, slice, map, channel, or interface type.
 by a value of type <code>T</code>.
 </li>
 </ul>
-
-<p>
-If <code>T</code> is a struct type with non-<a href="#Exported_identifiers">exported</a>
-fields, the assignment must be in the same package in which <code>T</code> is declared,
-or <code>x</code> must be the receiver of a method call.
-In other words, a struct value can be assigned to a struct variable only if
-every field of the struct may be legally assigned individually by the program,
-or if the assignment is initializing the receiver of a method of the struct type.
-</p>
 
 <p>
 Any value may be assigned to the <a href="#Blank_identifier">blank identifier</a>.
@@ -1488,18 +1541,25 @@ the body of any nested function.
 </p>
 
 
+<h3 id="Blank_identifier">Blank identifier</h3>
+
+<p>
+The <i>blank identifier</i>, represented by the underscore character <code>_</code>, may be used in a declaration like
+any other identifier but the declaration does not introduce a new binding.
+</p>
+
+
 <h3 id="Predeclared_identifiers">Predeclared identifiers</h3>
 
 <p>
-The following identifiers are implicitly declared in the universe block:
+The following identifiers are implicitly declared in the
+<a href="#Blocks">universe block</a>:
 </p>
 <pre class="grammar">
-Basic types:
-	bool byte complex64 complex128 float32 float64
-	int8 int16 int32 int64 string uint8 uint16 uint32 uint64
-
-Architecture-specific convenience types:
-	int uint uintptr
+Types:
+	bool byte complex64 complex128 error float32 float64
+	int int8 int16 int32 int64 rune string
+	uint uint8 uint16 uint32 uint64 uintptr
 
 Constants:
 	true false iota
@@ -1508,7 +1568,7 @@ Zero value:
 	nil
 
 Functions:
-	append cap close complex copy imag len
+	append cap close complex copy delete imag len
 	make new panic print println real recover
 </pre>
 
@@ -1516,27 +1576,30 @@ Functions:
 <h3 id="Exported_identifiers">Exported identifiers</h3>
 
 <p>
-An identifier may be <i>exported</i> to permit access to it from another package
-using a <a href="#Qualified_identifiers">qualified identifier</a>. An identifier
-is exported if both:
+An identifier may be <i>exported</i> to permit access to it from another package.
+An identifier is exported if both:
 </p>
 <ol>
-	<li>the first character of the identifier's name is a Unicode upper case letter (Unicode class "Lu"); and</li>
-	<li>the identifier is declared in the <a href="#Blocks">package block</a> or denotes a field or method of a type
-	    declared in that block.</li>
+	<li>the first character of the identifier's name is a Unicode upper case
+	letter (Unicode class "Lu"); and</li>
+	<li>the identifier is declared in the <a href="#Blocks">package block</a>
+	or it is a <a href="#Struct_types">field name</a> or
+	<a href="#MethodName">method name</a>.</li>
 </ol>
 <p>
 All other identifiers are not exported.
 </p>
 
 
-<h3 id="Blank_identifier">Blank identifier</h3>
+<h3 id="Uniqueness_of_identifiers">Uniqueness of identifiers</h3>
 
 <p>
-The <i>blank identifier</i>, represented by the underscore character <code>_</code>, may be used in a declaration like
-any other identifier but the declaration does not introduce a new binding.
+Given a set of identifiers, an identifier is called <i>unique</i> if it is
+<i>different</i> from every other in the set.
+Two identifiers are different if they are spelled differently, or if they
+appear in different <a href="#Packages">packages</a> and are not
+<a href="Exported_identifiers">exported</a>. Otherwise, they are the same.
 </p>
-
 
 <h3 id="Constant_declarations">Constant declarations</h3>
 
@@ -1571,10 +1634,10 @@ constant, even if the literal's fractional part is zero.
 
 <pre>
 const Pi float64 = 3.14159265358979323846
-const zero = 0.0             // untyped floating-point constant
+const zero = 0.0         // untyped floating-point constant
 const (
 	size int64 = 1024
-	eof = -1             // untyped integer constant
+	eof        = -1  // untyped integer constant
 )
 const a, b, c = 3, 4, "foo"  // a = 3, b = 4, c = "foo", untyped integer and string constants
 const u, v float32 = 0, 3    // u = 0.0, v = 3.0
@@ -1646,10 +1709,10 @@ it is only incremented after each ConstSpec:
 
 <pre>
 const (
-	bit0, mask0 = 1 &lt;&lt; iota, 1 &lt;&lt; iota - 1  // bit0 == 1, mask0 == 0
-	bit1, mask1                             // bit1 == 2, mask1 == 1
-	_, _                                    // skips iota == 2
-	bit3, mask3                             // bit3 == 8, mask3 == 7
+	bit0, mask0 = 1 &lt;&lt; iota, 1&lt;&lt;iota - 1  // bit0 == 1, mask0 == 0
+	bit1, mask1                           // bit1 == 2, mask1 == 1
+	_, _                                  // skips iota == 2
+	bit3, mask3                           // bit3 == 8, mask3 == 7
 )
 </pre>
 
@@ -1677,7 +1740,7 @@ TypeSpec     = identifier Type .
 type IntArray [16]int
 
 type (
-	Point struct { x, y float64 }
+	Point struct{ x, y float64 }
 	Polar Point
 )
 
@@ -1686,7 +1749,7 @@ type TreeNode struct {
 	value *Comparable
 }
 
-type Cipher interface {
+type Block interface {
 	BlockSize() int
 	Encrypt(src, dst []byte)
 	Decrypt(src, dst []byte)
@@ -1718,8 +1781,8 @@ type PrintableMutex struct {
 	Mutex
 }
 
-// MyCipher is an interface type that has the same method set as Cipher.
-type MyCipher Cipher
+// MyBlock is an interface type that has the same method set as Block.
+type MyBlock Block
 </pre>
 
 <p>
@@ -1760,7 +1823,7 @@ var U, V, W float64
 var k = 0
 var x, y float32 = -1, -2
 var (
-	i int
+	i       int
 	u, v, s = 2.0, 3.0, "bar"
 )
 var re, im = complexSqrt(-1)
@@ -1783,17 +1846,14 @@ of the expression list.
 <p>
 If the type is absent and the corresponding expression evaluates to an
 untyped <a href="#Constants">constant</a>, the type of the declared variable
-is <code>bool</code>, <code>int</code>, <code>float64</code>, or <code>string</code>
-respectively, depending on whether the value is a boolean, integer,
-floating-point, or string constant:
+is as described in §<a href="#Assignments">Assignments</a>.
 </p>
 
-<pre>
-var b = true    // t has type bool
-var i = 0       // i has type int
-var f = 3.0     // f has type float64
-var s = "OMDB"  // s has type string
-</pre>
+<p>
+Implementation restriction: A compiler may make it illegal to declare a variable
+inside a <a href="#Function_declarations">function body</a> if the variable is
+never used.
+</p>
 
 <h3 id="Short_variable_declarations">Short variable declarations</h3>
 
@@ -1806,8 +1866,8 @@ ShortVarDecl = IdentifierList ":=" ExpressionList .
 </pre>
 
 <p>
-It is a shorthand for a regular variable declaration with
-initializer expressions but no types:
+It is a shorthand for a regular <a href="#Variable_declarations">variable declaration</a>
+with initializer expressions but no types:
 </p>
 
 <pre class="grammar">
@@ -1846,11 +1906,13 @@ they can be used to declare local temporary variables (§<a href="#Statements">S
 <h3 id="Function_declarations">Function declarations</h3>
 
 <p>
-A function declaration binds an identifier to a function (§<a href="#Function_types">Function types</a>).
+A function declaration binds an identifier, the <i>function name</i>,
+to a function.
 </p>
 
 <pre class="ebnf">
-FunctionDecl = "func" identifier Signature [ Body ] .
+FunctionDecl = "func" FunctionName Signature [ Body ] .
+FunctionName = identifier .
 Body         = Block .
 </pre>
 
@@ -1874,8 +1936,10 @@ func flushICache(begin, end uintptr)  // implemented externally
 
 <p>
 A method is a function with a <i>receiver</i>.
-A method declaration binds an identifier to a method.
+A method declaration binds an identifier, the <i>method name</i>, to a method.
+It also associates the method with the receiver's <i>base type</i>.
 </p>
+
 <pre class="ebnf">
 MethodDecl   = "func" Receiver MethodName Signature [ Body ] .
 Receiver     = "(" [ identifier ] [ "*" ] BaseTypeName ")" .
@@ -1884,13 +1948,18 @@ BaseTypeName = identifier .
 
 <p>
 The receiver type must be of the form <code>T</code> or <code>*T</code> where
-<code>T</code> is a type name. <code>T</code> is called the
-<i>receiver base type</i> or just <i>base type</i>.
-The base type must not be a pointer or interface type and must be
-declared in the same package as the method.
-The method is said to be <i>bound</i> to the base type
-and is visible only within selectors for that type
-(§<a href="#Type_declarations">Type declarations</a>, §<a href="#Selectors">Selectors</a>).
+<code>T</code> is a type name. The type denoted by <code>T</code> is called
+the receiver <i>base type</i>; it must not be a pointer or interface type and
+it must be declared in the same package as the method.
+The method is said to be <i>bound</i> to the base type and the method name
+is visible only within selectors for that type.
+</p>
+
+<p>
+For a base type, the non-<a href="#Blank_identifier">blank</a> names of
+methods bound to it must be <a href="#Uniqueness_of_identifiers">unique</a>.
+If the base type is a <a href="#Struct_types">struct type</a>,
+the non-blank method and field names must be distinct.
 </p>
 
 <p>
@@ -1957,7 +2026,8 @@ BasicLit   = int_lit | float_lit | imaginary_lit | char_lit | string_lit .
 <h3 id="Qualified_identifiers">Qualified identifiers</h3>
 
 <p>
-A qualified identifier is a non-<a href="#Blank_identifier">blank</a> identifier qualified by a package name prefix.
+A qualified identifier is a non-<a href="#Blank_identifier">blank</a> identifier
+qualified by a package name prefix.
 </p>
 
 <pre class="ebnf">
@@ -1965,20 +2035,15 @@ QualifiedIdent = [ PackageName "." ] identifier .
 </pre>
 
 <p>
-A qualified identifier accesses an identifier in a separate package.
-The identifier must be <a href="#Exported_identifiers">exported</a> by that
-package, which means that it must begin with a Unicode upper case letter.
+A qualified identifier accesses an identifier in a different package, which
+must be <a href="#Import_declarations">imported</a>.
+The identifier must be <a href="#Exported_identifiers">exported</a> and
+declared in the <a href="#Blocks">package block</a> of that package.
 </p>
 
 <pre>
-math.Sin
+math.Sin	// denotes the Sin function in package math
 </pre>
-
-<!--
-<p>
-<span class="alert">TODO: Unify this section with Selectors - it's the same syntax.</span>
-</p>
--->
 
 <h3 id="Composite_literals">Composite literals</h3>
 
@@ -2091,9 +2156,9 @@ to the maximum element index plus one.
 </p>
 
 <pre>
-buffer := [10]string{}               // len(buffer) == 10
-intSet := [6]int{1, 2, 3, 5}         // len(intSet) == 6
-days := [...]string{"Sat", "Sun"}    // len(days) == 2
+buffer := [10]string{}             // len(buffer) == 10
+intSet := [6]int{1, 2, 3, 5}       // len(intSet) == 6
+days := [...]string{"Sat", "Sun"}  // len(days) == 2
 </pre>
 
 <p>
@@ -2107,22 +2172,29 @@ element index plus one. A slice literal has the form
 </pre>
 
 <p>
-and is a shortcut for a slice operation applied to an array literal:
+and is a shortcut for a slice operation applied to an array:
 </p>
 
 <pre>
-[n]T{x1, x2, … xn}[0 : n]
+tmp := [n]T{x1, x2, … xn}
+tmp[0 : n]
 </pre>
 
 <p>
 Within a composite literal of array, slice, or map type <code>T</code>,
 elements that are themselves composite literals may elide the respective
 literal type if it is identical to the element type of <code>T</code>.
+Similarly, elements that are addresses of composite literals may elide
+the <code>&amp;T</code> when the the element type is <code>*T</code>.
 </p>
 
+
+
 <pre>
-[...]Point{{1.5, -3.5}, {0, 0}}  // same as [...]Point{Point{1.5, -3.5}, Point{0, 0}}
-[][]int{{1, 2, 3}, {4, 5}}       // same as [][]int{[]int{1, 2, 3}, []int{4, 5}}
+[...]Point{{1.5, -3.5}, {0, 0}}   // same as [...]Point{Point{1.5, -3.5}, Point{0, 0}}
+[][]int{{1, 2, 3}, {4, 5}}        // same as [][]int{[]int{1, 2, 3}, []int{4, 5}}
+
+[...]*Point{{1.5, -3.5}, {0, 0}}  // same as [...]*Point{&amp;Point{1.5, -3.5}, &amp;Point{0, 0}}
 </pre>
 
 <p>
@@ -2147,7 +2219,7 @@ Examples of valid array, slice, and map literals:
 
 <pre>
 // list of prime numbers
-primes := []int{2, 3, 5, 7, 9, 11, 13, 17, 19, 991}
+primes := []int{2, 3, 5, 7, 9, 2147483647}
 
 // vowels[ch] is true if ch is a vowel
 vowels := [128]bool{'a': true, 'e': true, 'i': true, 'o': true, 'u': true, 'y': true}
@@ -2184,7 +2256,7 @@ A function literal can be assigned to a variable or invoked directly.
 
 <pre>
 f := func(x, y int) int { return x + y }
-func(ch chan int) { ch &lt;- ACK } (reply_chan)
+func(ch chan int) { ch &lt;- ACK }(replyChan)
 </pre>
 
 <p>
@@ -2275,8 +2347,8 @@ where <code>T</code> is not an interface type,
 <code>x.f</code> denotes the field or method at the shallowest depth
 in <code>T</code> where there
 is such an <code>f</code>.
-If there is not exactly one <code>f</code> with shallowest depth, the selector
-expression is illegal.
+If there is not exactly <a href="#Uniqueness_of_identifiers">one <code>f</code></a>
+with shallowest depth, the selector expression is illegal.
 </li>
 <li>
 For a variable <code>x</code> of type <code>I</code>
@@ -2332,13 +2404,13 @@ one may write:
 </p>
 
 <pre>
-p.z         // (*p).z
-p.y         // ((*p).T1).y
-p.x         // (*(*p).T0).x
+p.z   // (*p).z
+p.y   // ((*p).T1).y
+p.x   // (*(*p).T0).x
 
-p.M2        // (*p).M2
-p.M1        // ((*p).T1).M1
-p.M0        // ((*p).T0).M0
+p.M2  // (*p).M2
+p.M1  // ((*p).T1).M1
+p.M0  // ((*p).T0).M0
 </pre>
 
 
@@ -2432,21 +2504,6 @@ where the result of the index expression is a pair of values with types
 </p>
 
 <p>
-Similarly, if an assignment to a map element has the special form
-</p>
-
-<pre>
-a[x] = v, ok
-</pre>
-
-<p>
-and boolean <code>ok</code> has the value <code>false</code>,
-the entry for key <code>x</code> is deleted from the map; if
-<code>ok</code> is <code>true</code>, the construct acts like
-a regular assignment to an element of the map.
-</p>
-
-<p>
 Assigning to an element of a <code>nil</code> map causes a
 <a href="#Run_time_panics">run-time panic</a>.
 </p>
@@ -2455,7 +2512,7 @@ Assigning to an element of a <code>nil</code> map causes a
 <h3 id="Slices">Slices</h3>
 
 <p>
-For a string, array, or slice <code>a</code>, the primary expression
+For a string, array, pointer to array, or slice <code>a</code>, the primary expression
 </p>
 
 <pre>
@@ -2492,9 +2549,9 @@ sliced operand:
 </p>
 
 <pre>
-a[2:]	// same a[2 : len(a)]
-a[:3]   // same as a[0 : 3]
-a[:]    // same as a[0 : len(a)]
+a[2:]  // same a[2 : len(a)]
+a[:3]  // same as a[0 : 3]
+a[:]   // same as a[0 : len(a)]
 </pre>
 
 <p>
@@ -2587,10 +2644,24 @@ the method.
 </p>
 
 <pre>
-math.Atan2(x, y)    // function call
+math.Atan2(x, y)  // function call
 var pt *Point
 pt.Scale(3.5)  // method call with receiver pt
 </pre>
+
+<p>
+In a function call, the function value and arguments are evaluated in
+<a href="#Order_of_evaluation">the usual order</a>.
+After they are evaluated, the parameters of the call are passed by value to the function
+and the called function begins execution.
+The return parameters of the function are passed by value
+back to the calling function when the function returns.
+</p>
+
+<p>
+Calling a <code>nil</code> function value 
+causes a <a href="#Run_time_panics">run-time panic</a>.
+</p>
 
 <p>
 As a special case, if the return parameters of a function or method
@@ -2731,13 +2802,13 @@ var s uint = 33
 var i = 1&lt;&lt;s           // 1 has type int
 var j int32 = 1&lt;&lt;s     // 1 has type int32; j == 0
 var k = uint64(1&lt;&lt;s)   // 1 has type uint64; k == 1&lt;&lt;33
-var m int = 1.0&lt;&lt;s     // legal: 1.0 has type int
-var n = 1.0&lt;&lt;s != 0    // legal: 1.0 has type int; n == false if ints are 32bits in size
-var o = 1&lt;&lt;s == 2&lt;&lt;s   // legal: 1 and 2 have type int; o == true if ints are 32bits in size
+var m int = 1.0&lt;&lt;s     // 1.0 has type int
+var n = 1.0&lt;&lt;s != 0    // 1.0 has type int; n == false if ints are 32bits in size
+var o = 1&lt;&lt;s == 2&lt;&lt;s   // 1 and 2 have type int; o == true if ints are 32bits in size
 var p = 1&lt;&lt;s == 1&lt;&lt;33  // illegal if ints are 32bits in size: 1 has type int, but 1&lt;&lt;33 overflows int
 var u = 1.0&lt;&lt;s         // illegal: 1.0 has type float64, cannot shift
 var v float32 = 1&lt;&lt;s   // illegal: 1 has type float32, cannot shift
-var w int64 = 1.0&lt;&lt;33  // legal: 1.0&lt;&lt;33 is a constant shift expression
+var w int64 = 1.0&lt;&lt;33  // 1.0&lt;&lt;33 is a constant shift expression
 </pre>
 
 <h3 id="Operator_precedence">Operator precedence</h3>
@@ -2774,7 +2845,7 @@ For instance, <code>x / y * z</code> is the same as <code>(x / y) * z</code>.
 x &lt;= f()
 ^a &gt;&gt; b
 f() || g()
-x == y+1 &amp;&amp; &lt;-chan_ptr &gt; 0
+x == y+1 &amp;&amp; &lt;-chanPtr &gt; 0
 </pre>
 
 
@@ -2924,7 +2995,7 @@ not occur. For instance, it may not assume that <code>x &lt; x + 1</code> is alw
 <h3 id="Comparison_operators">Comparison operators</h3>
 
 <p>
-Comparison operators compare two operands and yield a value of type <code>bool</code>.
+Comparison operators compare two operands and yield a boolean value.
 </p>
 
 <pre class="grammar">
@@ -2932,76 +3003,122 @@ Comparison operators compare two operands and yield a value of type <code>bool</
 !=    not equal
 &lt;     less
 &lt;=    less or equal
->     greater
->=    greater or equal
+&gt;     greater
+&gt;=    greater or equal
 </pre>
 
 <p>
-The operands must be <i>comparable</i>; that is, the first operand
+In any comparison, the first operand
 must be <a href="#Assignability">assignable</a>
 to the type of the second operand, or vice versa.
 </p>
 <p>
-The operators <code>==</code> and <code>!=</code> apply
-to operands of all types except arrays and structs.
-All other comparison operators apply only to integer, floating-point
-and string values. The result of a comparison is defined as follows:
+The equality operators <code>==</code> and <code>!=</code> apply
+to operands that are <i>comparable</i>.
+The ordering operators <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, and <code>&gt;=</code>
+apply to operands that are <i>ordered</i>.
+These terms and the result of the comparisons are defined as follows:
 </p>
 
 <ul>
 	<li>
-	Integer values are compared in the usual way.
+	Boolean values are comparable.
+	Two boolean values are equal if they are either both
+	<code>true</code> or both <code>false</code>.
 	</li>
+
 	<li>
-	Floating point values are compared as defined by the IEEE-754
-	standard.
+	Integer values are comparable and ordered, in the usual way.
 	</li>
+	
 	<li>
-	Two complex values <code>u</code>, <code>v</code> are
+	Floating point values are comparable and ordered,
+	as defined by the IEEE-754 standard.
+	</li>
+	
+	<li>
+	Complex values are comparable.
+	Two complex values <code>u</code> and <code>v</code> are
 	equal if both <code>real(u) == real(v)</code> and
 	<code>imag(u) == imag(v)</code>.
 	</li>
+	
 	<li>
-	String values are compared byte-wise (lexically).
+	String values are comparable and ordered, lexically byte-wise.
 	</li>
+	
 	<li>
-	Boolean values are equal if they are either both
-	<code>true</code> or both <code>false</code>.
+	Pointer values are comparable.
+	Two pointer values are equal if they point to the same variable or if both have value <code>nil</code>.
+	Pointers to distinct <a href="#Size_and_alignment_guarantees">zero-size</a> variables may or may not be equal.
 	</li>
+	
 	<li>
-	Pointer values are equal if they point to the same location
-	or if both are <code>nil</code>.
-	</li>
-	<li>
-	Function values are equal if they refer to the same function
-	or if both are <code>nil</code>.
-	</li>
-	<li>
-	A slice value may only be compared to <code>nil</code>.
-	</li>
-	<li>
-	Channel and map values are equal if they were created by the same call to <code>make</code>
+	Channel values are comparable.
+	Two channel values are equal if they were created by the same call to <code>make</code>
 	(§<a href="#Making_slices_maps_and_channels">Making slices, maps, and channels</a>)
-	or if both are <code>nil</code>.
+	or if both have value <code>nil</code>.
 	</li>
+
 	<li>
-	Interface values are equal if they have <a href="#Type_identity">identical</a> dynamic types and
-	equal dynamic values or if both are <code>nil</code>.
+	Interface values are comparable.
+	Two interface values are equal if they have <a href="#Type_identity">identical</a> dynamic types
+	and equal dynamic values or if both have value <code>nil</code>.
 	</li>
+	
 	<li>
-	An interface value <code>x</code> is equal to a non-interface value
-	<code>y</code> if the dynamic type of <code>x</code> is identical to
-	the static type of <code>y</code> and the dynamic value of <code>x</code>
-	is equal to <code>y</code>.
+	A value <code>x</code> of non-interface type <code>X</code> and
+	a value <code>t</code> of interface type <code>T</code> are comparable when values
+	of type <code>X</code> are comparable and
+	<code>X</code> implements <code>T</code>.
+	They are equal if <code>t</code>'s dynamic type is identical to <code>X</code>
+	and <code>t</code>'s dynamic value is equal to <code>x</code>.
 	</li>
+
 	<li>
-	A pointer, function, slice, channel, map, or interface value is equal
-	to <code>nil</code> if it has been assigned the explicit value
-	<code>nil</code>, if it is uninitialized, or if it has been assigned
-	another value equal to <code>nil</code>.
+	Struct values are comparable if all their fields are comparable.
+	Two struct values are equal if their corresponding
+	non-<a href="#Blank_identifier">blank</a> fields are equal.
+	</li>
+	
+	<li>
+	Array values are comparable if values of the array element type are comparable.
+	Two array values are equal if their corresponding elements are equal.
 	</li>
 </ul>
 
+<p>
+A comparison of two interface values with identical dynamic types
+causes a <a href="#Run_time_panics">run-time panic</a> if values
+of that type are not comparable.  This behavior applies not only to direct interface
+value comparisons but also when comparing arrays of interface values
+or structs with interface-valued fields.
+</p>
+
+<p>
+Slice, map, and function values are not comparable.
+However, as a special case, a slice, map, or function value may
+be compared to the predeclared identifier <code>nil</code>.
+Comparison of pointer, channel, and interface values to <code>nil</code>
+is also allowed and follows from the general rules above.
+</p>
+
+<p>
+The result of a comparison can be assigned to any boolean type.
+If the context does not demand a specific boolean type,
+the result has type <code>bool</code>.
+</p>
+
+<pre>
+type MyBool bool
+
+var x, y int
+var (
+	b1 MyBool = x == y // result of comparison has type MyBool
+	b2 bool   = x == y // result of comparison has type bool
+	b3        = x == y // result of comparison has type bool
+)
+</pre>
 
 <h3 id="Logical_operators">Logical operators</h3>
 
@@ -3034,6 +3151,8 @@ As an exception to the addressability requirement, <code>x</code> may also be a
 For an operand <code>x</code> of pointer type <code>*T</code>, the pointer
 indirection <code>*x</code> denotes the value of type <code>T</code> pointed
 to by <code>x</code>.
+If <code>x</code> is <code>nil</code>, an attempt to evaluate <code>*x</code>
+will cause a <a href="#Run_time_panics">run-time panic</a>.
 </p>
 
 <pre>
@@ -3111,7 +3230,7 @@ Consider a struct type <code>T</code> with two methods,
 type T struct {
 	a int
 }
-func (tv  T) Mv(a int)     int     { return 0 }  // value receiver
+func (tv  T) Mv(a int) int         { return 0 }  // value receiver
 func (tp *T) Mp(f float32) float32 { return 1 }  // pointer receiver
 var t T
 </pre>
@@ -3288,11 +3407,11 @@ in any of these cases:
 	</li>
 	<li>
 	<code>x</code> is an integer or has type <code>[]byte</code> or
-	<code>[]int</code> and <code>T</code> is a string type.
+	<code>[]rune</code> and <code>T</code> is a string type.
 	</li>
 	<li>
 	<code>x</code> is a string and <code>T</code> is <code>[]byte</code> or
-	<code>[]int</code>.
+	<code>[]rune</code>.
 	</li>
 </ul>
 
@@ -3357,51 +3476,59 @@ string containing the UTF-8 representation of the integer. Values outside
 the range of valid Unicode code points are converted to <code>"\uFFFD"</code>.
 
 <pre>
-string('a')           // "a"
-string(-1)            // "\ufffd" == "\xef\xbf\xbd "
-string(0xf8)          // "\u00f8" == "ø" == "\xc3\xb8"
+string('a')       // "a"
+string(-1)        // "\ufffd" == "\xef\xbf\xbd "
+string(0xf8)      // "\u00f8" == "ø" == "\xc3\xb8"
 type MyString string
-MyString(0x65e5)      // "\u65e5" == "日" == "\xe6\x97\xa5"
+MyString(0x65e5)  // "\u65e5" == "日" == "\xe6\x97\xa5"
 </pre>
 </li>
 
 <li>
-Converting a value of type <code>[]byte</code> (or
-the equivalent <code>[]uint8</code>) to a string type yields a
-string whose successive bytes are the elements of the slice.  If
+Converting a slice of bytes to a string type yields
+a string whose successive bytes are the elements of the slice.  If
 the slice value is <code>nil</code>, the result is the empty string.
 
 <pre>
 string([]byte{'h', 'e', 'l', 'l', '\xc3', '\xb8'})  // "hellø"
+
+type MyBytes []byte
+string(MyBytes{'h', 'e', 'l', 'l', '\xc3', '\xb8'})  // "hellø"
 </pre>
 </li>
 
 <li>
-Converting a value of type <code>[]int</code> to a string type yields
-a string that is the concatenation of the individual integers
+Converting a slice of runes to a string type yields
+a string that is the concatenation of the individual rune values
 converted to strings.  If the slice value is <code>nil</code>, the
 result is the empty string.
+
 <pre>
-string([]int{0x767d, 0x9d6c, 0x7fd4})  // "\u767d\u9d6c\u7fd4" == "白鵬翔"
+string([]rune{0x767d, 0x9d6c, 0x7fd4})  // "\u767d\u9d6c\u7fd4" == "白鵬翔"
+
+type MyRunes []rune
+string(MyRunes{0x767d, 0x9d6c, 0x7fd4})  // "\u767d\u9d6c\u7fd4" == "白鵬翔"
 </pre>
 </li>
 
 <li>
-Converting a value of a string type to <code>[]byte</code> (or <code>[]uint8</code>)
+Converting a value of a string type to a slice of bytes type
 yields a slice whose successive elements are the bytes of the string.
 If the string is empty, the result is <code>[]byte(nil)</code>.
 
 <pre>
-[]byte("hellø")  // []byte{'h', 'e', 'l', 'l', '\xc3', '\xb8'}
+[]byte("hellø")   // []byte{'h', 'e', 'l', 'l', '\xc3', '\xb8'}
+MyBytes("hellø")  // []byte{'h', 'e', 'l', 'l', '\xc3', '\xb8'}
 </pre>
 </li>
 
 <li>
-Converting a value of a string type to <code>[]int</code> yields a
-slice containing the individual Unicode code points of the string.
-If the string is empty, the result is <code>[]int(nil)</code>.
+Converting a value of a string type to a slice of runes type
+yields a slice containing the individual Unicode code points of the string.
+If the string is empty, the result is <code>[]rune(nil)</code>.
 <pre>
-[]int(MyString("白鵬翔"))  // []int{0x767d, 0x9d6c, 0x7fd4}
+[]rune(MyString("白鵬翔"))  // []rune{0x767d, 0x9d6c, 0x7fd4}
+MyRunes("白鵬翔")           // []rune{0x767d, 0x9d6c, 0x7fd4}
 </pre>
 </li>
 </ol>
@@ -3417,19 +3544,17 @@ operands and are evaluated at compile-time.
 <p>
 Untyped boolean, numeric, and string constants may be used as operands
 wherever it is legal to use an operand of boolean, numeric, or string type,
-respectively. Except for shift operations, if the operands of a binary operation
-are an untyped integer constant and an untyped floating-point constant,
-the integer constant is converted to an untyped floating-point constant
-(relevant for <code>/</code> and <code>%</code>).
-Similarly, untyped integer or floating-point constants may be used as operands
-wherever it is legal to use an operand of complex type;
-the integer or floating point constant is converted to a
-complex constant with a zero imaginary part.
+respectively.
+Except for shift operations, if the operands of a binary operation are
+different kinds of untyped constants, the operation and, for non-boolean operations, the result use
+the kind that appears later in this list: integer, character, floating-point, complex.
+For example, an untyped integer constant divided by an
+untyped complex constant yields an untyped complex constant.
 </p>
 
 <p>
 A constant <a href="#Comparison_operators">comparison</a> always yields
-a constant of type <code>bool</code>. If the left operand of a constant
+an untyped boolean constant.  If the left operand of a constant
 <a href="#Operators">shift expression</a> is an untyped constant, the
 result is an integer constant; otherwise it is a constant of the same
 type as the left operand, which must be of integer type
@@ -3440,32 +3565,33 @@ complex, or string constant).
 </p>
 
 <pre>
-const a = 2 + 3.0          // a == 5.0   (floating-point constant)
-const b = 15 / 4           // b == 3     (integer constant)
-const c = 15 / 4.0         // c == 3.75  (floating-point constant)
-const d = 1 &lt;&lt; 3.0         // d == 8     (integer constant)
-const e = 1.0 &lt;&lt; 3         // e == 8     (integer constant)
+const a = 2 + 3.0          // a == 5.0   (untyped floating-point constant)
+const b = 15 / 4           // b == 3     (untyped integer constant)
+const c = 15 / 4.0         // c == 3.75  (untyped floating-point constant)
+const Θ float64 = 3/2      // Θ == 1.5   (type float64)
+const d = 1 &lt;&lt; 3.0         // d == 8     (untyped integer constant)
+const e = 1.0 &lt;&lt; 3         // e == 8     (untyped integer constant)
 const f = int32(1) &lt;&lt; 33   // f == 0     (type int32)
 const g = float64(2) &gt;&gt; 1  // illegal    (float64(2) is a typed floating-point constant)
-const h = "foo" &gt; "bar"    // h == true  (type bool)
+const h = "foo" &gt; "bar"    // h == true  (untyped boolean constant)
+const j = true             // j == true  (untyped boolean constant)
+const k = 'w' + 1          // k == 'x'   (untyped character constant)
+const l = "hi"             // l == "hi"  (untyped string constant)
+const m = string(k)        // m == "x"   (type string)
+const Σ = 1 - 0.707i       //            (untyped complex constant)
+const Δ = Σ + 2.0e-4       //            (untyped complex constant)
+const Φ = iota*1i - 1/1i   //            (untyped complex constant)
 </pre>
 
 <p>
-Imaginary literals are untyped complex constants (with zero real part)
-and may be combined in binary
-operations with untyped integer and floating-point constants; the
-result is an untyped complex constant.
-Complex constants are always constructed from
-constant expressions involving imaginary
-literals or constants derived from them, or calls of the built-in function
-<a href="#Complex_numbers"><code>complex</code></a>.
+Applying the built-in function <code>complex</code> to untyped
+integer, character, or floating-point constants yields
+an untyped complex constant.
 </p>
 
 <pre>
-const Σ = 1 - 0.707i
-const Δ = Σ + 2.0e-4 - 1/1i
-const Φ = iota * 1i
-const iΓ = complex(0, Γ)
+const ic = complex(0, c)   // ic == 3.75i (untyped complex constant)
+const iΘ = complex(0, Θ)   // iΘ == 1.5i  (type complex128)
 </pre>
 
 <p>
@@ -3485,11 +3611,11 @@ of the constant type. The following constant expressions are illegal:
 </p>
 
 <pre>
-uint(-1)       // -1 cannot be represented as a uint
-int(3.14)      // 3.14 cannot be represented as an int
-int64(Huge)    // 1&lt;&lt;100 cannot be represented as an int64
-Four * 300     // 300 cannot be represented as an int8
-Four * 100     // 400 cannot be represented as an int8
+uint(-1)     // -1 cannot be represented as a uint
+int(3.14)    // 3.14 cannot be represented as an int
+int64(Huge)  // 1&lt;&lt;100 cannot be represented as an int64
+Four * 300   // 300 cannot be represented as an int8
+Four * 100   // 400 cannot be represented as an int8
 </pre>
 
 <p>
@@ -3499,12 +3625,22 @@ and -1 for signed and untyped constants.
 </p>
 
 <pre>
-^1          // untyped integer constant, equal to -2
-uint8(^1)   // error, same as uint8(-2), out of range
-^uint8(1)   // typed uint8 constant, same as 0xFF ^ uint8(1) = uint8(0xFE)
-int8(^1)    // same as int8(-2)
-^int8(1)    // same as -1 ^ int8(1) = -2
+^1         // untyped integer constant, equal to -2
+uint8(^1)  // error, same as uint8(-2), out of range
+^uint8(1)  // typed uint8 constant, same as 0xFF ^ uint8(1) = uint8(0xFE)
+int8(^1)   // same as int8(-2)
+^int8(1)   // same as -1 ^ int8(1) = -2
 </pre>
+
+<p>
+Implementation restriction: A compiler may use rounding while
+computing untyped floating-point or complex constant expressions; see
+the implementation restriction in the section
+on <a href="#Constants">constants</a>.  This rounding may cause a
+floating-point constant expression to be invalid in an integer
+context, even if it would be integral when calculated using infinite
+precision.
+</p>
 
 <!--
 <p>
@@ -3529,7 +3665,7 @@ order.
 For example, in the assignment
 </p>
 <pre>
-y[f()], ok = g(h(), i() + x[j()], &lt;-c), k()
+y[f()], ok = g(h(), i()+x[j()], &lt;-c), k()
 </pre>
 <p>
 the function calls and communication happen in the order
@@ -3628,10 +3764,10 @@ Channel  = Expression .
 
 <p>
 Both the channel and the value expression are evaluated before communication
-begins. Communication blocks until the send can proceed, at which point the
-value is transmitted on the channel.
+begins. Communication blocks until the send can proceed.
 A send on an unbuffered channel can proceed if a receiver is ready.
 A send on a buffered channel can proceed if there is room in the buffer.
+A send on a closed channel proceeds by causing a <a href="#Run_time_panics">run-time panic</a>.
 A send on a <code>nil</code> channel blocks forever.
 </p>
 
@@ -3730,14 +3866,32 @@ x, _ = f()  // ignore second value returned by f()
 In the second form, the number of operands on the left must equal the number
 of expressions on the right, each of which must be single-valued, and the
 <i>n</i>th expression on the right is assigned to the <i>n</i>th
-operand on the left.
-The expressions on the right are evaluated before assigning to
-any of the operands on the left, but otherwise the evaluation
-order is unspecified beyond <a href="#Order_of_evaluation">the usual rules</a>.
+operand on the left.  The assignment proceeds in two phases.
+First, the operands of <a href="#Indexes">index expressions</a>
+and <a href="#Address_operators">pointer indirections</a>
+(including implicit pointer indirections in <a href="#Selectors">selectors</a>)
+on the left and the expressions on the right are all
+<a href="#Order_of_evaluation">evaluated in the usual order</a>.
+Second, the assignments are carried out in left-to-right order.
 </p>
 
 <pre>
 a, b = b, a  // exchange a and b
+
+x := []int{1, 2, 3}
+i := 0
+i, x[i] = 1, 2  // set i = 1, x[0] = 2
+
+i = 0
+x[i], i = 2, 1  // set x[0] = 2, i = 1
+
+x[0], x[0] = 1, 2  // set x[0] = 1, then x[0] = 2 (so x[0] = 2 at end)
+
+x[1], x[3] = 4, 5  // set x[1] = 4, then panic setting x[3] = 5.
+
+type Point struct { x, y int }
+var p *Point
+x[2], p.x = 6, 7  // set x[2] = 6, then panic setting p.x = 7
 </pre>
 
 <p>
@@ -3745,10 +3899,10 @@ In assignments, each value must be
 <a href="#Assignability">assignable</a> to the type of the
 operand to which it is assigned. If an untyped <a href="#Constants">constant</a>
 is assigned to a variable of interface type, the constant is <a href="#Conversions">converted</a>
-to type <code>bool</code>, <code>int</code>, <code>float64</code>,
+to type <code>bool</code>, <code>rune</code>, <code>int</code>, <code>float64</code>,
 <code>complex128</code> or <code>string</code>
-respectively, depending on whether the value is a boolean, integer, floating-point,
-complex, or string constant.
+respectively, depending on whether the value is a
+boolean, character, integer, floating-point, complex, or string constant.
 </p>
 
 
@@ -3887,7 +4041,8 @@ TypeList        = Type { "," Type } .
 <p>
 The TypeSwitchGuard may include a
 <a href="#Short_variable_declarations">short variable declaration</a>.
-When that form is used, the variable is declared in each clause.
+When that form is used, the variable is declared at the beginning of
+the <a href="#Blocks">implicit block</a> in each clause.
 In clauses with a case listing exactly one type, the variable
 has that type; otherwise, the variable has the type of the expression
 in the TypeSwitchGuard.
@@ -3930,16 +4085,16 @@ could be rewritten:
 v := x  // x is evaluated exactly once
 if v == nil {
 	printString("x is nil")
-} else if i, is_int := v.(int); is_int {
+} else if i, isInt := v.(int); isInt {
 	printInt(i)  // i is an int
-} else if i, is_float64 := v.(float64); is_float64 {
+} else if i, isFloat64 := v.(float64); isFloat64 {
 	printFloat64(i)  // i is a float64
-} else if i, is_func := v.(func(int) float64); is_func {
+} else if i, isFunc := v.(func(int) float64); isFunc {
 	printFunction(i)  // i is a function
 } else {
-	i1, is_bool := v.(bool)
-	i2, is_string := v.(string)
-	if is_bool || is_string {
+	i1, isBool := v.(bool)
+	i2, isString := v.(string)
+	if isBool || isString {
 		i := v
 		printString("type is bool or string")  // i is an interface{}
 	} else {
@@ -4053,7 +4208,7 @@ For each iteration, iteration values are produced as follows:
 Range expression                          1st value          2nd value (if 2nd variable is present)
 
 array or slice  a  [n]E, *[n]E, or []E    index    i  int    a[i]       E
-string          s  string type            index    i  int    see below  int
+string          s  string type            index    i  int    see below  rune
 map             m  map[K]V                key      k  K      m[k]       V
 channel         c  chan E                 element  e  E
 </pre>
@@ -4071,7 +4226,7 @@ or slice itself. For a <code>nil</code> slice, the number of iterations is 0.
 For a string value, the "range" clause iterates over the Unicode code points
 in the string starting at byte index 0.  On successive iterations, the index value will be the
 index of the first byte of successive UTF-8-encoded code points in the string,
-and the second value, of type <code>int</code>, will be the value of
+and the second value, of type <code>rune</code>, will be the value of
 the corresponding code point.  If the iteration encounters an invalid
 UTF-8 sequence, the second value will be <code>0xFFFD</code>,
 the Unicode replacement character, and the next iteration will advance
@@ -4079,7 +4234,8 @@ a single byte in the string.
 </li>
 
 <li>
-The iteration order over maps is not specified.
+The iteration order over maps is not specified
+and is not guaranteed to be the same from one iteration to the next.
 If map entries that have not yet been reached are deleted during iteration,
 the corresponding iteration values will not be produced. If map entries are
 inserted during iteration, the behavior is implementation-dependent, but the
@@ -4100,7 +4256,9 @@ iteration variables as in an <a href="#Assignments">assignment statement</a>.
 </p>
 
 <p>
-The iteration variables may be declared by the "range" clause (<code>:=</code>).
+The iteration variables may be declared by the "range" clause using a form of
+<a href="#Short_variable_declarations">short variable declaration</a>
+(<code>:=</code>).
 In this case their types are set to the types of the respective iteration values
 and their <a href="#Declarations_and_scope">scope</a> ends at the end of the "for"
 statement; they are re-used in each iteration.
@@ -4155,9 +4313,17 @@ GoStmt = "go" Expression .
 </pre>
 
 <p>
-The expression must be a call, and
+The expression must be a call.
+The function value and parameters are
+<a href="#Calls">evaluated as usual</a>
+in the calling goroutine, but
 unlike with a regular call, program execution does not wait
 for the invoked function to complete.
+Instead, the function begins executing independently
+in a new goroutine.
+When the function terminates, its goroutine also terminates.
+If the function has any return values, they are discarded when the
+function completes.
 </p>
 
 <pre>
@@ -4208,7 +4374,7 @@ effects in that evaluation will occur for all the communications
 in the "select" statement.
 </p>
 <p>
-If multiple cases can proceed, a pseudo-random fair choice is made to decide
+If multiple cases can proceed, a uniform pseudo-random choice is made to decide
 which single communication will execute.
 <p>
 The receive case may declare one or two new variables using a
@@ -4240,7 +4406,7 @@ for {  // send random sequence of bits to c
 	}
 }
 
-select { }  // block forever
+select {}  // block forever
 </pre>
 
 
@@ -4260,7 +4426,7 @@ In a function without a result type, a "return" statement must not
 specify any result values.
 </p>
 <pre>
-func no_result() {
+func noResult() {
 	return
 }
 </pre>
@@ -4276,11 +4442,11 @@ type:
 		and <a href="#Assignability">assignable</a>
 		to the corresponding element of the function's result type.
 <pre>
-func simple_f() int {
+func simpleF() int {
 	return 2
 }
 
-func complex_f1() (re float64, im float64) {
+func complexF1() (re float64, im float64) {
 	return -7.0, -4.0
 }
 </pre>
@@ -4292,8 +4458,8 @@ func complex_f1() (re float64, im float64) {
 		"return" statement listing these variables, at which point the
 		rules of the previous case apply.
 <pre>
-func complex_f2() (re float64, im float64) {
-	return complex_f1()
+func complexF2() (re float64, im float64) {
+	return complexF1()
 }
 </pre>
 	</li>
@@ -4303,16 +4469,16 @@ func complex_f2() (re float64, im float64) {
 		and the function may assign values to them as necessary.
 		The "return" statement returns the values of these variables.
 <pre>
-func complex_f3() (re float64, im float64) {
+func complexF3() (re float64, im float64) {
 	re = 7.0
 	im = 4.0
 	return
 }
 
-func (devnull) Write(p []byte) (n int, _ os.Error) {
+func (devnull) Write(p []byte) (n int, _ error) {
 	n = len(p)
 	return
-} 
+}
 </pre>
 	</li>
 </ol>
@@ -4325,8 +4491,6 @@ Regardless of how they are declared, all the result values are initialized to th
 <p>
 <span class="alert">
 TODO: Define when return is required.<br />
-TODO: Language about result parameters needs to go into a section on
-      function/method invocation<br />
 </span>
 </p>
 -->
@@ -4427,7 +4591,7 @@ L1:
 </pre>
 
 <p>
-is erroneous because the label <code>L1</code> is inside 
+is erroneous because the label <code>L1</code> is inside
 the "for" statement's block but the <code>goto</code> is not.
 </p>
 
@@ -4459,9 +4623,11 @@ DeferStmt = "defer" Expression .
 <p>
 The expression must be a function or method call.
 Each time the "defer" statement
-executes, the parameters to the function call are evaluated and saved anew but the
-function is not invoked.
-Deferred function calls are executed in LIFO order
+executes, the function value and parameters to the call are
+<a href="#Calls">evaluated as usual</a>
+and saved anew but the
+actual function is not invoked.
+Instead, deferred calls are executed in LIFO order
 immediately before the surrounding function returns,
 after the return values, if any, have been evaluated, but before they
 are returned to the caller. For instance, if the deferred function is
@@ -4469,6 +4635,8 @@ a <a href="#Function_literals">function literal</a> and the surrounding
 function has <a href="#Function_types">named result parameters</a> that
 are in scope within the literal, the deferred function may access and modify
 the result parameters before they are returned.
+If the deferred function has any return values, they are discarded when
+the function completes.
 </p>
 
 <pre>
@@ -4513,12 +4681,13 @@ BuiltinArgs = Type [ "," ExpressionList ] | ExpressionList .
 
 <p>
 For a channel <code>c</code>, the built-in function <code>close(c)</code>
-marks the channel as unable to accept more values through a send operation;
-sending to or closing a closed channel causes a <a href="#Run_time_panics">run-time panic</a>.
+records that no more values will be sent on the channel.
+It is an error if <code>c</code> is a receive-only channel.
+Sending to or closing a closed channel causes a <a href="#Run_time_panics">run-time panic</a>.
+Closing the nil channel also causes a <a href="#Run_time_panics">run-time panic</a>.
 After calling <code>close</code>, and after any previously
 sent values have been received, receive operations will return
 the zero value for the channel's type without blocking.
-
 The multi-valued <a href="#Receive_operator">receive operation</a>
 returns a received value along with an indication of whether the channel is closed.
 </p>
@@ -4636,10 +4805,10 @@ is negative or larger than <code>m</code>, or if <code>n</code> or
 </p>
 
 <pre>
-s := make([]int, 10, 100)        // slice with len(s) == 10, cap(s) == 100
-s := make([]int, 10)             // slice with len(s) == cap(s) == 10
-c := make(chan int, 10)          // channel with a buffer size of 10
-m := make(map[string] int, 100)  // map with initial space for 100 elements
+s := make([]int, 10, 100)       // slice with len(s) == 10, cap(s) == 100
+s := make([]int, 10)            // slice with len(s) == cap(s) == 10
+c := make(chan int, 10)         // channel with a buffer size of 10
+m := make(map[string]int, 100)  // map with initial space for 100 elements
 </pre>
 
 
@@ -4658,6 +4827,10 @@ The values <code>x</code> are passed to a parameter of type <code>...T</code>
 where <code>T</code> is the <a href="#Slice_types">element type</a> of
 <code>S</code> and the respective
 <a href="#Passing_arguments_to_..._parameters">parameter passing rules</a> apply.
+As a special case, <code>append</code> also accepts a first argument
+assignable to type <code>[]byte</code> with a second argument of
+string type followed by <code>...</code>. This form appends the
+bytes of the string.
 </p>
 
 <pre class="grammar">
@@ -4668,7 +4841,7 @@ append(s S, x ...T) S  // T is the element type of S
 If the capacity of <code>s</code> is not large enough to fit the additional
 values, <code>append</code> allocates a new, sufficiently large slice that fits
 both the existing slice elements and the additional values. Thus, the returned
-slice may refer to a different underlying array. 
+slice may refer to a different underlying array.
 </p>
 
 <pre>
@@ -4679,6 +4852,9 @@ s3 := append(s2, s0...)    // append a slice              s3 == []int{0, 0, 2, 3
 
 var t []interface{}
 t = append(t, 42, 3.1415, "foo")                          t == []interface{}{42, 3.1415, "foo"}
+
+var b []byte
+b = append(b, "bar"...)  // append string contents      b == []byte{'b', 'a', 'r' }
 </pre>
 
 <p>
@@ -4712,7 +4888,28 @@ n2 := copy(s, s[2:])            // n2 == 4, s == []int{2, 3, 4, 5, 4, 5}
 n3 := copy(b, "Hello, World!")  // n3 == 5, b == []byte("Hello")
 </pre>
 
-<h3 id="Complex_numbers">Assembling and disassembling complex numbers</h3>
+
+<h3 id="Deletion_of_map_elements">Deletion of map elements</h3>
+
+<p>
+The built-in function <code>delete</code> removes the element with key
+<code>k</code> from a <a href="#Map_types">map</a> <code>m</code>. The
+type of <code>k</code> must be <a href="#Assignability">assignable</a>
+to the key type of <code>m</code>.
+</p>
+
+<pre class="grammar">
+delete(m, k)  // remove element m[k] from map m
+</pre>
+
+<p>
+If the element <code>m[k]</code> does not exist, <code>delete</code> is
+a no-op. Calling <code>delete</code> with a nil map causes a
+<a href="#Run_time_panics">run-time panic</a>.
+</p>
+
+
+<h3 id="Complex_numbers">Manipulating complex numbers</h3>
 
 <p>
 Three functions assemble and disassemble complex numbers.
@@ -4758,7 +4955,7 @@ var rl = real(c64)                 // float32
 
 <p> Two built-in functions, <code>panic</code> and <code>recover</code>,
 assist in reporting and handling <a href="#Run_time_panics">run-time panics</a>
-and program-defined error conditions. 
+and program-defined error conditions.
 </p>
 
 <pre class="grammar">
@@ -4808,7 +5005,7 @@ run-time panics raised by <code>g</code>.
 <pre>
 func protect(g func()) {
 	defer func() {
-		log.Println("done")  // Println executes normally even in there is a panic
+		log.Println("done")  // Println executes normally even if there is a panic
 		if x := recover(); x != nil {
 			log.Printf("run time panic: %v", x)
 		}
@@ -4888,11 +5085,12 @@ An implementation may require that all source files for a package inhabit the sa
 <h3 id="Import_declarations">Import declarations</h3>
 
 <p>
-An import declaration states that the source file containing the
-declaration uses identifiers
-<a href="#Exported_identifiers">exported</a> by the <i>imported</i>
-package and enables access to them.  The import names an
-identifier (PackageName) to be used for access and an ImportPath
+An import declaration states that the source file containing the declaration
+depends on functionality of the <i>imported</i> package
+(<a href="#Program_initialization_and_execution">§Program initialization and execution</a>)
+and it enables access to <a href="#Exported_identifiers">exported</a> identifiers
+of that package.
+The import names an identifier (PackageName) to be used for access and an ImportPath
 that specifies the package to be imported.
 </p>
 
@@ -4904,19 +5102,30 @@ ImportPath       = string_lit .
 
 <p>
 The PackageName is used in <a href="#Qualified_identifiers">qualified identifiers</a>
-to access the exported identifiers of the package within the importing source file.
+to access exported identifiers of the package within the importing source file.
 It is declared in the <a href="#Blocks">file block</a>.
 If the PackageName is omitted, it defaults to the identifier specified in the
 <a href="#Package_clause">package clause</a> of the imported package.
 If an explicit period (<code>.</code>) appears instead of a name, all the
-package's exported identifiers will be declared in the current file's
-file block and can be accessed without a qualifier.
+package's exported identifiers declared in that package's
+<a href="#Blocks">package block</a> will be declared in the importing source
+file's file block and can be accessed without a qualifier.
 </p>
 
 <p>
 The interpretation of the ImportPath is implementation-dependent but
 it is typically a substring of the full file name of the compiled
 package and may be relative to a repository of installed packages.
+</p>
+
+<p>
+Implementation restriction: A compiler may restrict ImportPaths to
+non-empty strings using only characters belonging to
+<a href="http://www.unicode.org/versions/Unicode6.0.0/">Unicode's</a>
+L, M, N, P, and S general categories (the Graphic characters without
+spaces) and may also exclude the characters
+<code>!"#$%&amp;'()*,:;&lt;=&gt;?[\]^`{|}</code>
+and the Unicode replacement character U+FFFD.
 </p>
 
 <p>
@@ -4972,7 +5181,7 @@ func generate(ch chan&lt;- int) {
 // Copy the values from channel 'src' to channel 'dst',
 // removing those divisible by 'prime'.
 func filter(src &lt;-chan int, dst chan&lt;- int, prime int) {
-	for i := range src {	// Loop over values received from 'src'.
+	for i := range src {  // Loop over values received from 'src'.
 		if i%prime != 0 {
 			dst &lt;- i  // Send 'i' to channel 'dst'.
 		}
@@ -5084,12 +5293,6 @@ unspecified results  if <code>A</code>'s initializer calls a function defined
 in another package that refers to <code>B</code>.
 </p>
 <p>
-Initialization code may contain "go" statements, but the functions
-they invoke do not begin execution until initialization of the entire
-program is complete. Therefore, all initialization code is run in a single
-goroutine.
-</p>
-<p>
 An <code>init</code> function cannot be referred to from anywhere
 in a program. In particular, <code>init</code> cannot be called explicitly,
 nor can a pointer to <code>init</code> be assigned to a function variable.
@@ -5108,7 +5311,7 @@ A complete program is created by linking a single, unimported package
 called the <i>main package</i> with all the packages it imports, transitively.
 The main package must
 have package name <code>main</code> and
-declare a function <code>main</code> that takes no 
+declare a function <code>main</code> that takes no
 arguments and returns no value.
 </p>
 
@@ -5119,11 +5322,43 @@ func main() { … }
 <p>
 Program execution begins by initializing the main package and then
 invoking the function <code>main</code>.
-</p>
-<p>
 When the function <code>main</code> returns, the program exits.
 It does not wait for other (non-<code>main</code>) goroutines to complete.
 </p>
+
+<p>
+Package initialization&mdash;variable initialization and the invocation of
+<code>init</code> functions&mdash;happens in a single goroutine,
+sequentially, one package at a time.
+An <code>init</code> function may launch other goroutines, which can run
+concurrently with the initialization code. However, initialization
+always sequences
+the <code>init</code> functions: it will not start the next
+<code>init</code> until
+the previous one has returned.
+</p>
+
+<h2 id="Errors">Errors</h2>
+
+<p>
+The predeclared type <code>error</code> is defined as
+</p>
+
+<pre>
+type error interface {
+	Error() string
+}
+</pre>
+
+<p>
+It is the conventional interface for representing an error condition,
+with the nil value representing no error.
+For instance, a function to read data from a file might be defined:
+</p>
+
+<pre>
+func Read(f *File, b []byte) (n int, err error)
+</pre>
 
 <h2 id="Run_time_panics">Run-time panics</h2>
 
@@ -5132,18 +5367,18 @@ Execution errors such as attempting to index an array out
 of bounds trigger a <i>run-time panic</i> equivalent to a call of
 the built-in function <a href="#Handling_panics"><code>panic</code></a>
 with a value of the implementation-defined interface type <code>runtime.Error</code>.
-That type defines at least the method
-<code>String() string</code>.  The exact error values that
-represent distinct run-time error conditions are unspecified,
-at least for now.
+That type satisfies the predeclared interface type
+<a href="#Errors"><code>error</code></a>.
+The exact error values that
+represent distinct run-time error conditions are unspecified.
 </p>
 
 <pre>
 package runtime
 
 type Error interface {
-	String() string
-	// and perhaps others
+	error
+	// and perhaps other methods
 }
 </pre>
 
@@ -5168,14 +5403,10 @@ type Pointer *ArbitraryType
 func Alignof(variable ArbitraryType) uintptr
 func Offsetof(selector ArbitraryType) uinptr
 func Sizeof(variable ArbitraryType) uintptr
-
-func Reflect(val interface{}) (typ runtime.Type, addr uintptr)
-func Typeof(val interface{}) (typ interface{})
-func Unreflect(typ runtime.Type, addr uintptr) interface{}
 </pre>
 
 <p>
-Any pointer or value of type <code>uintptr</code> can be converted into
+Any pointer or value of <a href="#Types">underlying type</a> <code>uintptr</code> can be converted into
 a <code>Pointer</code> and vice versa.
 </p>
 <p>
@@ -5211,23 +5442,6 @@ Calls to <code>Alignof</code>, <code>Offsetof</code>, and
 <code>Sizeof</code> are compile-time constant expressions of type <code>uintptr</code>.
 </p>
 <p>
-The functions <code>unsafe.Typeof</code>,
-<code>unsafe.Reflect</code>,
-and <code>unsafe.Unreflect</code> allow access at run time to the dynamic
-types and values stored in interfaces.
-<code>Typeof</code> returns a representation of
-<code>val</code>'s
-dynamic type as a <code>runtime.Type</code>.
-<code>Reflect</code> allocates a copy of
-<code>val</code>'s dynamic
-value and returns both the type and the address of the copy.
-<code>Unreflect</code> inverts <code>Reflect</code>,
-creating an
-interface value from a type and address.
-The <a href="/pkg/reflect/"><code>reflect</code> package</a> built on these primitives
-provides a safe, more convenient way to inspect interface values.
-</p>
-
 
 <h3 id="Size_and_alignment_guarantees">Size and alignment guarantees</h3>
 
@@ -5261,12 +5475,6 @@ The following minimal alignment properties are guaranteed:
 </li>
 </ol>
 
-<span class="alert">
-<h2 id="Implementation_differences">Implementation differences - TODO</h2>
-<ul>
-	<li><code>len(a)</code> is only a constant if <code>a</code> is a (qualified) identifier denoting an array or pointer to an array.</li>
-	<li><code>nil</code> maps are not treated like empty maps.</li>
-	<li>Trying to send/receive from a <code>nil</code> channel causes a run-time panic.</li>
-	<li><code>unsafe.Alignof</code>, <code>unsafe.Offsetof</code>, and <code>unsafe.Sizeof</code> return an <code>int</code>.</li>
-</ul>
-</span>
+<p>
+A struct or array type has size zero if it contains no fields (or elements, respectively) that have a size greater than zero. Two distinct zero-size variables may have the same address in memory.
+</p>

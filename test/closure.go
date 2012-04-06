@@ -1,10 +1,14 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Test the behavior of closures.
+
 package main
+
+import "runtime"
 
 var c = make(chan int)
 
@@ -76,8 +80,9 @@ func h() {
 
 func newfunc() func(int) int { return func(x int) int { return x } }
 
-
 func main() {
+	var fail bool
+
 	go f()
 	check([]int{1, 4, 5, 4})
 
@@ -89,17 +94,27 @@ func main() {
 	go h()
 	check([]int{100, 200, 101, 201, 500, 101, 201, 500})
 
+	memstats := new(runtime.MemStats)
+	runtime.ReadMemStats(memstats)
+	n0 := memstats.Mallocs
+
 	x, y := newfunc(), newfunc()
-	if x == y {
-		println("newfunc returned same func")
-		panic("fail")
-	}
 	if x(1) != 1 || y(2) != 2 {
 		println("newfunc returned broken funcs")
-		panic("fail")
+		fail = true
+	}
+
+	runtime.ReadMemStats(memstats)
+	if n0 != memstats.Mallocs {
+		println("newfunc allocated unexpectedly")
+		fail = true
 	}
 
 	ff(1)
+
+	if fail {
+		panic("fail")
+	}
 }
 
 func ff(x int) {

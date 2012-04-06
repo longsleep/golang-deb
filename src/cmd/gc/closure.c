@@ -6,6 +6,8 @@
  * function literals aka closures
  */
 
+#include <u.h>
+#include <libc.h>
 #include "go.h"
 
 void
@@ -57,7 +59,6 @@ closurebody(NodeList *body)
 		body = list1(nod(OEMPTY, N, N));
 
 	func = curfn;
-	l = func->dcl;
 	func->nbody = body;
 	funcbody(func);
 
@@ -129,6 +130,8 @@ makeclosure(Node *func, NodeList **init, int nowrap)
 	static int closgen;
 	char *p;
 
+	USED(init);
+
 	/*
 	 * wrap body in external function
 	 * with extra closure parameters.
@@ -188,6 +191,10 @@ walkclosure(Node *func, NodeList **init)
 	int narg;
 	Node *xtype, *xfunc, *call, *clos;
 	NodeList *l, *in;
+
+	// no closure vars, don't bother wrapping
+	if(func->cvars == nil)
+		return makeclosure(func, init, 1)->nname;
 
 	/*
 	 * wrap body in external function

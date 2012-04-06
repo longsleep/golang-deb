@@ -28,6 +28,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <u.h>
+#include <libc.h>
 #include "gg.h"
 
 void
@@ -278,54 +280,6 @@ dumpfuncs(void)
 	}
 }
 
-/* deferred DATA output */
-static Prog *strdat;
-static Prog *estrdat;
-static int gflag;
-static Prog *savepc;
-
-void
-data(void)
-{
-	gflag = debug['g'];
-	debug['g'] = 0;
-
-	if(estrdat == nil) {
-		strdat = mal(sizeof(*pc));
-		clearp(strdat);
-		estrdat = strdat;
-	}
-	if(savepc)
-		fatal("data phase error");
-	savepc = pc;
-	pc = estrdat;
-}
-
-void
-text(void)
-{
-	if(!savepc)
-		fatal("text phase error");
-	debug['g'] = gflag;
-	estrdat = pc;
-	pc = savepc;
-	savepc = nil;
-}
-
-void
-dumpdata(void)
-{
-	Prog *p;
-
-	if(estrdat == nil)
-		return;
-	*pc = *strdat;
-	if(gflag)
-		for(p=pc; p!=estrdat; p=p->link)
-			print("%P\n", p);
-	pc = estrdat;
-}
-
 int
 dsname(Sym *s, int off, char *t, int n)
 {
@@ -356,6 +310,7 @@ datastring(char *s, int len, Addr *a)
 	sym = stringsym(s, len);
 	a->type = D_EXTERN;
 	a->sym = sym;
+	a->node = sym->def;
 	a->offset = widthptr+4;  // skip header
 	a->etype = TINT32;
 }
@@ -372,6 +327,7 @@ datagostring(Strlit *sval, Addr *a)
 	sym = stringsym(sval->s, sval->len);
 	a->type = D_EXTERN;
 	a->sym = sym;
+	a->node = sym->def;
 	a->offset = 0;  // header
 	a->etype = TINT32;
 }
@@ -381,6 +337,16 @@ gdata(Node *nam, Node *nr, int wid)
 {
 	Prog *p;
 
+	if(nr->op == OLITERAL) {
+		switch(nr->val.ctype) {
+		case CTCPLX:
+			gdatacomplex(nam, nr->val.u.cval);
+			return;
+		case CTSTR:
+			gdatastring(nam, nr->val.u.sval);
+			return;
+		}
+	}
 	p = gins(ADATA, nam, nr);
 	p->from.scale = wid;
 }
@@ -537,8 +503,10 @@ genembedtramp(Type *rcvr, Type *method, Sym *newnam, int iface)
 	int c, d, o, mov, add, loaded;
 	Prog *p;
 	Type *f;
+	
+	USED(iface);
 
-	if(debug['r'])
+	if(0 && debug['r'])
 		print("genembedtramp %T %T %S\n", rcvr, method, newnam);
 
 	e = method->sym;
@@ -619,7 +587,6 @@ out:
 		// but 6l has a bug, and it can't handle
 		// JMP instructions too close to the top of
 		// a new function.
-		p = pc;
 		gins(ANOP, N, N);
 	}
 

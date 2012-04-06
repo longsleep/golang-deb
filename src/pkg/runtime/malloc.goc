@@ -8,12 +8,15 @@
 
 package runtime
 #include "runtime.h"
+#include "arch_GOARCH.h"
 #include "stack.h"
 #include "malloc.h"
-#include "defs.h"
+#include "defs_GOOS_GOARCH.h"
 #include "type.h"
 
+#pragma dataflag 16 /* mark mheap as 'no pointers', hiding from garbage collector */
 MHeap runtime·mheap;
+
 extern MStats mstats;	// defined in extern.go
 
 extern volatile int32 runtime·MemProfileRate;
@@ -80,11 +83,12 @@ runtime·mallocgc(uintptr size, uint32 flag, int32 dogc, int32 zeroed)
 			m->mcache->next_sample -= size;
 		else {
 			// pick next profile time
+			// If you change this, also change allocmcache.
 			if(rate > 0x3fffffff)	// make 2*rate not overflow
 				rate = 0x3fffffff;
 			m->mcache->next_sample = runtime·fastrand1() % (2*rate);
 		profile:
-			runtime·setblockspecial(v);
+			runtime·setblockspecial(v, true);
 			runtime·MProf_Malloc(v, size);
 		}
 	}
@@ -113,7 +117,7 @@ runtime·free(void *v)
 	if(v == nil)
 		return;
 	
-	// If you change this also change mgc0.c:/^sweepspan,
+	// If you change this also change mgc0.c:/^sweep,
 	// which has a copy of the guts of free.
 
 	if(m->mallocing)
@@ -205,6 +209,7 @@ runtime·mlookup(void *v, byte **base, uintptr *size, MSpan **sp)
 MCache*
 runtime·allocmcache(void)
 {
+	int32 rate;
 	MCache *c;
 
 	runtime·lock(&runtime·mheap);
@@ -212,6 +217,14 @@ runtime·allocmcache(void)
 	mstats.mcache_inuse = runtime·mheap.cachealloc.inuse;
 	mstats.mcache_sys = runtime·mheap.cachealloc.sys;
 	runtime·unlock(&runtime·mheap);
+
+	// Set first allocation sample size.
+	rate = runtime·MemProfileRate;
+	if(rate > 0x3fffffff)	// make 2*rate not overflow
+		rate = 0x3fffffff;
+	if(rate != 0)
+		c->next_sample = runtime·fastrand1() % (2*rate);
+
 	return c;
 }
 
@@ -248,13 +261,26 @@ runtime·mallocinit(void)
 	byte *p;
 	uintptr arena_size, bitmap_size;
 	extern byte end[];
+	byte *want;
+	uintptr limit;
+
+	p = nil;
+	arena_size = 0;
+	bitmap_size = 0;
+	
+	// for 64-bit build
+	USED(p);
+	USED(arena_size);
+	USED(bitmap_size);
 
 	runtime·InitSizes();
+
+	limit = runtime·memlimit();
 
 	// Set up the allocation arena, a contiguous area of memory where
 	// allocated data will be found.  The arena begins with a bitmap large
 	// enough to hold 4 bits per allocated word.
-	if(sizeof(void*) == 8) {
+	if(sizeof(void*) == 8 && (limit == 0 || limit > (1<<30))) {
 		// On a 64-bit machine, allocate from a single contiguous reservation.
 		// 16 GB should be big enough for now.
 		//
@@ -277,12 +303,13 @@ runtime·mallocinit(void)
 		// Actually we reserve 17 GB (because the bitmap ends up being 1 GB)
 		// but it hardly matters: fc is not valid UTF-8 either, and we have to
 		// allocate 15 GB before we get that far.
+		//
+		// If this fails we fall back to the 32 bit memory mechanism
 		arena_size = 16LL<<30;
 		bitmap_size = arena_size / (sizeof(void*)*8/4);
 		p = runtime·SysReserve((void*)(0x00f8ULL<<32), bitmap_size + arena_size);
-		if(p == nil)
-			runtime·throw("runtime: cannot reserve arena virtual address space");
-	} else {
+	}
+	if (p == nil) {
 		// On a 32-bit machine, we can't typically get away
 		// with a giant virtual address space reservation.
 		// Instead we map the memory information bitmap
@@ -302,16 +329,26 @@ runtime·mallocinit(void)
 		// of address space, which is probably too much in a 32-bit world.
 		bitmap_size = MaxArena32 / (sizeof(void*)*8/4);
 		arena_size = 512<<20;
+		if(limit > 0 && arena_size+bitmap_size > limit) {
+			bitmap_size = (limit / 9) & ~((1<<PageShift) - 1);
+			arena_size = bitmap_size * 8;
+		}
 		
 		// SysReserve treats the address we ask for, end, as a hint,
 		// not as an absolute requirement.  If we ask for the end
 		// of the data segment but the operating system requires
 		// a little more space before we can start allocating, it will
-		// give out a slightly higher pointer.  That's fine.  
-		// Run with what we get back.
-		p = runtime·SysReserve(end, bitmap_size + arena_size);
+		// give out a slightly higher pointer.  Except QEMU, which
+		// is buggy, as usual: it won't adjust the pointer upward.
+		// So adjust it upward a little bit ourselves: 1/4 MB to get
+		// away from the running binary image and then round up
+		// to a MB boundary.
+		want = (byte*)(((uintptr)end + (1<<18) + (1<<20) - 1)&~((1<<20)-1));
+		p = runtime·SysReserve(want, bitmap_size + arena_size);
 		if(p == nil)
 			runtime·throw("runtime: cannot reserve arena virtual address space");
+		if((uintptr)p & (((uintptr)1<<PageShift)-1))
+			runtime·printf("runtime: SysReserve returned unaligned address %p; asked for %p", p, bitmap_size+arena_size);
 	}
 	if((uintptr)p & (((uintptr)1<<PageShift)-1))
 		runtime·throw("runtime: SysReserve returned unaligned address");
@@ -334,6 +371,22 @@ runtime·MHeap_SysAlloc(MHeap *h, uintptr n)
 {
 	byte *p;
 
+	if(n > h->arena_end - h->arena_used) {
+		// We are in 32-bit mode, maybe we didn't use all possible address space yet.
+		// Reserve some more space.
+		byte *new_end;
+		uintptr needed;
+
+		needed = (uintptr)h->arena_used + n - (uintptr)h->arena_end;
+		// Round wanted arena size to a multiple of 256MB.
+		needed = (needed + (256<<20) - 1) & ~((256<<20)-1);
+		new_end = h->arena_end + needed;
+		if(new_end <= h->arena_start + MaxArena32) {
+			p = runtime·SysReserve(h->arena_end, new_end - h->arena_end);
+			if(p == h->arena_end)
+				h->arena_end = new_end;
+		}
+	}
 	if(n <= h->arena_end - h->arena_used) {
 		// Keep taking from our reservation.
 		p = h->arena_used;
@@ -343,8 +396,8 @@ runtime·MHeap_SysAlloc(MHeap *h, uintptr n)
 		return p;
 	}
 	
-	// On 64-bit, our reservation is all we have.
-	if(sizeof(void*) == 8)
+	// If using 64-bit, our reservation is all we have.
+	if(sizeof(void*) == 8 && (uintptr)h->bitmap >= 0xffffffffU)
 		return nil;
 
 	// On 32-bit, once the reservation is gone we can
@@ -355,7 +408,8 @@ runtime·MHeap_SysAlloc(MHeap *h, uintptr n)
 		return nil;
 
 	if(p < h->arena_start || p+n - h->arena_start >= MaxArena32) {
-		runtime·printf("runtime: memory allocated by OS not in usable range\n");
+		runtime·printf("runtime: memory allocated by OS (%p) not in usable range [%p,%p)\n",
+			p, h->arena_start, h->arena_start+MaxArena32);
 		runtime·SysFree(p, n);
 		return nil;
 	}
@@ -378,8 +432,10 @@ runtime·mal(uintptr n)
 	return runtime·mallocgc(n, 0, 1, 1);
 }
 
-func new(n uint32) (ret *uint8) {
-	ret = runtime·mal(n);
+func new(typ *Type) (ret *uint8) {
+	uint32 flag = typ->kind&KindNoPointers ? FlagNoPointers : 0;
+	ret = runtime·mallocgc(typ->size, flag, 1, 1);
+	FLUSH(&ret);
 }
 
 void*
@@ -418,18 +474,6 @@ runtime·stackfree(void *v, uintptr n)
 	runtime·free(v);
 }
 
-func Alloc(n uintptr) (p *byte) {
-	p = runtime·malloc(n);
-}
-
-func Free(p *byte) {
-	runtime·free(p);
-}
-
-func Lookup(p *byte) (base *byte, size uintptr) {
-	runtime·mlookup(p, &base, &size, nil);
-}
-
 func GC() {
 	runtime·gc(1);
 }
@@ -443,8 +487,7 @@ func SetFinalizer(obj Eface, finalizer Eface) {
 
 	if(obj.type == nil) {
 		runtime·printf("runtime.SetFinalizer: first argument is nil interface\n");
-	throw:
-		runtime·throw("runtime.SetFinalizer");
+		goto throw;
 	}
 	if(obj.type->kind != KindPtr) {
 		runtime·printf("runtime.SetFinalizer: first argument is %S, not pointer\n", *obj.type->string);
@@ -456,11 +499,8 @@ func SetFinalizer(obj Eface, finalizer Eface) {
 	}
 	nret = 0;
 	if(finalizer.type != nil) {
-		if(finalizer.type->kind != KindFunc) {
-		badfunc:
-			runtime·printf("runtime.SetFinalizer: second argument is %S, not func(%S)\n", *finalizer.type->string, *obj.type->string);
-			goto throw;
-		}
+		if(finalizer.type->kind != KindFunc)
+			goto badfunc;
 		ft = (FuncType*)finalizer.type;
 		if(ft->dotdotdot || ft->in.len != 1 || *(Type**)ft->in.array != obj.type)
 			goto badfunc;
@@ -472,11 +512,16 @@ func SetFinalizer(obj Eface, finalizer Eface) {
 			nret += t->size;
 		}
 		nret = (nret + sizeof(void*)-1) & ~(sizeof(void*)-1);
-
-		if(runtime·getfinalizer(obj.data, 0)) {
-			runtime·printf("runtime.SetFinalizer: finalizer already set\n");
-			goto throw;
-		}
 	}
-	runtime·addfinalizer(obj.data, finalizer.data, nret);
+	
+	if(!runtime·addfinalizer(obj.data, finalizer.data, nret)) {
+		runtime·printf("runtime.SetFinalizer: finalizer already set\n");
+		goto throw;
+	}
+	return;
+
+badfunc:
+	runtime·printf("runtime.SetFinalizer: second argument is %S, not func(%S)\n", *finalizer.type->string, *obj.type->string);
+throw:
+	runtime·throw("runtime.SetFinalizer");
 }

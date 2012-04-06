@@ -139,7 +139,9 @@ gclean(void)
 			continue;
 		if(s->type == types[TENUM])
 			continue;
+		textflag = s->dataflag;
 		gpseudo(AGLOBL, s, nodconst(s->type->width));
+		textflag = 0;
 	}
 	nextpc();
 	p->as = AEND;
@@ -357,7 +359,7 @@ regfree(Node *n)
 	if(n->op != OREGISTER && n->op != OINDREG)
 		goto err;
 	i = n->reg;
-	if(i < 0 || i >= sizeof(reg))
+	if(i < 0 || i >= nelem(reg))
 		goto err;
 	if(reg[i] <= 0)
 		goto err;
@@ -1183,7 +1185,8 @@ gpseudo(int a, Sym *s, Node *n)
 	if(a == ATEXT) {
 		p->reg = textflag;
 		textflag = 0;
-	}
+	} else if(a == AGLOBL)
+		p->reg = 0;
 	if(s->class == CSTATIC)
 		p->from.name = D_STATIC;
 	naddr(n, &p->to);

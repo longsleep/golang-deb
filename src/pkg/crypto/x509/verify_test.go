@@ -5,10 +5,13 @@
 package x509
 
 import (
+	"crypto/x509/pkix"
 	"encoding/pem"
-	"os"
+	"errors"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 type verifyTest struct {
@@ -17,8 +20,9 @@ type verifyTest struct {
 	roots         []string
 	currentTime   int64
 	dnsName       string
+	systemSkip    bool
 
-	errorCallback  func(*testing.T, int, os.Error) bool
+	errorCallback  func(*testing.T, int, error) bool
 	expectedChains [][]string
 }
 
@@ -31,7 +35,18 @@ var verifyTests = []verifyTest{
 		dnsName:       "www.google.com",
 
 		expectedChains: [][]string{
-			[]string{"Google", "Thawte", "VeriSign"},
+			{"Google", "Thawte", "VeriSign"},
+		},
+	},
+	{
+		leaf:          googleLeaf,
+		intermediates: []string{thawteIntermediate},
+		roots:         []string{verisignRoot},
+		currentTime:   1302726541,
+		dnsName:       "WwW.GooGLE.coM",
+
+		expectedChains: [][]string{
+			{"Google", "Thawte", "VeriSign"},
 		},
 	},
 	{
@@ -58,6 +73,9 @@ var verifyTests = []verifyTest{
 		currentTime: 1302726541,
 		dnsName:     "www.google.com",
 
+		// Skip when using systemVerify, since Windows
+		// *will* find the missing intermediate cert.
+		systemSkip:    true,
 		errorCallback: expectAuthorityUnknown,
 	},
 	{
@@ -68,7 +86,7 @@ var verifyTests = []verifyTest{
 		dnsName:       "www.google.com",
 
 		expectedChains: [][]string{
-			[]string{"Google", "Thawte", "VeriSign"},
+			{"Google", "Thawte", "VeriSign"},
 		},
 	},
 	{
@@ -78,7 +96,7 @@ var verifyTests = []verifyTest{
 		currentTime:   1302726541,
 
 		expectedChains: [][]string{
-			[]string{"dnssec-exp", "StartCom Class 1", "StartCom Certification Authority"},
+			{"dnssec-exp", "StartCom Class 1", "StartCom Certification Authority"},
 		},
 	},
 	{
@@ -87,14 +105,17 @@ var verifyTests = []verifyTest{
 		roots:         []string{startComRoot},
 		currentTime:   1302726541,
 
+		// Skip when using systemVerify, since Windows
+		// can only return a single chain to us (for now).
+		systemSkip: true,
 		expectedChains: [][]string{
-			[]string{"dnssec-exp", "StartCom Class 1", "StartCom Certification Authority"},
-			[]string{"dnssec-exp", "StartCom Class 1", "StartCom Certification Authority", "StartCom Certification Authority"},
+			{"dnssec-exp", "StartCom Class 1", "StartCom Certification Authority"},
+			{"dnssec-exp", "StartCom Class 1", "StartCom Certification Authority", "StartCom Certification Authority"},
 		},
 	},
 }
 
-func expectHostnameError(t *testing.T, i int, err os.Error) (ok bool) {
+func expectHostnameError(t *testing.T, i int, err error) (ok bool) {
 	if _, ok := err.(HostnameError); !ok {
 		t.Errorf("#%d: error was not a HostnameError: %s", i, err)
 		return false
@@ -102,7 +123,7 @@ func expectHostnameError(t *testing.T, i int, err os.Error) (ok bool) {
 	return true
 }
 
-func expectExpired(t *testing.T, i int, err os.Error) (ok bool) {
+func expectExpired(t *testing.T, i int, err error) (ok bool) {
 	if inval, ok := err.(CertificateInvalidError); !ok || inval.Reason != Expired {
 		t.Errorf("#%d: error was not Expired: %s", i, err)
 		return false
@@ -110,7 +131,7 @@ func expectExpired(t *testing.T, i int, err os.Error) (ok bool) {
 	return true
 }
 
-func expectAuthorityUnknown(t *testing.T, i int, err os.Error) (ok bool) {
+func expectAuthorityUnknown(t *testing.T, i int, err error) (ok bool) {
 	if _, ok := err.(UnknownAuthorityError); !ok {
 		t.Errorf("#%d: error was not UnknownAuthorityError: %s", i, err)
 		return false
@@ -118,28 +139,34 @@ func expectAuthorityUnknown(t *testing.T, i int, err os.Error) (ok bool) {
 	return true
 }
 
-func certificateFromPEM(pemBytes string) (*Certificate, os.Error) {
+func certificateFromPEM(pemBytes string) (*Certificate, error) {
 	block, _ := pem.Decode([]byte(pemBytes))
 	if block == nil {
-		return nil, os.NewError("failed to decode PEM")
+		return nil, errors.New("failed to decode PEM")
 	}
 	return ParseCertificate(block.Bytes)
 }
 
-func TestVerify(t *testing.T) {
+func testVerify(t *testing.T, useSystemRoots bool) {
 	for i, test := range verifyTests {
-		opts := VerifyOptions{
-			Roots:         NewCertPool(),
-			Intermediates: NewCertPool(),
-			DNSName:       test.dnsName,
-			CurrentTime:   test.currentTime,
+		if useSystemRoots && test.systemSkip {
+			continue
 		}
 
-		for j, root := range test.roots {
-			ok := opts.Roots.AppendCertsFromPEM([]byte(root))
-			if !ok {
-				t.Errorf("#%d: failed to parse root #%d", i, j)
-				return
+		opts := VerifyOptions{
+			Intermediates: NewCertPool(),
+			DNSName:       test.dnsName,
+			CurrentTime:   time.Unix(test.currentTime, 0),
+		}
+
+		if !useSystemRoots {
+			opts.Roots = NewCertPool()
+			for j, root := range test.roots {
+				ok := opts.Roots.AppendCertsFromPEM([]byte(root))
+				if !ok {
+					t.Errorf("#%d: failed to parse root #%d", i, j)
+					return
+				}
 			}
 		}
 
@@ -200,6 +227,19 @@ func TestVerify(t *testing.T) {
 	}
 }
 
+func TestGoVerify(t *testing.T) {
+	testVerify(t, false)
+}
+
+func TestSystemVerify(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Logf("skipping verify test using system APIs on %q", runtime.GOOS)
+		return
+	}
+
+	testVerify(t, true)
+}
+
 func chainToDebugString(chain []*Certificate) string {
 	var chainStr string
 	for _, cert := range chain {
@@ -209,6 +249,10 @@ func chainToDebugString(chain []*Certificate) string {
 		chainStr += nameToKey(&cert.Subject)
 	}
 	return chainStr
+}
+
+func nameToKey(name *pkix.Name) string {
+	return strings.Join(name.Country, ",") + "/" + strings.Join(name.Organization, ",") + "/" + strings.Join(name.OrganizationalUnit, ",") + "/" + name.CommonName
 }
 
 const verisignRoot = `-----BEGIN CERTIFICATE-----

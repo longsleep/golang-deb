@@ -8,10 +8,11 @@ package math
 // that sum to f.  Both values have the same sign as f.
 //
 // Special cases are:
-//	Modf(+Inf) = +Inf, NaN
-//	Modf(-Inf) = -Inf, NaN
+//	Modf(±Inf) = ±Inf, NaN
 //	Modf(NaN) = NaN, NaN
-func Modf(f float64) (int float64, frac float64) {
+func Modf(f float64) (int float64, frac float64)
+
+func modf(f float64) (int float64, frac float64) {
 	if f < 1 {
 		if f < 0 {
 			int, frac = Modf(-f)

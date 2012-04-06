@@ -77,7 +77,9 @@ package math
 //	Log(0) = -Inf
 //	Log(x < 0) = NaN
 //	Log(NaN) = NaN
-func Log(x float64) float64 {
+func Log(x float64) float64
+
+func log(x float64) float64 {
 	const (
 		Ln2Hi = 6.93147180369123816490e-01 /* 3fe62e42 fee00000 */
 		Ln2Lo = 1.90821492927058770002e-10 /* 3dea39ef 35793c76 */
@@ -90,11 +92,9 @@ func Log(x float64) float64 {
 		L7    = 1.479819860511658591e-01   /* 3FC2F112 DF3E5244 */
 	)
 
-	// TODO(rsc): Remove manual inlining of IsNaN, IsInf
-	// when compiler does it for us
 	// special cases
 	switch {
-	case x != x || x > MaxFloat64: // IsNaN(x) || IsInf(x, 1):
+	case IsNaN(x) || IsInf(x, 1):
 		return x
 	case x < 0:
 		return NaN()

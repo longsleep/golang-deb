@@ -34,10 +34,7 @@
 #include	"../ld/lib.h"
 #include	"../ld/elf.h"
 
-char *elfstrdat;
-int elfstrsize;
-int maxelfstr;
-int elftextsh;
+static int maxelfstr;
 
 int
 putelfstr(char *s)
@@ -327,14 +324,22 @@ symtab(void)
 {
 	Sym *s;
 
+	dosymtype();
+
 	// Define these so that they'll get put into the symbol table.
 	// data.c:/^address will provide the actual values.
 	xdefine("text", STEXT, 0);
 	xdefine("etext", STEXT, 0);
 	xdefine("rodata", SRODATA, 0);
 	xdefine("erodata", SRODATA, 0);
-	xdefine("data", SBSS, 0);
-	xdefine("edata", SBSS, 0);
+	xdefine("noptrdata", SNOPTRDATA, 0);
+	xdefine("enoptrdata", SNOPTRDATA, 0);
+	xdefine("data", SDATA, 0);
+	xdefine("edata", SDATA, 0);
+	xdefine("bss", SBSS, 0);
+	xdefine("ebss", SBSS, 0);
+	xdefine("noptrbss", SNOPTRBSS, 0);
+	xdefine("enoptrbss", SNOPTRBSS, 0);
 	xdefine("end", SBSS, 0);
 	xdefine("epclntab", SRODATA, 0);
 	xdefine("esymtab", SRODATA, 0);

@@ -39,20 +39,32 @@ int iconv(Fmt*);
 
 char	symname[]	= SYMDEF;
 char	pkgname[]	= "__.PKGDEF";
-char*	libdir[16];
+char**	libdir;
 int	nlibdir = 0;
+static int	maxlibdir = 0;
 static int	cout = -1;
 
 char*	goroot;
 char*	goarch;
 char*	goos;
+char*	theline;
 
 void
 Lflag(char *arg)
 {
-	if(nlibdir >= nelem(libdir)-1) {
-		print("too many -L's: %d\n", nlibdir);
-		usage();
+	char **p;
+
+	if(nlibdir >= maxlibdir) {
+		if (maxlibdir == 0)
+			maxlibdir = 8;
+		else
+			maxlibdir *= 2;
+		p = realloc(libdir, maxlibdir * sizeof(*p));
+		if (p == nil) {
+			print("too many -L's: %d\n", nlibdir);
+			usage();
+		}
+		libdir = p;
 	}
 	libdir[nlibdir++] = arg;
 }
@@ -68,9 +80,14 @@ libinit(void)
 		print("goarch is not known: %s\n", goarch);
 
 	// add goroot to the end of the libdir list.
-	libdir[nlibdir++] = smprint("%s/pkg/%s_%s", goroot, goos, goarch);
+	Lflag(smprint("%s/pkg/%s_%s", goroot, goos, goarch));
 
+	// Unix doesn't like it when we write to a running (or, sometimes,
+	// recently run) binary, so remove the output file before writing it.
+	// On Windows 7, remove() can force the following create() to fail.
+#ifndef _WIN32
 	remove(outfile);
+#endif
 	cout = create(outfile, 1, 0775);
 	if(cout < 0) {
 		diag("cannot create %s", outfile);
@@ -109,7 +126,7 @@ addlib(char *src, char *obj)
 		sprint(name, "");
 		i = 1;
 	} else
-	if(isalpha(histfrog[0]->name[1]) && histfrog[0]->name[2] == ':') {
+	if(isalpha((uchar)histfrog[0]->name[1]) && histfrog[0]->name[2] == ':') {
 		strcpy(name, histfrog[0]->name+1);
 		i = 1;
 	} else
@@ -268,6 +285,7 @@ loadlib(void)
 	for(i=0; i<libraryp; i++) {
 		if(debug['v'])
 			Bprint(&bso, "%5.2f autolib: %s (from %s)\n", cputime(), library[i].file, library[i].objref);
+		iscgo |= strcmp(library[i].pkg, "runtime/cgo") == 0;
 		objfile(library[i].file, library[i].pkg);
 	}
 	
@@ -295,19 +313,27 @@ nextar(Biobuf *bp, int off, struct ar_hdr *a)
 {
 	int r;
 	int32 arsize;
+	char *buf;
 
 	if (off&01)
 		off++;
 	Bseek(bp, off, 0);
-	r = Bread(bp, a, SAR_HDR);
+	buf = Brdline(bp, '\n');
+	r = Blinelen(bp);
+	if(buf == nil) {
+		if(r == 0)
+			return 0;
+		return -1;
+	}
 	if(r != SAR_HDR)
-		return 0;
-	if(strncmp(a->fmag, ARFMAG, sizeof(a->fmag)))
+		return -1;
+	memmove(a, buf, SAR_HDR);
+	if(strncmp(a->fmag, ARFMAG, sizeof a->fmag))
 		return -1;
 	arsize = strtol(a->size, 0, 0);
 	if (arsize&1)
 		arsize++;
-	return arsize + SAR_HDR;
+	return arsize + r;
 }
 
 void
@@ -336,6 +362,7 @@ objfile(char *file, char *pkg)
 		Bseek(f, 0L, 0);
 		ldobj(f, pkg, l, file, FileObj);
 		Bterm(f);
+		free(pkg);
 		return;
 	}
 	
@@ -397,6 +424,7 @@ objfile(char *file, char *pkg)
 
 out:
 	Bterm(f);
+	free(pkg);
 }
 
 void
@@ -424,14 +452,17 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, int whence)
 	magic = c1<<24 | c2<<16 | c3<<8 | c4;
 	if(magic == 0x7f454c46) {	// \x7F E L F
 		ldelf(f, pkg, len, pn);
+		free(pn);
 		return;
 	}
 	if((magic&~1) == 0xfeedface || (magic&~0x01000000) == 0xcefaedfe) {
 		ldmacho(f, pkg, len, pn);
+		free(pn);
 		return;
 	}
 	if(c1 == 0x4c && c2 == 0x01 || c1 == 0x64 && c2 == 0x86) {
 		ldpe(f, pkg, len, pn);
+		free(pn);
 		return;
 	}
 
@@ -457,13 +488,35 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, int whence)
 			return;
 		}
 		diag("%s: not an object file", pn);
+		free(pn);
 		return;
 	}
-	t = smprint("%s %s %s", getgoos(), thestring, getgoversion());
-	if(strcmp(line+10, t) != 0 && !debug['f']) {
+	
+	// First, check that the basic goos, string, and version match.
+	t = smprint("%s %s %s ", goos, thestring, getgoversion());
+	line[n] = ' ';
+	if(strncmp(line+10, t, strlen(t)) != 0 && !debug['f']) {
+		line[n] = '\0';
 		diag("%s: object is [%s] expected [%s]", pn, line+10, t);
 		free(t);
+		free(pn);
 		return;
+	}
+	
+	// Second, check that longer lines match each other exactly,
+	// so that the Go compiler and write additional information
+	// that must be the same from run to run.
+	line[n] = '\0';
+	if(n-10 > strlen(t)) {
+		if(theline == nil)
+			theline = strdup(line+10);
+		else if(strcmp(theline, line+10) != 0) {
+			line[n] = '\0';
+			diag("%s: object is [%s] expected [%s]", pn, line+10, theline);
+			free(t);
+			free(pn);
+			return;
+		}
 	}
 	free(t);
 	line[n] = '\n';
@@ -487,10 +540,12 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, int whence)
 	Bseek(f, import1, 0);
 
 	ldobj1(f, pkg, eof - Boffset(f), pn);
+	free(pn);
 	return;
 
 eof:
 	diag("truncated object file: %s", pn);
+	free(pn);
 }
 
 static Sym*
@@ -870,18 +925,26 @@ unmal(void *v, uint32 n)
  * Convert raw string to the prefix that will be used in the symbol table.
  * Invalid bytes turn into %xx.	 Right now the only bytes that need
  * escaping are %, ., and ", but we escape all control characters too.
+ *
+ * Must be same as ../gc/subr.c:/^pathtoprefix.
  */
 static char*
 pathtoprefix(char *s)
 {
 	static char hex[] = "0123456789abcdef";
-	char *p, *r, *w;
+	char *p, *r, *w, *l;
 	int n;
+
+	// find first character past the last slash, if any.
+	l = s;
+	for(r=s; *r; r++)
+		if(*r == '/')
+			l = r+1;
 
 	// check for chars that need escaping
 	n = 0;
 	for(r=s; *r; r++)
-		if(*r <= ' ' || *r == '.' || *r == '%' || *r == '"')
+		if(*r <= ' ' || (*r == '.' && r >= l) || *r == '%' || *r == '"' || *r >= 0x7f)
 			n++;
 
 	// quick exit
@@ -891,7 +954,7 @@ pathtoprefix(char *s)
 	// escape
 	p = mal((r-s)+1+2*n);
 	for(r=s, w=p; *r; r++) {
-		if(*r <= ' ' || *r == '.' || *r == '%' || *r == '"') {
+		if(*r <= ' ' || (*r == '.' && r >= l) || *r == '%' || *r == '"' || *r >= 0x7f) {
 			*w++ = '%';
 			*w++ = hex[(*r>>4)&0xF];
 			*w++ = hex[*r&0xF];
@@ -1332,7 +1395,7 @@ Yconv(Fmt *fp)
 		fmtprint(fp, "<nil>");
 	} else {
 		fmtstrinit(&fmt);
-		fmtprint(&fmt, "%s @0x%08x [%d]", s->name, s->value, s->size);
+		fmtprint(&fmt, "%s @0x%08llx [%lld]", s->name, (vlong)s->value, (vlong)s->size);
 		for (i = 0; i < s->size; i++) {
 			if (!(i%8)) fmtprint(&fmt,  "\n\t0x%04x ", i);
 			fmtprint(&fmt, "%02x ", s->p[i]);

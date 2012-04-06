@@ -33,6 +33,21 @@
 void
 swit1(C1 *q, int nc, int32 def, Node *n)
 {
+	Node nreg;
+
+	regalloc(&nreg, n, Z);
+	if(typev[n->type->etype])
+		nreg.type = types[TVLONG];
+	else
+		nreg.type = types[TLONG];
+	cgen(n, &nreg);
+	swit2(q, nc, def, &nreg);
+	regfree(&nreg);
+}
+
+void
+swit2(C1 *q, int nc, int32 def, Node *n)
+{
 	C1 *r;
 	int i;
 	Prog *sp;
@@ -58,12 +73,12 @@ swit1(C1 *q, int nc, int32 def, Node *n)
 	gbranch(OGOTO);
 	p->as = AJEQ;
 	patch(p, r->label);
-	swit1(q, i, def, n);
+	swit2(q, i, def, n);
 
 	if(debug['W'])
 		print("case < %.8llux\n", r->val);
 	patch(sp, pc);
-	swit1(r+1, nc-i-1, def, n);
+	swit2(r+1, nc-i-1, def, n);
 }
 
 void
@@ -331,17 +346,13 @@ outhist(Biobuf *b)
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
 		op = 0;
-		/* on windows skip drive specifier in pathname */
 		if(systemtype(Windows) && p && p[1] == ':'){
-			p += 2;
-			c = *p;
-		}
-		if(p && p[0] != c && h->offset == 0 && pathname){
-			/* on windows skip drive specifier in pathname */
+			c = p[2];
+		} else if(p && p[0] != c && h->offset == 0 && pathname){
 			if(systemtype(Windows) && pathname[1] == ':') {
 				op = p;
-				p = pathname+2;
-				c = *p;
+				p = pathname;
+				c = p[2];
 			} else if(pathname[0] == c){
 				op = p;
 				p = pathname;

@@ -1,4 +1,4 @@
-// $G $D/$F.go && $L $F.$A && ./$A.out || echo BUG: bug285
+// run
 
 // Copyright 2010 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -44,20 +44,6 @@ func main() {
 	mp[nil] = 42
 	mp[p] = 42
 	mp[&T{7}] = 42
-
-	type F func(x int)
-	f := func(x int) {}
-	mf := make(map[F]int)
-	mf[nil] = 42
-	mf[f] = 42
-	mf[func(x int) {}] = 42
-
-	type M map[int]int
-	m := make(M)
-	mm := make(map[M]int)
-	mm[nil] = 42
-	mm[m] = 42
-	mm[make(M)] = 42
 
 	type C chan int
 	c := make(C)

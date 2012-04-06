@@ -1,13 +1,15 @@
-// $G $F.go && $L $F.$A && ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Test that heavy recursion works. Simple torture test for
+// segmented stacks: do math in unary by recursion.
+
 package main
 
 type Number *Number
-
 
 // -------------------------------------
 // Peano primitives
@@ -16,11 +18,9 @@ func zero() *Number {
 	return nil
 }
 
-
 func is_zero(x *Number) bool {
 	return x == nil
 }
-
 
 func add1(x *Number) *Number {
 	e := new(Number)
@@ -28,11 +28,9 @@ func add1(x *Number) *Number {
 	return e
 }
 
-
 func sub1(x *Number) *Number {
 	return *x
 }
-
 
 func add(x, y *Number) *Number {
 	if is_zero(y) {
@@ -42,7 +40,6 @@ func add(x, y *Number) *Number {
 	return add(add1(x), sub1(y))
 }
 
-
 func mul(x, y *Number) *Number {
 	if is_zero(x) || is_zero(y) {
 		return zero()
@@ -51,7 +48,6 @@ func mul(x, y *Number) *Number {
 	return add(mul(x, sub1(y)), x)
 }
 
-
 func fact(n *Number) *Number {
 	if is_zero(n) {
 		return add1(zero())
@@ -59,7 +55,6 @@ func fact(n *Number) *Number {
 
 	return mul(fact(sub1(n)), n)
 }
-
 
 // -------------------------------------
 // Helpers to generate/count Peano integers
@@ -72,7 +67,6 @@ func gen(n int) *Number {
 	return zero()
 }
 
-
 func count(x *Number) int {
 	if is_zero(x) {
 		return 0
@@ -81,7 +75,6 @@ func count(x *Number) int {
 	return count(sub1(x)) + 1
 }
 
-
 func check(x *Number, expected int) {
 	var c = count(x)
 	if c != expected {
@@ -89,7 +82,6 @@ func check(x *Number, expected int) {
 		panic("fail")
 	}
 }
-
 
 // -------------------------------------
 // Test basic functionality
@@ -115,12 +107,19 @@ func init() {
 	check(fact(gen(5)), 120)
 }
 
-
 // -------------------------------------
 // Factorial
 
+var results = [...]int{
+	1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800,
+	39916800, 479001600,
+}
+
 func main() {
 	for i := 0; i <= 9; i++ {
-		print(i, "! = ", count(fact(gen(i))), "\n")
+		if f := count(fact(gen(i))); f != results[i] {
+			println("FAIL:", i, "!:", f, "!=", results[i])
+			panic(0)
+		}
 	}
 }

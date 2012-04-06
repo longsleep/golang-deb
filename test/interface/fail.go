@@ -1,10 +1,10 @@
-// $G $D/$F.go && $L $F.$A && ! ./$A.out
+// run
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Check that interface conversion fails when method is missing.
+// Test that interface conversion fails when method is missing.
 
 package main
 
@@ -13,6 +13,10 @@ type I interface {
 }
 
 func main() {
+	shouldPanic(p1)
+}
+
+func p1() {
 	var s *S
 	var i I
 	var e interface {}
@@ -21,6 +25,14 @@ func main() {
 	_ = i
 }
 
-// hide S down here to avoid static warning
 type S struct {
+}
+
+func shouldPanic(f func()) {
+	defer func() {
+		if recover() == nil {
+			panic("function should panic")
+		}
+	}()
+	f()
 }
