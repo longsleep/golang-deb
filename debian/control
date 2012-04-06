@@ -1,4 +1,4 @@
-Source: golang-
+Source: golang
 Section: devel
 Priority: optional
 Maintainer: Ondřej Surý <ondrej@debian.org>
