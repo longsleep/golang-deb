@@ -1,3 +1,10 @@
+golang (2:1-2) unstable; urgency=low
+
+  * Remove preserving of old -tools settings, there are too many options
+    now anyway (Closes: #666007)
+
+ -- Ondřej Surý <ondrej@debian.org>  Fri, 06 Apr 2012 16:52:13 +0200
+
 golang (2:1-1) unstable; urgency=low
 
   * New major upstream release Go 1 (Closes: #666942)
