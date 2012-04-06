@@ -18,13 +18,13 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../golang-tools.templates:2001
+#: ../golang-go.templates:2001
 msgid "Report installation of public packages to Go Dashboard?"
 msgstr "Nahlašovat instalaci veřejných balíčků do Go Dashboard?"
 
 #. Type: boolean
 #. Description
-#: ../golang-tools.templates:2001
+#: ../golang-go.templates:2001
 msgid ""
 "The goinstall program reports the successful installation of the public Go "
 "packages to godashboard.appspot.com, which increments a count associated "
@@ -40,7 +40,7 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../golang-tools.templates:2001
+#: ../golang-go.templates:2001
 msgid ""
 "If you choose to participate, each successful installation will be reported "
 "to the Go Dashboard."
@@ -50,8 +50,8 @@ msgstr ""
 
 #. Type: boolean
 #. Description
-#: ../golang-tools.templates:2001
+#: ../golang-go.templates:2001
 msgid ""
-"This choice can be modified by running \"dpkg-reconfigure golang-tools\"."
+"This choice can be modified by running \"dpkg-reconfigure golang-go\"."
 msgstr ""
 "Tuto volbu lze změnit spuštěním \"dpkg-reconfigure golang-go\"."
