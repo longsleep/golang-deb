@@ -12,9 +12,9 @@ Homepage: http://golang.org/
 Package: golang-go
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
-Replaces: golang-tools
+Replaces: golang-weekly-go, golang-weekly-tools, golang-tools
 Conflicts: golang-weekly-go, golang-weekly-tools, golang-tools
-Provides: go-compiler, golang-weekly-go, golang-tools
+Provides: go-compiler, golang-weekly-go, golang-weekly-tools, golang-tools
 Description: Go programming language compiler
  The Go programming language is an open source project to make
  programmers more productive. Go is expressive, concise, clean, and
@@ -31,6 +31,7 @@ Description: Go programming language compiler
  tool chain.
 
 Package: golang-src
+Replaces: golang-weekly-src
 Conflicts: golang-weekly-src
 Provides: golang-weekly-src
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
@@ -50,6 +51,7 @@ Description: Go programming language compiler - source files
  for godoc and goinstall.
 
 Package: golang-doc
+Replaces: golang-weekly-doc
 Conflicts: golang-weekly-doc
 Provides: golang-weekly-doc
 Architecture: all
@@ -71,6 +73,7 @@ Description: Go programming language compiler - documentation
  --http=:6060", and then visiting http://localhost:6060/doc/install.html.
 
 Package: golang-dbg
+Replaces: golang-weekly-dbg
 Conflicts: golang-weekly-dbg
 Provides: golang-weekly-dbg
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
@@ -94,6 +97,9 @@ Description: Go programming language compiler - debug files
  debugging errors in the tool chain with gdb.
 
 Package: golang
+Replaces: golang-weekly
+Conflicts: golang-weekly
+Provides: golang-weekly
 Depends: ${misc:Depends},
 	 golang-go (>= ${source:Version}),
 	 golang-src (>= ${source:Version}),
