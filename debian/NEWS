@@ -1,4 +1,4 @@
-golang (1:1-1) unstable; urgency=low
+golang (2:1-1) unstable; urgency=low
 
   Go 1 is a major release of Go that will be stable in the long term.
   It is intended that programs written for Go 1 will continue to compile
