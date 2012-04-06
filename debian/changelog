@@ -1,3 +1,9 @@
+golang (1:1-1) unstable; urgency=low
+
+  * New major upstream release Go 1
+
+ -- Ondřej Surý <ondrej@debian.org>  Fri, 06 Apr 2012 16:04:17 +0200
+
 golang (1:60.3-2) unstable; urgency=low
 
   * debconf-gettextize package templates
