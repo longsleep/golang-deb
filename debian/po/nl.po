@@ -5,10 +5,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: golang 2012.01.27-3\n"
+"Project-Id-Version: golang 1:60.3-3\n"
 "Report-Msgid-Bugs-To: golang@packages.debian.org\n"
-"POT-Creation-Date: 2012-03-01 07:32+0100\n"
-"PO-Revision-Date: 2012-03-12 10:12+0100\n"
+"POT-Creation-Date: 2012-03-17 08:50+0100\n"
+"PO-Revision-Date: 2012-03-19 10:27+0100\n"
 "Last-Translator: Jeroen Schot <schot@a-eskwadraat.nl>\n"
 "Language-Team: Debian l10n Dutch <debian-l10n-dutch@lists.debian.org>\n"
 "Language: nl\n"
@@ -52,8 +52,7 @@ msgstr ""
 #. Description
 #: ../golang-go.templates:2001
 msgid ""
-"This choice can be modified by running \"dpkg-reconfigure golang-go"
-"\"."
+"This choice can be modified by running \"dpkg-reconfigure golang-go\"."
 msgstr ""
 "U kunt uw keuze altijd nog herzien via het commando \"dpkg-reconfigure "
 "golang-go\"."

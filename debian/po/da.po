@@ -2,12 +2,13 @@
 # Copyright (C) 2012 golang & nedenstående oversættere.
 # This file is distributed under the same license as the golang package.
 # Joe Hansen (joedalton2@yahoo.dk), 2012.
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: golang\n"
 "Report-Msgid-Bugs-To: golang@packages.debian.org\n"
-"POT-Creation-Date: 2012-03-01 07:32+0100\n"
-"PO-Revision-Date: 2012-03-02 12:42+0000\n"
+"POT-Creation-Date: 2012-03-17 08:50+0100\n"
+"PO-Revision-Date: 2012-03-31 12:52+0000\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
 "Language: da\n"
@@ -31,9 +32,9 @@ msgid ""
 "mechanism powers the package list at the Go Dashboard, allowing Go "
 "programmers to learn about popular packages that might be worth looking at."
 msgstr ""
-"goinstall rapporterer installationen af de offentlige Go-pakker til "
-"godashboard.appspot.com, som trinvis øger en optælling forbundet med pakken "
-"og tidspunktet for dets seneste installation. Denne mekanisme styrer "
+"Programmet goinstall rapporterer installationen af de offentlige Go-pakker "
+"til godashboard.appspot.com, som trinvis øger en optælling forbundet med "
+"pakken og tidspunktet for dets seneste installation. Denne mekanisme styrer "
 "pakkelisten for Go Dashboard, så at Go-programmører kan få viden om populære "
 "pakker, som kan være interessante at kigge på."
 
@@ -44,13 +45,12 @@ msgid ""
 "If you choose to participate, each successful installation will be reported "
 "to the Go Dashboard."
 msgstr ""
-"Hvis du vælger at deltage, så vil hver succesfuld installation blive "
-"rapporteret til Go Dashboard."
+"Hvis du vælger at deltage, så vil goinstall rapportere hver succesfuld "
+"installation til Go Dashboard."
 
 #. Type: boolean
 #. Description
 #: ../golang-go.templates:2001
 msgid ""
 "This choice can be modified by running \"dpkg-reconfigure golang-go\"."
-msgstr ""
-"Dette valg kan ændres ved at køre »dpkg-reconfigure golang-go«."
+msgstr "Dette valg kan ændres ved at køre »dpkg-reconfigure golang-go«."
