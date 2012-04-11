@@ -24,7 +24,7 @@ override_dh_auto_build: debian/build.stamp
 
 override_dh_auto_test:
 	:
-#	$(no_check) || { cd src && bash ./run.bash --no-rebuild; }
+	$(no_check) || { cd $(CURDIR)/src && $(CURDIR)/debian/test.bash $(GOROOT)/pkg/tool/$(GOHOSTOS)_$(GOHOSTARCH); }
 
 override_dh_compress:
 	dh_compress -Xusr/share/doc/$(PACKAGE)-doc/html -Xusr/share/doc/$(PACKAGE)-doc/godoc
@@ -41,7 +41,7 @@ override_dh_strip:
 debian/build.stamp:
 	rm -f debian/build.stamp
 	mkdir -p $(GOBIN)
-	+cd src && bash ./make.bash
+	+cd src && bash ./make.bash --no-banner
 	>debian/build.stamp
 
 opt_no_act =
