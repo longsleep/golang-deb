@@ -2,6 +2,3 @@ bin/go /usr/bin
 bin/godoc /usr/bin
 bin/gofmt /usr/bin
 pkg /usr/lib/go/
-src/Make.* /usr/share/go/src/
-src/pkg/runtime/cgocall.h /usr/share/go/src/pkg/runtime/
-src/pkg/runtime/runtime.h /usr/share/go/src/pkg/runtime/
