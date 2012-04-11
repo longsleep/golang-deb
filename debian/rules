@@ -8,7 +8,7 @@ libexecdir := /usr/lib/go
 datadir := /usr/share/go
 bindir := /bin
 
-build clean install binary-arch binary-indep binary: debian/control
+build-arch build-indep build clean install binary-arch binary-indep binary: debian/control
 	+dh --parallel $(opt_no_act) $@
 
 override_dh_auto_clean:
