@@ -62,6 +62,8 @@ case "$1" in
 		rm $conffile.new
 	    fi
 	fi
+	# Very ugly hack to set timestamps same as /usr/bin/go
+	find /usr/lib/go/pkg -exec touch -r /usr/bin/go {} \;
 	;;
     *)
 	;;
