@@ -11,6 +11,7 @@ golang (2:1-3) unstable; urgency=high
     more recent timestamp than libraries (Closes: #668235)
     + Need to update timestamps at postinst time because already created
       directories can have time in the past
+  * Fix couple of lintian errors and warnings
 
  -- Ondřej Surý <ondrej@debian.org>  Wed, 11 Apr 2012 23:21:47 +0200
 
