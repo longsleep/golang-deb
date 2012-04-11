@@ -12,18 +12,14 @@ build clean install binary-arch binary-indep binary: debian/control
 	+dh --parallel $(opt_no_act) $@
 
 override_dh_auto_clean:
-	rm -rf bin
+	rm -rf bin pkg
 	rm -f debian/*+
 	rm -f debian/build.stamp
-	: NEEDSWORK: update src/pkg/Makefile.
-	#cd src/pkg && $(GOBIN)/gomake exp/ogle.clean
-	rm -f src/pkg/Make.deps
 	rm -f test/pass.out test/run.out test/times.out
 
 override_dh_auto_build: debian/build.stamp
 
 override_dh_auto_test:
-	:
 	$(no_check) || { cd $(CURDIR)/src && $(CURDIR)/debian/test.bash $(GOROOT)/pkg/tool/$(GOHOSTOS)_$(GOHOSTARCH); }
 
 override_dh_compress:
@@ -31,7 +27,9 @@ override_dh_compress:
 
 override_dh_install:
 	dh_install --fail-missing
-	rm -r $(CURDIR)/debian/golang-src/usr/share/go/src/pkg/debug/
+	# Remove testdata and tests from installed src directory
+	find $(CURDIR)/debian/golang-src/usr/share/go/src -type d -name testdata -prune -execdir rm -rf {} \;
+	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name '*_test.go' -delete
 
 override_dh_strip:
 	dh_strip -X".a" -Xgoinstall -Xgodoc -Xgoyacc -Xbin/cgo -Xebnflint -Xgofix -Xgofmt -Xgovet -Xgotest --dbg-package=$(PACKAGE)-dbg
