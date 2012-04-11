@@ -11,7 +11,8 @@ Homepage: http://golang.org/
 
 Package: golang-go
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
-Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends},
+	 golang-src (>= ${source:Version})
 Replaces: golang-weekly-go, golang-weekly-tools, golang-tools
 Conflicts: golang-weekly-go, golang-weekly-tools, golang-tools
 Provides: go-compiler, golang-weekly-go, golang-weekly-tools, golang-tools
@@ -31,9 +32,10 @@ Description: Go programming language compiler
  tool chain.
 
 Package: golang-src
-Replaces: golang-weekly-src
+Replaces: golang-weekly-src, golang-go (<< 2:1-3~)
 Conflicts: golang-weekly-src
 Provides: golang-weekly-src
+Breaks: golang-go (<< 2:1-3~)
 Architecture: i386 amd64 kfreebsd-i386 kfreebsd-amd64 armel armhf
 Depends: ${shlibs:Depends}, ${misc:Depends}, golang-go
 Description: Go programming language compiler - source files
