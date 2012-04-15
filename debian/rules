@@ -21,7 +21,13 @@ override_dh_auto_clean:
 override_dh_auto_build: debian/build.stamp
 
 override_dh_auto_test:
-	$(no_check) || { cd $(CURDIR)/src && mkdir $(CURDIR)/debian/home && HOME=$(CURDIR)/debian/home $(CURDIR)/debian/test.bash $(GOROOT)/pkg/tool/$(GOHOSTOS)_$(GOHOSTARCH); }
+ifeq ($(RUN_TEST), true)
+	cd $(CURDIR)/src && \
+	mkdir $(CURDIR)/debian/home && \
+	HOME=$(CURDIR)/debian/home $(CURDIR)/debian/test.bash $(GOROOT)/pkg/tool/$(GOHOSTOS)_$(GOHOSTARCH);
+else
+	:
+endif
 
 override_dh_compress:
 	dh_compress -Xusr/share/doc/$(PACKAGE)-doc/html -Xusr/share/doc/$(PACKAGE)-doc/godoc
@@ -49,7 +55,7 @@ debian/build.stamp:
 	>debian/build.stamp
 
 opt_no_act =
-no_check = ! :
+RUN_TEST := true
 
 ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
     $(warning no support for disabling optimization)
@@ -60,7 +66,7 @@ ifneq (,$(findstring n,$(MAKEFLAGS)))
 endif
 
 ifneq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-    no_check = :
+    RUN_TEST := false
 endif
 
 GOROOT := $(CURDIR)
@@ -75,6 +81,7 @@ DEB_BUILD_ARCH_OS := $(shell dpkg-architecture -qDEB_BUILD_ARCH_OS 2>/dev/null)
 DEB_BUILD_ARCH_CPU := $(shell dpkg-architecture -qDEB_BUILD_ARCH_CPU 2>/dev/null)
 
 ifeq ($(DEB_BUILD_ARCH_OS), kfreebsd)
+    RUN_TEST := false
     GOHOSTOS := freebsd
 else ifeq ($(DEB_BUILD_ARCH_OS), linux)
     GOHOSTOS := linux
@@ -83,7 +90,7 @@ else
 endif
 
 ifeq ($(DEB_HOST_ARCH_OS), kfreebsd)
-    no_check := ! :
+    RUN_TEST := false
     GOOS := freebsd
 else ifeq ($(DEB_HOST_ARCH_OS), linux)
     GOOS := linux
@@ -113,7 +120,7 @@ else ifeq ($(DEB_HOST_ARCH_CPU), arm)
     GOARCH := arm
     GOPREFIX := 5
 ifeq ($(DEB_HOST_ARCH), armel)
-    nocheck := ! :
+    RUN_TEST := false
     GOARM := 5
 else ifeq ($(DEB_HOST_ARCH), armhf)
     GOARM := 6
