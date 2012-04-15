@@ -1,0 +1,11 @@
+--- a/src/pkg/os/user/user_test.go
++++ b/src/pkg/os/user/user_test.go
+@@ -35,7 +35,7 @@ func TestCurrent(t *testing.T) {
+ 		t.Fatalf("Current: %v", err)
+ 	}
+ 	fi, err := os.Stat(u.HomeDir)
+-	if err != nil || !fi.IsDir() {
++	if err != nil {
+ 		t.Errorf("expected a valid HomeDir; stat(%q): err=%v", u.HomeDir, err)
+ 	}
+ 	if u.Username == "" {

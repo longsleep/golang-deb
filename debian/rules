@@ -23,8 +23,7 @@ override_dh_auto_build: debian/build.stamp
 override_dh_auto_test:
 ifeq ($(RUN_TEST), true)
 	cd $(CURDIR)/src && \
-	mkdir $(CURDIR)/debian/home && \
-	HOME=$(CURDIR)/debian/home $(CURDIR)/debian/test.bash $(GOROOT)/pkg/tool/$(GOHOSTOS)_$(GOHOSTARCH);
+	$(CURDIR)/debian/test.bash $(GOROOT)/pkg/tool/$(GOHOSTOS)_$(GOHOSTARCH);
 else
 	:
 endif
