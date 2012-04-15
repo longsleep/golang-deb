@@ -112,6 +112,7 @@ else ifeq ($(DEB_HOST_ARCH_CPU), arm)
     GOARCH := arm
     GOPREFIX := 5
 ifeq ($(DEB_HOST_ARCH), armel)
+    nocheck := ! :
     GOARM := 5
 else ifeq ($(DEB_HOST_ARCH), armhf)
     GOARM := 6
