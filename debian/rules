@@ -82,6 +82,7 @@ else
 endif
 
 ifeq ($(DEB_HOST_ARCH_OS), kfreebsd)
+    no_check := ! :
     GOOS := freebsd
 else ifeq ($(DEB_HOST_ARCH_OS), linux)
     GOOS := linux
