@@ -1,3 +1,11 @@
+golang (2:1-6) unstable; urgency=low
+
+  * Merge upstream patch to fix homedir issue
+    (http://code.google.com/p/go/source/detail?r=709120aecee0)
+  * Disable GNU/KFreeBSD build (Closes: #668794)
+
+ -- Ondřej Surý <ondrej@debian.org>  Wed, 18 Apr 2012 09:53:30 +0200
+
 golang (2:1-5) unstable; urgency=low
 
   * Rewrite test conditions to make them more readable
