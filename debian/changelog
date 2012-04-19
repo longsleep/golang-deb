@@ -1,3 +1,9 @@
+golang (2:1-7) unstable; urgency=low
+
+  * Apply godoc patch to display package list correctly (Closes: #669354)
+
+ -- Ondřej Surý <ondrej@debian.org>  Thu, 19 Apr 2012 14:35:57 +0200
+
 golang (2:1-6) unstable; urgency=low
 
   * Merge upstream patch to fix homedir issue
