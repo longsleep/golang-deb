@@ -9,3 +9,4 @@
 #012-sigfillset_kFreeBSD.patch
 #013-kFreeBSD-AI_MASK.patch
 014-dont_fail_test_with_missing_homedir.patch
+godoc-symlinks.diff
