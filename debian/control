@@ -123,7 +123,7 @@ Description: Go programming language compiler - metapackage
 
 Package: golang-mode
 Architecture: all
-Depends: ${misc:Depends}, emacs23 | emacsen
+Depends: ${misc:Depends}, emacs23 | emacsen, emacsen-common (>= 1.4.14)
 Suggests: golang-go
 Description: Go programming language - mode for GNU Emacs
  This package provides a GNU Emacs major mode for editing code in

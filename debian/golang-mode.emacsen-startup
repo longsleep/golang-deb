@@ -2,6 +2,6 @@
 
 (let ((path "/usr/share/emacs/site-lisp/golang-mode"))
   (when (file-exists-p path)
-    (add-to-list 'load-path path t)
+    (debian-pkg-add-load-path-item path)
     (require 'go-mode-load)))
 
