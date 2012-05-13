@@ -1,0 +1,209 @@
+.\"                                      Hey, EMACS: -*- nroff -*-
+.de Vb \" Begin verbatim text
+.ft CW
+.nf
+.ne \\$1
+..
+.de Ve \" End verbatim text
+.ft R
+.fi
+..
+.TH GODOC 1 "2012-05-13"
+.\" Please adjust this date whenever revising the manpage.
+.SH NAME
+godoc \- extracts and generates documentation for Go programs
+.SH SYNOPSIS
+.B godoc
+.RI [ flag ]
+.RI command
+.RI [
+.IR "name ..."
+.RI ]
+.SH DESCRIPTION
+Godoc extracts and generates documentation for Go programs.
+
+It has two modes.
+
+Without the \-http flag, it runs in command-line mode and prints plain
+text documentation to standard output and exits. If both a library
+package and a command with the same name exists, using the prefix cmd/
+will force documentation on the command rather than the library package.
+If the \-src flag is specified, godoc prints the exported interface of a
+package in Go source form, or the implementation of a specific exported
+language entity:
+
+.Vb 6
+\&      godoc fmt                # documentation for package fmt
+\&      godoc fmt Printf         # documentation for fmt.Printf
+\&      godoc cmd/go             # force documentation for the go command
+\&      godoc \-src fmt           # fmt package interface in Go source form
+\&      godoc \-src fmt Printf    # implementation of fmt.Printf
+.Ve
+
+In command-line mode, the \-q flag enables search queries against a godoc
+running as a webserver. If no explicit server address is specified with
+the \-server flag, godoc first tries localhost:6060 and then
+http://golang.org.
+
+.Vb 6
+\&      godoc \-q Reader
+\&      godoc \-q math.Sin
+\&      godoc \-server=:6060 \-q sin
+.Ve
+
+With the \-http flag, it runs as a web server and presents the
+documentation as a web page.
+
+.Vb 6
+\&      godoc \-http=:6060
+.Ve
+
+By default, godoc looks at the packages it finds via $GOROOT and $GOPATH
+(if set). Additional directories may be specified via the \-path flag
+which accepts a list of colon-separated paths; unrooted paths are
+relative to the current working directory. Each path is considered as an
+additional root for packages in order of appearance. The last (absolute)
+path element is the prefix for the package path. For instance, given the
+flag value:
+
+.Vb 6
+\&      path=".:/home/bar:/public"
+.Ve
+
+for a godoc started in /home/user/godoc, absolute paths are mapped to
+package paths as follows:
+
+.Vb 6
+\&      /home/user/godoc/x -> godoc/x
+\&      /home/bar/x        -> bar/x
+\&      /public/x          -> public/x
+.Ve
+
+When godoc runs as a web server and \-index is set, a search index is
+maintained. The index is created at startup.
+
+The index contains both identifier and full text search information
+(searchable via regular expressions). The maximum number of full text
+search results shown can be set with the \-maxresults flag; if set to 0,
+no full text results are shown, and only an identifier index but no full
+text search index is created.
+
+The presentation mode of web pages served by godoc can be controlled
+with the "m" URL parameter; it accepts a comma-separated list of flag
+names as value:
+
+.TP
+.B all
+show documentation for all declarations, not just the exported ones
+.TP
+.B methods
+show all embedded methods, not just those of unexported anonymous fields
+.TP
+.B src
+show the original source code rather then the extracted documentation
+.TP
+.B text
+present the page in textual (command-line) form rather than HTML
+.TP
+.B flat
+present flat (not indented) directory listings using full paths
+.P
+For instance, http://golang.org/pkg/math/big/?m=all,text shows the
+documentation for all (not just the exported) declarations of package
+big, in textual form (as it would appear when using godoc from the
+command line: "godoc \-src math/big .*").
+
+By default, godoc serves files from the file system of the underlying
+OS. Instead, a .zip file may be provided via the \-zip flag, which
+contains the file system to serve. The file paths stored in the .zip
+file must use slash ('/') as path separator; and they must be unrooted.
+$GOROOT (or \-goroot) must be set to the .zip file directory path
+containing the Go root directory. For instance, for a .zip file created
+by the command:
+
+.Vb 6
+\&      zip go.zip $HOME/go
+.Ve
+
+one may run godoc as follows:
+
+.Vb 6
+\&      godoc \-http=:6060 \-zip=go.zip \-goroot=$HOME/go
+.Ve
+
+See "Godoc: documenting Go code" for how to write good comments for
+godoc: http://golang.org/doc/articles/godoc_documenting_go_code.html
+
+.SH OPTIONS
+
+.TP
+.B \-v
+verbose mode
+.TP
+.B \-q
+arguments are considered search queries: a legal query is a
+single identifier (such as ToLower) or a qualified identifier
+(such as math.Sin).
+.TP
+.B \-src
+print (exported) source in command-line mode
+.TP
+.B \-tabwidth=4
+width of tabs in units of spaces
+.TP
+.B \-timestamps=true
+show timestamps with directory listings
+.TP
+.B \-index
+enable identifier and full text search index
+(no search box is shown if \-index is not set)
+.TP
+.B \-index_files=""
+glob pattern specifying index files; if not empty,
+the index is read from these files in sorted order
+.TP
+.B \-index_throttle=0.75
+index throttle value; a value of 0 means no time is allocated
+to the indexer (the indexer will never finish), a value of 1.0
+means that index creation is running at full throttle (other
+goroutines may get no time while the index is built)
+.TP
+.B \-write_index=false
+write index to a file; the file name must be specified with
+\-index_files
+.TP
+.B \-maxresults=10000
+maximum number of full text search results shown
+(no full text index is built if maxresults <= 0)
+.TP
+.B \-path=""
+additional package directories (colon-separated)
+.TP
+.B \-html
+print HTML in command-line mode
+.TP
+.B \-goroot=$GOROOT
+Go root directory
+.TP
+.B \-http=addr
+HTTP service address (e.g., '127.0.0.1:6060' or just ':6060')
+.TP
+.B \-server=addr
+webserver address for command line searches
+.TP
+.B \-templates=""
+directory containing alternate template files; if set,
+the directory may provide alternative template files
+for the files in $GOROOT/lib/godoc
+.TP
+.B \-url=path
+print to standard output the data that would be served by
+an HTTP request for path
+.TP
+.B \-zip=""
+zip file providing the file system to serve; disabled if empty
+
+.SH AUTHOR
+.PP
+This manual page was written by Michael Stapelberg <stapelberg@debian.org>,
+for the Debian project (and may be used by others).
