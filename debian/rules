@@ -132,22 +132,4 @@ endif
 
 export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
 
-REPO = https://go.googlecode.com/hg/
-GOLANG_ORIG_DIR = $(CURDIR)/../go
-REV = release
-get-orig-source:
-	-set -e; \
-	if [ ! -d $(GOLANG_ORIG_DIR) ]; then \
-		hg clone -r"$(REV)" "$(REPO)" "$(GOLANG_ORIG_DIR)"; \
-	fi
-	cd "$(GOLANG_ORIG_DIR)"; \
-	hg pull; \
-	hg update "$(REV)"; \
-	VERSION=$$(cat VERSION | perl -e '<> =~ /go([\d.]+)/; print "$$1"'); \
-	hg archive -tfiles -r"$(REV)" -X'.hg*' -X'doc/talks/go_talk-20091030.pdf' "$(CURDIR)/../$(PACKAGE)-$$VERSION/"; \
-	cd ..; \
-	tar -czf "$(CURDIR)/../$(PACKAGE)_$$VERSION.orig.tar.gz" "$(PACKAGE)-$$VERSION/"; \
-	rm -rf "$(CURDIR)/../$(PACKAGE)-$$VERSION/"; \
-	echo "Now run git-import-orig $(CURDIR)/../$(PACKAGE)_$$VERSION.orig.tar.gz"
-
 .PHONY: build clean install binary-arch binary-indep binary
