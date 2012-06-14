@@ -1,6 +1,6 @@
 <!--{
 	"Title": "The Go Programming Language Specification",
-	"Subtitle": "Version of March 17, 2012",
+	"Subtitle": "Version of June 4, 2012",
 	"Path": "/ref/spec"
 }-->
 
@@ -684,6 +684,8 @@ consists of all methods with receiver type <code>T</code>.
 The method set of the corresponding pointer type <code>*T</code>
 is the set of all methods with receiver <code>*T</code> or <code>T</code>
 (that is, it also contains the method set of <code>T</code>).
+Further rules apply to structs containing anonymous fields, as described
+in the section on <a href="#Struct_types">struct types</a>.
 Any other type has an empty method set.
 In a method set, each method must have a
 <a href="#Uniqueness_of_identifiers">unique</a> <a href="#MethodName">method name</a>.
@@ -955,28 +957,39 @@ struct {
 </pre>
 
 <p>
-Fields and methods (§<a href="#Method_declarations">Method declarations</a>) of an anonymous field are
-promoted to be ordinary fields and methods of the struct (§<a href="#Selectors">Selectors</a>).
-The following rules apply for a struct type <code>S</code> and
-a type named <code>T</code>:
+A field or <a href="#Method_declarations">method</a> <code>f</code> of an
+anonymous field in a struct <code>x</code> is called <i>promoted</i> if
+<code>x.f</code> is a legal <a href="#Selectors">selector</a> that denotes
+that field or method <code>f</code>.
+</p>
+
+<p>
+Promoted fields act like ordinary fields
+of a struct except that they cannot be used as field names in
+<a href="#Composite_literals">composite literals</a> of the struct.
+</p>
+
+<p>
+Given a struct type <code>S</code> and a type named <code>T</code>,
+promoted methods are included in the method set of the struct as follows:
 </p>
 <ul>
-	<li>If <code>S</code> contains an anonymous field <code>T</code>, the
-	    <a href="#Method_sets">method set</a> of <code>S</code> includes the
-	    method set of <code>T</code>.
+	<li>
+	If <code>S</code> contains an anonymous field <code>T</code>,
+	the <a href="#Method_sets">method sets</a> of <code>S</code>
+	and <code>*S</code> both include promoted methods with receiver
+	<code>T</code>. The method set of <code>*S</code> also
+	includes promoted methods with receiver <code>*T</code>.
 	</li>
-
-	<li>If <code>S</code> contains an anonymous field <code>*T</code>, the
-	    method set of <code>S</code> includes the method set of <code>*T</code>
-	    (which itself includes the method set of <code>T</code>).
-	</li>
-
-	<li>If <code>S</code> contains an anonymous field <code>T</code> or
-	    <code>*T</code>, the method set of <code>*S</code> includes the
-	    method set of <code>*T</code> (which itself includes the method
-	    set of <code>T</code>).
+	
+	<li>
+	If <code>S</code> contains an anonymous field <code>*T</code>,
+	the method sets of <code>S</code> and <code>*S</code> both
+	include promoted methods with receiver <code>T</code> or
+	<code>*T</code>.
 	</li>
 </ul>
+
 <p>
 A field declaration may be followed by an optional string literal <i>tag</i>,
 which becomes an attribute for all the fields in the corresponding
@@ -3866,7 +3879,11 @@ x, _ = f()  // ignore second value returned by f()
 In the second form, the number of operands on the left must equal the number
 of expressions on the right, each of which must be single-valued, and the
 <i>n</i>th expression on the right is assigned to the <i>n</i>th
-operand on the left.  The assignment proceeds in two phases.
+operand on the left.
+</p>
+
+<p>
+The assignment proceeds in two phases.
 First, the operands of <a href="#Indexes">index expressions</a>
 and <a href="#Address_operators">pointer indirections</a>
 (including implicit pointer indirections in <a href="#Selectors">selectors</a>)
@@ -3885,13 +3902,20 @@ i, x[i] = 1, 2  // set i = 1, x[0] = 2
 i = 0
 x[i], i = 2, 1  // set x[0] = 2, i = 1
 
-x[0], x[0] = 1, 2  // set x[0] = 1, then x[0] = 2 (so x[0] = 2 at end)
+x[0], x[0] = 1, 2  // set x[0] = 1, then x[0] = 2 (so x[0] == 2 at end)
 
 x[1], x[3] = 4, 5  // set x[1] = 4, then panic setting x[3] = 5.
 
 type Point struct { x, y int }
 var p *Point
 x[2], p.x = 6, 7  // set x[2] = 6, then panic setting p.x = 7
+
+i = 2
+x = []int{3, 5, 7}
+for i, x[i] = range x {  // set i, x[2] = 0, x[0]
+	break
+}
+// after this loop, i == 0 and x == []int{3, 5, 3}
 </pre>
 
 <p>

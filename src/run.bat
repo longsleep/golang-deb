@@ -25,6 +25,11 @@ if errorlevel 1 goto fail
 echo.
 :norebuild
 
+:: we must unset GOROOT_FINAL before tests, because runtime/debug requires
+:: correct access to source code, so if we have GOROOT_FINAL in effect,
+:: at least runtime/debug test will fail.
+set GOROOT_FINAL=
+
 echo # Testing packages.
 go test std -short -timeout=120s
 if errorlevel 1 goto fail
@@ -63,7 +68,7 @@ echo.
 if %FAIL%==1 goto fail
 
 echo # Checking API compatibility.
-go tool api -c ..\api\go1.txt
+go tool api -c ..\api\go1.txt -next ..\api\next.txt
 if errorlevel 1 goto fail
 echo.
 
