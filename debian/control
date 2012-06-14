@@ -2,8 +2,8 @@ Source: golang
 Section: devel
 Priority: optional
 Maintainer: Ondřej Surý <ondrej@debian.org>
-Vcs-Browser: http://git.debian.org/?p=pkg-google/golang.git
-Vcs-Git: git://git.debian.org/pkg-google/golang.git
+Vcs-Browser: http://git.debian.org/?p=pkg-golang/golang.git
+Vcs-Git: git://git.debian.org/pkg-golang/golang.git
 Build-Depends: debhelper (>= 7.4.10), bison, ed, mawk | awk, perl, netbase
 Build-Depends-Indep: po-debconf
 Standards-Version: 3.9.3
