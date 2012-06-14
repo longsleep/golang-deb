@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,27 +36,31 @@ import (
 
 // Flags
 var (
+	// TODO(bradfitz): once Go 1.1 comes out, allow the -c flag to take a comma-separated
+	// list of files, rather than just one.
 	checkFile = flag.String("c", "", "optional filename to check API against")
-	verbose   = flag.Bool("v", false, "Verbose debugging")
+	allowNew  = flag.Bool("allow_new", true, "allow API additions")
+	nextFile  = flag.String("next", "", "optional filename of tentative upcoming API features for the next release. This file can be lazily maintained. It only affects the delta warnings from the -c file printed on success.")
+	verbose   = flag.Bool("v", false, "verbose debugging")
+	forceCtx  = flag.String("contexts", "", "optional comma-separated list of <goos>-<goarch>[-cgo] to override default contexts.")
 )
 
+// contexts are the default contexts which are scanned, unless
+// overridden by the -contexts flag.
 var contexts = []*build.Context{
 	{GOOS: "linux", GOARCH: "386", CgoEnabled: true},
 	{GOOS: "linux", GOARCH: "386"},
 	{GOOS: "linux", GOARCH: "amd64", CgoEnabled: true},
 	{GOOS: "linux", GOARCH: "amd64"},
+	{GOOS: "linux", GOARCH: "arm"},
 	{GOOS: "darwin", GOARCH: "386", CgoEnabled: true},
 	{GOOS: "darwin", GOARCH: "386"},
 	{GOOS: "darwin", GOARCH: "amd64", CgoEnabled: true},
 	{GOOS: "darwin", GOARCH: "amd64"},
 	{GOOS: "windows", GOARCH: "amd64"},
 	{GOOS: "windows", GOARCH: "386"},
-}
-
-func init() {
-	for _, c := range contexts {
-		c.Compiler = build.Default.Compiler
-	}
+	{GOOS: "freebsd", GOARCH: "amd64"},
+	{GOOS: "freebsd", GOARCH: "386"},
 }
 
 func contextName(c *build.Context) string {
@@ -66,8 +71,48 @@ func contextName(c *build.Context) string {
 	return s
 }
 
+func parseContext(c string) *build.Context {
+	parts := strings.Split(c, "-")
+	if len(parts) < 2 {
+		log.Fatalf("bad context: %q", c)
+	}
+	bc := &build.Context{
+		GOOS:   parts[0],
+		GOARCH: parts[1],
+	}
+	if len(parts) == 3 {
+		if parts[2] == "cgo" {
+			bc.CgoEnabled = true
+		} else {
+			log.Fatalf("bad context: %q", c)
+		}
+	}
+	return bc
+}
+
+func setContexts() {
+	contexts = []*build.Context{}
+	for _, c := range strings.Split(*forceCtx, ",") {
+		contexts = append(contexts, parseContext(c))
+	}
+}
+
 func main() {
 	flag.Parse()
+
+	if !strings.Contains(runtime.Version(), "weekly") {
+		if *nextFile != "" {
+			fmt.Printf("Go version is %q, ignoring -next %s\n", runtime.Version(), *nextFile)
+			*nextFile = ""
+		}
+	}
+
+	if *forceCtx != "" {
+		setContexts()
+	}
+	for _, c := range contexts {
+		c.Compiler = build.Default.Compiler
+	}
 
 	var pkgs []string
 	if flag.NArg() > 0 {
@@ -123,45 +168,86 @@ func main() {
 	}
 	sort.Strings(features)
 
+	fail := false
+	defer func() {
+		if fail {
+			os.Exit(1)
+		}
+	}()
+
 	bw := bufio.NewWriter(os.Stdout)
 	defer bw.Flush()
 
-	if *checkFile != "" {
-		bs, err := ioutil.ReadFile(*checkFile)
-		if err != nil {
-			log.Fatalf("Error reading file %s: %v", *checkFile, err)
-		}
-		v1 := strings.Split(strings.TrimSpace(string(bs)), "\n")
-		sort.Strings(v1)
-		v2 := features
-		take := func(sl *[]string) string {
-			s := (*sl)[0]
-			*sl = (*sl)[1:]
-			return s
-		}
-		changes := false
-		for len(v1) > 0 || len(v2) > 0 {
-			switch {
-			case len(v2) == 0 || v1[0] < v2[0]:
-				fmt.Fprintf(bw, "-%s\n", take(&v1))
-				changes = true
-			case len(v1) == 0 || v1[0] > v2[0]:
-				fmt.Fprintf(bw, "+%s\n", take(&v2))
-				changes = true
-			default:
-				take(&v1)
-				take(&v2)
-			}
-		}
-		if changes {
-			bw.Flush()
-			os.Exit(1)
-		}
-	} else {
+	if *checkFile == "" {
 		for _, f := range features {
 			fmt.Fprintf(bw, "%s\n", f)
 		}
+		return
 	}
+
+	var required []string
+	for _, filename := range []string{*checkFile} {
+		required = append(required, fileFeatures(filename)...)
+	}
+	sort.Strings(required)
+
+	var optional = make(map[string]bool) // feature => true
+	if *nextFile != "" {
+		for _, feature := range fileFeatures(*nextFile) {
+			optional[feature] = true
+		}
+	}
+
+	take := func(sl *[]string) string {
+		s := (*sl)[0]
+		*sl = (*sl)[1:]
+		return s
+	}
+
+	for len(required) > 0 || len(features) > 0 {
+		switch {
+		case len(features) == 0 || required[0] < features[0]:
+			fmt.Fprintf(bw, "-%s\n", take(&required))
+			fail = true // broke compatibility
+		case len(required) == 0 || required[0] > features[0]:
+			newFeature := take(&features)
+			if optional[newFeature] {
+				// Known added feature to the upcoming release.
+				// Delete it from the map so we can detect any upcoming features
+				// which were never seen.  (so we can clean up the nextFile)
+				delete(optional, newFeature)
+			} else {
+				fmt.Fprintf(bw, "+%s\n", newFeature)
+				if !*allowNew {
+					fail = true // we're in lock-down mode for next release
+				}
+			}
+		default:
+			take(&required)
+			take(&features)
+		}
+	}
+
+	var missing []string
+	for feature := range optional {
+		missing = append(missing, feature)
+	}
+	sort.Strings(missing)
+	for _, feature := range missing {
+		fmt.Fprintf(bw, "(in next file, but not in API) -%s\n", feature)
+	}
+}
+
+func fileFeatures(filename string) []string {
+	bs, err := ioutil.ReadFile(filename)
+	if err != nil {
+		log.Fatalf("Error reading file %s: %v", filename, err)
+	}
+	text := strings.TrimSpace(string(bs))
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
 }
 
 // pkgSymbol represents a symbol in a package
