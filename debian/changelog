@@ -1,3 +1,9 @@
+golang (2:1.0.2-1) unstable; urgency=low
+
+  * Imported Upstream version 1.0.2
+
+ -- Ondřej Surý <ondrej@debian.org>  Thu, 14 Jun 2012 13:24:31 +0200
+
 golang (2:1.0.1-1) unstable; urgency=low
 
   * Imported Upstream version 1.0.1
