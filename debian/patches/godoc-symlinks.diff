@@ -1,19 +1,19 @@
 --- a/src/cmd/godoc/filesystem.go
 +++ b/src/cmd/godoc/filesystem.go
-@@ -121,7 +121,22 @@ func (root osFS) Stat(path string) (os.F
+@@ -121,7 +121,22 @@
  }
  
  func (root osFS) ReadDir(path string) ([]os.FileInfo, error) {
 -	return ioutil.ReadDir(root.resolve(path)) // is sorted
-+	fis, err := ioutil.ReadDir(path) // is sorted
++	dirName := root.resolve(path)
++	fis, err := ioutil.ReadDir(dirName) // is sorted
 +	if err != nil {
 +		return nil, err
 +	}
 +	// Replace symlinks with what they are pointing to
-+	dirPrefix := path + "/"
 +	for i, fi := range fis {
-+		if fi.Mode() & os.ModeSymlink != 0 {
-+			fi, err = os.Stat(dirPrefix + fi.Name())
++		if fi.Mode()&os.ModeSymlink != 0 {
++			fi, err = os.Stat(filepath.Join(dirName, fi.Name()))
 +			if err != nil {
 +				return nil, err
 +			}
@@ -24,3 +24,4 @@
  }
  
  // hasPathPrefix returns true if x == y or x == y + "/" + more
+
