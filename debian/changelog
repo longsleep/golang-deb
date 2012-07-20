@@ -1,3 +1,10 @@
+golang (2:1.0.2-1.1) unstable; urgency=low
+
+  * Non-maintainer upload. (as discussed with Ondřej in #679692)
+  * Fix godoc-symlinks.diff (godoc didn’t find docs) (Closes: #679692)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 20 Jul 2012 17:59:38 +0200
+
 golang (2:1.0.2-1) unstable; urgency=low
 
   [ Ondřej Surý ]
