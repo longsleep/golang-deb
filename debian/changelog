@@ -1,8 +1,17 @@
 golang (2:1.0.2-1) unstable; urgency=low
 
+  [ Ondřej Surý ]
   * Imported Upstream version 1.0.2
+  * Update Vcs fields to reflect new git repository location
+  * Kill get-orig-source, since 1.0.0, the tarballs can be downloaded from
+    webpage
 
- -- Ondřej Surý <ondrej@debian.org>  Thu, 14 Jun 2012 13:24:31 +0200
+  [ Michael Stapelberg ]
+  * golang-mode: use debian-pkg-add-load-path-item (Closes: #664802)
+  * add manpages (Closes: #632964)
+  * Use updated pt.po from Pedro Ribeiro (Closes: #674958)
+
+ -- Ondřej Surý <ondrej@sury.org>  Thu, 28 Jun 2012 12:14:15 +0200
 
 golang (2:1.0.1-1) unstable; urgency=low
 
