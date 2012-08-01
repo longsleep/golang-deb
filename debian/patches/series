@@ -9,3 +9,4 @@
 #013-kFreeBSD-AI_MASK.patch
 014-dont_fail_test_with_missing_homedir.patch
 godoc-symlinks.diff
+15-net-http-connection-close.patch
