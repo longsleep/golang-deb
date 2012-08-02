@@ -2,6 +2,7 @@ Source: golang
 Section: devel
 Priority: optional
 Maintainer: Ondřej Surý <ondrej@debian.org>
+Uploaders: Michael Stapelberg <stapelberg@debian.org>
 Vcs-Browser: http://git.debian.org/?p=pkg-golang/golang.git
 Vcs-Git: git://git.debian.org/pkg-golang/golang.git
 Build-Depends: debhelper (>= 7.4.10), bison, ed, mawk | awk, perl, netbase
