@@ -1,3 +1,11 @@
+golang (2:1.0.2-2) unstable; urgency=low
+
+  * Add myself to uploaders, as discussed in #683421.
+  * cherry-pick r820ffde8c396 (net/http: non-keepalive connections close
+    successfully) (Closes: #683421)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Thu, 02 Aug 2012 14:25:58 +0200
+
 golang (2:1.0.2-1.1) unstable; urgency=low
 
   * Non-maintainer upload. (as discussed with Ondřej in #679692)
