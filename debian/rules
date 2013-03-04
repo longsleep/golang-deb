@@ -41,6 +41,8 @@ override_dh_install:
 	# Remove testdata and tests from installed src directory
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type d -name testdata -prune -execdir rm -rf {} \;
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name '*_test.go' -delete
+	# Remove .syso files of the race detector; it is not used yet and the files are arch-dependent.
+	find $(CURDIR)/debian/golang-src/usr/share/go/src/pkg/runtime/race -type f -name '*.syso' -delete
 	# Remove Plan9 rc(1) scripts
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name "*.rc" -delete
 	# Touch built and installed files and directories to have same timestamp
