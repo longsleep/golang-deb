@@ -33,8 +33,6 @@ override_dh_compress:
 
 override_dh_install:
 	dh_install --fail-missing
-	# Remove binary from documentation
-	-rm $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/articles/wiki/get.bin
 	# Replace jquery in the html documentation with a symlink to libjs-jquery
 	rm $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js
 	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js
