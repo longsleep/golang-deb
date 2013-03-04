@@ -57,7 +57,7 @@ Package: golang-doc
 Replaces: golang-weekly-doc
 Conflicts: golang-weekly-doc
 Provides: golang-weekly-doc
-Depends: ${misc:Depends}, golang-go
+Depends: ${misc:Depends}, golang-go, libjs-jquery
 Architecture: all
 Section: doc
 Description: Go programming language compiler - documentation
