@@ -42,8 +42,8 @@ type Func struct { // Keep in sync with runtime.h:struct Func
 	pc0    uintptr // starting pc, ln for table
 	ln0    int32
 	frame  int32 // stack frame size
-	args   int32 // number of 32-bit in/out args
-	locals int32 // number of 32-bit locals
+	args   int32 // in/out args size
+	locals int32 // locals size
 }
 
 // FuncForPC returns a *Func describing the function that contains the
@@ -67,7 +67,7 @@ func (f *Func) FileLine(pc uintptr) (file string, line int) {
 // implemented in symtab.c
 func funcline_go(*Func, uintptr) (string, int)
 
-// mid returns the current os thread (m) id.
+// mid returns the current OS thread (m) id.
 func mid() uint32
 
 // SetFinalizer sets the finalizer associated with x to f.

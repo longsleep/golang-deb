@@ -634,7 +634,7 @@ sub Main() {
       # (only matters when --heapcheck is given but we must be
       # compatible with old branches that did not pass --heapcheck always):
       if ($total != 0) {
-        printf("Total: %s %s\n", Unparse($total), Units());
+        Infof("Total: %s %s\n", Unparse($total), Units());
       }
       PrintText($symbols, $flat, $cumulative, $total, -1);
     } elsif ($main::opt_raw) {
@@ -726,10 +726,8 @@ sub RunWeb {
     "firefox",
   );
   foreach my $b (@alt) {
-    if (-f $b) {
-      if (system($b, $fname) == 0) {
-        return;
-      }
+    if (system($b, $fname) == 0) {
+      return;
     }
   }
 
@@ -931,7 +929,7 @@ sub ProcessProfile {
   if ($focus ne '') {
     $profile = FocusProfile($symbols, $profile, $focus);
     my $focus_count = TotalProfile($profile);
-    printf("After focusing on '%s': %s %s of %s (%0.1f%%)\n",
+    Infof("After focusing on '%s': %s %s of %s (%0.1f%%)\n",
            $focus,
            Unparse($focus_count), Units(),
            Unparse($total_count), ($focus_count*100.0) / $total_count);
@@ -939,7 +937,7 @@ sub ProcessProfile {
   if ($ignore ne '') {
     $profile = IgnoreProfile($symbols, $profile, $ignore);
     my $ignore_count = TotalProfile($profile);
-    printf("After ignoring '%s': %s %s of %s (%0.1f%%)\n",
+    Infof("After ignoring '%s': %s %s of %s (%0.1f%%)\n",
            $ignore,
            Unparse($ignore_count), Units(),
            Unparse($total_count),
@@ -1113,6 +1111,15 @@ sub PrintSymbolizedProfile {
     # dump a cpu-format profile to standard out
     PrintProfileData($profile);
   }
+}
+
+# Print information conditionally filtered out depending on the output
+# format.
+sub Infof {
+  my $format = shift;
+  my @args = @_;
+  return if $main::opt_svg;
+  printf($format, @args);
 }
 
 # Print text output
@@ -2638,6 +2645,8 @@ sub RemoveUninterestingFrames {
                       'runtime.makemap_c',
                       'runtime.makeslice',
                       'runtime.mal',
+                      'runtime.settype',
+                      'runtime.settype_flush',
                       'runtime.slicebytetostring',
                       'runtime.sliceinttostring',
                       'runtime.stringtoslicebyte',
@@ -2971,32 +2980,32 @@ print STDERR "Read $url\n";
 
 sub IsProfileURL {
   my $profile_name = shift;
-  my ($host, $port, $prefix, $path) = ParseProfileURL($profile_name);
+  my ($scheme, $host, $port, $prefix, $path) = ParseProfileURL($profile_name);
   return defined($host) and defined($port) and defined($path);
 }
 
 sub ParseProfileURL {
   my $profile_name = shift;
   if (defined($profile_name) &&
-      $profile_name =~ m,^(http://|)([^/:]+):(\d+)(|\@\d+)(|/|(.*?)($PROFILE_PAGE|$PMUPROFILE_PAGE|$HEAP_PAGE|$GROWTH_PAGE|$THREAD_PAGE|$CONTENTION_PAGE|$WALL_PAGE|$FILTEREDPROFILE_PAGE))$,o) {
+      $profile_name =~ m,^(?:(https?)://|)([^/:]+):(\d+)(|\@\d+)(|/|(.*?)($PROFILE_PAGE|$PMUPROFILE_PAGE|$HEAP_PAGE|$GROWTH_PAGE|$THREAD_PAGE|$CONTENTION_PAGE|$WALL_PAGE|$FILTEREDPROFILE_PAGE))$,o) {
     # $7 is $PROFILE_PAGE/$HEAP_PAGE/etc.  $5 is *everything* after
     # the hostname, as long as that everything is the empty string,
     # a slash, or something ending in $PROFILE_PAGE/$HEAP_PAGE/etc.
     # So "$7 || $5" is $PROFILE_PAGE/etc if there, or else it's "/" or "".
-    return ($2, $3, $6, $7 || $5);
+    return ($1 || "http", $2, $3, $6, $7 || $5);
   }
   return ();
 }
 
 # We fetch symbols from the first profile argument.
 sub SymbolPageURL {
-  my ($host, $port, $prefix, $path) = ParseProfileURL($main::pfile_args[0]);
-  return "http://$host:$port$prefix$SYMBOL_PAGE";
+  my ($scheme, $host, $port, $prefix, $path) = ParseProfileURL($main::pfile_args[0]);
+  return "$scheme://$host:$port$prefix$SYMBOL_PAGE";
 }
 
 sub FetchProgramName() {
-  my ($host, $port, $prefix, $path) = ParseProfileURL($main::pfile_args[0]);
-  my $url = "http://$host:$port$prefix$PROGRAM_NAME_PAGE";
+  my ($scheme, $host, $port, $prefix, $path) = ParseProfileURL($main::pfile_args[0]);
+  my $url = "$scheme://$host:$port$prefix$PROGRAM_NAME_PAGE";
   my $command_line = "$CURL -s '$url'";
   open(CMDLINE, "$command_line |") or error($command_line);
   my $cmdline = <CMDLINE>;
@@ -3128,7 +3137,7 @@ sub BaseName {
 
 sub MakeProfileBaseName {
   my ($binary_name, $profile_name) = @_;
-  my ($host, $port, $prefix, $path) = ParseProfileURL($profile_name);
+  my ($scheme, $host, $port, $prefix, $path) = ParseProfileURL($profile_name);
   my $binary_shortname = BaseName($binary_name);
   return sprintf("%s.%s.%s-port%s",
                  $binary_shortname, $main::op_time, $host, $port);
@@ -3143,7 +3152,7 @@ sub FetchDynamicProfile {
   if (!IsProfileURL($profile_name)) {
     return $profile_name;
   } else {
-    my ($host, $port, $prefix, $path) = ParseProfileURL($profile_name);
+    my ($scheme, $host, $port, $prefix, $path) = ParseProfileURL($profile_name);
     if ($path eq "" || $path eq "/") {
       # Missing type specifier defaults to cpu-profile
       $path = $PROFILE_PAGE;
@@ -3155,7 +3164,7 @@ sub FetchDynamicProfile {
     my $curl_timeout;
     if (($path =~ m/$PROFILE_PAGE/) || ($path =~ m/$PMUPROFILE_PAGE/)) {
       if ($path =~ m/$PROFILE_PAGE/) {
-        $url = sprintf("http://$host:$port$prefix$path?seconds=%d",
+        $url = sprintf("$scheme://$host:$port$prefix$path?seconds=%d",
             $main::opt_seconds);
       } else {
         if ($profile_name =~ m/[?]/) {
@@ -3163,7 +3172,7 @@ sub FetchDynamicProfile {
         } else {
           $profile_name .= "?"
         }
-        $url = sprintf("http://$profile_name" . "seconds=%d",
+        $url = sprintf("$scheme://$profile_name" . "seconds=%d",
             $main::opt_seconds);
       }
       $curl_timeout = sprintf("--max-time %d",
@@ -3174,7 +3183,7 @@ sub FetchDynamicProfile {
       my $suffix = $path;
       $suffix =~ s,/,.,g;
       $profile_file .= "$suffix";
-      $url = "http://$host:$port$prefix$path";
+      $url = "$scheme://$host:$port$prefix$path";
       $curl_timeout = "";
     }
 
@@ -3201,6 +3210,10 @@ sub FetchDynamicProfile {
     }
 
     (system($cmd) == 0) || error("Failed to get profile: $cmd: $!\n");
+    open(TMPPROF, "$tmp_profile") || error("Cannot open $tmp_profile: $!\n");
+    my $line = <TMPPROF>;
+    close(TMPPROF);
+    $line !~ /^Could not enable CPU profiling/ || error($line);
     (system("mv $tmp_profile $real_profile") == 0) || error("Unable to rename profile\n");
     print STDERR "Wrote profile to $real_profile\n";
     $main::collected_profile = $real_profile;
@@ -3753,15 +3766,19 @@ sub ReadHeapProfile {
         } else {
           # Remote-heap version 1
           my $ratio;
-          $ratio = (($s1*1.0)/$n1)/($sample_adjustment);
-          if ($ratio < 1) {
-            $n1 /= $ratio;
-            $s1 /= $ratio;
+          if ($n1 > 0) {
+            $ratio = (($s1*1.0)/$n1)/($sample_adjustment);
+            if ($ratio < 1) {
+                $n1 /= $ratio;
+                $s1 /= $ratio;
+            }
           }
-          $ratio = (($s2*1.0)/$n2)/($sample_adjustment);
-          if ($ratio < 1) {
-            $n2 /= $ratio;
-            $s2 /= $ratio;
+          if ($n2 > 0) {
+            $ratio = (($s2*1.0)/$n2)/($sample_adjustment);
+            if ($ratio < 1) {
+                $n2 /= $ratio;
+                $s2 /= $ratio;
+            }
           }
         }
       }
@@ -4595,6 +4612,7 @@ sub ConfigureObjTools {
     # in the same directory as pprof.
     $obj_tool_map{"nm_pdb"} = "nm-pdb";
     $obj_tool_map{"addr2line_pdb"} = "addr2line-pdb";
+    $obj_tool_map{"is_windows"} = "true";
   }
 
   if ($file_type =~ /Mach-O/) {
@@ -4802,16 +4820,13 @@ sub GetProcedureBoundaries {
                      " $image 2>/dev/null $cppfilt_flag",
                      "$nm -D -n $flatten_flag $demangle_flag" .
                      " $image 2>/dev/null $cppfilt_flag",
-                     # 6nm is for Go binaries
-                     "6nm $image 2>/dev/null | sort");
+                     # go tool nm is for Go binaries
+                     "go tool nm $image 2>/dev/null | sort");
 
-  # If the executable is an MS Windows PDB-format executable, we'll
-  # have set up obj_tool_map("nm_pdb").  In this case, we actually
-  # want to use both unix nm and windows-specific nm_pdb, since
-  # PDB-format executables can apparently include dwarf .o files.
-  if (exists $obj_tool_map{"nm_pdb"}) {
-    my $nm_pdb = $obj_tool_map{"nm_pdb"};
-    push(@nm_commands, "$nm_pdb --demangle $image 2>/dev/null");
+  # If the executable is an MS Windows Go executable, we'll
+  # have set up obj_tool_map("is_windows").
+  if (exists $obj_tool_map{"is_windows"}) {
+    @nm_commands = ("go tool nm $image 2>/dev/null | sort");
   }
 
   foreach my $nm_command (@nm_commands) {

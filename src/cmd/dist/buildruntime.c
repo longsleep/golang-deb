@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 #include "a.h"
-#include <stdio.h>
 
 /*
  * Helpers for building pkg/runtime.
@@ -20,6 +19,8 @@ mkzversion(char *dir, char *file)
 {
 	Buf b, out;
 	
+	USED(dir);
+
 	binit(&b);
 	binit(&out);
 	
@@ -46,6 +47,8 @@ void
 mkzgoarch(char *dir, char *file)
 {
 	Buf b, out;
+
+	USED(dir);
 	
 	binit(&b);
 	binit(&out);
@@ -72,6 +75,8 @@ void
 mkzgoos(char *dir, char *file)
 {
 	Buf b, out;
+
+	USED(dir);
 	
 	binit(&b);
 	binit(&out);
@@ -100,9 +105,15 @@ static struct {
 		"#define	m(r)	4(r)\n"
 	},
 	{"386", "plan9",
+		"// Plan 9 does not have per-process segment descriptors with\n"
+		"// which to do thread-local storage. Instead, we will use a\n"
+		"// fixed offset from the per-process TOS struct address for\n"
+		"// the local storage. Since the process ID is contained in the\n"
+		"// TOS struct, we specify an offset for that here as well.\n"
 		"#define	get_tls(r)	MOVL _tos(SB), r \n"
 		"#define	g(r)	-8(r)\n"
 		"#define	m(r)	-4(r)\n"
+		"#define	procid(r)	48(r)\n"
 	},
 	{"386", "linux",
 		"// On Linux systems, what we call 0(GS) and 4(GS) for g and m\n"
@@ -139,6 +150,12 @@ static struct {
 		"#define	get_tls(r) MOVQ 0x28(GS), r\n"
 		"#define	g(r) 0(r)\n"
 		"#define	m(r) 8(r)\n"
+	},
+	{"amd64", "plan9",
+		"#define	get_tls(r)\n"
+		"#define	g(r) 0(GS)\n"
+		"#define	m(r) 8(GS)\n"
+		"#define	procid(r) 16(GS)\n"
 	},
 	{"amd64", "",
 		"// The offsets 0 and 8 are known to:\n"
@@ -188,16 +205,23 @@ mkzasm(char *dir, char *file)
 	fatal("unknown $GOOS/$GOARCH in mkzasm");
 ok:
 
-	// Run 6c -DGOOS_goos -DGOARCH_goarch -Iworkdir -a proc.c
+	// Run 6c -D GOOS_goos -D GOARCH_goarch -I workdir -a -n -o workdir/proc.acid proc.c
 	// to get acid [sic] output.
 	vreset(&argv);
 	vadd(&argv, bpathf(&b, "%s/%sc", tooldir, gochar));
-	vadd(&argv, bprintf(&b, "-DGOOS_%s", goos));
-	vadd(&argv, bprintf(&b, "-DGOARCH_%s", goarch));
-	vadd(&argv, bprintf(&b, "-I%s", workdir));
+	vadd(&argv, "-D");
+	vadd(&argv, bprintf(&b, "GOOS_%s", goos));
+	vadd(&argv, "-D");
+	vadd(&argv, bprintf(&b, "GOARCH_%s", goarch));
+	vadd(&argv, "-I");
+	vadd(&argv, bprintf(&b, "%s", workdir));
 	vadd(&argv, "-a");
+	vadd(&argv, "-n");
+	vadd(&argv, "-o");
+	vadd(&argv, bpathf(&b, "%s/proc.acid", workdir));
 	vadd(&argv, "proc.c");
-	runv(&in, dir, CheckExit, &argv);
+	runv(nil, dir, CheckExit, &argv);
+	readfile(&in, bpathf(&b, "%s/proc.acid", workdir));
 	
 	// Convert input like
 	//	aggr G
@@ -222,6 +246,8 @@ ok:
 				aggr = "gobuf";
 			else if(streq(fields.p[1], "WinCall"))
 				aggr = "wincall";
+			else if(streq(fields.p[1], "SEH"))
+				aggr = "seh";
 		}
 		if(hasprefix(lines.p[i], "}"))
 			aggr = nil;
@@ -251,6 +277,7 @@ static char *runtimedefs[] = {
 	"iface.c",
 	"hashmap.c",
 	"chan.c",
+	"parfor.c",
 };
 
 // mkzruntimedefs writes zruntime_defs_$GOOS_$GOARCH.h,
@@ -265,11 +292,12 @@ mkzruntimedefs(char *dir, char *file)
 {
 	int i, skip;
 	char *p;
-	Buf in, b, out;
+	Buf in, b, b1, out;
 	Vec argv, lines, fields, seen;
 	
 	binit(&in);
 	binit(&b);
+	binit(&b1);
 	binit(&out);
 	vinit(&argv);
 	vinit(&lines);
@@ -285,18 +313,25 @@ mkzruntimedefs(char *dir, char *file)
 	);
 
 	
-	// Run 6c -DGOOS_goos -DGOARCH_goarch -Iworkdir -q
+	// Run 6c -D GOOS_goos -D GOARCH_goarch -I workdir -q -n -o workdir/runtimedefs
 	// on each of the runtimedefs C files.
 	vadd(&argv, bpathf(&b, "%s/%sc", tooldir, gochar));
-	vadd(&argv, bprintf(&b, "-DGOOS_%s", goos));
-	vadd(&argv, bprintf(&b, "-DGOARCH_%s", goarch));
-	vadd(&argv, bprintf(&b, "-I%s", workdir));
+	vadd(&argv, "-D");
+	vadd(&argv, bprintf(&b, "GOOS_%s", goos));
+	vadd(&argv, "-D");
+	vadd(&argv, bprintf(&b, "GOARCH_%s", goarch));
+	vadd(&argv, "-I");
+	vadd(&argv, bprintf(&b, "%s", workdir));
 	vadd(&argv, "-q");
+	vadd(&argv, "-n");
+	vadd(&argv, "-o");
+	vadd(&argv, bpathf(&b, "%s/runtimedefs", workdir));
 	vadd(&argv, "");
 	p = argv.p[argv.len-1];
 	for(i=0; i<nelem(runtimedefs); i++) {
 		argv.p[argv.len-1] = runtimedefs[i];
-		runv(&b, dir, CheckExit, &argv);
+		runv(nil, dir, CheckExit, &argv);
+		readfile(&b, bpathf(&b1, "%s/runtimedefs", workdir));
 		bwriteb(&in, &b);
 	}
 	argv.p[argv.len-1] = p;
@@ -338,6 +373,7 @@ mkzruntimedefs(char *dir, char *file)
 
 	bfree(&in);
 	bfree(&b);
+	bfree(&b1);
 	bfree(&out);
 	vfree(&argv);
 	vfree(&lines);

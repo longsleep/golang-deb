@@ -54,6 +54,8 @@ type SegmentWriter func(w io.Writer, text []byte, selections int)
 // Selection is ignored.
 //
 func FormatSelections(w io.Writer, text []byte, lw LinkWriter, links Selection, sw SegmentWriter, selections ...Selection) {
+	// If we have a link writer, make the links
+	// selection the last entry in selections
 	if lw != nil {
 		selections = append(selections, links)
 	}
@@ -108,8 +110,8 @@ func FormatSelections(w io.Writer, text []byte, lw LinkWriter, links Selection, 
 			break
 		}
 		// determine the kind of segment change
-		if index == len(selections)-1 {
-			// we have a link segment change:
+		if lw != nil && index == len(selections)-1 {
+			// we have a link segment change (see start of this function):
 			// format the previous selection segment, write the
 			// link tag and start a new selection segment
 			segment(offs)
@@ -119,7 +121,7 @@ func FormatSelections(w io.Writer, text []byte, lw LinkWriter, links Selection, 
 		} else {
 			// we have a selection change:
 			// format the previous selection segment, determine
-			// the new selection bitset and start a new segment 
+			// the new selection bitset and start a new segment
 			segment(offs)
 			lastOffs = offs
 			mask := 1 << uint(index)

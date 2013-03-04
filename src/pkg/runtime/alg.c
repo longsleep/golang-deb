@@ -19,13 +19,13 @@ runtime·memhash(uintptr *h, uintptr s, void *a)
 	uintptr hash;
 
 	b = a;
-	hash = M0;
+	hash = M0 ^ *h;
 	while(s > 0) {
 		hash = (hash ^ *b) * M1;
 		b++;
 		s--;
 	}
-	*h = (*h ^ hash) * M1;
+	*h = hash;
 }
 
 void
@@ -316,12 +316,16 @@ runtime·strhash(uintptr *h, uintptr s, void *a)
 void
 runtime·strequal(bool *eq, uintptr s, void *a, void *b)
 {
-	int32 alen;
+	intgo alen;
 
 	USED(s);
 	alen = ((String*)a)->len;
 	if(alen != ((String*)b)->len) {
 		*eq = false;
+		return;
+	}
+	if(((String*)a)->str == ((String*)b)->str) {
+		*eq = true;
 		return;
 	}
 	runtime·memequal(eq, alen, ((String*)a)->str, ((String*)b)->str);
@@ -351,7 +355,7 @@ void
 runtime·interhash(uintptr *h, uintptr s, void *a)
 {
 	USED(s);
-	*h = (*h ^ runtime·ifacehash(*(Iface*)a)) * M1;
+	*h = runtime·ifacehash(*(Iface*)a, *h ^ M0) * M1;
 }
 
 void
@@ -385,7 +389,7 @@ void
 runtime·nilinterhash(uintptr *h, uintptr s, void *a)
 {
 	USED(s);
-	*h = (*h ^ runtime·efacehash(*(Eface*)a)) * M1;
+	*h = runtime·efacehash(*(Eface*)a, *h ^ M0) * M1;
 }
 
 void
@@ -469,10 +473,11 @@ void
 runtime·equal(Type *t, ...)
 {
 	byte *x, *y;
-	bool *ret;
+	uintptr ret;
 	
 	x = (byte*)(&t+1);
 	y = x + t->size;
-	ret = (bool*)(y + t->size);
-	t->alg->equal(ret, t->size, x, y);
+	ret = (uintptr)(y + t->size);
+	ret = ROUND(ret, Structrnd);
+	t->alg->equal((bool*)ret, t->size, x, y);
 }

@@ -37,6 +37,12 @@ init1(Node *n, NodeList **out)
 	for(l=n->list; l; l=l->next)
 		init1(l->n, out);
 
+	if(n->left && n->type && n->left->op == OTYPE && n->class == PFUNC) {
+		// Methods called as Type.Method(receiver, ...).
+		// Definitions for method expressions are stored in type->nname.
+		init1(n->type->nname, out);
+	}
+
 	if(n->op != ONAME)
 		return;
 	switch(n->class) {
@@ -78,6 +84,11 @@ init1(Node *n, NodeList **out)
 	}
 	n->initorder = InitPending;
 	l = malloc(sizeof *l);
+	if(l == nil) {
+		flusherrors();
+		yyerror("out of memory");
+		errorexit();
+	}
 	l->next = initlist;
 	l->n = n;
 	l->end = nil;
@@ -97,6 +108,13 @@ init1(Node *n, NodeList **out)
 		case OAS:
 			if(n->defn->left != n)
 				goto bad;
+			if(isblank(n->defn->left) && candiscard(n->defn->right)) {
+				n->defn->op = OEMPTY;
+				n->defn->left = N;
+				n->defn->right = N;
+				break;
+			}
+
 		/*
 			n->defn->dodata = 1;
 			init1(n->defn->right, out);
@@ -167,6 +185,11 @@ init2(Node *n, NodeList **out)
 	init2list(n->rlist, out);
 	init2list(n->nbody, out);
 	init2list(n->nelse, out);
+	
+	if(n->op == OCLOSURE)
+		init2list(n->closure->nbody, out);
+	if(n->op == ODOTMETH)
+		init2(n->type->nname, out);
 }
 
 static void
@@ -291,9 +314,9 @@ staticcopy(Node *l, Node *r, NodeList **out)
 			n1.xoffset = l->xoffset + Array_array;
 			gdata(&n1, nod(OADDR, a, N), widthptr);
 			n1.xoffset = l->xoffset + Array_nel;
-			gdata(&n1, r->right, 4);
+			gdata(&n1, r->right, widthint);
 			n1.xoffset = l->xoffset + Array_cap;
-			gdata(&n1, r->right, 4);
+			gdata(&n1, r->right, widthint);
 			return 1;
 		}
 		// fall through
@@ -394,9 +417,9 @@ staticassign(Node *l, Node *r, NodeList **out)
 			n1.xoffset = l->xoffset + Array_array;
 			gdata(&n1, nod(OADDR, a, N), widthptr);
 			n1.xoffset = l->xoffset + Array_nel;
-			gdata(&n1, r->right, 4);
+			gdata(&n1, r->right, widthint);
 			n1.xoffset = l->xoffset + Array_cap;
-			gdata(&n1, r->right, 4);
+			gdata(&n1, r->right, widthint);
 			// Fall through to init underlying array.
 			l = a;
 		}
@@ -747,7 +770,7 @@ slicelit(int ctxt, Node *n, Node *var, NodeList **init)
 		index = r->left;
 		value = r->right;
 		a = nod(OINDEX, var, index);
-		a->etype = 1;	// no bounds checking
+		a->bounded = 1;
 		// TODO need to check bounds?
 
 		switch(value->op) {
@@ -879,11 +902,11 @@ ctxt = 0;
 		index = temp(types[TINT]);
 
 		a = nod(OINDEX, vstat, index);
-		a->etype = 1;	// no bounds checking
+		a->bounded = 1;
 		a = nod(ODOT, a, newname(symb));
 
 		r = nod(OINDEX, vstat, index);
-		r->etype = 1;	// no bounds checking
+		r->bounded = 1;
 		r = nod(ODOT, r, newname(syma));
 		r = nod(OINDEX, var, r);
 
@@ -930,7 +953,7 @@ void
 anylit(int ctxt, Node *n, Node *var, NodeList **init)
 {
 	Type *t;
-	Node *a, *vstat;
+	Node *a, *vstat, *r;
 
 	t = n->type;
 	switch(n->op) {
@@ -941,7 +964,14 @@ anylit(int ctxt, Node *n, Node *var, NodeList **init)
 		if(!isptr[t->etype])
 			fatal("anylit: not ptr");
 
-		a = nod(OAS, var, callnew(t->type));
+		r = nod(ONEW, N, N);
+		r->typecheck = 1;
+		r->type = t;
+		r->esc = n->esc;
+		walkexpr(&r, init);
+
+		a = nod(OAS, var, r);
+
 		typecheck(&a, Etop);
 		*init = list(*init, a);
 
@@ -1223,11 +1253,11 @@ slice:
 	gdata(&nam, nl, types[tptr]->width);
 
 	nam.xoffset += Array_nel-Array_array;
-	nodconst(&nod1, types[TINT32], nr->type->bound);
-	gdata(&nam, &nod1, types[TINT32]->width);
+	nodconst(&nod1, types[TINT], nr->type->bound);
+	gdata(&nam, &nod1, widthint);
 
 	nam.xoffset += Array_cap-Array_nel;
-	gdata(&nam, &nod1, types[TINT32]->width);
+	gdata(&nam, &nod1, widthint);
 
 	goto yes;
 

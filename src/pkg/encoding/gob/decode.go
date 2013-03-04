@@ -62,15 +62,15 @@ func overflow(name string) error {
 // Used only by the Decoder to read the message length.
 func decodeUintReader(r io.Reader, buf []byte) (x uint64, width int, err error) {
 	width = 1
-	_, err = r.Read(buf[0:width])
-	if err != nil {
+	n, err := io.ReadFull(r, buf[0:width])
+	if n == 0 {
 		return
 	}
 	b := buf[0]
 	if b <= 0x7f {
 		return uint64(b), width, nil
 	}
-	n := -int(int8(b))
+	n = -int(int8(b))
 	if n > uint64Size {
 		err = errBadUint
 		return
@@ -562,6 +562,9 @@ func (dec *Decoder) ignoreSingle(engine *decEngine) {
 func (dec *Decoder) decodeArrayHelper(state *decoderState, p uintptr, elemOp decOp, elemWid uintptr, length, elemIndir int, ovfl error) {
 	instr := &decInstr{elemOp, 0, elemIndir, 0, ovfl}
 	for i := 0; i < length; i++ {
+		if state.b.Len() == 0 {
+			errorf("decoding array or slice: length exceeds input size (%d elements)", length)
+		}
 		up := unsafe.Pointer(p)
 		if elemIndir > 1 {
 			up = decIndirect(up, elemIndir)
@@ -652,9 +655,6 @@ func (dec *Decoder) ignoreMap(state *decoderState, keyOp, elemOp decOp) {
 // Slices are encoded as an unsigned length followed by the elements.
 func (dec *Decoder) decodeSlice(atyp reflect.Type, state *decoderState, p uintptr, elemOp decOp, elemWid uintptr, indir, elemIndir int, ovfl error) {
 	nr := state.decodeUint()
-	if nr > uint64(state.b.Len()) {
-		errorf("length of slice exceeds input size (%d elements)", nr)
-	}
 	n := int(nr)
 	if indir > 0 {
 		up := unsafe.Pointer(p)
@@ -717,7 +717,9 @@ func (dec *Decoder) decodeInterface(ityp reflect.Type, state *decoderState, p ui
 		errorf("name too long (%d bytes): %.20q...", len(name), name)
 	}
 	// The concrete type must be registered.
+	registerLock.RLock()
 	typ, ok := nameToConcreteType[name]
+	registerLock.RUnlock()
 	if !ok {
 		errorf("name not registered for interface: %q", name)
 	}

@@ -1,5 +1,6 @@
 <!--{
-	"Title": "FAQ"
+	"Title": "FAQ",
+	"Path": "/doc/faq"
 }-->
 
 <h2 id="Origins">Origins</h2>
@@ -53,6 +54,38 @@ concurrent execution and communication.
 By its design, Go proposes an approach for the construction of system
 software on multicore machines.
 </ul>
+
+<h3 id="What_is_the_status_of_the_project">
+What is the status of the project?</h3>
+
+<p>
+Go became a public open source project on November 10, 2009.
+After a couple of years of very active design and development, stability was called for and
+Go 1 was <a href="http://blog.golang.org/2012/03/go-version-1-is-released.html">released</a>
+on March 28, 2012.
+Go 1, which includes a <a href="/ref/spec">language specification</a>,
+<a href="/pkg/">standard libraries</a>,
+and <a href="/cmd/go/">custom tools</a>,
+provides a stable foundation for creating reliable products, projects, and publications.
+</p>
+
+<p>
+With that stability established, we are using Go to develop programs, products, and tools rather than
+actively changing the language and libraries.
+In fact, the purpose of Go 1 is to provide <a href="/doc/go1compat.html">long-term stability</a>.
+Backwards-incompatible changes will not be made to any Go 1 point release.
+We want to use what we have to learn how a future version of Go might look, rather than to play with
+the language underfoot.
+</p>
+
+<p>
+Of course, development will continue on Go itself, but the focus will be on performance, reliability,
+portability and the addition of new functionality such as improved support for internationalization.
+</p>
+
+<p>
+There may well be a Go 2 one day, but not for a few years and it will be influenced by what we learn using Go 1 as it is today.
+</p>
 
 <h3 id="What_is_the_origin_of_the_name">
 What is the origin of the name?</h3>
@@ -175,12 +208,12 @@ easier to understand what happens when things combine.
 <h3 id="Is_Google_using_go_internally"> Is Google using Go internally?</h3>
 
 <p>
-Yes. There are now several Go programs deployed in 
+Yes. There are now several Go programs deployed in
 production inside Google.  A public example is the server behind
 <a href="http://golang.org">http://golang.org</a>.
 It's just the <a href="/cmd/godoc"><code>godoc</code></a>
 document server running in a production configuration on
-<a href="http://code.google.com/appengine/">Google App Engine</a>.
+<a href="https://developers.google.com/appengine/">Google App Engine</a>.
 </p>
 
 <h3 id="Do_Go_programs_link_with_Cpp_programs">
@@ -191,14 +224,14 @@ There are two Go compiler implementations, <code>gc</code>
 (the <code>6g</code> program and friends) and <code>gccgo</code>.
 <code>Gc</code> uses a different calling convention and linker and can
 therefore only be linked with C programs using the same convention.
-There is such a C compiler but no C++ compiler. 
-<code>Gccgo</code> is a GCC front-end that can, with care, be linked with 
-GCC-compiled C or C++ programs. 
+There is such a C compiler but no C++ compiler.
+<code>Gccgo</code> is a GCC front-end that can, with care, be linked with
+GCC-compiled C or C++ programs.
 </p>
 
 <p>
-The <a href="/cmd/cgo/">cgo</a> program provides the mechanism for a 
-&ldquo;foreign function interface&rdquo; to allow safe calling of 
+The <a href="/cmd/cgo/">cgo</a> program provides the mechanism for a
+&ldquo;foreign function interface&rdquo; to allow safe calling of
 C libraries from Go code. SWIG extends this capability to C++ libraries.
 </p>
 
@@ -509,7 +542,7 @@ Why doesn't Go have "implements" declarations?</h3>
 <p>
 A Go type satisfies an interface by implementing the methods of that interface,
 nothing more.  This property allows interfaces to be defined and used without
-having to modify existing code.  It enables a kind of "duck typing" that
+having to modify existing code.  It enables a kind of structural typing that
 promotes separation of concerns and improves code re-use, and makes it easier
 to build on patterns that emerge as the code develops.
 The semantics of interfaces is one of the main reasons for Go's nimble,
@@ -564,7 +597,7 @@ func (b Bar) Foo() {}
 </pre>
 
 <p>
-Most code doesn't make use of such constraints, since they limit the utility of 
+Most code doesn't make use of such constraints, since they limit the utility of
 the interface idea. Sometimes, though, they're necessary to resolve ambiguities
 among similar interfaces.
 </p>
@@ -890,6 +923,32 @@ See the document
 for more information about how to proceed.
 </p>
 
+<h3 id="Why_does_the_project_use_Mercurial_and_not_git">
+Why does the project use Mercurial and not git?</h3>
+
+<p>
+The Go project, hosted by Google Code at
+<a href="http://code.google.com/p/go">code.google.com/p/go</a>,
+uses Mercurial as its version control system.
+When the project launched,
+Google Code supported only Subversion and Mercurial.
+Mercurial was a better choice because of its plugin mechanism
+that allowed us to create the "codereview" plugin to connect
+the project to the excellent code review tools at
+<a href="http://codereview.appspot.com">codereview.appspot.com</a>.
+</p>
+
+<p>
+Programmers who work
+with the Go project's source rather than release downloads sometimes
+ask for the project to switch to git.
+That would be possible, but it would be a lot of work and
+would also require reimplementing the codereview plugin.
+Given that Mercurial works today, with code review support,
+combined with the Go project's mostly linear, non-branching use of
+version control, a switch to git doesn't seem worthwhile.
+</p>
+
 <h2 id="Pointers">Pointers and Allocation</h2>
 
 <h3 id="pass_by_value">
@@ -912,7 +971,7 @@ slice value doesn't copy the data it points to.  Copying an interface value
 makes a copy of the thing stored in the interface value.  If the interface
 value holds a struct, copying the interface value makes a copy of the
 struct.  If the interface value holds a pointer, copying the interface value
-makes a copy of the pointer, but again not the data it points to. 
+makes a copy of the pointer, but again not the data it points to.
 </p>
 
 <h3 id="methods_on_values_or_pointers">
@@ -994,9 +1053,11 @@ Why is <code>int</code> 32 bits on 64 bit machines?</h3>
 <p>
 The sizes of <code>int</code> and <code>uint</code> are implementation-specific
 but the same as each other on a given platform.
-The 64 bit Go compilers (both gc and gccgo) use a 32 bit representation for
-<code>int</code>.  Code that relies on a particular
+For portability, code that relies on a particular
 size of value should use an explicitly sized type, like <code>int64</code>.
+Prior to Go 1.1, the 64-bit Go compilers (both gc and gccgo) used
+a 32-bit representation for <code>int</code>. As of Go 1.1 they use
+a 64-bit representation.
 On the other hand, floating-point scalars and complex
 numbers are always sized: <code>float32</code>, <code>complex64</code>,
 etc., because programmers should be aware of precision when using
@@ -1038,6 +1099,22 @@ analysis</em> recognizes some cases when such variables will not
 live past the return from the function and can reside on the stack.
 </p>
 
+<h3 id="Why_does_my_Go_process_use_so_much_virtual_memory">
+Why does my Go process use so much virtual memory?</h3>
+
+<p>
+The Go memory allocator reserves a large region of virtual memory as an arena
+for allocations. This virtual memory is local to the specific Go process; the
+reservation does not deprive other processes of memory.
+</p>
+
+<p>
+To find the amount of actual memory allocated to a Go process, use the Unix
+<code>top</code> command and consult the <code>RES</code> (Linux) or
+<code>RSIZE</code> (Mac OS X) columns.
+<!-- TODO(adg): find out how this works on Windows -->
+</p>
+
 <h2 id="Concurrency">Concurrency</h2>
 
 <h3 id="What_operations_are_atomic_What_about_mutexes">
@@ -1071,7 +1148,7 @@ Why doesn't my multi-goroutine program use multiple CPUs?</h3>
 You must set the <code>GOMAXPROCS</code> shell environment variable
 or use the similarly-named <a href="/pkg/runtime/#GOMAXPROCS"><code>function</code></a>
 of the runtime package to allow the
-run-time support to utilize more than one OS thread. 
+run-time support to utilize more than one OS thread.
 </p>
 
 <p>
@@ -1084,7 +1161,7 @@ Why does using <code>GOMAXPROCS</code> &gt; 1 sometimes make my program
 slower?</h3>
 
 <p>
-It depends on the nature of your program. 
+It depends on the nature of your program.
 Problems that are intrinsically sequential cannot be sped up by adding
 more goroutines.
 Concurrency only becomes parallelism when the problem is
@@ -1173,23 +1250,26 @@ func main() {
 
     // wait for all goroutines to complete before exiting
     for _ = range values {
-        &lt;-done 
+        &lt;-done
     }
 }
 </pre>
 
 <p>
-One might mistakenly expect to see <code>a, b, c</code> as the output. 
-What you'll probably see instead is <code>c, c, c</code>.  This is because 
+One might mistakenly expect to see <code>a, b, c</code> as the output.
+What you'll probably see instead is <code>c, c, c</code>.  This is because
 each iteration of the loop uses the same instance of the variable <code>v</code>, so
-each closure shares that single variable. When the closure runs, it prints the 
+each closure shares that single variable. When the closure runs, it prints the
 value of <code>v</code> at the time <code>fmt.Println</code> is executed,
-but <code>v</code> may have been modified since the goroutine was launched. 
+but <code>v</code> may have been modified since the goroutine was launched.
+To help detect this and other problems before they happen, run
+<a href="http://golang.org/cmd/go/#hdr-Run_go_tool_vet_on_packages"><code>go vet</code></a>.
 </p>
 
 <p>
-To bind the value of <code>v</code> to each closure as they are launched, one
-could modify the inner loop to read:
+To bind the current value of <code>v</code> to each closure as it is launched, one
+must modify the inner loop to create a new variable each iteration.
+One way is to pass the variable as an argument to the closure:
 </p>
 
 <pre>
@@ -1202,10 +1282,25 @@ could modify the inner loop to read:
 </pre>
 
 <p>
-In this example, the value of <code>v</code> is passed as an argument to the 
+In this example, the value of <code>v</code> is passed as an argument to the
 anonymous function. That value is then accessible inside the function as
 the variable <code>u</code>.
 </p>
+
+<p>
+Even easier is just to create a new variable, using a declaration style that may
+seem odd but works fine in Go:
+</p>
+
+<pre>
+    for _, v := range values {
+        <b>v := v</b> // create a new 'v'.
+        go func() {
+            fmt.Println(<b>v</b>)
+            done &lt;- true
+        }()
+    }
+</pre>
 
 <h2 id="Control_flow">Control flow</h2>
 
@@ -1264,7 +1359,7 @@ builds a test binary, and runs it.
 
 <p>See the <a href="/doc/code.html">How to Write Go Code</a> document,
 the <a href="/pkg/testing/"><code>testing</code></a> package
-and the <a href="/cmd/go/#Test_packages"><code>go test</code></a> subcommand for more details.
+and the <a href="/cmd/go/#hdr-Test_packages"><code>go test</code></a> subcommand for more details.
 </p>
 
 <h3 id="testing_framework">
@@ -1383,7 +1478,7 @@ For these reasons, Go allows neither.
 <p>
 When developing code, it's common to create these situations
 temporarily and it can be annoying to have to edit them out before the
-program will compile.  
+program will compile.
 </p>
 
 <p>
@@ -1430,13 +1525,13 @@ Why does Go perform badly on benchmark X?</h3>
 
 <p>
 One of Go's design goals is to approach the performance of C for comparable
-programs, yet on some benchmarks it does quite poorly, including several 
-in <a href="/test/bench/shootout/">test/bench/shootout</a>. The slowest depend on libraries 
-for which versions of comparable performance are not available in Go. 
+programs, yet on some benchmarks it does quite poorly, including several
+in <a href="/test/bench/shootout/">test/bench/shootout</a>. The slowest depend on libraries
+for which versions of comparable performance are not available in Go.
 For instance, <a href="/test/bench/shootout/pidigits.go">pidigits.go</a>
 depends on a multi-precision math package, and the C
 versions, unlike Go's, use <a href="http://gmplib.org/">GMP</a> (which is
-written in optimized assembler). 
+written in optimized assembler).
 Benchmarks that depend on regular expressions
 (<a href="/test/bench/shootout/regex-dna.go">regex-dna.go</a>, for instance) are
 essentially comparing Go's native <a href="/pkg/regexp">regexp package</a> to
@@ -1455,7 +1550,7 @@ indicate.
 <p>
 Still, there is room for improvement. The compilers are good but could be
 better, many libraries need major performance work, and the garbage collector
-isn't fast enough yet. (Even if it were, taking care not to generate unnecessary 
+isn't fast enough yet. (Even if it were, taking care not to generate unnecessary
 garbage can have a huge effect.)
 </p>
 

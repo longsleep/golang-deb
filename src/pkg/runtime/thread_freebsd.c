@@ -13,8 +13,8 @@ extern int32 runtime·sys_umtx_op(uint32*, int32, uint32, void*, void*);
 #define	CTL_HW	6
 #define	HW_NCPU	3
 
+static Sigset sigset_none;
 static Sigset sigset_all = { ~(uint32)0, ~(uint32)0, ~(uint32)0, ~(uint32)0, };
-static Sigset sigset_none = { 0, 0, 0, 0, };
 
 static int32
 getncpu(void)
@@ -77,32 +77,33 @@ runtime·futexwakeup(uint32 *addr, uint32 cnt)
 void runtime·thr_start(void*);
 
 void
-runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
+runtime·newosproc(M *mp, void *stk)
 {
 	ThrParam param;
 	Sigset oset;
 
-	USED(fn);	// thr_start assumes fn == mstart
-	USED(g);	// thr_start assumes g == m->g0
-
 	if(0){
-		runtime·printf("newosproc stk=%p m=%p g=%p fn=%p id=%d/%d ostk=%p\n",
-			stk, m, g, fn, m->id, m->tls[0], &m);
+		runtime·printf("newosproc stk=%p m=%p g=%p id=%d/%d ostk=%p\n",
+			stk, mp, mp->g0, mp->id, (int32)mp->tls[0], &mp);
 	}
 
 	runtime·sigprocmask(&sigset_all, &oset);
 	runtime·memclr((byte*)&param, sizeof param);
 
 	param.start_func = runtime·thr_start;
-	param.arg = m;
-	param.stack_base = (int8*)g->stackbase;
-	param.stack_size = (byte*)stk - (byte*)g->stackbase;
-	param.child_tid = (intptr*)&m->procid;
-	param.parent_tid = nil;
-	param.tls_base = (int8*)&m->tls[0];
-	param.tls_size = sizeof m->tls;
+	param.arg = (byte*)mp;
+	
+	// NOTE(rsc): This code is confused. stackbase is the top of the stack
+	// and is equal to stk. However, it's working, so I'm not changing it.
+	param.stack_base = (void*)mp->g0->stackbase;
+	param.stack_size = (byte*)stk - (byte*)mp->g0->stackbase;
 
-	m->tls[0] = m->id;	// so 386 asm can find it
+	param.child_tid = (intptr*)&mp->procid;
+	param.parent_tid = nil;
+	param.tls_base = (void*)&mp->tls[0];
+	param.tls_size = sizeof mp->tls;
+
+	mp->tls[0] = mp->id;	// so 386 asm can find it
 
 	runtime·thr_new(&param, sizeof param);
 	runtime·sigprocmask(&oset, nil);
@@ -121,13 +122,28 @@ runtime·goenvs(void)
 }
 
 // Called to initialize a new m (including the bootstrap m).
+// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
+void
+runtime·mpreinit(M *mp)
+{
+	mp->gsignal = runtime·malg(32*1024);
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the new thread, can not allocate memory.
 void
 runtime·minit(void)
 {
 	// Initialize signal handling
-	m->gsignal = runtime·malg(32*1024);
-	runtime·signalstack(m->gsignal->stackguard - StackGuard, 32*1024);
+	runtime·signalstack((byte*)m->gsignal->stackguard - StackGuard, 32*1024);
 	runtime·sigprocmask(&sigset_none, nil);
+}
+
+// Called from dropm to undo the effect of an minit.
+void
+runtime·unminit(void)
+{
+	runtime·signalstack(nil, 0);
 }
 
 void
@@ -206,12 +222,22 @@ runtime·badcallback(void)
 	runtime·write(2, badcallback, sizeof badcallback - 1);
 }
 
-static int8 badsignal[] = "runtime: signal received on thread not created by Go.\n";
+static int8 badsignal[] = "runtime: signal received on thread not created by Go: ";
 
 // This runs on a foreign stack, without an m or a g.  No stack split.
 #pragma textflag 7
 void
-runtime·badsignal(void)
+runtime·badsignal(int32 sig)
 {
+	if (sig == SIGPROF) {
+		return;  // Ignore SIGPROFs intended for a non-Go thread.
+	}
 	runtime·write(2, badsignal, sizeof badsignal - 1);
+	if (0 <= sig && sig < NSIG) {
+		// Call runtime·findnull dynamically to circumvent static stack size check.
+		static int32 (*findnull)(byte*) = runtime·findnull;
+		runtime·write(2, runtime·sigtab[sig].name, findnull((byte*)runtime·sigtab[sig].name));
+	}
+	runtime·write(2, "\n", 1);
+	runtime·exit(1);
 }

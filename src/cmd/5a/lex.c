@@ -329,8 +329,6 @@ struct
 	"STREXD",		LTYPE9, ASTREXD,
 
 /*
-	"ABSF",		LTYPEI, AABSF,
-	"ABSD",		LTYPEI, AABSD,
 	"NEGF",		LTYPEI, ANEGF,
 	"NEGD",		LTYPEI, ANEGD,
 	"SQTF",		LTYPEI,	ASQTF,
@@ -343,6 +341,8 @@ struct
 	"NRMD",		LTYPEI,	ANRMD,
 */
 
+	"ABSF",		LTYPEI, AABSF,
+	"ABSD",		LTYPEI, AABSD,
 	"SQRTF",	LTYPEI, ASQRTF,
 	"SQRTD",	LTYPEI, ASQRTD,
 	"CMPF",		LTYPEL, ACMPF,
@@ -403,6 +403,18 @@ struct
 
 	"MCR",		LTYPEJ, 0,
 	"MRC",		LTYPEJ, 1,
+
+	"PLD",		LTYPEPLD, APLD,
+	"UNDEF",	LTYPEE,	AUNDEF,
+	"CLZ",		LTYPE2, ACLZ,
+
+	"MULWT",	LTYPE1, AMULWT,
+	"MULWB",	LTYPE1, AMULWB,
+	"MULAWT",	LTYPEN, AMULAWT,
+	"MULAWB",	LTYPEN, AMULAWB,
+
+	"USEFIELD",	LTYPEN, AUSEFIELD,
+
 	0
 };
 
@@ -493,6 +505,7 @@ zaddr(Gen *a, int s)
 	Bputc(&obuf, a->reg);
 	Bputc(&obuf, s);
 	Bputc(&obuf, a->name);
+	Bputc(&obuf, 0);
 	switch(a->type) {
 	default:
 		print("unknown type %d\n", a->type);
@@ -506,6 +519,7 @@ zaddr(Gen *a, int s)
 		break;
 
 	case D_REGREG:
+	case D_REGREG2:
 		Bputc(&obuf, a->offset);
 		break;
 
@@ -641,11 +655,37 @@ outhist(void)
 	Hist *h;
 	char *p, *q, *op, c;
 	int n;
-
+ 	char *tofree;
+ 	static int first = 1;
+ 	static char *goroot, *goroot_final;
+ 
+ 	if(first) {
+ 		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
+ 		first = 0;
+ 		goroot = getenv("GOROOT");
+ 		goroot_final = getenv("GOROOT_FINAL");
+ 		if(goroot == nil)
+ 			goroot = "";
+ 		if(goroot_final == nil)
+ 			goroot_final = goroot;
+ 		if(strcmp(goroot, goroot_final) == 0) {
+ 			goroot = nil;
+ 			goroot_final = nil;
+ 		}
+ 	}
+ 
+ 	tofree = nil;
 	g = nullgen;
 	c = '/';
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
+ 		if(p != nil && goroot != nil) {
+ 			n = strlen(goroot);
+ 			if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
+ 				tofree = smprint("%s%s", goroot_final, p+n);
+ 				p = tofree;
+ 			}
+ 		}
 		op = 0;
 		if(systemtype(Windows) && p && p[1] == ':'){
 			c = p[2];
@@ -697,6 +737,11 @@ outhist(void)
 		Bputc(&obuf, h->line>>24);
 		zaddr(&nullgen, 0);
 		zaddr(&g, 0);
+
+		if(tofree) {
+			free(tofree);
+			tofree = nil;
+		}
 	}
 }
 

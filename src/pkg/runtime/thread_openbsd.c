@@ -20,8 +20,11 @@ enum
 
 extern SigTab runtime·sigtab[];
 
-extern int64 runtime·rfork_thread(int32 flags, void *stack, M *m, G *g, void (*fn)(void));
-extern int32 runtime·thrsleep(void *ident, int32 clock_id, void *tsp, void *lock);
+static Sigset sigset_none;
+static Sigset sigset_all = ~(Sigset)0;
+
+extern int64 runtime·tfork(void *param, uintptr psize, M *mp, G *gp, void (*fn)(void));
+extern int32 runtime·thrsleep(void *ident, int32 clock_id, void *tsp, void *lock, const int32 *abort);
 extern int32 runtime·thrwakeup(void *ident, int32 n);
 
 // From OpenBSD's <sys/sysctl.h>
@@ -69,12 +72,12 @@ runtime·semasleep(int64 ns)
 			// sleep until semaphore != 0 or timeout.
 			// thrsleep unlocks m->waitsemalock.
 			if(ns < 0)
-				runtime·thrsleep(&m->waitsemacount, 0, nil, &m->waitsemalock);
+				runtime·thrsleep(&m->waitsemacount, 0, nil, &m->waitsemalock, nil);
 			else {
 				ns += runtime·nanotime();
 				ts.tv_sec = ns/1000000000LL;
 				ts.tv_nsec = ns%1000000000LL;
-				runtime·thrsleep(&m->waitsemacount, CLOCK_REALTIME, &ts, &m->waitsemalock);
+				runtime·thrsleep(&m->waitsemacount, CLOCK_REALTIME, &ts, &m->waitsemalock, nil);
 			}
 			// reacquire lock
 			while(runtime·xchg(&m->waitsemalock, 1))
@@ -119,29 +122,30 @@ runtime·semawakeup(M *mp)
 	runtime·atomicstore(&mp->waitsemalock, 0);
 }
 
-// From OpenBSD's sys/param.h
-#define	RFPROC		(1<<4)	/* change child (else changes curproc) */
-#define	RFMEM		(1<<5)	/* share `address space' */
-#define	RFNOWAIT	(1<<6)	/* parent need not wait() on child */
-#define	RFTHREAD	(1<<13)	/* create a thread, not a process */
-
 void
-runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
+runtime·newosproc(M *mp, void *stk)
 {
-	int32 flags;
+	Tfork param;
+	Sigset oset;
 	int32 ret;
 
-	flags = RFPROC | RFTHREAD | RFMEM | RFNOWAIT;
-
-	if (0) {
+	if(0) {
 		runtime·printf(
-			"newosproc stk=%p m=%p g=%p fn=%p id=%d/%d ostk=%p\n",
-			stk, m, g, fn, m->id, m->tls[0], &m);
+			"newosproc stk=%p m=%p g=%p id=%d/%d ostk=%p\n",
+			stk, mp, mp->g0, mp->id, (int32)mp->tls[0], &mp);
 	}
 
-	m->tls[0] = m->id;	// so 386 asm can find it
+	mp->tls[0] = mp->id;	// so 386 asm can find it
 
-	if((ret = runtime·rfork_thread(flags, stk, m, g, fn)) < 0) {
+	param.tf_tcb = (byte*)&mp->tls[0];
+	param.tf_tid = (int32*)&mp->procid;
+	param.tf_stack = stk;
+
+	oset = runtime·sigprocmask(SIG_SETMASK, sigset_all);
+	ret = runtime·tfork((byte*)&param, sizeof(param), mp, mp->g0, runtime·mstart);
+	runtime·sigprocmask(SIG_SETMASK, oset);
+
+	if(ret < 0) {
 		runtime·printf("runtime: failed to create new OS thread (have %d already; errno=%d)\n", runtime·mcount() - 1, -ret);
 		if (ret == -ENOTSUP)
 			runtime·printf("runtime: is kern.rthreads disabled?\n");
@@ -162,12 +166,28 @@ runtime·goenvs(void)
 }
 
 // Called to initialize a new m (including the bootstrap m).
+// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
+void
+runtime·mpreinit(M *mp)
+{
+	mp->gsignal = runtime·malg(32*1024);
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the new thread, can not allocate memory.
 void
 runtime·minit(void)
 {
 	// Initialize signal handling
-	m->gsignal = runtime·malg(32*1024);
-	runtime·signalstack(m->gsignal->stackguard - StackGuard, 32*1024);
+	runtime·signalstack((byte*)m->gsignal->stackguard - StackGuard, 32*1024);
+	runtime·sigprocmask(SIG_SETMASK, sigset_none);
+}
+
+// Called from dropm to undo the effect of an minit.
+void
+runtime·unminit(void)
+{
+	runtime·signalstack(nil, 0);
 }
 
 void
@@ -224,12 +244,22 @@ runtime·badcallback(void)
 	runtime·write(2, badcallback, sizeof badcallback - 1);
 }
 
-static int8 badsignal[] = "runtime: signal received on thread not created by Go.\n";
+static int8 badsignal[] = "runtime: signal received on thread not created by Go: ";
 
 // This runs on a foreign stack, without an m or a g.  No stack split.
 #pragma textflag 7
 void
-runtime·badsignal(void)
+runtime·badsignal(int32 sig)
 {
+	if (sig == SIGPROF) {
+		return;  // Ignore SIGPROFs intended for a non-Go thread.
+	}
 	runtime·write(2, badsignal, sizeof badsignal - 1);
+	if (0 <= sig && sig < NSIG) {
+		// Call runtime·findnull dynamically to circumvent static stack size check.
+		static int32 (*findnull)(byte*) = runtime·findnull;
+		runtime·write(2, runtime·sigtab[sig].name, findnull((byte*)runtime·sigtab[sig].name));
+	}
+	runtime·write(2, "\n", 1);
+	runtime·exit(1);
 }

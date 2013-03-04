@@ -46,7 +46,7 @@ func (mset methodSet) set(f *ast.FuncDecl) {
 		// since it has documentation, assume f is simply another
 		// implementation and ignore it. This does not happen if the
 		// caller is using go/build.ScanDir to determine the list of
-		// files implementing a package. 
+		// files implementing a package.
 		return
 	}
 	// function doesn't exist or has no documentation; use f
@@ -149,6 +149,7 @@ type reader struct {
 	doc       string // package documentation, if any
 	filenames []string
 	bugs      []string
+	notes     map[string][]string
 
 	// declarations
 	imports map[string]int
@@ -400,9 +401,22 @@ func (r *reader) readFunc(fun *ast.FuncDecl) {
 }
 
 var (
-	bug_markers = regexp.MustCompile("^/[/*][ \t]*BUG\\(.*\\):[ \t]*") // BUG(uid):
-	bug_content = regexp.MustCompile("[^ \n\r\t]+")                    // at least one non-whitespace char
+	noteMarker  = regexp.MustCompile(`^/[/*][ \t]*([A-Z][A-Z]+)\(.+\):[ \t]*(.*)`) // MARKER(uid)
+	noteContent = regexp.MustCompile(`[^ \n\r\t]+`)                                // at least one non-whitespace char
 )
+
+func readNote(c *ast.CommentGroup) (marker, annotation string) {
+	text := c.List[0].Text
+	if m := noteMarker.FindStringSubmatch(text); m != nil {
+		if btxt := m[2]; noteContent.MatchString(btxt) {
+			// non-empty MARKER comment; collect comment without the MARKER prefix
+			list := append([]*ast.Comment(nil), c.List...) // make a copy
+			list[0].Text = m[2]
+			return m[1], (&ast.CommentGroup{List: list}).Text()
+		}
+	}
+	return "", ""
+}
 
 // readFile adds the AST for a source file to the reader.
 //
@@ -469,16 +483,12 @@ func (r *reader) readFile(src *ast.File) {
 		}
 	}
 
-	// collect BUG(...) comments
+	// collect MARKER(...): annotations
 	for _, c := range src.Comments {
-		text := c.List[0].Text
-		if m := bug_markers.FindStringIndex(text); m != nil {
-			// found a BUG comment; maybe empty
-			if btxt := text[m[1]:]; bug_content.MatchString(btxt) {
-				// non-empty BUG comment; collect comment without BUG prefix
-				list := append([]*ast.Comment(nil), c.List...) // make a copy
-				list[0].Text = text[m[1]:]
-				r.bugs = append(r.bugs, (&ast.CommentGroup{List: list}).Text())
+		if marker, text := readNote(c); marker != "" {
+			r.notes[marker] = append(r.notes[marker], text)
+			if marker == "BUG" {
+				r.bugs = append(r.bugs, text)
 			}
 		}
 	}
@@ -492,9 +502,10 @@ func (r *reader) readPackage(pkg *ast.Package, mode Mode) {
 	r.mode = mode
 	r.types = make(map[string]*namedType)
 	r.funcs = make(methodSet)
+	r.notes = make(map[string][]string)
 
 	// sort package files before reading them so that the
-	// result result does not depend on map iteration order
+	// result does not depend on map iteration order
 	i := 0
 	for filename := range pkg.Files {
 		r.filenames[i] = filename
@@ -514,29 +525,6 @@ func (r *reader) readPackage(pkg *ast.Package, mode Mode) {
 
 // ----------------------------------------------------------------------------
 // Types
-
-var predeclaredTypes = map[string]bool{
-	"bool":       true,
-	"byte":       true,
-	"complex64":  true,
-	"complex128": true,
-	"error":      true,
-	"float32":    true,
-	"float64":    true,
-	"int":        true,
-	"int8":       true,
-	"int16":      true,
-	"int32":      true,
-	"int64":      true,
-	"rune":       true,
-	"string":     true,
-	"uint":       true,
-	"uint8":      true,
-	"uint16":     true,
-	"uint32":     true,
-	"uint64":     true,
-	"uintptr":    true,
-}
 
 func customizeRecv(f *Func, recvTypeName string, embeddedIsPtr bool, level int) *Func {
 	if f == nil || f.Decl == nil || f.Decl.Recv == nil || len(f.Decl.Recv.List) != 1 {
@@ -620,7 +608,7 @@ func (r *reader) computeMethodSets() {
 // types that have no declaration. Instead, these functions and methods
 // are shown at the package level. It also removes types with missing
 // declarations or which are not visible.
-// 
+//
 func (r *reader) cleanupTypes() {
 	for _, t := range r.types {
 		visible := r.isVisible(t.name)
@@ -771,4 +759,55 @@ func sortedFuncs(m methodSet, allMethods bool) []*Func {
 		len(list),
 	)
 	return list
+}
+
+// ----------------------------------------------------------------------------
+// Predeclared identifiers
+
+var predeclaredTypes = map[string]bool{
+	"bool":       true,
+	"byte":       true,
+	"complex64":  true,
+	"complex128": true,
+	"error":      true,
+	"float32":    true,
+	"float64":    true,
+	"int":        true,
+	"int8":       true,
+	"int16":      true,
+	"int32":      true,
+	"int64":      true,
+	"rune":       true,
+	"string":     true,
+	"uint":       true,
+	"uint8":      true,
+	"uint16":     true,
+	"uint32":     true,
+	"uint64":     true,
+	"uintptr":    true,
+}
+
+var predeclaredFuncs = map[string]bool{
+	"append":  true,
+	"cap":     true,
+	"close":   true,
+	"complex": true,
+	"copy":    true,
+	"delete":  true,
+	"imag":    true,
+	"len":     true,
+	"make":    true,
+	"new":     true,
+	"panic":   true,
+	"print":   true,
+	"println": true,
+	"real":    true,
+	"recover": true,
+}
+
+var predeclaredConstants = map[string]bool{
+	"false": true,
+	"iota":  true,
+	"nil":   true,
+	"true":  true,
 }

@@ -7,6 +7,7 @@ package url
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -121,14 +122,14 @@ var urltests = []URLTest{
 		},
 		"http:%2f%2fwww.google.com/?q=go+language",
 	},
-	// non-authority
+	// non-authority with path
 	{
 		"mailto:/webmaster@golang.org",
 		&URL{
 			Scheme: "mailto",
 			Path:   "/webmaster@golang.org",
 		},
-		"",
+		"mailto:///webmaster@golang.org", // unfortunate compromise
 	},
 	// non-authority
 	{
@@ -241,6 +242,24 @@ var urltests = []URLTest{
 		},
 		"http://www.google.com/?q=go+language#foo&bar",
 	},
+	{
+		"file:///home/adg/rabbits",
+		&URL{
+			Scheme: "file",
+			Host:   "",
+			Path:   "/home/adg/rabbits",
+		},
+		"file:///home/adg/rabbits",
+	},
+	// case-insensitive scheme
+	{
+		"MaIlTo:webmaster@golang.org",
+		&URL{
+			Scheme: "mailto",
+			Opaque: "webmaster@golang.org",
+		},
+		"mailto:webmaster@golang.org",
+	},
 }
 
 // more useful string for debugging than fmt's struct printer
@@ -270,13 +289,37 @@ func DoTest(t *testing.T, parse func(string) (*URL, error), name string, tests [
 	}
 }
 
+func BenchmarkString(b *testing.B) {
+	b.StopTimer()
+	b.ReportAllocs()
+	for _, tt := range urltests {
+		u, err := Parse(tt.in)
+		if err != nil {
+			b.Errorf("Parse(%q) returned error %s", tt.in, err)
+			continue
+		}
+		if tt.roundtrip == "" {
+			continue
+		}
+		b.StartTimer()
+		var g string
+		for i := 0; i < b.N; i++ {
+			g = u.String()
+		}
+		b.StopTimer()
+		if w := tt.roundtrip; g != w {
+			b.Errorf("Parse(%q).String() == %q, want %q", tt.in, g, w)
+		}
+	}
+}
+
 func TestParse(t *testing.T) {
 	DoTest(t, Parse, "Parse", urltests)
 }
 
 const pathThatLooksSchemeRelative = "//not.a.user@not.a.host/just/a/path"
 
-var parseRequestUrlTests = []struct {
+var parseRequestURLTests = []struct {
 	url           string
 	expectedValid bool
 }{
@@ -288,10 +331,11 @@ var parseRequestUrlTests = []struct {
 	{"//not.a.user@%66%6f%6f.com/just/a/path/also", true},
 	{"foo.html", false},
 	{"../dir/", false},
+	{"*", true},
 }
 
 func TestParseRequestURI(t *testing.T) {
-	for _, test := range parseRequestUrlTests {
+	for _, test := range parseRequestURLTests {
 		_, err := ParseRequestURI(test.url)
 		valid := err == nil
 		if valid != test.expectedValid {
@@ -453,20 +497,24 @@ func TestEscape(t *testing.T) {
 //}
 
 type EncodeQueryTest struct {
-	m         Values
-	expected  string
-	expected1 string
+	m        Values
+	expected string
 }
 
 var encodeQueryTests = []EncodeQueryTest{
-	{nil, "", ""},
-	{Values{"q": {"puppies"}, "oe": {"utf8"}}, "q=puppies&oe=utf8", "oe=utf8&q=puppies"},
-	{Values{"q": {"dogs", "&", "7"}}, "q=dogs&q=%26&q=7", "q=dogs&q=%26&q=7"},
+	{nil, ""},
+	{Values{"q": {"puppies"}, "oe": {"utf8"}}, "oe=utf8&q=puppies"},
+	{Values{"q": {"dogs", "&", "7"}}, "q=dogs&q=%26&q=7"},
+	{Values{
+		"a": {"a1", "a2", "a3"},
+		"b": {"b1", "b2", "b3"},
+		"c": {"c1", "c2", "c3"},
+	}, "a=a1&a=a2&a=a3&b=b1&b=b2&b=b3&c=c1&c=c2&c=c3"},
 }
 
 func TestEncodeQuery(t *testing.T) {
 	for _, tt := range encodeQueryTests {
-		if q := tt.m.Encode(); q != tt.expected && q != tt.expected1 {
+		if q := tt.m.Encode(); q != tt.expected {
 			t.Errorf(`EncodeQuery(%+v) = %q, want %q`, tt.m, q, tt.expected)
 		}
 	}
@@ -531,6 +579,15 @@ var resolveReferenceTests = []struct {
 	{"http://foo.com/bar/baz", "../../../../../quux", "http://foo.com/quux"},
 	{"http://foo.com/bar", "..", "http://foo.com/"},
 	{"http://foo.com/bar/baz", "./..", "http://foo.com/"},
+	// ".." in the middle (issue 3560)
+	{"http://foo.com/bar/baz", "quux/dotdot/../tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/../tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/.././tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/./../tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/dotdot/././../../tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/dotdot/./.././../tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/dotdot/dotdot/./../../.././././tail", "http://foo.com/bar/quux/tail"},
+	{"http://foo.com/bar/baz", "quux/./dotdot/../dotdot/../dot/./tail/..", "http://foo.com/bar/quux/dot"},
 
 	// "." and ".." in the base aren't special
 	{"http://foo.com/dot/./dotdot/../foo/bar", "../baz", "http://foo.com/dot/./dotdot/../baz"},
@@ -741,6 +798,24 @@ var requritests = []RequestURITest{
 		},
 		"/a%20b",
 	},
+	// golang.org/issue/4860 variant 1
+	{
+		&URL{
+			Scheme: "http",
+			Host:   "example.com",
+			Opaque: "/%2F/%2F/",
+		},
+		"/%2F/%2F/",
+	},
+	// golang.org/issue/4860 variant 2
+	{
+		&URL{
+			Scheme: "http",
+			Host:   "example.com",
+			Opaque: "//other.example.com/%2F/%2F/",
+		},
+		"http://other.example.com/%2F/%2F/",
+	},
 	{
 		&URL{
 			Scheme:   "http",
@@ -773,5 +848,15 @@ func TestRequestURI(t *testing.T) {
 		if s != tt.out {
 			t.Errorf("%#v.RequestURI() == %q (expected %q)", tt.url, s, tt.out)
 		}
+	}
+}
+
+func TestParseFailure(t *testing.T) {
+	// Test that the first parse error is returned.
+	const url = "%gh&%ij"
+	_, err := ParseQuery(url)
+	errStr := fmt.Sprint(err)
+	if !strings.Contains(errStr, "%gh") {
+		t.Errorf(`ParseQuery(%q) returned error %q, want something containing %q"`, url, errStr, "%gh")
 	}
 }

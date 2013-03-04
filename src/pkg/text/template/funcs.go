@@ -54,7 +54,7 @@ func addValueFuncs(out map[string]reflect.Value, in FuncMap) {
 			panic("value for " + name + " not a function")
 		}
 		if !goodFunc(v.Type()) {
-			panic(fmt.Errorf("can't handle multiple results from method/function %q", name))
+			panic(fmt.Errorf("can't install method/function %q with %d results", name, v.Type().NumOut()))
 		}
 		out[name] = v
 	}
@@ -107,7 +107,7 @@ func index(item interface{}, indices ...interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("index of nil pointer")
 		}
 		switch v.Kind() {
-		case reflect.Array, reflect.Slice:
+		case reflect.Array, reflect.Slice, reflect.String:
 			var x int64
 			switch index.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -122,16 +122,19 @@ func index(item interface{}, indices ...interface{}) (interface{}, error) {
 			}
 			v = v.Index(int(x))
 		case reflect.Map:
+			if !index.IsValid() {
+				index = reflect.Zero(v.Type().Key())
+			}
 			if !index.Type().AssignableTo(v.Type().Key()) {
 				return nil, fmt.Errorf("%s is not index type for %s", index.Type(), v.Type())
 			}
 			if x := v.MapIndex(index); x.IsValid() {
 				v = x
 			} else {
-				v = reflect.Zero(v.Type().Key())
+				v = reflect.Zero(v.Type().Elem())
 			}
 		default:
-			return nil, fmt.Errorf("can't index item of type %s", index.Type())
+			return nil, fmt.Errorf("can't index item of type %s", v.Type())
 		}
 	}
 	return v.Interface(), nil
@@ -154,7 +157,7 @@ func length(item interface{}) (int, error) {
 
 // Function invocation
 
-// call returns the result of evaluating the the first argument as a function.
+// call returns the result of evaluating the first argument as a function.
 // The function must return 1 result, or 2 results, the second of which is an error.
 func call(fn interface{}, args ...interface{}) (interface{}, error) {
 	v := reflect.ValueOf(fn)
@@ -187,10 +190,13 @@ func call(fn interface{}, args ...interface{}) (interface{}, error) {
 		} else {
 			argType = dddType
 		}
+		if !value.IsValid() && canBeNil(argType) {
+			value = reflect.Zero(argType)
+		}
 		if !value.Type().AssignableTo(argType) {
 			return nil, fmt.Errorf("arg %d has type %s; should be %s", i, value.Type(), argType)
 		}
-		argv[i] = reflect.ValueOf(arg)
+		argv[i] = value
 	}
 	result := v.Call(argv)
 	if len(result) == 2 {

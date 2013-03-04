@@ -101,32 +101,61 @@ TEXT runtime·mincore(SB),7,$0-24
 	RET
 
 // func now() (sec int64, nsec int32)
-TEXT time·now(SB), 7, $32
-	LEAQ	8(SP), DI
-	MOVQ	$0, SI
-	MOVQ	$0xffffffffff600000, AX
+TEXT time·now(SB),7,$16
+	// Be careful. We're calling a function with gcc calling convention here.
+	// We're guaranteed 128 bytes on entry, and we've taken 16, and the
+	// call uses another 8.
+	// That leaves 104 for the gettime code to use. Hope that's enough!
+	MOVQ	runtime·__vdso_clock_gettime_sym(SB), AX
+	CMPQ	AX, $0
+	JEQ	fallback_gtod
+	MOVL	$0, DI // CLOCK_REALTIME
+	LEAQ	0(SP), SI
 	CALL	AX
-	MOVQ	8(SP), AX	// sec
-	MOVL	16(SP), DX	// usec
-
-	// sec is in AX, usec in DX
+	MOVQ	0(SP), AX	// sec
+	MOVQ	8(SP), DX	// nsec
 	MOVQ	AX, sec+0(FP)
+	MOVL	DX, nsec+8(FP)
+	RET
+fallback_gtod:
+	LEAQ	0(SP), DI
+	MOVQ	$0, SI
+	MOVQ	runtime·__vdso_gettimeofday_sym(SB), AX
+	CALL	AX
+	MOVQ	0(SP), AX	// sec
+	MOVL	8(SP), DX	// usec
 	IMULQ	$1000, DX
+	MOVQ	AX, sec+0(FP)
 	MOVL	DX, nsec+8(FP)
 	RET
 
-TEXT runtime·nanotime(SB), 7, $32
-	LEAQ	8(SP), DI
-	MOVQ	$0, SI
-	MOVQ	$0xffffffffff600000, AX
+TEXT runtime·nanotime(SB),7,$16
+	// Duplicate time.now here to avoid using up precious stack space.
+	// See comment above in time.now.
+	MOVQ	runtime·__vdso_clock_gettime_sym(SB), AX
+	CMPQ	AX, $0
+	JEQ	fallback_gtod_nt
+	MOVL	$0, DI // CLOCK_REALTIME
+	LEAQ	0(SP), SI
 	CALL	AX
-	MOVQ	8(SP), AX	// sec
-	MOVL	16(SP), DX	// usec
-
-	// sec is in AX, usec in DX
+	MOVQ	0(SP), AX	// sec
+	MOVQ	8(SP), DX	// nsec
+	// sec is in AX, nsec in DX
 	// return nsec in AX
 	IMULQ	$1000000000, AX
+	ADDQ	DX, AX
+	RET
+fallback_gtod_nt:
+	LEAQ	0(SP), DI
+	MOVQ	$0, SI
+	MOVQ	runtime·__vdso_gettimeofday_sym(SB), AX
+	CALL	AX
+	MOVQ	0(SP), AX	// sec
+	MOVL	8(SP), DX	// usec
 	IMULQ	$1000, DX
+	// sec is in AX, nsec in DX
+	// return nsec in AX
+	IMULQ	$1000000000, AX
 	ADDQ	DX, AX
 	RET
 
@@ -157,8 +186,10 @@ TEXT runtime·sigtramp(SB),7,$64
 	// check that m exists
 	MOVQ	m(BX), BP
 	CMPQ	BP, $0
-	JNE	2(PC)
+	JNE	4(PC)
+	MOVQ	DI, 0(SP)
 	CALL	runtime·badsignal(SB)
+	RET
 
 	// save g
 	MOVQ	g(BX), R10
@@ -219,9 +250,7 @@ TEXT runtime·madvise(SB),7,$0
 	MOVQ	24(SP), DX
 	MOVQ	$28, AX	// madvise
 	SYSCALL
-	CMPQ	AX, $0xfffffffffffff001
-	JLS	2(PC)
-	MOVL	$0xf1, 0xf1  // crash
+	// ignore failure - maybe pages are locked
 	RET
 
 // int64 futex(int32 *uaddr, int32 op, int32 val,
@@ -237,12 +266,12 @@ TEXT runtime·futex(SB),7,$0
 	SYSCALL
 	RET
 
-// int64 clone(int32 flags, void *stack, M *m, G *g, void (*fn)(void));
+// int64 clone(int32 flags, void *stack, M *mp, G *gp, void (*fn)(void));
 TEXT runtime·clone(SB),7,$0
 	MOVL	flags+8(SP), DI
 	MOVQ	stack+16(SP), SI
 
-	// Copy m, g, fn off parent stack for use by child.
+	// Copy mp, gp, fn off parent stack for use by child.
 	// Careful: Linux system call clobbers CX and R11.
 	MOVQ	mm+24(SP), R8
 	MOVQ	gg+32(SP), R9
@@ -308,5 +337,13 @@ TEXT runtime·settls(SB),7,$32
 
 TEXT runtime·osyield(SB),7,$0
 	MOVL	$24, AX
+	SYSCALL
+	RET
+
+TEXT runtime·sched_getaffinity(SB),7,$0
+	MOVQ	8(SP), DI
+	MOVL	16(SP), SI
+	MOVQ	24(SP), DX
+	MOVL	$204, AX			// syscall entry
 	SYSCALL
 	RET

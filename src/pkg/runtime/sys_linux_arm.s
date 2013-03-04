@@ -34,9 +34,10 @@
 #define SYS_sched_yield (SYS_BASE + 158)
 #define SYS_select (SYS_BASE + 142) // newselect
 #define SYS_ugetrlimit (SYS_BASE + 191)
+#define SYS_sched_getaffinity (SYS_BASE + 242)
+#define SYS_clock_gettime (SYS_BASE + 263)
 
 #define ARM_BASE (SYS_BASE + 0x0f0000)
-#define SYS_ARM_cacheflush (ARM_BASE + 2)
 
 TEXT runtime·open(SB),7,$0
 	MOVW	0(FP), R0
@@ -131,10 +132,7 @@ TEXT runtime·madvise(SB),7,$0
 	MOVW	8(FP), R2
 	MOVW	$SYS_madvise, R7
 	SWI	$0
-	MOVW	$0xfffff001, R6
-	CMP 	R6, R0
-	MOVW.HI	$0, R9  // crash on syscall failure
-	MOVW.HI	R9, (R9)
+	// ignore failure - maybe pages are locked
 	RET
 
 TEXT runtime·setitimer(SB),7,$0
@@ -154,41 +152,37 @@ TEXT runtime·mincore(SB),7,$0
 	RET
 
 TEXT time·now(SB), 7, $32
-	MOVW	$8(R13), R0  // timeval
-	MOVW	$0, R1  // zone
-	MOVW	$SYS_gettimeofday, R7
+	MOVW	$0, R0  // CLOCK_REALTIME
+	MOVW	$8(R13), R1  // timespec
+	MOVW	$SYS_clock_gettime, R7
 	SWI	$0
 	
 	MOVW	8(R13), R0  // sec
-	MOVW	12(R13), R2  // usec
+	MOVW	12(R13), R2  // nsec
 	
 	MOVW	R0, 0(FP)
 	MOVW	$0, R1
 	MOVW	R1, 4(FP)
-	MOVW	$1000, R3
-	MUL	R3, R2
 	MOVW	R2, 8(FP)
 	RET	
 
 // int64 nanotime(void) so really
 // void nanotime(int64 *nsec)
 TEXT runtime·nanotime(SB),7,$32
-	MOVW	$8(R13), R0  // timeval
-	MOVW	$0, R1  // zone
-	MOVW	$SYS_gettimeofday, R7
+	MOVW	$0, R0  // CLOCK_REALTIME
+	MOVW	$8(R13), R1  // timespec
+	MOVW	$SYS_clock_gettime, R7
 	SWI	$0
 	
 	MOVW	8(R13), R0  // sec
-	MOVW	12(R13), R2  // usec
+	MOVW	12(R13), R2  // nsec
 	
 	MOVW	$1000000000, R3
 	MULLU	R0, R3, (R1, R0)
-	MOVW	$1000, R3
 	MOVW	$0, R4
-	MUL	R3, R2
 	ADD.S	R2, R0
 	ADC	R4, R1
-	
+
 	MOVW	0(FP), R3
 	MOVW	R0, 0(R3)
 	MOVW	R1, 4(R3)
@@ -208,7 +202,7 @@ TEXT runtime·futex(SB),7,$0
 	RET
 
 
-// int32 clone(int32 flags, void *stack, M *m, G *g, void (*fn)(void));
+// int32 clone(int32 flags, void *stack, M *mp, G *gp, void (*fn)(void));
 TEXT runtime·clone(SB),7,$0
 	MOVW	flags+0(FP), R0
 	MOVW	stack+4(FP), R1
@@ -217,7 +211,7 @@ TEXT runtime·clone(SB),7,$0
 	MOVW	$0, R4	// child tid ptr
 	MOVW	$0, R5
 
-	// Copy m, g, fn off parent stack for use by child.
+	// Copy mp, gp, fn off parent stack for use by child.
 	// TODO(kaib): figure out which registers are clobbered by clone and avoid stack copying
 	MOVW	$-16(R1), R1
 	MOVW	mm+8(FP), R6
@@ -272,15 +266,6 @@ TEXT runtime·clone(SB),7,$0
 	MOVW	$1005, R1
 	MOVW	R0, (R1)
 
-
-TEXT runtime·cacheflush(SB),7,$0
-	MOVW	0(FP), R0
-	MOVW	4(FP), R1
-	MOVW	$0, R2
-	MOVW	$SYS_ARM_cacheflush, R7
-	SWI	$0
-	RET
-
 TEXT runtime·sigaltstack(SB),7,$0
 	MOVW	0(FP), R0
 	MOVW	4(FP), R1
@@ -293,6 +278,15 @@ TEXT runtime·sigaltstack(SB),7,$0
 	RET
 
 TEXT runtime·sigtramp(SB),7,$24
+	// this might be called in external code context,
+	// where g and m are not set.
+	// first save R0, because _cgo_load_gm will clobber it
+	// TODO(adonovan): call runtime·badsignal if m=0, like other platforms?
+	MOVW	R0, 4(R13)
+	MOVW	_cgo_load_gm(SB), R0
+	CMP 	$0, R0
+	BL.NE	(R0)
+
 	// save g
 	MOVW	g, R3
 	MOVW	g, 20(R13)
@@ -301,7 +295,7 @@ TEXT runtime·sigtramp(SB),7,$24
 	MOVW	m_gsignal(m), g
 
 	// copy arguments for call to sighandler
-	MOVW	R0, 4(R13)
+	// R0 is already saved above
 	MOVW	R1, 8(R13)
 	MOVW	R2, 12(R13)
 	MOVW	R3, 16(R13)
@@ -383,5 +377,13 @@ TEXT runtime·casp(SB),7,$0
 
 TEXT runtime·osyield(SB),7,$0
 	MOVW	$SYS_sched_yield, R7
+	SWI	$0
+	RET
+
+TEXT runtime·sched_getaffinity(SB),7,$0
+	MOVW	0(FP), R0
+	MOVW	4(FP), R1
+	MOVW	8(FP), R2
+	MOVW	$SYS_sched_getaffinity, R7
 	SWI	$0
 	RET

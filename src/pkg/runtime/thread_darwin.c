@@ -9,8 +9,8 @@
 
 extern SigTab runtime·sigtab[];
 
-static Sigset sigset_all = ~(Sigset)0;
 static Sigset sigset_none;
+static Sigset sigset_all = ~(Sigset)0;
 static Sigset sigset_prof = 1<<(SIGPROF-1);
 
 static void
@@ -50,11 +50,8 @@ runtime·semacreate(void)
 void
 runtime·osinit(void)
 {
-	// Register our thread-creation callback (see sys_darwin_{amd64,386}.s)
-	// but only if we're not using cgo.  If we are using cgo we need
-	// to let the C pthread libary install its own thread-creation callback.
-	if(!runtime·iscgo)
-		runtime·bsdthread_register();
+	// bsdthread_register delayed until end of goenvs so that we
+	// can look at the environment first.
 
 	// Use sysctl to fetch hw.ncpu.
 	uint32 mib[2];
@@ -75,22 +72,34 @@ void
 runtime·goenvs(void)
 {
 	runtime·goenvs_unix();
+
+	// Register our thread-creation callback (see sys_darwin_{amd64,386}.s)
+	// but only if we're not using cgo.  If we are using cgo we need
+	// to let the C pthread libary install its own thread-creation callback.
+	if(!runtime·iscgo) {
+		if(runtime·bsdthread_register() != 0) {
+			if(runtime·getenv("DYLD_INSERT_LIBRARIES"))
+				runtime·throw("runtime: bsdthread_register error (unset DYLD_INSERT_LIBRARIES)");
+			runtime·throw("runtime: bsdthread_register error");
+		}
+	}
+
 }
 
 void
-runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
+runtime·newosproc(M *mp, void *stk)
 {
 	int32 errno;
 	Sigset oset;
 
-	m->tls[0] = m->id;	// so 386 asm can find it
+	mp->tls[0] = mp->id;	// so 386 asm can find it
 	if(0){
-		runtime·printf("newosproc stk=%p m=%p g=%p fn=%p id=%d/%d ostk=%p\n",
-			stk, m, g, fn, m->id, m->tls[0], &m);
+		runtime·printf("newosproc stk=%p m=%p g=%p id=%d/%d ostk=%p\n",
+			stk, mp, mp->g0, mp->id, (int32)mp->tls[0], &mp);
 	}
 
 	runtime·sigprocmask(SIG_SETMASK, &sigset_all, &oset);
-	errno = runtime·bsdthread_create(stk, m, g, fn);
+	errno = runtime·bsdthread_create(stk, mp, mp->g0, runtime·mstart);
 	runtime·sigprocmask(SIG_SETMASK, &oset, nil);
 
 	if(errno < 0) {
@@ -100,17 +109,30 @@ runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
 }
 
 // Called to initialize a new m (including the bootstrap m).
+// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
+void
+runtime·mpreinit(M *mp)
+{
+	mp->gsignal = runtime·malg(32*1024);	// OS X wants >=8K, Linux >=2K
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the new thread, can not allocate memory.
 void
 runtime·minit(void)
 {
 	// Initialize signal handling.
-	m->gsignal = runtime·malg(32*1024);	// OS X wants >=8K, Linux >=2K
-	runtime·signalstack(m->gsignal->stackguard - StackGuard, 32*1024);
+	runtime·signalstack((byte*)m->gsignal->stackguard - StackGuard, 32*1024);
 
-	if(m->profilehz > 0)
-		runtime·sigprocmask(SIG_SETMASK, &sigset_none, nil);
-	else
-		runtime·sigprocmask(SIG_SETMASK, &sigset_prof, nil);
+	runtime·sigprocmask(SIG_SETMASK, &sigset_none, nil);
+	runtime·setprof(m->profilehz > 0);
+}
+
+// Called from dropm to undo the effect of an minit.
+void
+runtime·unminit(void)
+{
+	runtime·signalstack(nil, 0);
 }
 
 // Mach IPC, to get at semaphores
@@ -431,10 +453,11 @@ runtime·sigpanic(void)
 	runtime·panicstring(runtime·sigtab[g->sig].name);
 }
 
-// TODO(rsc): place holder to fix build.
+#pragma textflag 7
 void
 runtime·osyield(void)
 {
+	runtime·usleep(1);
 }
 
 uintptr
@@ -488,12 +511,22 @@ runtime·badcallback(void)
 	runtime·write(2, badcallback, sizeof badcallback - 1);
 }
 
-static int8 badsignal[] = "runtime: signal received on thread not created by Go.\n";
+static int8 badsignal[] = "runtime: signal received on thread not created by Go: ";
 
 // This runs on a foreign stack, without an m or a g.  No stack split.
 #pragma textflag 7
 void
-runtime·badsignal(void)
+runtime·badsignal(int32 sig)
 {
+	if (sig == SIGPROF) {
+		return;  // Ignore SIGPROFs intended for a non-Go thread.
+	}
 	runtime·write(2, badsignal, sizeof badsignal - 1);
+	if (0 <= sig && sig < NSIG) {
+		// Call runtime·findnull dynamically to circumvent static stack size check.
+		static int32 (*findnull)(byte*) = runtime·findnull;
+		runtime·write(2, runtime·sigtab[sig].name, findnull((byte*)runtime·sigtab[sig].name));
+	}
+	runtime·write(2, "\n", 1);
+	runtime·exit(1);
 }

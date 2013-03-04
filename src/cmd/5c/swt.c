@@ -393,18 +393,12 @@ outcode(void)
 	}
 
 	Bprint(&outbuf, "go object %s %s %s\n", getgoos(), thestring, getgoversion());
-	if(ndynimp > 0 || ndynexp > 0) {
-		int i;
-
+	if(pragcgobuf.to > pragcgobuf.start) {
 		Bprint(&outbuf, "\n");
 		Bprint(&outbuf, "$$  // exports\n\n");
 		Bprint(&outbuf, "$$  // local types\n\n");
-		Bprint(&outbuf, "$$  // dynimport\n");
-		for(i=0; i<ndynimp; i++)
-			Bprint(&outbuf, "dynimport %s %s %s\n", dynimp[i].local, dynimp[i].remote, dynimp[i].path);
-		Bprint(&outbuf, "\n$$  // dynexport\n");
-		for(i=0; i<ndynexp; i++)
-			Bprint(&outbuf, "dynexport %s %s\n", dynexp[i].local, dynexp[i].remote);
+		Bprint(&outbuf, "$$  // cgo\n");
+		Bprint(&outbuf, "%s", fmtstrflush(&pragcgobuf));
 		Bprint(&outbuf, "\n$$\n\n");
 	}
 	Bprint(&outbuf, "!\n");
@@ -472,12 +466,38 @@ outhist(Biobuf *b)
 	char *p, *q, *op, c;
 	Prog pg;
 	int n;
+	char *tofree;
+	static int first = 1;
+	static char *goroot, *goroot_final;
 
+	if(first) {
+		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
+		first = 0;
+		goroot = getenv("GOROOT");
+		goroot_final = getenv("GOROOT_FINAL");
+		if(goroot == nil)
+			goroot = "";
+		if(goroot_final == nil)
+			goroot_final = goroot;
+		if(strcmp(goroot, goroot_final) == 0) {
+			goroot = nil;
+			goroot_final = nil;
+		}
+	}
+
+	tofree = nil;
 	pg = zprog;
 	pg.as = AHISTORY;
 	c = pathchar();
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
+		if(p != nil && goroot != nil) {
+			n = strlen(goroot);
+			if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
+				tofree = smprint("%s%s", goroot_final, p+n);
+				p = tofree;
+			}
+		}
 		op = 0;
 		if(systemtype(Windows) && p && p[1] == ':'){
 			c = p[2];
@@ -525,6 +545,11 @@ outhist(Biobuf *b)
 			pg.to.type = D_CONST;
 
 		zwrite(b, &pg, 0, 0);
+
+ 		if(tofree) {
+ 			free(tofree);
+ 			tofree = nil;
+ 		}
 	}
 }
 
@@ -566,7 +591,8 @@ zaddr(char *bp, Adr *a, int s)
 	bp[1] = a->reg;
 	bp[2] = s;
 	bp[3] = a->name;
-	bp += 4;
+	bp[4] = 0;
+	bp += 5;
 	switch(a->type) {
 	default:
 		diag(Z, "unknown type %d in zaddr", a->type);

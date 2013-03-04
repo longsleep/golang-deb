@@ -3,8 +3,11 @@
 // license that can be found in the LICENSE file.
 
 #include "runtime.h"
+#include "arch_GOARCH.h"
+#include "malloc.h"
 #include "hashmap.h"
 #include "type.h"
+#include "race.h"
 
 /* Hmap flag values */
 #define IndirectVal  (1<<0)	/* storing pointers to values */
@@ -13,7 +16,7 @@
 #define CanFreeKey (1<<3)	/* okay to free pointers to keys */
 
 struct Hmap {	   /* a hash table; initialize with hash_init() */
-	uint32 count;	  /* elements in table - must be first */
+	uintgo count;	  /* elements in table - must be first */
 	uint8 datasize;   /* amount of data to store in entry */
 	uint8 flag;
 	uint8 valoff;	/* offset of value in key+value data block */
@@ -78,7 +81,7 @@ hash_subtable_new (Hmap *h, int32 power, int32 used)
 		max_probes = 1 << power;
 	}
 	bytes += limit_bytes - elemsize;
-	st = malloc (offsetof (struct hash_subtable, entry[0]) + bytes);
+	st = runtime·mallocgc(offsetof (struct hash_subtable, entry[0]) + bytes, UseSpanType ? FlagNoPointers : 0, 1, 1);
 	st->power = power;
 	st->used = used;
 	st->datasize = h->datasize;
@@ -115,7 +118,7 @@ hash_init (Hmap *h, int32 datasize, int64 hint)
 
 	if(datasize < sizeof (void *))
 		datasize = sizeof (void *);
-	datasize = runtime·rnd(datasize, sizeof (void *));
+	datasize = ROUND(datasize, sizeof (void *));
 	init_sizes (hint, &init_power);
 	h->datasize = datasize;
 	assert (h->datasize == datasize);
@@ -273,7 +276,7 @@ hash_lookup (MapType *t, Hmap *h, void *data, void **pres)
 	struct hash_entry *end_e;
 	void *key;
 	bool eq;
-	
+
 	hash = h->hash0;
 	(*t->key->alg->hash) (&hash, t->key->size, data);
 	hash &= ~HASH_MASK;
@@ -416,8 +419,12 @@ hash_insert_internal (MapType *t, struct hash_subtable **pst, int32 flags, hash_
 					*pres = ins_e->data;
 					return (1);
 				}
-				assert (e_hash != hash || (flags & HASH_REHASH) == 0);
-				hash += (e_hash == hash);	   /* adjust hash if it collides */
+				if (e_hash == hash) {	   /* adjust hash if it collides */
+					assert ((flags & HASH_REHASH) == 0);
+					hash++;
+					if ((hash & HASH_MASK) == HASH_SUBHASH)
+						runtime·throw("runtime: map hash collision overflow");
+				}
 				ins_e = HASH_OFFSET (ins_e, elemsize);
 				ins_i++;
 				if (e_hash <= hash) {	       /* set e to insertion point */
@@ -462,7 +469,7 @@ hash_insert (MapType *t, Hmap *h, void *data, void **pres)
 {
 	uintptr hash;
 	int32 rc;
-	
+
 	hash = h->hash0;
 	(*t->key->alg->hash) (&hash, t->key->size, data);
 	rc = hash_insert_internal (t, &h->st, 0, hash, h, data, pres);
@@ -618,7 +625,7 @@ hash_iter_init (MapType *t, Hmap *h, struct hash_iter *it)
 	it->subtable_state[0].e = h->st->entry;
 	it->subtable_state[0].start = h->st->entry;
 	it->subtable_state[0].last = h->st->last;
-	
+
 	// fastrand1 returns 31 useful bits.
 	// We don't care about not having a bottom bit but we
 	// do want top bits.
@@ -700,6 +707,82 @@ hash_visit (Hmap *h, void (*data_visit) (void *arg, int32 level, void *data), vo
 	hash_visit_internal (h->st, 0, 0, data_visit, arg);
 }
 
+// Initialize the iterator.
+// Returns false if Hmap contains no pointers (in which case the iterator is not initialized).
+bool
+hash_gciter_init (Hmap *h, struct hash_gciter *it)
+{
+	// GC during map initialization
+	if(h->st == nil)
+		return false;
+
+	it->elemsize = h->datasize + offsetof (struct hash_entry, data[0]);
+	it->flag = h->flag;
+	it->valoff = h->valoff;
+	it->i = 0;
+	it->st = h->st;
+	it->subtable_state[it->i].e = h->st->entry;
+	it->subtable_state[it->i].last = h->st->last;
+	return true;
+}
+
+// Returns true and fills *data with subtable/key/value data,
+// or returns false if the iterator has terminated.
+bool
+hash_gciter_next (struct hash_gciter *it, struct hash_gciter_data *data)
+{
+	struct hash_entry *e;
+	struct hash_gciter_sub *sub;
+
+	data->st = nil;
+	data->key_data = nil;
+	data->val_data = nil;
+
+	// pointer to the first-level table
+	if(it->st != nil) {
+		data->st = it->st;
+		it->st = nil;
+		return true;
+	}
+
+popped:
+	sub = &it->subtable_state[it->i];
+	e = sub->e;
+	while (e <= sub->last) {
+		if ((e->hash & HASH_MASK) == HASH_SUBHASH) {
+			struct hash_subtable *st = *(struct hash_subtable **)e->data;
+			data->st = st;
+			sub->e = HASH_OFFSET (e, it->elemsize);
+
+			// push
+			it->i++;
+			assert (it->i < nelem(it->subtable_state));
+			sub++;
+			sub->e = st->entry;
+			sub->last = st->last;
+
+			return true;
+		}
+		if(e->hash != HASH_NIL) {
+			void *key_data = e->data;
+			void *val_data = (byte*)e->data + it->valoff;
+			data->key_data = key_data;
+			data->val_data = val_data;
+			data->indirectkey = (it->flag & IndirectKey) != 0;
+			data->indirectval = (it->flag & IndirectVal) != 0;
+			sub->e = HASH_OFFSET (e, it->elemsize);
+			return true;
+		}
+		e = HASH_OFFSET (e, it->elemsize);
+	}
+	if(it->i != 0) {
+		// pop
+		it->i--;
+		goto popped;
+	}
+	return false;
+}
+
 //
 /// interfaces to go runtime
 //
@@ -724,14 +807,13 @@ hash_keyptr(Hmap *h, void *p)
 
 static	int32	debug	= 0;
 
-// makemap(typ *Type, hint uint32) (hmap *map[any]any);
 Hmap*
 runtime·makemap_c(MapType *typ, int64 hint)
 {
 	Hmap *h;
 	Type *key, *val;
 	uintptr ksize, vsize;
-	
+
 	key = typ->key;
 	val = typ->elem;
 
@@ -744,8 +826,15 @@ runtime·makemap_c(MapType *typ, int64 hint)
 	h = runtime·mal(sizeof(*h));
 	h->flag |= CanFreeTable;  /* until reflect gets involved, free is okay */
 
-	ksize = runtime·rnd(key->size, sizeof(void*));
-	vsize = runtime·rnd(val->size, sizeof(void*));
+	if(UseSpanType) {
+		if(false) {
+			runtime·printf("makemap %S: %p\n", *typ->string, h);
+		}
+		runtime·settype(h, (uintptr)typ | TypeInfo_Map);
+	}
+
+	ksize = ROUND(key->size, sizeof(void*));
+	vsize = ROUND(val->size, sizeof(void*));
 	if(ksize > MaxData || vsize > MaxData || ksize+vsize > MaxData) {
 		// Either key is too big, or value is, or combined they are.
 		// Prefer to keep the key if possible, because we look at
@@ -828,8 +917,11 @@ runtime·mapaccess1(MapType *t, Hmap *h, ...)
 	byte *ak, *av;
 	bool pres;
 
+	if(raceenabled && h != nil)
+		runtime·racereadpc(h, runtime·getcallerpc(&t), runtime·mapaccess1);
+
 	ak = (byte*)(&h + 1);
-	av = ak + runtime·rnd(t->key->size, Structrnd);
+	av = ak + ROUND(t->key->size, Structrnd);
 
 	runtime·mapaccess(t, h, ak, av, &pres);
 
@@ -853,8 +945,11 @@ runtime·mapaccess2(MapType *t, Hmap *h, ...)
 {
 	byte *ak, *av, *ap;
 
+	if(raceenabled && h != nil)
+		runtime·racereadpc(h, runtime·getcallerpc(&t), runtime·mapaccess2);
+
 	ak = (byte*)(&h + 1);
-	av = ak + runtime·rnd(t->key->size, Structrnd);
+	av = ak + ROUND(t->key->size, Structrnd);
 	ap = av + t->elem->size;
 
 	runtime·mapaccess(t, h, ak, av, ap);
@@ -880,6 +975,9 @@ void
 reflect·mapaccess(MapType *t, Hmap *h, uintptr key, uintptr val, bool pres)
 {
 	byte *ak, *av;
+
+	if(raceenabled && h != nil)
+		runtime·racereadpc(h, runtime·getcallerpc(&t), reflect·mapaccess);
 
 	if(t->key->size <= sizeof(key))
 		ak = (byte*)&key;
@@ -951,8 +1049,10 @@ runtime·mapassign1(MapType *t, Hmap *h, ...)
 	if(h == nil)
 		runtime·panicstring("assignment to entry in nil map");
 
+	if(raceenabled)
+		runtime·racewritepc(h, runtime·getcallerpc(&t), runtime·mapassign1);
 	ak = (byte*)(&h + 1);
-	av = ak + runtime·rnd(t->key->size, t->elem->align);
+	av = ak + ROUND(t->key->size, t->elem->align);
 
 	runtime·mapassign(t, h, ak, av);
 }
@@ -965,8 +1065,10 @@ runtime·mapdelete(MapType *t, Hmap *h, ...)
 	byte *ak;
 
 	if(h == nil)
-		runtime·panicstring("deletion of entry in nil map");
+		return;
 
+	if(raceenabled)
+		runtime·racewritepc(h, runtime·getcallerpc(&t), runtime·mapdelete);
 	ak = (byte*)(&h + 1);
 	runtime·mapassign(t, h, ak, nil);
 
@@ -990,6 +1092,8 @@ reflect·mapassign(MapType *t, Hmap *h, uintptr key, uintptr val, bool pres)
 
 	if(h == nil)
 		runtime·panicstring("assignment to entry in nil map");
+	if(raceenabled)
+		runtime·racewritepc(h, runtime·getcallerpc(&t), reflect·mapassign);
 	if(t->key->size <= sizeof(key))
 		ak = (byte*)&key;
 	else
@@ -1011,6 +1115,8 @@ runtime·mapiterinit(MapType *t, Hmap *h, struct hash_iter *it)
 		it->data = nil;
 		return;
 	}
+	if(raceenabled)
+		runtime·racereadpc(h, runtime·getcallerpc(&t), runtime·mapiterinit);
 	hash_iter_init(t, h, it);
 	it->data = hash_next(it);
 	if(debug) {
@@ -1054,6 +1160,8 @@ reflect·mapiterinit(MapType *t, Hmap *h, struct hash_iter *it)
 void
 runtime·mapiternext(struct hash_iter *it)
 {
+	if(raceenabled)
+		runtime·racereadpc(it->h, runtime·getcallerpc(&it), runtime·mapiternext);
 	if(runtime·gcwaiting)
 		runtime·gosched();
 
@@ -1148,15 +1256,18 @@ reflect·mapiterkey(struct hash_iter *it, uintptr key, bool ok)
 }
 
 // For reflect:
-//	func maplen(h map) (len int32)
+//	func maplen(h map) (len int)
 // Like len(m) in the actual language, we treat the nil map as length 0.
 void
-reflect·maplen(Hmap *h, int32 len)
+reflect·maplen(Hmap *h, intgo len)
 {
 	if(h == nil)
 		len = 0;
-	else
+	else {
 		len = h->count;
+		if(raceenabled)
+			runtime·racereadpc(h, runtime·getcallerpc(&h), reflect·maplen);
+	}
 	FLUSH(&len);
 }
 
@@ -1171,7 +1282,7 @@ runtime·mapiter2(struct hash_iter *it, ...)
 
 	t = it->t;
 	ak = (byte*)(&it + 1);
-	av = ak + runtime·rnd(t->key->size, t->elem->align);
+	av = ak + ROUND(t->key->size, t->elem->align);
 
 	res = it->data;
 	if(res == nil)

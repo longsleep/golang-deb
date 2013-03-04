@@ -53,11 +53,11 @@ simple, reliable, and efficient software.
 <div id="gopher"></div>
 
 <a href="/doc/install" id="start">
-<div class="big">Download Go</div>
-<div class="desc">
+<span class="big">Download Go</span>
+<span class="desc">
 Binary distributions available for<br>
 Linux, Mac OS X, Windows, and more.
-</div>
+</span>
 </a>
 
 </div>
@@ -68,8 +68,7 @@ Linux, Mac OS X, Windows, and more.
 
 <div id="video">
 <div class="rootHeading">Featured video</div>
-<a class="title" href="http://www.youtube.com/watch?v=Mo1YKpIF1PQ">Building integrated apps on Google's cloud platform with Go</a>
-<iframe width="415" height="241" src="http://www.youtube.com/embed/Mo1YKpIF1PQ" frameborder="0" allowfullscreen></iframe>
+<iframe width="415" height="241" src="http://www.youtube.com/embed/ytEkHepK08c" frameborder="0" allowfullscreen></iframe>
 </div>
 
 </div>
@@ -86,10 +85,8 @@ Linux, Mac OS X, Windows, and more.
 <div style="clear: both;"></div>
 
 <script type="text/javascript" src="https://www.google.com/jsapi"></script>
-<script type="text/javascript" src="/doc/play/playground.js"></script>
 <script type="text/javascript">
 google.load("feeds", "1");
-google.load("jquery", "1.7.1");
 
 function feedLoaded(result) {
 	if (result.error) {
@@ -124,7 +121,6 @@ function init() {
 
 	// Set up playground.
 	playground({
-		"simple":        true,
 		"codeEl":        "#learn .code",
 		"outputEl":      "#learn .output",
 		"runEl":         "#learn .run",

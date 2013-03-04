@@ -7,13 +7,38 @@
 package main
 
 import (
+	"flag"
 	"go/ast"
+	"go/types"
 	"strings"
 )
+
+var compositeWhiteList = flag.Bool("compositewhitelist", true, "use composite white list; for testing only")
 
 // checkUntaggedLiteral checks if a composite literal is an struct literal with
 // untagged fields.
 func (f *File) checkUntaggedLiteral(c *ast.CompositeLit) {
+	if !vet("composites") {
+		return
+	}
+
+	// Check that the CompositeLit's type is a slice or array (which needs no tag), if possible.
+	typ := f.pkg.types[c]
+	if typ != nil {
+		// If it's a named type, pull out the underlying type.
+		if namedType, ok := typ.(*types.NamedType); ok {
+			typ = namedType.Underlying
+		}
+		switch typ.(type) {
+		case *types.Slice:
+			return
+		case *types.Array:
+			return
+		}
+	}
+
+	// It's a struct, or we can't tell it's not a struct because we don't have types.
+
 	// Check if the CompositeLit contains an untagged field.
 	allKeyValue := true
 	for _, e := range c.Elts {
@@ -42,12 +67,12 @@ func (f *File) checkUntaggedLiteral(c *ast.CompositeLit) {
 		f.Warnf(c.Pos(), "unresolvable package for %s.%s literal", pkg.Name, s.Sel.Name)
 		return
 	}
-	typ := path + "." + s.Sel.Name
-	if untaggedLiteralWhitelist[typ] {
+	typeName := path + "." + s.Sel.Name
+	if *compositeWhiteList && untaggedLiteralWhitelist[typeName] {
 		return
 	}
 
-	f.Warnf(c.Pos(), "%s struct literal uses untagged fields", typ)
+	f.Warnf(c.Pos(), "%s composite literal uses untagged fields", typ)
 }
 
 // pkgPath returns the import path "image/png" for the package name "png".

@@ -14,22 +14,22 @@ TEXT _rt0_386(SB),7,$0
 	MOVL	BX, 124(SP)
 
 	// set default stack bounds.
-	// initcgo may update stackguard.
+	// _cgo_init may update stackguard.
 	MOVL	$runtime·g0(SB), BP
 	LEAL	(-64*1024+104)(SP), BX
 	MOVL	BX, g_stackguard(BP)
 	MOVL	SP, g_stackbase(BP)
 	
-	// if there is an initcgo, call it to let it
+	// if there is an _cgo_init, call it to let it
 	// initialize and to set up GS.  if not,
 	// we set up GS ourselves.
-	MOVL	initcgo(SB), AX
+	MOVL	_cgo_init(SB), AX
 	TESTL	AX, AX
 	JZ	needtls
 	PUSHL	BP
 	CALL	AX
 	POPL	BP
-	// skip runtime·ldt0setup(SB) and tls test after initcgo for non-windows
+	// skip runtime·ldt0setup(SB) and tls test after _cgo_init for non-windows
 	CMPL runtime·iswindows(SB), $0
 	JEQ ok
 needtls:
@@ -75,7 +75,7 @@ ok:
 	CALL	runtime·schedinit(SB)
 
 	// create a new goroutine to start program
-	PUSHL	$runtime·main(SB)	// entry
+	PUSHL	$runtime·main·f(SB)	// entry
 	PUSHL	$0	// arg size
 	CALL	runtime·newproc(SB)
 	POPL	AX
@@ -86,6 +86,9 @@ ok:
 
 	INT $3
 	RET
+
+DATA	runtime·main·f+0(SB)/4,$runtime·main(SB)
+GLOBL	runtime·main·f(SB),8,$4
 
 TEXT runtime·breakpoint(SB),7,$0
 	INT $3
@@ -131,20 +134,38 @@ TEXT runtime·gogo(SB), 7, $0
 	MOVL	gobuf_pc(BX), BX
 	JMP	BX
 
-// void gogocall(Gobuf*, void (*fn)(void))
+// void gogocall(Gobuf*, void (*fn)(void), uintptr r0)
 // restore state from Gobuf but then call fn.
 // (call fn, returning to state in Gobuf)
 TEXT runtime·gogocall(SB), 7, $0
+	MOVL	12(SP), DX	// context
 	MOVL	8(SP), AX		// fn
 	MOVL	4(SP), BX		// gobuf
-	MOVL	gobuf_g(BX), DX
+	MOVL	gobuf_g(BX), DI
 	get_tls(CX)
-	MOVL	DX, g(CX)
-	MOVL	0(DX), CX		// make sure g != nil
+	MOVL	DI, g(CX)
+	MOVL	0(DI), CX		// make sure g != nil
 	MOVL	gobuf_sp(BX), SP	// restore SP
 	MOVL	gobuf_pc(BX), BX
 	PUSHL	BX
 	JMP	AX
+	POPL	BX	// not reached
+
+// void gogocallfn(Gobuf*, FuncVal*)
+// restore state from Gobuf but then call fn.
+// (call fn, returning to state in Gobuf)
+TEXT runtime·gogocallfn(SB), 7, $0
+	MOVL	8(SP), DX		// fn
+	MOVL	4(SP), BX		// gobuf
+	MOVL	gobuf_g(BX), DI
+	get_tls(CX)
+	MOVL	DI, g(CX)
+	MOVL	0(DI), CX		// make sure g != nil
+	MOVL	gobuf_sp(BX), SP	// restore SP
+	MOVL	gobuf_pc(BX), BX
+	PUSHL	BX
+	MOVL	0(DX), BX
+	JMP	BX
 	POPL	BX	// not reached
 
 // void mcall(void (*fn)(G*))
@@ -189,11 +210,13 @@ TEXT runtime·morestack(SB),7,$0
 	CMPL	g(CX), SI
 	JNE	2(PC)
 	INT	$3
+	
+	MOVL	DX, m_cret(BX)
 
-	// frame size in DX
+	// frame size in DI
 	// arg size in AX
 	// Save in m.
-	MOVL	DX, m_moreframesize(BX)
+	MOVL	DI, m_moreframesize(BX)
 	MOVL	AX, m_moreargsize(BX)
 
 	// Called from f.
@@ -299,6 +322,33 @@ TEXT runtime·cas(SB), 7, $0
 	MOVL	$1, AX
 	RET
 
+// bool runtime·cas64(uint64 *val, uint64 *old, uint64 new)
+// Atomically:
+//	if(*val == *old){
+//		*val = new;
+//		return 1;
+//	} else {
+//		*old = *val
+//		return 0;
+//	}
+TEXT runtime·cas64(SB), 7, $0
+	MOVL	4(SP), BP
+	MOVL	8(SP), SI
+	MOVL	0(SI), AX
+	MOVL	4(SI), DX
+	MOVL	12(SP), BX
+	MOVL	16(SP), CX
+	LOCK
+	CMPXCHG8B	0(BP)
+	JNZ	cas64_fail
+	MOVL	$1, AX
+	RET
+cas64_fail:
+	MOVL	AX, 0(SI)
+	MOVL	DX, 4(SI)
+	MOVL	$0, AX
+	RET
+
 // bool casp(void **p, void *old, void *new)
 // Atomically:
 //	if(*p == old){
@@ -357,17 +407,49 @@ TEXT runtime·atomicstore(SB), 7, $0
 	XCHGL	AX, 0(BX)
 	RET
 
+// uint64 atomicload64(uint64 volatile* addr);
+// so actually
+// void atomicload64(uint64 *res, uint64 volatile *addr);
+TEXT runtime·atomicload64(SB), 7, $0
+	MOVL    4(SP), BX
+	MOVL	8(SP), AX
+	// MOVQ (%EAX), %MM0
+	BYTE $0x0f; BYTE $0x6f; BYTE $0x00
+	// MOVQ %MM0, 0(%EBX)
+	BYTE $0x0f; BYTE $0x7f; BYTE $0x03
+	// EMMS
+	BYTE $0x0F; BYTE $0x77
+	RET
+
+// void runtime·atomicstore64(uint64 volatile* addr, uint64 v);
+TEXT runtime·atomicstore64(SB), 7, $0
+	MOVL	4(SP), AX
+	// MOVQ and EMMS were introduced on the Pentium MMX.
+	// MOVQ 0x8(%ESP), %MM0
+	BYTE $0x0f; BYTE $0x6f; BYTE $0x44; BYTE $0x24; BYTE $0x08
+	// MOVQ %MM0, (%EAX)
+	BYTE $0x0f; BYTE $0x7f; BYTE $0x00 
+	// EMMS
+	BYTE $0x0F; BYTE $0x77
+	// This is essentially a no-op, but it provides required memory fencing.
+	// It can be replaced with MFENCE, but MFENCE was introduced only on the Pentium4 (SSE2).
+	MOVL	$0, AX
+	LOCK
+	XADDL	AX, (SP)
+	RET
+
 // void jmpdefer(fn, sp);
 // called from deferreturn.
 // 1. pop the caller
 // 2. sub 5 bytes from the callers return
 // 3. jmp to the argument
 TEXT runtime·jmpdefer(SB), 7, $0
-	MOVL	4(SP), AX	// fn
+	MOVL	4(SP), DX	// fn
 	MOVL	8(SP), BX	// caller sp
 	LEAL	-4(BX), SP	// caller sp after CALL
 	SUBL	$5, (SP)	// return to CALL again
-	JMP	AX	// but first run the deferred function
+	MOVL	0(DX), BX
+	JMP	BX	// but first run the deferred function
 
 // Dummy function to use in saved gobuf.PC,
 // to match SP pointing at a return address.
@@ -416,23 +498,49 @@ TEXT runtime·asmcgocall(SB),7,$0
 	RET
 
 // cgocallback(void (*fn)(void*), void *frame, uintptr framesize)
-// See cgocall.c for more details.
+// Turn the fn into a Go func (by taking its address) and call
+// cgocallback_gofunc.
 TEXT runtime·cgocallback(SB),7,$12
-	MOVL	fn+0(FP), AX
-	MOVL	frame+4(FP), BX
-	MOVL	framesize+8(FP), DX
+	LEAL	fn+0(FP), AX
+	MOVL	AX, 0(SP)
+	MOVL	frame+4(FP), AX
+	MOVL	AX, 4(SP)
+	MOVL	framesize+8(FP), AX
+	MOVL	AX, 8(SP)
+	MOVL	$runtime·cgocallback_gofunc(SB), AX
+	CALL	AX
+	RET
 
-	// Save current m->g0->sched.sp on stack and then set it to SP.
+// cgocallback_gofunc(FuncVal*, void *frame, uintptr framesize)
+// See cgocall.c for more details.
+TEXT runtime·cgocallback_gofunc(SB),7,$12
+	// If m is nil, Go did not create the current thread.
+	// Call needm to obtain one for temporary use.
+	// In this case, we're running on the thread stack, so there's
+	// lots of space, but the linker doesn't know. Hide the call from
+	// the linker analysis by using an indirect call through AX.
+	get_tls(CX)
+#ifdef GOOS_windows
+	CMPL	CX, $0
+	JNE	3(PC)
+	PUSHL	$0
+	JMP needm
+#endif
+	MOVL	m(CX), BP
+	PUSHL	BP
+	CMPL	BP, $0
+	JNE	havem
+needm:
+	MOVL	$runtime·needm(SB), AX
+	CALL	AX
 	get_tls(CX)
 	MOVL	m(CX), BP
 
-	// If m is nil, it is almost certainly because we have been called
-	// on a thread that Go did not create.  We're going to crash as
-	// soon as we try to use m; instead, try to print a nice error and exit.
-	CMPL	BP, $0
-	JNE 2(PC)
-	CALL	runtime·badcallback(SB)
-
+havem:
+	// Now there's a valid m, and we're running on its m->g0.
+	// Save current m->g0->sched.sp on stack and then set it to SP.
+	// Save current sp in m->g0->sched.sp in preparation for
+	// switch back to m->curg stack.
 	MOVL	m_g0(BP), SI
 	PUSHL	(g_sched+gobuf_sp)(SI)
 	MOVL	SP, (g_sched+gobuf_sp)(SI)
@@ -451,6 +559,10 @@ TEXT runtime·cgocallback(SB),7,$12
 	// a frame size of 12, the same amount that we use below),
 	// so that the traceback will seamlessly trace back into
 	// the earlier calls.
+	MOVL	fn+0(FP), AX
+	MOVL	frame+4(FP), BX
+	MOVL	framesize+8(FP), DX
+
 	MOVL	m_curg(BP), SI
 	MOVL	SI, g(CX)
 	MOVL	(g_sched+gobuf_sp)(SI), DI  // prepare stack as DI
@@ -488,8 +600,36 @@ TEXT runtime·cgocallback(SB),7,$12
 	MOVL	SI, g(CX)
 	MOVL	(g_sched+gobuf_sp)(SI), SP
 	POPL	(g_sched+gobuf_sp)(SI)
+	
+	// If the m on entry was nil, we called needm above to borrow an m
+	// for the duration of the call. Since the call is over, return it with dropm.
+	POPL	BP
+	CMPL	BP, $0
+	JNE 3(PC)
+	MOVL	$runtime·dropm(SB), AX
+	CALL	AX
 
 	// Done!
+	RET
+
+// void setmg(M*, G*); set m and g. for use by needm.
+TEXT runtime·setmg(SB), 7, $0
+#ifdef GOOS_windows
+	MOVL	mm+0(FP), AX
+	CMPL	AX, $0
+	JNE	settls
+	MOVL	$0, 0x14(FS)
+	RET
+settls:
+	LEAL	m_tls(AX), AX
+	MOVL	AX, 0x14(FS)
+#endif
+	MOVL	mm+0(FP), AX
+	get_tls(CX)
+	MOVL	mm+0(FP), AX
+	MOVL	AX, m(CX)
+	MOVL	gg+4(FP), BX
+	MOVL	BX, g(CX)
 	RET
 
 // check that SP is in range [g->stackbase, g->stackguard)

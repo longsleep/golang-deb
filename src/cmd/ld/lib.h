@@ -31,7 +31,7 @@
 enum
 {
 	Sxxx,
-	
+
 	/* order here is order in output file */
 	STEXT,
 	SMACHOPLT,
@@ -39,11 +39,15 @@ enum
 	SSTRING,
 	SGOSTRING,
 	SRODATA,
+	STYPELINK,
+	SGCDATA,
+	SGCBSS,
 	SSYMTAB,
 	SPCLNTAB,
 	SELFROSECT,
 	SELFSECT,
 	SNOPTRDATA,
+	SDATARELRO,
 	SDATA,
 	SMACHO,	/* Mach-O __nl_symbol_ptr */
 	SMACHOGOT,
@@ -59,9 +63,12 @@ enum
 	SFILE,
 	SCONST,
 	SDYNIMPORT,
+	SHOSTOBJ,
 
 	SSUB = 1<<8,	/* sub-symbol, linked from parent via ->sub list */
-	
+	SMASK = SSUB - 1,
+	SHIDDEN = 1<<9, // hidden or local symbol
+
 	NHASH = 100003,
 };
 
@@ -92,6 +99,8 @@ struct Segment
 	Section*	sect;
 };
 
+#pragma incomplete struct Elf64_Shdr
+
 struct Section
 {
 	uchar	rwx;
@@ -100,6 +109,9 @@ struct Section
 	uvlong	len;
 	Section	*next;	// in segment list
 	Segment	*seg;
+	struct Elf64_Shdr *elfsect;
+	uvlong	reloff;
+	uvlong	rellen;
 };
 
 extern	char	symname[];
@@ -128,6 +140,12 @@ EXTERN	char*	thestring;
 EXTERN	int	ndynexp;
 EXTERN	int	havedynamic;
 EXTERN	int	iscgo;
+EXTERN	int	isobj;
+EXTERN	int	elfglobalsymndx;
+EXTERN	int	flag_race;
+EXTERN	int flag_shared;
+EXTERN	char*	tracksym;
+EXTERN	char*	interpreter;
 
 EXTERN	Segment	segtext;
 EXTERN	Segment	segdata;
@@ -142,6 +160,7 @@ void	addhist(int32 line, int type);
 void	asmlc(void);
 void	histtoauto(void);
 void	collapsefrog(Sym *s);
+Sym*	newsym(char *symb, int v);
 Sym*	lookup(char *symb, int v);
 Sym*	rlookup(char *symb, int v);
 void	nuxiinit(void);
@@ -163,6 +182,8 @@ void	symtab(void);
 void	Lflag(char *arg);
 void	usage(void);
 void	adddynrel(Sym*, Reloc*);
+void	adddynrela(Sym*, Sym*, Reloc*);
+Sym*	lookuprel(void);
 void	ldobj1(Biobuf *f, char*, int64 len, char *pn);
 void	ldobj(Biobuf*, char*, int64, char*, int);
 void	ldelf(Biobuf*, char*, int64, char*);
@@ -176,21 +197,26 @@ void	deadcode(void);
 Reloc*	addrel(Sym*);
 void	codeblk(int32, int32);
 void	datblk(int32, int32);
-Sym*	datsort(Sym*);
 void	reloc(void);
 void	relocsym(Sym*);
 void	savedata(Sym*, Prog*, char*);
 void	symgrow(Sym*, int32);
 void	addstrdata(char*, char*);
 vlong	addstring(Sym*, char*);
+vlong	adduint8(Sym*, uint8);
+vlong	adduint16(Sym*, uint16);
 vlong	adduint32(Sym*, uint32);
 vlong	adduint64(Sym*, uint64);
 vlong	addaddr(Sym*, Sym*);
 vlong	addaddrplus(Sym*, Sym*, int32);
 vlong	addpcrelplus(Sym*, Sym*, int32);
 vlong	addsize(Sym*, Sym*);
-vlong	adduint8(Sym*, uint8);
-vlong	adduint16(Sym*, uint16);
+vlong	setaddrplus(Sym*, vlong, Sym*, int32);
+vlong	setaddr(Sym*, vlong, Sym*);
+void	setuint8(Sym*, vlong, uint8);
+void	setuint16(Sym*, vlong, uint16);
+void	setuint32(Sym*, vlong, uint32);
+void	setuint64(Sym*, vlong, uint64);
 void	asmsym(void);
 void	asmelfsym(void);
 void	asmplan9sym(void);
@@ -209,6 +235,11 @@ void	dostkcheck(void);
 void	undef(void);
 void	doweak(void);
 void	setpersrc(Sym*);
+void	doversion(void);
+void	usage(void);
+void	setinterp(char*);
+Sym*	listsort(Sym*, int(*cmp)(Sym*, Sym*), int);
+int	valuecmp(Sym*, Sym*);
 
 int	pathchar(void);
 void*	mal(uint32);
@@ -232,12 +263,6 @@ struct Endian
 };
 
 extern Endian be, le;
-
-// relocation size bits
-enum {
-	Rbig = 128,
-	Rlittle = 64,
-};
 
 /* set by call to mywhatsys() */
 extern	char*	goroot;
@@ -282,6 +307,8 @@ EXTERN	char*	headstring;
 extern	Header	headers[];
 
 int	headtype(char*);
+char*	headstr(int);
+void	setheadtype(char*);
 
 int	Yconv(Fmt*);
 
@@ -312,3 +339,25 @@ void	cseek(vlong);
 void	cwrite(void*, int);
 void	importcycles(void);
 int	Zconv(Fmt*);
+
+uint8	decodetype_kind(Sym*);
+vlong	decodetype_size(Sym*);
+Sym*	decodetype_gc(Sym*);
+Sym*	decodetype_arrayelem(Sym*);
+vlong	decodetype_arraylen(Sym*);
+Sym*	decodetype_ptrelem(Sym*);
+Sym*	decodetype_mapkey(Sym*);
+Sym*	decodetype_mapvalue(Sym*);
+Sym*	decodetype_chanelem(Sym*);
+int	decodetype_funcdotdotdot(Sym*);
+int	decodetype_funcincount(Sym*);
+int	decodetype_funcoutcount(Sym*);
+Sym*	decodetype_funcintype(Sym*, int);
+Sym*	decodetype_funcouttype(Sym*, int);
+int	decodetype_structfieldcount(Sym*);
+char*	decodetype_structfieldname(Sym*, int);
+Sym*	decodetype_structfieldtype(Sym*, int);
+vlong	decodetype_structfieldoffs(Sym*, int);
+vlong	decodetype_ifacemethodcount(Sym*);
+
+void	sortdynexp(void);

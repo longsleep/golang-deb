@@ -10,6 +10,10 @@ introduces the <a href="/cmd/go/">go command</a>, the standard way to fetch,
 build, and install Go packages and commands.
 </p>
 
+<p>
+This content is also available as a <a href="http://www.youtube.com/watch?v=XCsL89YtqCs">screencast</a>.
+</p>
+
 
 <h2 id="GOPATH">Code organization</h2>
 
@@ -182,7 +186,7 @@ func Sqrt(x float64) float64 {
         // This is a terrible implementation.
         // Real code should import "math" and use math.Sqrt.
         z := 0.0
-        for i := 0; i < 1000; i++ {
+        for i := 0; i &lt; 1000; i++ {
                 z -= (z*z - x) / (2 * x)
         }
         return z
@@ -402,7 +406,7 @@ ok  	example/newmath 0.165s
 </pre>
 
 <p>
-Run <code><a href="/cmd/go/#Test_packages">go help test</a></code> and see the
+Run <code><a href="/cmd/go/#hdr-Test_packages">go help test</a></code> and see the
 <a href="/pkg/testing/">testing package documentation</a> for more detail.
 </p>
 
@@ -476,13 +480,13 @@ import "code.google.com/p/go.example/newmath"
 <p>
 This convention is the easiest way to make your Go packages available for
 others to use.
-The <a href="http://godashboard.appspot.com">Go Project Dashboard</a>
-is a list of external Go projects including programs and libraries.
+The <a href="http://code.google.com/p/go-wiki/wiki/Projects">Go Community Wiki</a>
+has a list of external Go projects including programs and libraries.
 </p>
 
 <p>
 For more information on using remote repositories with the <code>go</code> command, see
-<code><a href="/cmd/go/#Remote_import_path_syntax">go help remote</a></code>.
+<code><a href="/cmd/go/#hdr-Remote_import_path_syntax">go help remote</a></code>.
 </p>
 
 

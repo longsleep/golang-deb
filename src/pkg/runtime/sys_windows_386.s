@@ -216,7 +216,7 @@ TEXT runtime·callbackasm+0(SB),7,$0
 
 	CLD
 
-	CALL	runtime·cgocallback(SB)
+	CALL	runtime·cgocallback_gofunc(SB)
 
 	POPL	AX
 	POPL	CX
@@ -243,11 +243,6 @@ TEXT runtime·tstart(SB),7,$0
 	MOVL	newm+4(SP), CX		// m
 	MOVL	m_g0(CX), DX		// g
 
-	// Set up SEH frame
-	PUSHL	$runtime·sigtramp(SB)
-	PUSHL	0(FS)
-	MOVL	SP, 0(FS)
-
 	// Layout new m scheduler stack on os stack.
 	MOVL	SP, AX
 	MOVL	AX, g_stackbase(DX)
@@ -264,13 +259,7 @@ TEXT runtime·tstart(SB),7,$0
 	CLD
 
 	CALL	runtime·stackcheck(SB)	// clobbers AX,CX
-
 	CALL	runtime·mstart(SB)
-
-	// Pop SEH frame
-	MOVL	0(FS), SP
-	POPL	0(FS)
-	POPL	CX
 
 	RET
 
@@ -295,4 +284,33 @@ TEXT runtime·tstart_stdcall(SB),7,$0
 TEXT runtime·setldt(SB),7,$0
 	MOVL	address+4(FP), CX
 	MOVL	CX, 0x14(FS)
+	RET
+
+// void install_exception_handler()
+TEXT runtime·install_exception_handler(SB),7,$0
+	get_tls(CX)
+	MOVL	m(CX), CX		// m
+
+	// Set up SEH frame
+	MOVL	m_seh(CX), DX
+	MOVL	$runtime·sigtramp(SB), AX
+	MOVL	AX, seh_handler(DX)
+	MOVL	0(FS), AX
+	MOVL	AX, seh_prev(DX)
+
+	// Install it
+	MOVL	DX, 0(FS)
+
+	RET
+
+// void remove_exception_handler()
+TEXT runtime·remove_exception_handler(SB),7,$0
+	get_tls(CX)
+	MOVL	m(CX), CX		// m
+
+	// Remove SEH frame
+	MOVL	m_seh(CX), DX
+	MOVL	seh_prev(DX), AX
+	MOVL	AX, 0(FS)
+
 	RET

@@ -41,7 +41,10 @@ func nametomib(name string) (mib []_C_int, err error) {
 	n := uintptr(CTL_MAXNAME) * siz
 
 	p := (*byte)(unsafe.Pointer(&buf[0]))
-	bytes := StringByteSlice(name)
+	bytes, err := ByteSliceFromString(name)
+	if err != nil {
+		return nil, err
+	}
 
 	// Magic sysctl: "setting" 0.3 to a string name
 	// lets you read back the array of integers form.
@@ -94,7 +97,7 @@ func Pipe(p []int) (err error) {
 }
 
 // TODO
-func Sendfile(outfd int, infd int, offset *int64, count int) (written int, err error) {
+func sendfile(outfd int, infd int, offset *int64, count int) (written int, err error) {
 	return -1, ENOSYS
 }
 
@@ -159,7 +162,7 @@ func Kill(pid int, signum Signal) (err error) { return kill(pid, int(signum), 1)
 //sys	Pathconf(path string, name int) (val int, err error)
 //sys	Pread(fd int, p []byte, offset int64) (n int, err error)
 //sys	Pwrite(fd int, p []byte, offset int64) (n int, err error)
-//sys	Read(fd int, p []byte) (n int, err error)
+//sys	read(fd int, p []byte) (n int, err error)
 //sys	Readlink(path string, buf []byte) (n int, err error)
 //sys	Rename(from string, to string) (err error)
 //sys	Revoke(path string) (err error)
@@ -188,11 +191,11 @@ func Kill(pid int, signum Signal) (err error) { return kill(pid, int(signum), 1)
 //sys	Undelete(path string) (err error)
 //sys	Unlink(path string) (err error)
 //sys	Unmount(path string, flags int) (err error)
-//sys	Write(fd int, p []byte) (n int, err error)
+//sys	write(fd int, p []byte) (n int, err error)
 //sys   mmap(addr uintptr, length uintptr, prot int, flag int, fd int, pos int64) (ret uintptr, err error)
 //sys   munmap(addr uintptr, length uintptr) (err error)
-//sys	read(fd int, buf *byte, nbuf int) (n int, err error)
-//sys	write(fd int, buf *byte, nbuf int) (n int, err error)
+//sys	readlen(fd int, buf *byte, nbuf int) (n int, err error) = SYS_READ
+//sys	writelen(fd int, buf *byte, nbuf int) (n int, err error) = SYS_WRITE
 
 /*
  * Unimplemented
@@ -331,7 +334,7 @@ func Kill(pid int, signum Signal) (err error) { return kill(pid, int(signum), 1)
 // __pthread_canceled
 // __semwait_signal
 // Proc_info
-// Sendfile
+// sendfile
 // Stat64_extended
 // Lstat64_extended
 // Fstat64_extended

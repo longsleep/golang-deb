@@ -328,6 +328,69 @@ var reqWriteTests = []reqWriteTest{
 			"User-Agent: Go http package\r\n" +
 			"X-Foo: X-Bar\r\n\r\n",
 	},
+
+	// If no Request.Host and no Request.URL.Host, we send
+	// an empty Host header, and don't use
+	// Request.Header["Host"]. This is just testing that
+	// we don't change Go 1.0 behavior.
+	{
+		Req: Request{
+			Method: "GET",
+			Host:   "",
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   "",
+				Path:   "/search",
+			},
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header: Header{
+				"Host": []string{"bad.example.com"},
+			},
+		},
+
+		WantWrite: "GET /search HTTP/1.1\r\n" +
+			"Host: \r\n" +
+			"User-Agent: Go http package\r\n\r\n",
+	},
+
+	// Opaque test #1 from golang.org/issue/4860
+	{
+		Req: Request{
+			Method: "GET",
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   "www.google.com",
+				Opaque: "/%2F/%2F/",
+			},
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     Header{},
+		},
+
+		WantWrite: "GET /%2F/%2F/ HTTP/1.1\r\n" +
+			"Host: www.google.com\r\n" +
+			"User-Agent: Go http package\r\n\r\n",
+	},
+
+	// Opaque test #2 from golang.org/issue/4860
+	{
+		Req: Request{
+			Method: "GET",
+			URL: &url.URL{
+				Scheme: "http",
+				Host:   "x.google.com",
+				Opaque: "//y.google.com/%2F/%2F/",
+			},
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     Header{},
+		},
+
+		WantWrite: "GET http://y.google.com/%2F/%2F/ HTTP/1.1\r\n" +
+			"Host: x.google.com\r\n" +
+			"User-Agent: Go http package\r\n\r\n",
+	},
 }
 
 func TestRequestWrite(t *testing.T) {

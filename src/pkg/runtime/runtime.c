@@ -3,14 +3,11 @@
 // license that can be found in the LICENSE file.
 
 #include "runtime.h"
-#include "stack.h"
+#include "arch_GOARCH.h"
 
 enum {
 	maxround = sizeof(uintptr),
 };
-
-uint32	runtime·panicking;
-void	(*runtime·destroylock)(Lock*);
 
 /*
  * We assume that all architectures turn faults and the like
@@ -29,103 +26,6 @@ runtime·gotraceback(void)
 	if(p == nil || p[0] == '\0')
 		return 1;	// default is on
 	return runtime·atoi(p);
-}
-
-static Lock paniclk;
-
-void
-runtime·startpanic(void)
-{
-	if(m->dying) {
-		runtime·printf("panic during panic\n");
-		runtime·exit(3);
-	}
-	m->dying = 1;
-	runtime·xadd(&runtime·panicking, 1);
-	runtime·lock(&paniclk);
-}
-
-void
-runtime·dopanic(int32 unused)
-{
-	static bool didothers;
-
-	if(g->sig != 0)
-		runtime·printf("[signal %x code=%p addr=%p pc=%p]\n",
-			g->sig, g->sigcode0, g->sigcode1, g->sigpc);
-
-	if(runtime·gotraceback()){
-		if(g != m->g0) {
-			runtime·printf("\n");
-			runtime·goroutineheader(g);
-			runtime·traceback(runtime·getcallerpc(&unused), runtime·getcallersp(&unused), 0, g);
-		}
-		if(!didothers) {
-			didothers = true;
-			runtime·tracebackothers(g);
-		}
-	}
-	runtime·unlock(&paniclk);
-	if(runtime·xadd(&runtime·panicking, -1) != 0) {
-		// Some other m is panicking too.
-		// Let it print what it needs to print.
-		// Wait forever without chewing up cpu.
-		// It will exit when it's done.
-		static Lock deadlock;
-		runtime·lock(&deadlock);
-		runtime·lock(&deadlock);
-	}
-
-	runtime·exit(2);
-}
-
-void
-runtime·panicindex(void)
-{
-	runtime·panicstring("index out of range");
-}
-
-void
-runtime·panicslice(void)
-{
-	runtime·panicstring("slice bounds out of range");
-}
-
-void
-runtime·throwreturn(void)
-{
-	// can only happen if compiler is broken
-	runtime·throw("no return at end of a typed function - compiler is broken");
-}
-
-void
-runtime·throwinit(void)
-{
-	// can only happen with linker skew
-	runtime·throw("recursive call during initialization - linker skew");
-}
-
-void
-runtime·throw(int8 *s)
-{
-	runtime·startpanic();
-	runtime·printf("throw: %s\n", s);
-	runtime·dopanic(0);
-	*(int32*)0 = 0;	// not reached
-	runtime·exit(1);	// even more not reached
-}
-
-void
-runtime·panicstring(int8 *s)
-{
-	Eface err;
-
-	if(m->gcing) {
-		runtime·printf("panic: %s\n", s);
-		runtime·throw("panic during gc");
-	}
-	runtime·newErrorString(runtime·gostringnocopy((byte*)s), &err);
-	runtime·panic(err);
 }
 
 int32
@@ -155,30 +55,21 @@ runtime·mchr(byte *p, byte c, byte *ep)
 	return nil;
 }
 
-uint32
-runtime·rnd(uint32 n, uint32 m)
-{
-	uint32 r;
-
-	if(m > maxround)
-		m = maxround;
-	r = n % m;
-	if(r)
-		n += m-r;
-	return n;
-}
-
 static int32	argc;
 static uint8**	argv;
 
 Slice os·Args;
 Slice syscall·envs;
 
+void (*runtime·sysargs)(int32, uint8**);
+
 void
 runtime·args(int32 c, uint8 **v)
 {
 	argc = c;
 	argv = v;
+	if(runtime·sysargs != nil)
+		runtime·sysargs(c, v);
 }
 
 int32 runtime·isplan9;
@@ -219,33 +110,6 @@ runtime·goenvs_unix(void)
 	syscall·envs.cap = n;
 }
 
-byte*
-runtime·getenv(int8 *s)
-{
-	int32 i, j, len;
-	byte *v, *bs;
-	String* envv;
-	int32 envc;
-
-	bs = (byte*)s;
-	len = runtime·findnull(bs);
-	envv = (String*)syscall·envs.array;
-	envc = syscall·envs.len;
-	for(i=0; i<envc; i++){
-		if(envv[i].len <= len)
-			continue;
-		v = envv[i].str;
-		for(j=0; j<len; j++)
-			if(bs[j] != v[j])
-				goto nomatch;
-		if(v[len] != '=')
-			goto nomatch;
-		return v+len+1;
-	nomatch:;
-	}
-	return nil;
-}
-
 void
 runtime·getgoroot(String out)
 {
@@ -265,6 +129,33 @@ runtime·atoi(byte *p)
 	while('0' <= *p && *p <= '9')
 		n = n*10 + *p++ - '0';
 	return n;
+}
+
+static void
+TestAtomic64(void)
+{
+	uint64 z64, x64;
+
+	z64 = 42;
+	x64 = 0;
+	PREFETCH(&z64);
+	if(runtime·cas64(&z64, &x64, 1))
+		runtime·throw("cas64 failed");
+	if(x64 != 42)
+		runtime·throw("cas64 failed");
+	if(!runtime·cas64(&z64, &x64, 1))
+		runtime·throw("cas64 failed");
+	if(x64 != 42 || z64 != 1)
+		runtime·throw("cas64 failed");
+	if(runtime·atomicload64(&z64) != 1)
+		runtime·throw("load64 failed");
+	runtime·atomicstore64(&z64, (1ull<<40)+1);
+	if(runtime·atomicload64(&z64) != (1ull<<40)+1)
+		runtime·throw("store64 failed");
+	if(runtime·xadd64(&z64, (1ull<<40)+1) != (2ull<<40)+2)
+		runtime·throw("xadd64 failed");
+	if(runtime·atomicload64(&z64) != (2ull<<40)+2)
+		runtime·throw("xadd64 failed");
 }
 
 void
@@ -342,10 +233,12 @@ runtime·check(void)
 		runtime·throw("float32nan2");
 	if(!(i != i1))
 		runtime·throw("float32nan3");
+
+	TestAtomic64();
 }
 
 void
-runtime·Caller(int32 skip, uintptr retpc, String retfile, int32 retline, bool retbool)
+runtime·Caller(intgo skip, uintptr retpc, String retfile, intgo retline, bool retbool)
 {
 	Func *f, *g;
 	uintptr pc;
@@ -382,7 +275,7 @@ runtime·Caller(int32 skip, uintptr retpc, String retfile, int32 retline, bool r
 }
 
 void
-runtime·Callers(int32 skip, Slice pc, int32 retn)
+runtime·Callers(intgo skip, Slice pc, intgo retn)
 {
 	// runtime.callers uses pc.array==nil as a signal
 	// to print a stack trace.  Pick off 0-length pc here
@@ -412,4 +305,41 @@ runtime·fastrand1(void)
 		x ^= 0x88888eefUL;
 	m->fastrand = x;
 	return x;
+}
+
+static Lock ticksLock;
+static int64 ticks;
+
+int64
+runtime·tickspersecond(void)
+{
+	int64 res, t0, t1, c0, c1;
+
+	res = (int64)runtime·atomicload64((uint64*)&ticks);
+	if(res != 0)
+		return ticks;
+	runtime·lock(&ticksLock);
+	res = ticks;
+	if(res == 0) {
+		t0 = runtime·nanotime();
+		c0 = runtime·cputicks();
+		runtime·usleep(100*1000);
+		t1 = runtime·nanotime();
+		c1 = runtime·cputicks();
+		if(t1 == t0)
+			t1++;
+		res = (c1-c0)*1000*1000*1000/(t1-t0);
+		if(res == 0)
+			res++;
+		runtime·atomicstore64((uint64*)&ticks, res);
+	}
+	runtime·unlock(&ticksLock);
+	return res;
+}
+
+void
+runtime∕pprof·runtime_cyclesPerSecond(int64 res)
+{
+	res = runtime·tickspersecond();
+	FLUSH(&res);
 }

@@ -6,6 +6,8 @@ package syscall
 
 import (
 	"sync"
+	"sync/atomic"
+	"unsafe"
 )
 
 // DLLError describes reasons for DLL load failures.
@@ -17,13 +19,13 @@ type DLLError struct {
 
 func (e *DLLError) Error() string { return e.Msg }
 
-// Implemented in ../runtime/windows/syscall.goc.
+// Implemented in ../runtime/syscall_windows.goc.
 func Syscall(trap, nargs, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
 func Syscall6(trap, nargs, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
 func Syscall9(trap, nargs, a1, a2, a3, a4, a5, a6, a7, a8, a9 uintptr) (r1, r2 uintptr, err Errno)
 func Syscall12(trap, nargs, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 uintptr) (r1, r2 uintptr, err Errno)
 func Syscall15(trap, nargs, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 uintptr) (r1, r2 uintptr, err Errno)
-func loadlibrary(filename *uint16) (handle, err Errno)
+func loadlibrary(filename *uint16) (handle uintptr, err Errno)
 func getprocaddress(handle uintptr, procname *uint8) (proc uintptr, err Errno)
 
 // A DLL implements access to a single DLL.
@@ -34,7 +36,11 @@ type DLL struct {
 
 // LoadDLL loads DLL file into memory.
 func LoadDLL(name string) (dll *DLL, err error) {
-	h, e := loadlibrary(StringToUTF16Ptr(name))
+	namep, err := UTF16PtrFromString(name)
+	if err != nil {
+		return nil, err
+	}
+	h, e := loadlibrary(namep)
 	if e != 0 {
 		return nil, &DLLError{
 			Err:     e,
@@ -61,7 +67,11 @@ func MustLoadDLL(name string) *DLL {
 // FindProc searches DLL d for procedure named name and returns *Proc
 // if found. It returns an error if search fails.
 func (d *DLL) FindProc(name string) (proc *Proc, err error) {
-	a, e := getprocaddress(uintptr(d.Handle), StringBytePtr(name))
+	namep, err := BytePtrFromString(name)
+	if err != nil {
+		return nil, err
+	}
+	a, e := getprocaddress(uintptr(d.Handle), namep)
 	if e != 0 {
 		return nil, &DLLError{
 			Err:     e,
@@ -104,8 +114,14 @@ func (p *Proc) Addr() uintptr {
 	return p.addr
 }
 
-// Call executes procedure p with arguments a.
-func (p *Proc) Call(a ...uintptr) (r1, r2 uintptr, err error) {
+// Call executes procedure p with arguments a. It will panic, if more then 15 arguments
+// are supplied.
+//
+// The returned error is always non-nil, constructed from the result of GetLastError.
+// Callers must inspect the primary return value to decide whether an error occurred
+// (according to the semantics of the specific function being called) before consulting
+// the error. The error will be guaranteed to contain syscall.Errno.
+func (p *Proc) Call(a ...uintptr) (r1, r2 uintptr, lastErr error) {
 	switch len(a) {
 	case 0:
 		return Syscall(p.Addr(), uintptr(len(a)), 0, 0, 0)
@@ -158,7 +174,9 @@ type LazyDLL struct {
 // Load loads DLL file d.Name into memory. It returns an error if fails.
 // Load will not try to load DLL, if it is already loaded into memory.
 func (d *LazyDLL) Load() error {
-	if d.dll == nil {
+	// Non-racy version of:
+	// if d.dll == nil {
+	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&d.dll))) == nil {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		if d.dll == nil {
@@ -166,7 +184,9 @@ func (d *LazyDLL) Load() error {
 			if e != nil {
 				return e
 			}
-			d.dll = dll
+			// Non-racy version of:
+			// d.dll = dll
+			atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&d.dll)), unsafe.Pointer(dll))
 		}
 	}
 	return nil
@@ -209,7 +229,9 @@ type LazyProc struct {
 // an error if search fails. Find will not search procedure,
 // if it is already found and loaded into memory.
 func (p *LazyProc) Find() error {
-	if p.proc == nil {
+	// Non-racy version of:
+	// if p.proc == nil {
+	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&p.proc))) == nil {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if p.proc == nil {
@@ -221,7 +243,9 @@ func (p *LazyProc) Find() error {
 			if e != nil {
 				return e
 			}
-			p.proc = proc
+			// Non-racy version of:
+			// p.proc = proc
+			atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&p.proc)), unsafe.Pointer(proc))
 		}
 	}
 	return nil
@@ -242,8 +266,14 @@ func (p *LazyProc) Addr() uintptr {
 	return p.proc.Addr()
 }
 
-// Call executes procedure p with arguments a.
-func (p *LazyProc) Call(a ...uintptr) (r1, r2 uintptr, err error) {
+// Call executes procedure p with arguments a. It will panic, if more then 15 arguments
+// are supplied.
+//
+// The returned error is always non-nil, constructed from the result of GetLastError.
+// Callers must inspect the primary return value to decide whether an error occurred
+// (according to the semantics of the specific function being called) before consulting
+// the error. The error will be guaranteed to contain syscall.Errno.
+func (p *LazyProc) Call(a ...uintptr) (r1, r2 uintptr, lastErr error) {
 	p.mustFind()
 	return p.proc.Call(a...)
 }

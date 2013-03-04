@@ -33,7 +33,13 @@
 static void
 _cgo_allocate_internal(uintptr len, byte *ret)
 {
+	CgoMal *c;
+
 	ret = runtime·mal(len);
+	c = runtime·mal(sizeof(*c));
+	c->next = m->cgomal;
+	c->alloc = ret;
+	m->cgomal = c;
 	FLUSH(&ret);
 }
 
@@ -71,3 +77,19 @@ _cgo_panic(void *a, int32 n)
 {
 	runtime·cgocallback((void(*)(void))_cgo_panic_internal, a, n);
 }
+
+#pragma cgo_import_static x_cgo_init
+extern void x_cgo_init(G*);
+void (*_cgo_init)(G*) = x_cgo_init;
+
+#pragma cgo_import_static x_cgo_malloc
+extern void x_cgo_malloc(void*);
+void (*_cgo_malloc)(void*) = x_cgo_malloc;
+
+#pragma cgo_import_static x_cgo_free
+extern void x_cgo_free(void*);
+void (*_cgo_free)(void*) = x_cgo_free;
+
+#pragma cgo_import_static x_cgo_thread_start
+extern void x_cgo_thread_start(void*);
+void (*_cgo_thread_start)(void*) = x_cgo_thread_start;

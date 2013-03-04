@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"container/heap"
 	"errors"
+	"flag"
 	"fmt"
 	"go/build"
 	"io"
@@ -59,7 +60,12 @@ The build flags are shared by the build, install, run, and test commands:
 		do not delete it when exiting.
 	-x
 		print the commands.
+	-race
+		enable data race detection.
+		Supported only on linux/amd64, darwin/amd64 and windows/amd64.
 
+	-ccflags 'arg list'
+		arguments to pass on each 5c, 6c, or 8c compiler invocation
 	-compiler name
 		name of compiler to use, as in runtime.Compiler (gccgo or gc)
 	-gccgoflags 'arg list'
@@ -72,6 +78,9 @@ The build flags are shared by the build, install, run, and test commands:
 		a list of build tags to consider satisfied during the build.
 		See the documentation for the go/build package for
 		more information about build tags.
+
+The list flags accept a space-separated list of strings. To embed spaces
+in an element in the list, surround it with either single or double quotes.
 
 For more about specifying packages, see 'go help packages'.
 For more about where packages and binaries are installed,
@@ -99,8 +108,10 @@ var buildX bool               // -x flag
 var buildO = cmdBuild.Flag.String("o", "", "output file")
 var buildWork bool           // -work flag
 var buildGcflags []string    // -gcflags flag
+var buildCcflags []string    // -ccflags flag
 var buildLdflags []string    // -ldflags flag
 var buildGccgoflags []string // -gccgoflags flag
+var buildRace bool           // -race flag
 
 var buildContext = build.Default
 var buildToolchain toolchain = noToolchain{}
@@ -115,7 +126,7 @@ func (c buildCompiler) Set(value string) error {
 	case "gc":
 		buildToolchain = gcToolchain{}
 	case "gccgo":
-		buildToolchain = gccgcToolchain{}
+		buildToolchain = gccgoToolchain{}
 	default:
 		return fmt.Errorf("unknown compiler %q", value)
 	}
@@ -132,7 +143,7 @@ func init() {
 	case "gc":
 		buildToolchain = gcToolchain{}
 	case "gccgo":
-		buildToolchain = gccgcToolchain{}
+		buildToolchain = gccgoToolchain{}
 	}
 }
 
@@ -146,10 +157,12 @@ func addBuildFlags(cmd *Command) {
 	cmd.Flag.BoolVar(&buildX, "x", false, "")
 	cmd.Flag.BoolVar(&buildWork, "work", false, "")
 	cmd.Flag.Var((*stringsFlag)(&buildGcflags), "gcflags", "")
+	cmd.Flag.Var((*stringsFlag)(&buildCcflags), "ccflags", "")
 	cmd.Flag.Var((*stringsFlag)(&buildLdflags), "ldflags", "")
 	cmd.Flag.Var((*stringsFlag)(&buildGccgoflags), "gccgoflags", "")
 	cmd.Flag.Var((*stringsFlag)(&buildContext.BuildTags), "tags", "")
 	cmd.Flag.Var(buildCompiler{}, "compiler", "")
+	cmd.Flag.BoolVar(&buildRace, "race", false, "")
 }
 
 func addBuildFlagsNX(cmd *Command) {
@@ -157,11 +170,52 @@ func addBuildFlagsNX(cmd *Command) {
 	cmd.Flag.BoolVar(&buildX, "x", false, "")
 }
 
+func isSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
 type stringsFlag []string
 
 func (v *stringsFlag) Set(s string) error {
-	*v = strings.Fields(s)
-	return nil
+	var err error
+	*v, err = splitQuotedFields(s)
+	return err
+}
+
+func splitQuotedFields(s string) ([]string, error) {
+	// Split fields allowing '' or "" around elements.
+	// Quotes further inside the string do not count.
+	var f []string
+	for len(s) > 0 {
+		for len(s) > 0 && isSpaceByte(s[0]) {
+			s = s[1:]
+		}
+		if len(s) == 0 {
+			break
+		}
+		// Accepted quoted string. No unescaping inside.
+		if s[0] == '"' || s[0] == '\'' {
+			quote := s[0]
+			s = s[1:]
+			i := 0
+			for i < len(s) && s[i] != quote {
+				i++
+			}
+			if i >= len(s) {
+				return nil, fmt.Errorf("unterminated %c string", quote)
+			}
+			f = append(f, s[:i])
+			s = s[i+1:]
+			continue
+		}
+		i := 0
+		for i < len(s) && !isSpaceByte(s[i]) {
+			i++
+		}
+		f = append(f, s[:i])
+		s = s[i:]
+	}
+	return f, nil
 }
 
 func (v *stringsFlag) String() string {
@@ -169,6 +223,7 @@ func (v *stringsFlag) String() string {
 }
 
 func runBuild(cmd *Command, args []string) {
+	raceInit()
 	var b builder
 	b.init()
 
@@ -177,6 +232,21 @@ func runBuild(cmd *Command, args []string) {
 	if len(pkgs) == 1 && pkgs[0].Name == "main" && *buildO == "" {
 		_, *buildO = path.Split(pkgs[0].ImportPath)
 		*buildO += exeSuffix
+	}
+
+	// sanity check some often mis-used options
+	switch buildContext.Compiler {
+	case "gccgo":
+		if len(buildGcflags) != 0 {
+			fmt.Println("go build: when using gccgo toolchain, please pass compiler flags using -gccgoflags, not -gcflags")
+		}
+		if len(buildLdflags) != 0 {
+			fmt.Println("go build: when using gccgo toolchain, please pass linker flags using -gccgoflags, not -ldflags")
+		}
+	case "gc":
+		if len(buildGccgoflags) != 0 {
+			fmt.Println("go build: when using gc toolchain, please pass compile flags using -gcflags, and linker flags using -ldflags")
+		}
 	}
 
 	if *buildO != "" {
@@ -213,11 +283,12 @@ See also: go build, go get, go clean.
 }
 
 func runInstall(cmd *Command, args []string) {
+	raceInit()
 	pkgs := packagesForBuild(args)
 
 	for _, p := range pkgs {
 		if p.Target == "" && (!p.Standard || p.ImportPath != "unsafe") {
-			errorf("go install: no install location for %s", p.ImportPath)
+			errorf("go install: no install location for directory %s outside GOPATH", p.Dir)
 		}
 	}
 	exitIfErrors()
@@ -437,7 +508,7 @@ func (b *builder) action(mode buildMode, depMode buildMode, p *Package) *action 
 	// using cgo, to make sure we do not overwrite the binary while
 	// a package is using it.  If this is a cross-build, then the cgo we
 	// are writing is not the cgo we need to use.
-	if goos == runtime.GOOS && goarch == runtime.GOARCH {
+	if goos == runtime.GOOS && goarch == runtime.GOARCH && !buildRace {
 		if len(p.CgoFiles) > 0 || p.Standard && p.ImportPath == "runtime/cgo" {
 			var stk importStack
 			p1 := loadPackage("cmd/cgo", &stk)
@@ -456,7 +527,7 @@ func (b *builder) action(mode buildMode, depMode buildMode, p *Package) *action 
 			return a
 		}
 		// gccgo standard library is "fake" too.
-		if _, ok := buildToolchain.(gccgcToolchain); ok {
+		if _, ok := buildToolchain.(gccgoToolchain); ok {
 			// the target name is needed for cgo.
 			a.target = p.target
 			return a
@@ -487,9 +558,18 @@ func (b *builder) action(mode buildMode, depMode buildMode, p *Package) *action 
 		a.f = (*builder).build
 		a.target = a.objpkg
 		if a.link {
-			// An executable file.
-			// (This is the name of a temporary file.)
-			a.target = a.objdir + "a.out" + exeSuffix
+			// An executable file. (This is the name of a temporary file.)
+			// Because we run the temporary file in 'go run' and 'go test',
+			// the name will show up in ps listings. If the caller has specified
+			// a name, use that instead of a.out. The binary is generated
+			// in an otherwise empty subdirectory named exe to avoid
+			// naming conflicts.  The only possible conflict is if we were
+			// to create a top-level package named exe.
+			name := "a.out"
+			if p.exeName != "" {
+				name = p.exeName
+			}
+			a.target = a.objdir + filepath.Join("exe", name) + exeSuffix
 		}
 	}
 
@@ -535,7 +615,6 @@ func (b *builder) do(root *action) {
 	}
 
 	b.readySema = make(chan bool, len(all))
-	done := make(chan bool)
 
 	// Initialize per-action execution state.
 	for _, a := range all {
@@ -583,9 +662,10 @@ func (b *builder) do(root *action) {
 
 		if a == root {
 			close(b.readySema)
-			done <- true
 		}
 	}
+
+	var wg sync.WaitGroup
 
 	// Kick off goroutines according to parallelism.
 	// If we are using the -n flag (just printing commands)
@@ -596,19 +676,40 @@ func (b *builder) do(root *action) {
 		par = 1
 	}
 	for i := 0; i < par; i++ {
+		wg.Add(1)
 		go func() {
-			for _ = range b.readySema {
-				// Receiving a value from b.sema entitles
-				// us to take from the ready queue.
-				b.exec.Lock()
-				a := b.ready.pop()
-				b.exec.Unlock()
-				handle(a)
+			defer wg.Done()
+			for {
+				select {
+				case _, ok := <-b.readySema:
+					if !ok {
+						return
+					}
+					// Receiving a value from b.readySema entitles
+					// us to take from the ready queue.
+					b.exec.Lock()
+					a := b.ready.pop()
+					b.exec.Unlock()
+					handle(a)
+				case <-interrupted:
+					setExitStatus(1)
+					return
+				}
 			}
 		}()
 	}
 
-	<-done
+	wg.Wait()
+}
+
+// hasString reports whether s appears in the list of strings.
+func hasString(strings []string, s string) bool {
+	for _, t := range strings {
+		if s == t {
+			return true
+		}
+	}
+	return false
 }
 
 // build is the action for building a single package or command.
@@ -631,10 +732,23 @@ func (b *builder) build(a *action) (err error) {
 		fmt.Fprintf(os.Stderr, "%s\n", a.p.ImportPath)
 	}
 
+	if a.p.Standard && a.p.ImportPath == "runtime" && buildContext.Compiler == "gc" &&
+		!hasString(a.p.HFiles, "zasm_"+buildContext.GOOS+"_"+buildContext.GOARCH+".h") {
+		return fmt.Errorf("%s/%s must be bootstrapped using make.bash", buildContext.GOOS, buildContext.GOARCH)
+	}
+
 	// Make build directory.
 	obj := a.objdir
 	if err := b.mkdir(obj); err != nil {
 		return err
+	}
+
+	// make target directory
+	dir, _ := filepath.Split(a.target)
+	if dir != "" {
+		if err := b.mkdir(dir); err != nil {
+			return err
+		}
 	}
 
 	var gofiles, cfiles, sfiles, objects, cgoObjects []string
@@ -680,16 +794,37 @@ func (b *builder) build(a *action) (err error) {
 		gofiles = append(gofiles, outGo...)
 	}
 
+	// Run SWIG.
+	if a.p.usesSwig() {
+		// In a package using SWIG, any .c or .s files are
+		// compiled with gcc.
+		gccfiles := append(cfiles, sfiles...)
+		cfiles = nil
+		sfiles = nil
+		outGo, outObj, err := b.swig(a.p, obj, gccfiles)
+		if err != nil {
+			return err
+		}
+		cgoObjects = append(cgoObjects, outObj...)
+		gofiles = append(gofiles, outGo...)
+	}
+
 	// Prepare Go import path list.
 	inc := b.includeArgs("-I", a.deps)
 
 	// Compile Go.
 	if len(gofiles) > 0 {
-		if out, err := buildToolchain.gc(b, a.p, obj, inc, gofiles); err != nil {
-			return err
-		} else {
-			objects = append(objects, out)
+		ofile, out, err := buildToolchain.gc(b, a.p, obj, inc, gofiles)
+		if len(out) > 0 {
+			b.showOutput(a.p.Dir, a.p.ImportPath, b.processOutput(out))
+			if err != nil {
+				return errPrintedOutput
+			}
 		}
+		if err != nil {
+			return err
+		}
+		objects = append(objects, ofile)
 	}
 
 	// Copy .h files named for goos or goarch or goos_goarch
@@ -718,8 +853,13 @@ func (b *builder) build(a *action) (err error) {
 		}
 	}
 
+	objExt := archChar
+	if _, ok := buildToolchain.(gccgoToolchain); ok {
+		objExt = "o"
+	}
+
 	for _, file := range cfiles {
-		out := file[:len(file)-len(".c")] + "." + archChar
+		out := file[:len(file)-len(".c")] + "." + objExt
 		if err := buildToolchain.cc(b, a.p, obj, obj+out, file); err != nil {
 			return err
 		}
@@ -728,7 +868,7 @@ func (b *builder) build(a *action) (err error) {
 
 	// Assemble .s files.
 	for _, file := range sfiles {
-		out := file[:len(file)-len(".s")] + "." + archChar
+		out := file[:len(file)-len(".s")] + "." + objExt
 		if err := buildToolchain.asm(b, a.p, obj, obj+out, file); err != nil {
 			return err
 		}
@@ -795,6 +935,20 @@ func (b *builder) install(a *action) (err error) {
 		defer os.Remove(a1.target)
 	}
 
+	if a.p.usesSwig() {
+		for _, f := range stringList(a.p.SwigFiles, a.p.SwigCXXFiles) {
+			dir = a.p.swigDir(&buildContext)
+			if err := b.mkdir(dir); err != nil {
+				return err
+			}
+			soname := a.p.swigSoname(f)
+			target := filepath.Join(dir, soname)
+			if err = b.copyFile(a, target, soname, perm); err != nil {
+				return err
+			}
+		}
+	}
+
 	return b.copyFile(a, a.target, a1.target, perm)
 }
 
@@ -826,10 +980,13 @@ func (b *builder) includeArgs(flag string, all []*action) []string {
 	for _, a1 := range all {
 		if dir := a1.pkgdir; dir == a1.p.build.PkgRoot && !incMap[dir] {
 			incMap[dir] = true
-			if _, ok := buildToolchain.(gccgcToolchain); ok {
-				dir = filepath.Join(dir, "gccgo")
+			if _, ok := buildToolchain.(gccgoToolchain); ok {
+				dir = filepath.Join(dir, "gccgo_"+goos+"_"+goarch)
 			} else {
 				dir = filepath.Join(dir, goos+"_"+goarch)
+				if buildRace {
+					dir += "_race"
+				}
 			}
 			inc = append(inc, flag, dir)
 		}
@@ -905,6 +1062,8 @@ var objectMagic = [][]byte{
 	{0xCE, 0xFA, 0xED, 0xFE},                         // Mach-O little-endian 32-bit
 	{0xCF, 0xFA, 0xED, 0xFE},                         // Mach-O little-endian 64-bit
 	{0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x04, 0x00}, // PE (Windows) as generated by 6l/8l
+	{0x00, 0x00, 0x01, 0xEB},                         // Plan 9 i386
+	{0x00, 0x00, 0x8a, 0x97},                         // Plan 9 amd64
 }
 
 func isObject(s string) bool {
@@ -1024,24 +1183,40 @@ func relPaths(paths []string) []string {
 // print this error.
 var errPrintedOutput = errors.New("already printed output - no need to show error")
 
+var cgoLine = regexp.MustCompile(`\[[^\[\]]+\.cgo1\.go:[0-9]+\]`)
+
 // run runs the command given by cmdline in the directory dir.
 // If the command fails, run prints information about the failure
 // and returns a non-nil error.
 func (b *builder) run(dir string, desc string, cmdargs ...interface{}) error {
 	out, err := b.runOut(dir, desc, cmdargs...)
 	if len(out) > 0 {
-		if out[len(out)-1] != '\n' {
-			out = append(out, '\n')
-		}
 		if desc == "" {
 			desc = b.fmtcmd(dir, "%s", strings.Join(stringList(cmdargs...), " "))
 		}
-		b.showOutput(dir, desc, string(out))
+		b.showOutput(dir, desc, b.processOutput(out))
 		if err != nil {
 			err = errPrintedOutput
 		}
 	}
 	return err
+}
+
+// processOutput prepares the output of runOut to be output to the console.
+func (b *builder) processOutput(out []byte) string {
+	if out[len(out)-1] != '\n' {
+		out = append(out, '\n')
+	}
+	messages := string(out)
+	// Fix up output referring to cgo-generated code to be more readable.
+	// Replace x.go:19[/tmp/.../x.cgo1.go:18] with x.go:19.
+	// Replace _Ctype_foo with C.foo.
+	// If we're using -x, assume we're debugging and want the full dump, so disable the rewrite.
+	if !buildX && cgoLine.MatchString(messages) {
+		messages = cgoLine.ReplaceAllString(messages, "")
+		messages = strings.Replace(messages, "type _Ctype_", "type C.", -1)
+	}
+	return messages
 }
 
 // runOut runs the command given by cmdline in the directory dir.
@@ -1062,7 +1237,7 @@ func (b *builder) runOut(dir string, desc string, cmdargs ...interface{}) ([]byt
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
 		cmd.Dir = dir
-		// TODO: cmd.Env
+		cmd.Env = envForDir(cmd.Dir)
 		err := cmd.Run()
 
 		// cmd.Run will fail on Unix if some other process has the binary
@@ -1077,7 +1252,7 @@ func (b *builder) runOut(dir string, desc string, cmdargs ...interface{}) ([]byt
 		// not worry about other processes inheriting the fd accidentally.
 		// The answer is that running a command is fork and exec.
 		// A child forked while the cgo fd is open inherits that fd.
-		// Until the child has called exec, it holds the fd open and the 
+		// Until the child has called exec, it holds the fd open and the
 		// kernel will not let us run cgo.  Even if the child were to close
 		// the fd explicitly, it would still be open from the time of the fork
 		// until the time of the explicit close, and the race would remain.
@@ -1161,7 +1336,7 @@ type toolchain interface {
 	// gc runs the compiler in a specific directory on a set of files
 	// and returns the name of the generated output file.
 	// The compiler runs in the directory dir.
-	gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, err error)
+	gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, out []byte, err error)
 	// cc runs the toolchain's C compiler in a directory on a C file
 	// to produce an output file.
 	cc(b *builder, p *Package, objdir, ofile, cfile string) error
@@ -1198,8 +1373,8 @@ func (noToolchain) linker() string {
 	return ""
 }
 
-func (noToolchain) gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, err error) {
-	return "", noCompiler()
+func (noToolchain) gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, out []byte, err error) {
+	return "", nil, noCompiler()
 }
 
 func (noToolchain) asm(b *builder, p *Package, obj, ofile, sfile string) error {
@@ -1234,7 +1409,7 @@ func (gcToolchain) linker() string {
 	return tool(archChar + "l")
 }
 
-func (gcToolchain) gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, err error) {
+func (gcToolchain) gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, output []byte, err error) {
 	out := "_go_." + archChar
 	ofile = obj + out
 	gcargs := []string{"-p", p.ImportPath}
@@ -1244,16 +1419,33 @@ func (gcToolchain) gc(b *builder, p *Package, obj string, importArgs []string, g
 		gcargs = append(gcargs, "-+")
 	}
 
+	// If we're giving the compiler the entire package (no C etc files), tell it that,
+	// so that it can give good error messages about forward declarations.
+	// Exceptions: a few standard packages have forward declarations for
+	// pieces supplied behind-the-scenes by package runtime.
+	extFiles := len(p.CgoFiles) + len(p.CFiles) + len(p.SFiles) + len(p.SysoFiles) + len(p.SwigFiles) + len(p.SwigCXXFiles)
+	if p.Standard {
+		switch p.ImportPath {
+		case "os", "runtime/pprof", "sync", "time":
+			extFiles++
+		}
+	}
+	if extFiles == 0 {
+		gcargs = append(gcargs, "-complete")
+	}
+
 	args := stringList(tool(archChar+"g"), "-o", ofile, buildGcflags, gcargs, "-D", p.localPrefix, importArgs)
 	for _, f := range gofiles {
 		args = append(args, mkAbs(p.Dir, f))
 	}
-	return ofile, b.run(p.Dir, p.ImportPath, args)
+
+	output, err = b.runOut(p.Dir, p.ImportPath, args)
+	return ofile, output, err
 }
 
 func (gcToolchain) asm(b *builder, p *Package, obj, ofile, sfile string) error {
 	sfile = mkAbs(p.Dir, sfile)
-	return b.run(p.Dir, p.ImportPath, tool(archChar+"a"), "-I", obj, "-o", ofile, "-DGOOS_"+goos, "-DGOARCH_"+goarch, sfile)
+	return b.run(p.Dir, p.ImportPath, tool(archChar+"a"), "-I", obj, "-o", ofile, "-D", "GOOS_"+goos, "-D", "GOARCH_"+goarch, sfile)
 }
 
 func (gcToolchain) pkgpath(basedir string, p *Package) string {
@@ -1266,62 +1458,86 @@ func (gcToolchain) pack(b *builder, p *Package, objDir, afile string, ofiles []s
 	for _, f := range ofiles {
 		absOfiles = append(absOfiles, mkAbs(objDir, f))
 	}
-	return b.run(p.Dir, p.ImportPath, tool("pack"), "grc", mkAbs(objDir, afile), absOfiles)
+	return b.run(p.Dir, p.ImportPath, tool("pack"), "grcP", b.work, mkAbs(objDir, afile), absOfiles)
 }
 
 func (gcToolchain) ld(b *builder, p *Package, out string, allactions []*action, mainpkg string, ofiles []string) error {
 	importArgs := b.includeArgs("-L", allactions)
-	return b.run(".", p.ImportPath, tool(archChar+"l"), "-o", out, importArgs, buildLdflags, mainpkg)
+	swigDirs := make(map[string]bool)
+	swigArg := []string{}
+	for _, a := range allactions {
+		if a.p != nil && a.p.usesSwig() {
+			sd := a.p.swigDir(&buildContext)
+			if len(swigArg) == 0 {
+				swigArg = []string{"-r", sd}
+			} else if !swigDirs[sd] {
+				swigArg[1] += ":"
+				swigArg[1] += sd
+			}
+			swigDirs[sd] = true
+		}
+	}
+	return b.run(".", p.ImportPath, tool(archChar+"l"), "-o", out, importArgs, swigArg, buildLdflags, mainpkg)
 }
 
 func (gcToolchain) cc(b *builder, p *Package, objdir, ofile, cfile string) error {
 	inc := filepath.Join(goroot, "pkg", fmt.Sprintf("%s_%s", goos, goarch))
 	cfile = mkAbs(p.Dir, cfile)
-	return b.run(p.Dir, p.ImportPath, tool(archChar+"c"), "-FVw",
-		"-I", objdir, "-I", inc, "-o", ofile,
-		"-DGOOS_"+goos, "-DGOARCH_"+goarch, cfile)
+	args := stringList(tool(archChar+"c"), "-F", "-V", "-w", "-I", objdir, "-I", inc, "-o", ofile, buildCcflags, "-D", "GOOS_"+goos, "-D", "GOARCH_"+goarch, cfile)
+	return b.run(p.Dir, p.ImportPath, args)
 }
 
 // The Gccgo toolchain.
-type gccgcToolchain struct{}
+type gccgoToolchain struct{}
 
 var gccgoBin, _ = exec.LookPath("gccgo")
 
-func (gccgcToolchain) compiler() string {
+func (gccgoToolchain) compiler() string {
 	return gccgoBin
 }
 
-func (gccgcToolchain) linker() string {
+func (gccgoToolchain) linker() string {
 	return gccgoBin
 }
 
-func (gccgcToolchain) gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, err error) {
+func (gccgoToolchain) gc(b *builder, p *Package, obj string, importArgs []string, gofiles []string) (ofile string, output []byte, err error) {
 	out := p.Name + ".o"
 	ofile = obj + out
 	gcargs := []string{"-g"}
-	if prefix := gccgoPrefix(p); prefix != "" {
-		gcargs = append(gcargs, "-fgo-prefix="+gccgoPrefix(p))
+	gcargs = append(gcargs, b.gccArchArgs()...)
+	if pkgpath := gccgoPkgpath(p); pkgpath != "" {
+		gcargs = append(gcargs, "-fgo-pkgpath="+pkgpath)
+	}
+	if p.localPrefix != "" {
+		gcargs = append(gcargs, "-fgo-relative-import-path="+p.localPrefix)
 	}
 	args := stringList("gccgo", importArgs, "-c", gcargs, "-o", ofile, buildGccgoflags)
 	for _, f := range gofiles {
 		args = append(args, mkAbs(p.Dir, f))
 	}
-	return ofile, b.run(p.Dir, p.ImportPath, args)
+
+	output, err = b.runOut(p.Dir, p.ImportPath, args)
+	return ofile, output, err
 }
 
-func (gccgcToolchain) asm(b *builder, p *Package, obj, ofile, sfile string) error {
+func (gccgoToolchain) asm(b *builder, p *Package, obj, ofile, sfile string) error {
 	sfile = mkAbs(p.Dir, sfile)
-	return b.run(p.Dir, p.ImportPath, "gccgo", "-I", obj, "-o", ofile, "-DGOOS_"+goos, "-DGOARCH_"+goarch, sfile)
+	defs := []string{"-D", "GOOS_" + goos, "-D", "GOARCH_" + goarch}
+	if pkgpath := gccgoCleanPkgpath(p); pkgpath != "" {
+		defs = append(defs, `-D`, `GOPKGPATH="`+pkgpath+`"`)
+	}
+	defs = append(defs, b.gccArchArgs()...)
+	return b.run(p.Dir, p.ImportPath, "gccgo", "-I", obj, "-o", ofile, defs, sfile)
 }
 
-func (gccgcToolchain) pkgpath(basedir string, p *Package) string {
+func (gccgoToolchain) pkgpath(basedir string, p *Package) string {
 	end := filepath.FromSlash(p.ImportPath + ".a")
 	afile := filepath.Join(basedir, end)
 	// add "lib" to the final element
 	return filepath.Join(filepath.Dir(afile), "lib"+filepath.Base(afile))
 }
 
-func (gccgcToolchain) pack(b *builder, p *Package, objDir, afile string, ofiles []string) error {
+func (gccgoToolchain) pack(b *builder, p *Package, objDir, afile string, ofiles []string) error {
 	var absOfiles []string
 	for _, f := range ofiles {
 		absOfiles = append(absOfiles, mkAbs(objDir, f))
@@ -1329,12 +1545,14 @@ func (gccgcToolchain) pack(b *builder, p *Package, objDir, afile string, ofiles 
 	return b.run(p.Dir, p.ImportPath, "ar", "cru", mkAbs(objDir, afile), absOfiles)
 }
 
-func (tools gccgcToolchain) ld(b *builder, p *Package, out string, allactions []*action, mainpkg string, ofiles []string) error {
+func (tools gccgoToolchain) ld(b *builder, p *Package, out string, allactions []*action, mainpkg string, ofiles []string) error {
 	// gccgo needs explicit linking with all package dependencies,
 	// and all LDFLAGS from cgo dependencies.
 	afiles := make(map[*Package]string)
-	ldflags := []string{}
+	sfiles := make(map[*Package][]string)
+	ldflags := b.gccArchArgs()
 	cgoldflags := []string{}
+	usesCgo := false
 	for _, a := range allactions {
 		if a.p != nil {
 			if !a.p.Standard {
@@ -1343,31 +1561,99 @@ func (tools gccgcToolchain) ld(b *builder, p *Package, out string, allactions []
 				}
 			}
 			cgoldflags = append(cgoldflags, a.p.CgoLDFLAGS...)
+			if len(a.p.CgoFiles) > 0 {
+				usesCgo = true
+			}
+			if a.p.usesSwig() {
+				sd := a.p.swigDir(&buildContext)
+				for _, f := range stringList(a.p.SwigFiles, a.p.SwigCXXFiles) {
+					soname := a.p.swigSoname(f)
+					sfiles[a.p] = append(sfiles[a.p], filepath.Join(sd, soname))
+				}
+				usesCgo = true
+			}
 		}
 	}
 	for _, afile := range afiles {
 		ldflags = append(ldflags, afile)
 	}
+	for _, sfiles := range sfiles {
+		ldflags = append(ldflags, sfiles...)
+	}
 	ldflags = append(ldflags, cgoldflags...)
-	return b.run(".", p.ImportPath, "gccgo", "-o", out, buildGccgoflags, ofiles, "-Wl,-(", ldflags, "-Wl,-)")
+	if usesCgo && goos == "linux" {
+		ldflags = append(ldflags, "-Wl,-E")
+	}
+	return b.run(".", p.ImportPath, "gccgo", "-o", out, ofiles, "-Wl,-(", ldflags, "-Wl,-)", buildGccgoflags)
 }
 
-func (gccgcToolchain) cc(b *builder, p *Package, objdir, ofile, cfile string) error {
+func (gccgoToolchain) cc(b *builder, p *Package, objdir, ofile, cfile string) error {
 	inc := filepath.Join(goroot, "pkg", fmt.Sprintf("%s_%s", goos, goarch))
 	cfile = mkAbs(p.Dir, cfile)
+	defs := []string{"-D", "GOOS_" + goos, "-D", "GOARCH_" + goarch}
+	defs = append(defs, b.gccArchArgs()...)
+	if pkgpath := gccgoCleanPkgpath(p); pkgpath != "" {
+		defs = append(defs, `-D`, `GOPKGPATH="`+pkgpath+`"`)
+	}
+	// TODO: Support using clang here (during gccgo build)?
 	return b.run(p.Dir, p.ImportPath, "gcc", "-Wall", "-g",
-		"-I", objdir, "-I", inc, "-o", ofile,
-		"-DGOOS_"+goos, "-DGOARCH_"+goarch, "-c", cfile)
+		"-I", objdir, "-I", inc, "-o", ofile, defs, "-c", cfile)
 }
 
-func gccgoPrefix(p *Package) string {
-	switch {
-	case p.build.IsCommand() && !p.forceLibrary:
+func gccgoPkgpath(p *Package) string {
+	if p.build.IsCommand() && !p.forceLibrary {
 		return ""
-	case p.fake:
-		return "fake_" + p.ImportPath
 	}
-	return "go_" + p.ImportPath
+	return p.ImportPath
+}
+
+func gccgoCleanPkgpath(p *Package) string {
+	clean := func(r rune) rune {
+		switch {
+		case 'A' <= r && r <= 'Z', 'a' <= r && r <= 'z',
+			'0' <= r && r <= '9':
+			return r
+		}
+		return '_'
+	}
+	return strings.Map(clean, gccgoPkgpath(p))
+}
+
+// libgcc returns the filename for libgcc, as determined by invoking gcc with
+// the -print-libgcc-file-name option.
+func (b *builder) libgcc(p *Package) (string, error) {
+	var buf bytes.Buffer
+
+	gccCmd := b.gccCmd(p.Dir)
+
+	prev := b.print
+	if buildN {
+		// In -n mode we temporarily swap out the builder's
+		// print function to capture the command-line. This
+		// let's us assign it to $LIBGCC and produce a valid
+		// buildscript for cgo packages.
+		b.print = func(a ...interface{}) (n int, err error) {
+			return fmt.Fprint(&buf, a...)
+		}
+	}
+	f, err := b.runOut(p.Dir, p.ImportPath, gccCmd, "-print-libgcc-file-name")
+	if err != nil {
+		return "", fmt.Errorf("gcc -print-libgcc-file-name: %v (%s)", err, f)
+	}
+	if buildN {
+		s := fmt.Sprintf("LIBGCC=$(%s)\n", buf.Next(buf.Len()-1))
+		b.print = prev
+		b.print(s)
+		return "$LIBGCC", nil
+	}
+
+	// clang might not be able to find libgcc, and in that case,
+	// it will simply return "libgcc.a", which is of no use to us.
+	if strings.Contains(gccCmd[0], "clang") && !filepath.IsAbs(string(f)) {
+		return "", nil
+	}
+
+	return strings.Trim(string(f), "\r\n"), nil
 }
 
 // gcc runs the gcc C compiler to create an object from a single C file.
@@ -1386,20 +1672,19 @@ func (b *builder) gccCmd(objdir string) []string {
 	// NOTE: env.go's mkEnv knows that the first three
 	// strings returned are "gcc", "-I", objdir (and cuts them off).
 
-	// TODO: HOST_CC?
-	a := []string{"gcc", "-I", objdir, "-g", "-O2"}
+	gcc := strings.Fields(os.Getenv("CC"))
+	if len(gcc) == 0 {
+		gcc = append(gcc, "gcc")
+	}
+	a := []string{gcc[0], "-I", objdir, "-g", "-O2"}
+	a = append(a, gcc[1:]...)
 
 	// Definitely want -fPIC but on Windows gcc complains
 	// "-fPIC ignored for target (all code is position independent)"
 	if goos != "windows" {
 		a = append(a, "-fPIC")
 	}
-	switch archChar {
-	case "8":
-		a = append(a, "-m32")
-	case "6":
-		a = append(a, "-m64")
-	}
+	a = append(a, b.gccArchArgs()...)
 	// gcc-4.5 and beyond require explicit "-pthread" flag
 	// for multithreading with pthread library.
 	if buildContext.CgoEnabled {
@@ -1409,6 +1694,11 @@ func (b *builder) gccCmd(objdir string) []string {
 		default:
 			a = append(a, "-pthread")
 		}
+	}
+
+	// clang is too smart about command-line arguments
+	if strings.Contains(a[0], "clang") {
+		a = append(a, "-Qunused-arguments")
 	}
 
 	// On OS X, some of the compilers behave as if -fno-common
@@ -1421,11 +1711,30 @@ func (b *builder) gccCmd(objdir string) []string {
 	return a
 }
 
+// gccArchArgs returns arguments to pass to gcc based on the architecture.
+func (b *builder) gccArchArgs() []string {
+	switch archChar {
+	case "8":
+		return []string{"-m32"}
+	case "6":
+		return []string{"-m64"}
+	case "5":
+		return []string{"-marm"} // not thumb
+	}
+	return nil
+}
+
 func envList(key string) []string {
 	return strings.Fields(os.Getenv(key))
 }
 
 var cgoRe = regexp.MustCompile(`[/\\:]`)
+
+var (
+	cgoLibGccFile     string
+	cgoLibGccErr      error
+	cgoLibGccFileOnce sync.Once
+)
 
 func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo, outObj []string, err error) {
 	if goos != toolGOOS {
@@ -1478,10 +1787,14 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 	if p.Standard && p.ImportPath == "runtime/cgo" {
 		cgoflags = append(cgoflags, "-import_runtime_cgo=false")
 	}
-	if _, ok := buildToolchain.(gccgcToolchain); ok {
+	if p.Standard && (p.ImportPath == "runtime/race" || p.ImportPath == "runtime/cgo") {
+		cgoflags = append(cgoflags, "-import_syscall=false")
+	}
+
+	if _, ok := buildToolchain.(gccgoToolchain); ok {
 		cgoflags = append(cgoflags, "-gccgo")
-		if prefix := gccgoPrefix(p); prefix != "" {
-			cgoflags = append(cgoflags, "-gccgoprefix="+gccgoPrefix(p))
+		if pkgpath := gccgoPkgpath(p); pkgpath != "" {
+			cgoflags = append(cgoflags, "-gccgopkgpath="+pkgpath)
 		}
 		objExt = "o"
 	}
@@ -1499,6 +1812,36 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 
 	// gcc
 	var linkobj []string
+
+	var bareLDFLAGS []string
+	// filter out -lsomelib, and -framework X if on Darwin
+	for i := 0; i < len(cgoLDFLAGS); i++ {
+		f := cgoLDFLAGS[i]
+		if !strings.HasPrefix(f, "-l") {
+			if goos == "darwin" && f == "-framework" { // skip the -framework X
+				i += 1
+				continue
+			}
+			bareLDFLAGS = append(bareLDFLAGS, f)
+		}
+	}
+
+	cgoLibGccFileOnce.Do(func() {
+		cgoLibGccFile, cgoLibGccErr = b.libgcc(p)
+	})
+	if cgoLibGccFile == "" && cgoLibGccErr != nil {
+		return nil, nil, err
+	}
+
+	var staticLibs []string
+	if goos == "windows" {
+		// libmingw32 and libmingwex might also use libgcc, so libgcc must come last
+		staticLibs = []string{"-lmingwex", "-lmingw32"}
+	}
+	if cgoLibGccFile != "" {
+		staticLibs = append(staticLibs, cgoLibGccFile)
+	}
+
 	for _, cfile := range cfiles {
 		ofile := obj + cfile[:len(cfile)-1] + "o"
 		if err := b.gcc(p, ofile, cgoCFLAGS, obj+cfile); err != nil {
@@ -1517,19 +1860,30 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 		linkobj = append(linkobj, ofile)
 		outObj = append(outObj, ofile)
 	}
+	linkobj = append(linkobj, p.SysoFiles...)
 	dynobj := obj + "_cgo_.o"
+	if goarch == "arm" && goos == "linux" { // we need to use -pie for Linux/ARM to get accurate imported sym
+		cgoLDFLAGS = append(cgoLDFLAGS, "-pie")
+	}
 	if err := b.gccld(p, dynobj, cgoLDFLAGS, linkobj); err != nil {
 		return nil, nil, err
 	}
+	if goarch == "arm" && goos == "linux" { // but we don't need -pie for normal cgo programs
+		cgoLDFLAGS = cgoLDFLAGS[0 : len(cgoLDFLAGS)-1]
+	}
 
-	if _, ok := buildToolchain.(gccgcToolchain); ok {
+	if _, ok := buildToolchain.(gccgoToolchain); ok {
 		// we don't use dynimport when using gccgo.
 		return outGo, outObj, nil
 	}
 
 	// cgo -dynimport
 	importC := obj + "_cgo_import.c"
-	if err := b.run(p.Dir, p.ImportPath, cgoExe, "-objdir", obj, "-dynimport", dynobj, "-dynout", importC); err != nil {
+	cgoflags = []string{}
+	if p.Standard && p.ImportPath == "runtime/cgo" {
+		cgoflags = append(cgoflags, "-dynlinker") // record path to dynamic linker
+	}
+	if err := b.run(p.Dir, p.ImportPath, cgoExe, "-objdir", obj, "-dynimport", dynobj, "-dynout", importC, cgoflags); err != nil {
 		return nil, nil, err
 	}
 
@@ -1539,12 +1893,160 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 		return nil, nil, err
 	}
 
+	ofile := obj + "_all.o"
+	var gccObjs, nonGccObjs []string
+	for _, f := range outObj {
+		if strings.HasSuffix(f, ".o") {
+			gccObjs = append(gccObjs, f)
+		} else {
+			nonGccObjs = append(nonGccObjs, f)
+		}
+	}
+	if err := b.gccld(p, ofile, stringList(bareLDFLAGS, "-Wl,-r", "-nostdlib", staticLibs), gccObjs); err != nil {
+		return nil, nil, err
+	}
+
 	// NOTE(rsc): The importObj is a 5c/6c/8c object and on Windows
 	// must be processed before the gcc-generated objects.
 	// Put it first.  http://golang.org/issue/2601
-	outObj = append([]string{importObj}, outObj...)
+	outObj = stringList(importObj, nonGccObjs, ofile)
 
 	return outGo, outObj, nil
+}
+
+// Run SWIG on all SWIG input files.
+func (b *builder) swig(p *Package, obj string, gccfiles []string) (outGo, outObj []string, err error) {
+
+	intgosize, err := b.swigIntSize(obj)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, f := range p.SwigFiles {
+		goFile, objFile, err := b.swigOne(p, f, obj, false, intgosize)
+		if err != nil {
+			return nil, nil, err
+		}
+		if goFile != "" {
+			outGo = append(outGo, goFile)
+		}
+		if objFile != "" {
+			outObj = append(outObj, objFile)
+		}
+	}
+	for _, f := range p.SwigCXXFiles {
+		goFile, objFile, err := b.swigOne(p, f, obj, true, intgosize)
+		if err != nil {
+			return nil, nil, err
+		}
+		if goFile != "" {
+			outGo = append(outGo, goFile)
+		}
+		if objFile != "" {
+			outObj = append(outObj, objFile)
+		}
+	}
+	return outGo, outObj, nil
+}
+
+// This code fails to build if sizeof(int) <= 32
+const swigIntSizeCode = `
+package main
+const i int = 1 << 32
+`
+
+// Determine the size of int on the target system for the -intgosize option
+// of swig >= 2.0.9
+func (b *builder) swigIntSize(obj string) (intsize string, err error) {
+	src := filepath.Join(b.work, "swig_intsize.go")
+	if err = ioutil.WriteFile(src, []byte(swigIntSizeCode), 0644); err != nil {
+		return
+	}
+	srcs := []string{src}
+
+	p := goFilesPackage(srcs)
+
+	if _, _, e := buildToolchain.gc(b, p, obj, nil, srcs); e != nil {
+		return "32", nil
+	}
+	return "64", nil
+}
+
+// Run SWIG on one SWIG input file.
+func (b *builder) swigOne(p *Package, file, obj string, cxx bool, intgosize string) (outGo, outObj string, err error) {
+	n := 5 // length of ".swig"
+	if cxx {
+		n = 8 // length of ".swigcxx"
+	}
+	base := file[:len(file)-n]
+	goFile := base + ".go"
+	cBase := base + "_gc."
+	gccBase := base + "_wrap."
+	gccExt := "c"
+	if cxx {
+		gccExt = "cxx"
+	}
+	soname := p.swigSoname(file)
+
+	_, gccgo := buildToolchain.(gccgoToolchain)
+
+	// swig
+	args := []string{
+		"-go",
+		"-intgosize", intgosize,
+		"-module", base,
+		"-soname", soname,
+		"-o", obj + gccBase + gccExt,
+		"-outdir", obj,
+	}
+	if gccgo {
+		args = append(args, "-gccgo")
+	}
+	if cxx {
+		args = append(args, "-c++")
+	}
+
+	if out, err := b.runOut(p.Dir, p.ImportPath, "swig", args, file); err != nil {
+		if len(out) > 0 {
+			if bytes.Contains(out, []byte("Unrecognized option -intgosize")) {
+				return "", "", errors.New("must have SWIG version >= 2.0.9\n")
+			}
+			b.showOutput(p.Dir, p.ImportPath, b.processOutput(out))
+			return "", "", errPrintedOutput
+		}
+		return "", "", err
+	}
+
+	var cObj string
+	if !gccgo {
+		// cc
+		cObj = obj + cBase + archChar
+		if err := buildToolchain.cc(b, p, obj, cObj, obj+cBase+"c"); err != nil {
+			return "", "", err
+		}
+	}
+
+	// gcc
+	gccObj := obj + gccBase + "o"
+	if err := b.gcc(p, gccObj, []string{"-g", "-fPIC", "-O2"}, obj+gccBase+gccExt); err != nil {
+		return "", "", err
+	}
+
+	// create shared library
+	osldflags := map[string][]string{
+		"darwin":  {"-dynamiclib", "-Wl,-undefined,dynamic_lookup"},
+		"freebsd": {"-shared", "-lpthread", "-lm"},
+		"linux":   {"-shared", "-lpthread", "-lm"},
+		"windows": {"-shared", "-lm", "-mthreads"},
+	}
+	var cxxlib []string
+	if cxx {
+		cxxlib = []string{"-lstdc++"}
+	}
+	ldflags := stringList(osldflags[goos], cxxlib)
+	b.run(p.Dir, p.ImportPath, b.gccCmd(p.Dir), "-o", soname, gccObj, ldflags)
+
+	return obj + goFile, cObj, nil
 }
 
 // An actionQueue is a priority queue of actions.
@@ -1568,4 +2070,19 @@ func (q *actionQueue) push(a *action) {
 
 func (q *actionQueue) pop() *action {
 	return heap.Pop(q).(*action)
+}
+
+func raceInit() {
+	if !buildRace {
+		return
+	}
+	if goarch != "amd64" || goos != "linux" && goos != "darwin" && goos != "windows" {
+		fmt.Fprintf(os.Stderr, "go %s: -race is only supported on linux/amd64, darwin/amd64 and windows/amd64\n", flag.Args()[0])
+		os.Exit(2)
+	}
+	buildGcflags = append(buildGcflags, "-race")
+	buildLdflags = append(buildLdflags, "-race")
+	buildCcflags = append(buildCcflags, "-D", "RACE")
+	buildContext.InstallTag = "race"
+	buildContext.BuildTags = append(buildContext.BuildTags, "race")
 }

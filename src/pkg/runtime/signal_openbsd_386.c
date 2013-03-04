@@ -50,7 +50,7 @@ runtime·sighandler(int32 sig, Siginfo *info, void *context, G *gp)
 
 	t = &runtime·sigtab[sig];
 	if(info->si_code != SI_USER && (t->flags & SigPanic)) {
-		if(gp == nil)
+		if(gp == nil || gp == m->g0)
 			goto Throw;
 		// Make it look like a call to the signal func.
 		// Have to pass arguments out of band since
@@ -93,6 +93,10 @@ Throw:
 		runtime·printf("%s\n", runtime·sigtab[sig].name);
 
 	runtime·printf("PC=%X\n", r->sc_eip);
+	if(m->lockedg != nil && m->ncgo > 0 && gp == m->g0) {
+		runtime·printf("signal arrived during cgo execution\n");
+		gp = m->lockedg;
+	}
 	runtime·printf("\n");
 
 	if(runtime·gotraceback()){
@@ -109,9 +113,11 @@ runtime·signalstack(byte *p, int32 n)
 {
 	Sigaltstack st;
 
-	st.ss_sp = (int8*)p;
+	st.ss_sp = p;
 	st.ss_size = n;
 	st.ss_flags = 0;
+	if(p == nil)
+		st.ss_flags = SS_DISABLE;
 	runtime·sigaltstack(&st, nil);
 }
 
@@ -119,6 +125,15 @@ void
 runtime·setsig(int32 i, void (*fn)(int32, Siginfo*, void*, G*), bool restart)
 {
 	Sigaction sa;
+
+	// If SIGHUP handler is SIG_IGN, assume running
+	// under nohup and do not set explicit handler.
+	if(i == SIGHUP) {
+		runtime·memclr((byte*)&sa, sizeof sa);
+		runtime·sigaction(i, nil, &sa);
+		if(sa.__sigaction_u.__sa_sigaction == SIG_IGN)
+			return;
+	}
 
 	runtime·memclr((byte*)&sa, sizeof sa);
 	sa.sa_flags = SA_SIGINFO|SA_ONSTACK;
