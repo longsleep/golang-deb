@@ -1,3 +1,11 @@
+golang (2:1.1~hg20130304-2) experimental; urgency=low
+
+  * Fix FTBFS of binary-arch only builds (as performed by buildds)
+    caused by 'rm' not finding jquery.js in golang-doc
+    (Thanks Peter Green)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 05 Mar 2013 00:49:27 +0100
+
 golang (2:1.1~hg20130304-1) experimental; urgency=low
 
   * Provide a hg tip snapshot (2013-03-04) in Debian experimental.
