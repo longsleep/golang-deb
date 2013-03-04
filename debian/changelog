@@ -1,3 +1,12 @@
+golang (2:1.1~hg20130304-1) experimental; urgency=low
+
+  * Provide a hg tip snapshot (2013-02-27) in Debian experimental.
+    Current hg tip is a good approximation to Go 1.1 and should get
+    some testing within Debian in order to package Go 1.1 well when
+    it is released. Thanks to Andrew Gerrand.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 04 Mar 2013 21:28:58 +0100
+
 golang (2:1.0.2-2) unstable; urgency=low
 
   * Add myself to uploaders, as discussed in #683421.
