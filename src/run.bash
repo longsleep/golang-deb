@@ -14,6 +14,12 @@ unset GOPATH    # we disallow local import for non-local packages, if $GOROOT ha
 # no core files, please
 ulimit -c 0
 
+# Raise soft limits to hard limits for NetBSD/OpenBSD.
+# We need at least 256 files and ~300 MB of bss.
+# On OS X ulimit -S -n rejects 'unlimited'.
+[ "$(ulimit -H -n)" == "unlimited" ] || ulimit -S -n $(ulimit -H -n)
+[ "$(ulimit -H -d)" == "unlimited" ] || ulimit -S -d $(ulimit -H -d)
+
 # allow all.bash to avoid double-build of everything
 rebuild=true
 if [ "$1" = "--no-rebuild" ]; then
@@ -40,6 +46,16 @@ echo
 echo '# sync -cpu=10'
 go test sync -short -timeout=120s -cpu=10
 
+# Race detector only supported on Linux and OS X,
+# and only on amd64, and only when cgo is enabled.
+case "$GOHOSTOS-$GOOS-$GOARCH-$CGO_ENABLED" in
+linux-linux-amd64-1 | darwin-darwin-amd64-1)
+	echo
+	echo '# Testing race detector.'
+	go test -race -i flag
+	go test -race -short flag
+esac
+
 xcd() {
 	echo
 	echo '#' $1
@@ -49,15 +65,16 @@ xcd() {
 [ "$CGO_ENABLED" != 1 ] ||
 [ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/stdio
-./test.bash
+go run $GOROOT/test/run.go - .
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
 (xcd ../misc/cgo/life
-./test.bash
+go run $GOROOT/test/run.go - .
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
+[ "$GOHOSTOS" == openbsd ] || # issue 4878
 (xcd ../misc/cgo/test
 go test
 ) || exit $?
@@ -101,12 +118,13 @@ echo '#' ../test/bench/go1
 go test ../test/bench/go1
 
 (xcd ../test
+unset GOMAXPROCS
 time go run run.go
 ) || exit $?
 
 echo
 echo '# Checking API compatibility.'
-go tool api -c $GOROOT/api/go1.txt -next $GOROOT/api/next.txt
+go tool api -c $GOROOT/api/go1.txt -next $GOROOT/api/next.txt -except $GOROOT/api/except.txt
 
 echo
 echo ALL TESTS PASSED

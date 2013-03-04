@@ -52,12 +52,13 @@ func readSource(filename string, src interface{}) ([]byte, error) {
 type Mode uint
 
 const (
-	PackageClauseOnly Mode = 1 << iota // parsing stops after package clause
-	ImportsOnly                        // parsing stops after import declarations
-	ParseComments                      // parse comments and add them to AST
-	Trace                              // print a trace of parsed productions
-	DeclarationErrors                  // report declaration errors
-	SpuriousErrors                     // report all (not just the first) errors per line
+	PackageClauseOnly Mode             = 1 << iota // stop parsing after package clause
+	ImportsOnly                                    // stop parsing after import declarations
+	ParseComments                                  // parse comments and add them to AST
+	Trace                                          // print a trace of parsed productions
+	DeclarationErrors                              // report declaration errors
+	SpuriousErrors                                 // same as AllErrors, for backward-compatibility
+	AllErrors         = SpuriousErrors             // report all errors (not just the first 10 on different lines)
 )
 
 // ParseFile parses the source code of a single Go source file and returns
@@ -79,26 +80,39 @@ const (
 // representing the fragments of erroneous source code). Multiple errors
 // are returned via a scanner.ErrorList which is sorted by file position.
 //
-func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode) (*ast.File, error) {
+func ParseFile(fset *token.FileSet, filename string, src interface{}, mode Mode) (f *ast.File, err error) {
 	// get source
 	text, err := readSource(filename, src)
 	if err != nil {
 		return nil, err
 	}
 
-	// parse source
 	var p parser
-	p.init(fset, filename, text, mode)
-	f := p.parseFile()
+	defer func() {
+		if e := recover(); e != nil {
+			_ = e.(bailout) // re-panics if it's not a bailout
+		}
 
-	// sort errors
-	if p.mode&SpuriousErrors == 0 {
-		p.errors.RemoveMultiples()
-	} else {
+		// set result values
+		if f == nil {
+			// source is not a valid Go source file - satisfy
+			// ParseFile API and return a valid (but) empty
+			// *ast.File
+			f = &ast.File{
+				Name:  new(ast.Ident),
+				Scope: ast.NewScope(nil),
+			}
+		}
+
 		p.errors.Sort()
-	}
+		err = p.errors.Err()
+	}()
 
-	return f, p.errors.Err()
+	// parse source
+	p.init(fset, filename, text, mode)
+	f = p.parseFile()
+
+	return
 }
 
 // ParseDir calls ParseFile for the files in the directory specified by path and
@@ -149,7 +163,7 @@ func ParseDir(fset *token.FileSet, path string, filter func(os.FileInfo) bool, m
 
 // ParseExpr is a convenience function for obtaining the AST of an expression x.
 // The position information recorded in the AST is undefined.
-// 
+//
 func ParseExpr(x string) (ast.Expr, error) {
 	// parse x within the context of a complete package for correct scopes;
 	// use //line directive for correct positions in error messages and put

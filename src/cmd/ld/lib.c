@@ -72,6 +72,8 @@ Lflag(char *arg)
 void
 libinit(void)
 {
+	char *race;
+
 	fmtinstall('i', iconv);
 	fmtinstall('Y', Yconv);
 	fmtinstall('Z', Zconv);
@@ -80,7 +82,10 @@ libinit(void)
 		print("goarch is not known: %s\n", goarch);
 
 	// add goroot to the end of the libdir list.
-	Lflag(smprint("%s/pkg/%s_%s", goroot, goos, goarch));
+	race = "";
+	if(flag_race)
+		race = "_race";
+	Lflag(smprint("%s/pkg/%s_%s%s", goroot, goos, goarch, race));
 
 	// Unix doesn't like it when we write to a running (or, sometimes,
 	// recently run) binary, so remove the output file before writing it.
@@ -99,6 +104,13 @@ libinit(void)
 		sprint(INITENTRY, "_rt0_%s_%s", goarch, goos);
 	}
 	lookup(INITENTRY, 0)->type = SXREF;
+	if(flag_shared) {
+		if(LIBINITENTRY == nil) {
+			LIBINITENTRY = mal(strlen(goarch)+strlen(goos)+20);
+			sprint(LIBINITENTRY, "_rt0_%s_%s_lib", goarch, goos);
+		}
+		lookup(LIBINITENTRY, 0)->type = SXREF;
+	}
 }
 
 void
@@ -281,6 +293,8 @@ loadlib(void)
 	loadinternal("runtime");
 	if(thechar == '5')
 		loadinternal("math");
+	if(flag_race)
+		loadinternal("runtime/race");
 
 	for(i=0; i<libraryp; i++) {
 		if(debug['v'])
@@ -298,10 +312,11 @@ loadlib(void)
 	//
 	// Exception: on OS X, programs such as Shark only work with dynamic
 	// binaries, so leave it enabled on OS X (Mach-O) binaries.
-	if(!havedynamic && HEADTYPE != Hdarwin)
+	if(!flag_shared && !havedynamic && HEADTYPE != Hdarwin)
 		debug['d'] = 1;
 	
 	importcycles();
+	sortdynexp();
 }
 
 /*
@@ -366,7 +381,7 @@ objfile(char *file, char *pkg)
 		return;
 	}
 	
-	/* skip over __.SYMDEF */
+	/* skip over __.GOSYMDEF */
 	off = Boffset(f);
 	if((l = nextar(f, off, &arhdr)) <= 0) {
 		diag("%s: short read on archive file symbol header", file);
@@ -402,7 +417,7 @@ objfile(char *file, char *pkg)
 	 * the individual symbols that are unused.
 	 *
 	 * loading every object will also make it possible to
-	 * load foreign objects not referenced by __.SYMDEF.
+	 * load foreign objects not referenced by __.GOSYMDEF.
 	 */
 	for(;;) {
 		l = nextar(f, off, &arhdr);
@@ -548,6 +563,36 @@ eof:
 	free(pn);
 }
 
+Sym*
+newsym(char *symb, int v)
+{
+	Sym *s;
+	int l;
+
+	l = strlen(symb) + 1;
+	s = mal(sizeof(*s));
+	if(debug['v'] > 1)
+		Bprint(&bso, "newsym %s\n", symb);
+
+	s->dynid = -1;
+	s->plt = -1;
+	s->got = -1;
+	s->name = mal(l + 1);
+	memmove(s->name, symb, l);
+
+	s->type = 0;
+	s->version = v;
+	s->value = 0;
+	s->sig = 0;
+	s->size = 0;
+	nsymbol++;
+
+	s->allsym = allsym;
+	allsym = s;
+
+	return s;
+}
+
 static Sym*
 _lookup(char *symb, int v, int creat)
 {
@@ -569,27 +614,10 @@ _lookup(char *symb, int v, int creat)
 	if(!creat)
 		return nil;
 
-	s = mal(sizeof(*s));
-	if(debug['v'] > 1)
-		Bprint(&bso, "lookup %s\n", symb);
-
-	s->dynid = -1;
-	s->plt = -1;
-	s->got = -1;
-	s->name = mal(l + 1);
-	memmove(s->name, symb, l);
-
+	s = newsym(symb, v);
 	s->hash = hash[h];
-	s->type = 0;
-	s->version = v;
-	s->value = 0;
-	s->sig = 0;
-	s->size = 0;
 	hash[h] = s;
-	nsymbol++;
 
-	s->allsym = allsym;
-	allsym = s;
 	return s;
 }
 
@@ -1372,6 +1400,19 @@ headtype(char *name)
 	return -1;  // not reached
 }
 
+char*
+headstr(int v)
+{
+	static char buf[20];
+	int i;
+
+	for(i=0; headers[i].name; i++)
+		if(v == headers[i].val)
+			return headers[i].name;
+	snprint(buf, sizeof buf, "%d", v);
+	return buf;
+}
+
 void
 undef(void)
 {
@@ -1419,6 +1460,23 @@ Yconv(Fmt *fp)
 
 vlong coutpos;
 
+static void
+dowrite(int fd, char *p, int n)
+{
+	int m;
+	
+	while(n > 0) {
+		m = write(fd, p, n);
+		if(m <= 0) {
+			cursym = S;
+			diag("write error: %r");
+			errorexit();
+		}
+		n -= m;
+		p += m;
+	}
+}
+
 void
 cflush(void)
 {
@@ -1427,13 +1485,8 @@ cflush(void)
 	if(cbpmax < cbp)
 		cbpmax = cbp;
 	n = cbpmax - buf.cbuf;
-	if(n) {
-		if(write(cout, buf.cbuf, n) != n) {
-			diag("write error: %r");
-			errorexit();
-		}
-		coutpos += n;
-	}
+	dowrite(cout, buf.cbuf, n);
+	coutpos += n;
 	cbp = buf.cbuf;
 	cbc = sizeof(buf.cbuf);
 	cbpmax = cbp;
@@ -1472,9 +1525,142 @@ void
 cwrite(void *buf, int n)
 {
 	cflush();
-	if(write(cout, buf, n) != n) {
-		diag("write error: %r");
-		errorexit();
-	}
+	if(n <= 0)
+		return;
+	dowrite(cout, buf, n);
 	coutpos += n;
+}
+
+void
+usage(void)
+{
+	fprint(2, "usage: %cl [options] main.%c\n", thechar, thechar);
+	flagprint(2);
+	exits("usage");
+}
+
+void
+setheadtype(char *s)
+{
+	HEADTYPE = headtype(s);
+}
+
+void
+setinterp(char *s)
+{
+	debug['I'] = 1; // denote cmdline interpreter override
+	interpreter = s;
+}
+
+void
+doversion(void)
+{
+	print("%cl version %s\n", thechar, getgoversion());
+	errorexit();
+}
+
+void
+genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
+{
+	Auto *a;
+	Sym *s;
+	int32 off;
+
+	// These symbols won't show up in the first loop below because we
+	// skip STEXT symbols. Normal STEXT symbols are emitted by walking textp.
+	s = lookup("text", 0);
+	if(s->type == STEXT)
+		put(s, s->name, 'T', s->value, s->size, s->version, 0);
+	s = lookup("etext", 0);
+	if(s->type == STEXT)
+		put(s, s->name, 'T', s->value, s->size, s->version, 0);
+
+	for(s=allsym; s!=S; s=s->allsym) {
+		if(s->hide)
+			continue;
+		switch(s->type&SMASK) {
+		case SCONST:
+		case SRODATA:
+		case SSYMTAB:
+		case SPCLNTAB:
+		case SDATA:
+		case SNOPTRDATA:
+		case SELFROSECT:
+		case SMACHOGOT:
+		case STYPE:
+		case SSTRING:
+		case SGOSTRING:
+		case SWINDOWS:
+		case SGCDATA:
+		case SGCBSS:
+			if(!s->reachable)
+				continue;
+			put(s, s->name, 'D', symaddr(s), s->size, s->version, s->gotype);
+			continue;
+
+		case SBSS:
+		case SNOPTRBSS:
+			if(!s->reachable)
+				continue;
+			if(s->np > 0)
+				diag("%s should not be bss (size=%d type=%d special=%d)", s->name, (int)s->np, s->type, s->special);
+			put(s, s->name, 'B', symaddr(s), s->size, s->version, s->gotype);
+			continue;
+
+		case SFILE:
+			put(nil, s->name, 'f', s->value, 0, s->version, 0);
+			continue;
+		}
+	}
+
+	for(s = textp; s != nil; s = s->next) {
+		if(s->text == nil)
+			continue;
+
+		/* filenames first */
+		for(a=s->autom; a; a=a->link)
+			if(a->type == D_FILE)
+				put(nil, a->asym->name, 'z', a->aoffset, 0, 0, 0);
+			else
+			if(a->type == D_FILE1)
+				put(nil, a->asym->name, 'Z', a->aoffset, 0, 0, 0);
+
+		put(s, s->name, 'T', s->value, s->size, s->version, s->gotype);
+
+		/* frame, locals, args, auto and param after */
+		put(nil, ".frame", 'm', (uint32)s->text->to.offset+PtrSize, 0, 0, 0);
+		put(nil, ".locals", 'm', s->locals, 0, 0, 0);
+		put(nil, ".args", 'm', s->args, 0, 0, 0);
+
+		for(a=s->autom; a; a=a->link) {
+			// Emit a or p according to actual offset, even if label is wrong.
+			// This avoids negative offsets, which cannot be encoded.
+			if(a->type != D_AUTO && a->type != D_PARAM)
+				continue;
+			
+			// compute offset relative to FP
+			if(a->type == D_PARAM)
+				off = a->aoffset;
+			else
+				off = a->aoffset - PtrSize;
+			
+			// FP
+			if(off >= 0) {
+				put(nil, a->asym->name, 'p', off, 0, 0, a->gotype);
+				continue;
+			}
+			
+			// SP
+			if(off <= -PtrSize) {
+				put(nil, a->asym->name, 'a', -(off+PtrSize), 0, 0, a->gotype);
+				continue;
+			}
+			
+			// Otherwise, off is addressing the saved program counter.
+			// Something underhanded is going on. Say nothing.
+		}
+	}
+	if(debug['v'] || debug['n'])
+		Bprint(&bso, "symsize = %ud\n", symsize);
+	Bflush(&bso);
 }

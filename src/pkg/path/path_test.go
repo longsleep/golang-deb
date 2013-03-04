@@ -67,6 +67,16 @@ func TestClean(t *testing.T) {
 		if s := Clean(test.path); s != test.result {
 			t.Errorf("Clean(%q) = %q, want %q", test.path, s, test.result)
 		}
+		if s := Clean(test.result); s != test.result {
+			t.Errorf("Clean(%q) = %q, want %q", test.result, s, test.result)
+		}
+	}
+
+	for _, test := range cleantests {
+		allocs := testing.AllocsPerRun(100, func() { Clean(test.result) })
+		if allocs > 0 {
+			t.Errorf("Clean(%q): %v allocs, want zero", test.result, allocs)
+		}
 	}
 }
 
@@ -181,6 +191,7 @@ var dirtests = []PathTest{
 	{"x/", "x"},
 	{"abc", "."},
 	{"abc/def", "abc"},
+	{"abc////def", "abc"},
 	{"a/b/.x", "a/b"},
 	{"a/b/c.", "a/b"},
 	{"a/b/c.x", "a/b"},

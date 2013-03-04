@@ -158,7 +158,9 @@ func Walk(v Visitor, node Node) {
 		Walk(v, n.Fields)
 
 	case *FuncType:
-		Walk(v, n.Params)
+		if n.Params != nil {
+			Walk(v, n.Params)
+		}
 		if n.Results != nil {
 			Walk(v, n.Results)
 		}
@@ -344,9 +346,6 @@ func Walk(v Visitor, node Node) {
 		}
 		Walk(v, n.Name)
 		walkDeclList(v, n.Decls)
-		for _, g := range n.Comments {
-			Walk(v, g)
-		}
 		// don't walk n.Comments - they have been
 		// visited already through the individual
 		// nodes

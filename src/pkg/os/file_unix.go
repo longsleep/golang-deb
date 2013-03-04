@@ -8,6 +8,7 @@ package os
 
 import (
 	"runtime"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -24,7 +25,7 @@ type file struct {
 	fd      int
 	name    string
 	dirinfo *dirInfo // nil unless directory being read
-	nepipe  int      // number of consecutive EPIPE in Write
+	nepipe  int32    // number of consecutive EPIPE in Write
 }
 
 // Fd returns the integer Unix file descriptor referencing the open file.
@@ -51,6 +52,16 @@ type dirInfo struct {
 	buf  []byte // buffer for directory I/O
 	nbuf int    // length of buf; return value from Getdirentries
 	bufp int    // location of next record in buf.
+}
+
+func epipecheck(file *File, e error) {
+	if e == syscall.EPIPE {
+		if atomic.AddInt32(&file.nepipe, 1) >= 10 {
+			sigpipe()
+		}
+	} else {
+		atomic.StoreInt32(&file.nepipe, 0)
+	}
 }
 
 // DevNull is the name of the operating system's ``null device.''
@@ -261,25 +272,6 @@ func basename(name string) string {
 	}
 
 	return name
-}
-
-// Pipe returns a connected pair of Files; reads from r return bytes written to w.
-// It returns the files and an error, if any.
-func Pipe() (r *File, w *File, err error) {
-	var p [2]int
-
-	// See ../syscall/exec.go for description of lock.
-	syscall.ForkLock.RLock()
-	e := syscall.Pipe(p[0:])
-	if e != nil {
-		syscall.ForkLock.RUnlock()
-		return nil, nil, NewSyscallError("pipe", e)
-	}
-	syscall.CloseOnExec(p[0])
-	syscall.CloseOnExec(p[1])
-	syscall.ForkLock.RUnlock()
-
-	return NewFile(uintptr(p[0]), "|0"), NewFile(uintptr(p[1]), "|1"), nil
 }
 
 // TempDir returns the default directory to use for temporary files.

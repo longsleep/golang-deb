@@ -104,40 +104,38 @@ TEXT runtime·mincore(SB),7,$0-24
 
 // func now() (sec int64, nsec int32)
 TEXT time·now(SB), 7, $32
-	MOVL	$78, AX			// syscall - gettimeofday
-	LEAL	8(SP), BX
-	MOVL	$0, CX
+	MOVL	$265, AX			// syscall - clock_gettime
+	MOVL	$0, BX
+	LEAL	8(SP), CX
 	MOVL	$0, DX
 	CALL	*runtime·_vdso(SB)
 	MOVL	8(SP), AX	// sec
-	MOVL	12(SP), BX	// usec
+	MOVL	12(SP), BX	// nsec
 
-	// sec is in AX, usec in BX
+	// sec is in AX, nsec in BX
 	MOVL	AX, sec+0(FP)
 	MOVL	$0, sec+4(FP)
-	IMULL	$1000, BX
 	MOVL	BX, nsec+8(FP)
 	RET
 
 // int64 nanotime(void) so really
 // void nanotime(int64 *nsec)
 TEXT runtime·nanotime(SB), 7, $32
-	MOVL	$78, AX			// syscall - gettimeofday
-	LEAL	8(SP), BX
-	MOVL	$0, CX
+	MOVL	$265, AX			// syscall - clock_gettime
+	MOVL	$0, BX
+	LEAL	8(SP), CX
 	MOVL	$0, DX
 	CALL	*runtime·_vdso(SB)
 	MOVL	8(SP), AX	// sec
-	MOVL	12(SP), BX	// usec
+	MOVL	12(SP), BX	// nsec
 
-	// sec is in AX, usec in BX
+	// sec is in AX, nsec in BX
 	// convert to DX:AX nsec
 	MOVL	$1000000000, CX
 	MULL	CX
-	IMULL	$1000, BX
 	ADDL	BX, AX
 	ADCL	$0, DX
-	
+
 	MOVL	ret+0(FP), DI
 	MOVL	AX, 0(DI)
 	MOVL	DX, 4(DI)
@@ -170,8 +168,11 @@ TEXT runtime·sigtramp(SB),7,$44
 	// check that m exists
 	MOVL	m(CX), BX
 	CMPL	BX, $0
-	JNE	2(PC)
+	JNE	5(PC)
+	MOVL	sig+0(FP), BX
+	MOVL	BX, 0(SP)
 	CALL	runtime·badsignal(SB)
+	RET
 
 	// save g
 	MOVL	g(CX), DI
@@ -240,9 +241,7 @@ TEXT runtime·madvise(SB),7,$0
 	MOVL	8(SP), CX
 	MOVL	12(SP), DX
 	CALL	*runtime·_vdso(SB)
-	CMPL	AX, $0xfffff001
-	JLS	2(PC)
-	INT $3
+	// ignore failure - maybe pages are locked
 	RET
 
 // int32 futex(int32 *uaddr, int32 op, int32 val,
@@ -258,7 +257,7 @@ TEXT runtime·futex(SB),7,$0
 	CALL	*runtime·_vdso(SB)
 	RET
 
-// int32 clone(int32 flags, void *stack, M *m, G *g, void (*fn)(void));
+// int32 clone(int32 flags, void *stack, M *mp, G *gp, void (*fn)(void));
 TEXT runtime·clone(SB),7,$0
 	MOVL	$120, AX	// clone
 	MOVL	flags+4(SP), BX
@@ -266,7 +265,7 @@ TEXT runtime·clone(SB),7,$0
 	MOVL	$0, DX	// parent tid ptr
 	MOVL	$0, DI	// child tid ptr
 
-	// Copy m, g, fn off parent stack for use by child.
+	// Copy mp, gp, fn off parent stack for use by child.
 	SUBL	$16, CX
 	MOVL	mm+12(SP), SI
 	MOVL	SI, 0(CX)
@@ -421,5 +420,13 @@ TEXT runtime·setldt(SB),7,$32
 
 TEXT runtime·osyield(SB),7,$0
 	MOVL	$158, AX
+	CALL	*runtime·_vdso(SB)
+	RET
+
+TEXT runtime·sched_getaffinity(SB),7,$0
+	MOVL	$242, AX		// syscall - sched_getaffinity
+	MOVL	4(SP), BX
+	MOVL	8(SP), CX
+	MOVL	12(SP), DX
 	CALL	*runtime·_vdso(SB)
 	RET

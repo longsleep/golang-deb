@@ -1,10 +1,16 @@
+// compile
+
+// Copyright 2009 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
 	"flag"
+	"html/template"
 	"log"
 	"net/http"
-	"text/template"
 )
 
 var addr = flag.String("addr", ":1718", "http service address") // Q=17, R=18
@@ -31,9 +37,9 @@ const templateStr = `
 </head>
 <body>
 {{if .}}
-<img src="http://chart.apis.google.com/chart?chs=300x300&cht=qr&choe=UTF-8&chl={{urlquery .}}" />
+<img src="http://chart.apis.google.com/chart?chs=300x300&cht=qr&choe=UTF-8&chl={{.}}" />
 <br>
-{{html .}}
+{{.}}
 <br>
 <br>
 {{end}}

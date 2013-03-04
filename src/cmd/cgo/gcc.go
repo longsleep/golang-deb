@@ -391,9 +391,9 @@ func (p *Package) guessKinds(f *File) []*Name {
 	b.WriteString(builtinProlog)
 	b.WriteString(f.Preamble)
 	b.WriteString("void __cgo__f__(void) {\n")
-	b.WriteString("#line 0 \"cgo-test\"\n")
+	b.WriteString("#line 1 \"cgo-test\"\n")
 	for i, n := range toSniff {
-		fmt.Fprintf(&b, "%s; enum { _cgo_enum_%d = %s }; /* cgo-test:%d */\n", n.C, i, n.C, i)
+		fmt.Fprintf(&b, "%s; /* #%d */\nenum { _cgo_enum_%d = %s }; /* #%d */\n", n.C, i, i, n.C, i)
 	}
 	b.WriteString("}\n")
 	stderr := p.gccErrors(b.Bytes())
@@ -423,14 +423,18 @@ func (p *Package) guessKinds(f *File) []*Name {
 		if err != nil {
 			continue
 		}
+		i = (i - 1) / 2
 		what := ""
 		switch {
 		default:
 			continue
-		case strings.Contains(line, ": useless type name in empty declaration"):
+		case strings.Contains(line, ": useless type name in empty declaration"),
+			strings.Contains(line, ": declaration does not declare anything"),
+			strings.Contains(line, ": unexpected type name"):
 			what = "type"
 			isConst[i] = false
-		case strings.Contains(line, ": statement with no effect"):
+		case strings.Contains(line, ": statement with no effect"),
+			strings.Contains(line, ": expression result unused"):
 			what = "not-type" // const or func or var
 		case strings.Contains(line, "undeclared"):
 			error_(token.NoPos, "%s", strings.TrimSpace(line[colon+1:]))
@@ -508,7 +512,12 @@ func (p *Package) loadDWARF(f *File, names []*Name) {
 			fmt.Fprintf(&b, "\t0,\n")
 		}
 	}
-	fmt.Fprintf(&b, "\t0\n")
+	// for the last entry, we can not use 0, otherwise
+	// in case all __cgodebug_data is zero initialized,
+	// LLVM-based gcc will place the it in the __DATA.__common
+	// zero-filled section (our debug/macho doesn't support
+	// this)
+	fmt.Fprintf(&b, "\t1\n")
 	fmt.Fprintf(&b, "};\n")
 
 	d, bo, debugData := p.gccDebug(b.Bytes())
@@ -596,7 +605,7 @@ func (p *Package) loadDWARF(f *File, names []*Name) {
 
 	// Record types and typedef information.
 	var conv typeConv
-	conv.Init(p.PtrSize)
+	conv.Init(p.PtrSize, p.IntSize)
 	for i, n := range names {
 		if types[i] == nil {
 			continue
@@ -618,7 +627,9 @@ func (p *Package) loadDWARF(f *File, names []*Name) {
 				// Remove injected enum to ensure the value will deep-compare
 				// equally in future loads of the same constant.
 				delete(n.Type.EnumValues, k)
-			} else if n.Kind == "const" && i < len(enumVal) {
+			}
+			// Prefer debug data over DWARF debug output, if we have it.
+			if n.Kind == "const" && i < len(enumVal) {
 				n.Const = fmt.Sprintf("%#x", enumVal[i])
 			}
 		}
@@ -637,7 +648,14 @@ func (p *Package) rewriteRef(f *File) {
 			n.Kind = "var"
 		}
 		if n.Mangle == "" {
-			n.Mangle = "_C" + n.Kind + "_" + n.Go
+			// When using gccgo variables have to be
+			// exported so that they become global symbols
+			// that the C code can refer to.
+			prefix := "_C"
+			if *gccgo && n.Kind == "var" {
+				prefix = "C"
+			}
+			n.Mangle = prefix + n.Kind + "_" + n.Go
 		}
 	}
 
@@ -662,9 +680,6 @@ func (p *Package) rewriteRef(f *File) {
 				break
 			}
 			if r.Context == "call2" {
-				if r.Name.FuncType.Result == nil {
-					error_(r.Pos(), "assignment count mismatch: 2 = 0")
-				}
 				// Invent new Name for the two-result function.
 				n := f.Name["2"+r.Name.Go]
 				if n == nil {
@@ -720,23 +735,30 @@ func (p *Package) rewriteRef(f *File) {
 	}
 }
 
-// gccName returns the name of the compiler to run.  Use $GCC if set in
+// gccName returns the name of the compiler to run.  Use $CC if set in
 // the environment, otherwise just "gcc".
 
-func (p *Package) gccName() (ret string) {
-	if ret = os.Getenv("GCC"); ret == "" {
-		ret = "gcc"
+func (p *Package) gccName() string {
+	// Use $CC if set, since that's what the build uses.
+	if ret := os.Getenv("CC"); ret != "" {
+		return ret
 	}
-	return
+	// Fall back to $GCC if set, since that's what we used to use.
+	if ret := os.Getenv("GCC"); ret != "" {
+		return ret
+	}
+	return "gcc"
 }
 
-// gccMachine returns the gcc -m flag to use, either "-m32" or "-m64".
+// gccMachine returns the gcc -m flag to use, either "-m32", "-m64" or "-marm".
 func (p *Package) gccMachine() []string {
 	switch goarch {
 	case "amd64":
 		return []string{"-m64"}
 	case "386":
 		return []string{"-m32"}
+	case "arm":
+		return []string{"-marm"} // not thumb
 	}
 	return nil
 }
@@ -755,9 +777,22 @@ func (p *Package) gccCmd() []string {
 		"-o" + gccTmp(),                     // write object to tmp
 		"-gdwarf-2",                         // generate DWARF v2 debugging symbols
 		"-fno-eliminate-unused-debug-types", // gets rid of e.g. untyped enum otherwise
-		"-c",                                // do not link
-		"-xc",                               // input language is C
+		"-c",  // do not link
+		"-xc", // input language is C
 	}
+	if strings.Contains(p.gccName(), "clang") {
+		c = append(c,
+			"-ferror-limit=0",
+			// Apple clang version 1.7 (tags/Apple/clang-77) (based on LLVM 2.9svn)
+			// doesn't have -Wno-unneeded-internal-declaration, so we need yet another
+			// flag to disable the warning. Yes, really good diagnostics, clang.
+			"-Wno-unknown-warning-option",
+			"-Wno-unneeded-internal-declaration",
+			"-Wno-unused-function",
+			"-Qunused-arguments",
+		)
+	}
+
 	c = append(c, p.GccOptions...)
 	c = append(c, p.gccMachine()...)
 	c = append(c, "-") //read input from standard input
@@ -795,15 +830,30 @@ func (p *Package) gccDebug(stdin []byte) (*dwarf.Data, binary.ByteOrder, []byte)
 		return d, f.ByteOrder, data
 	}
 
-	// Can skip debug data block in ELF and PE for now.
-	// The DWARF information is complete.
-
 	if f, err := elf.Open(gccTmp()); err == nil {
 		d, err := f.DWARF()
 		if err != nil {
 			fatalf("cannot load DWARF output from %s: %v", gccTmp(), err)
 		}
-		return d, f.ByteOrder, nil
+		var data []byte
+		symtab, err := f.Symbols()
+		if err == nil {
+			for i := range symtab {
+				s := &symtab[i]
+				if s.Name == "__cgodebug_data" {
+					// Found it.  Now find data section.
+					if i := int(s.Section); 0 <= i && i < len(f.Sections) {
+						sect := f.Sections[i]
+						if sect.Addr <= s.Value && s.Value < sect.Addr+sect.Size {
+							if sdat, err := sect.Data(); err == nil {
+								data = sdat[s.Value-sect.Addr:]
+							}
+						}
+					}
+				}
+			}
+		}
+		return d, f.ByteOrder, data
 	}
 
 	if f, err := pe.Open(gccTmp()); err == nil {
@@ -811,7 +861,20 @@ func (p *Package) gccDebug(stdin []byte) (*dwarf.Data, binary.ByteOrder, []byte)
 		if err != nil {
 			fatalf("cannot load DWARF output from %s: %v", gccTmp(), err)
 		}
-		return d, binary.LittleEndian, nil
+		var data []byte
+		for _, s := range f.Symbols {
+			if s.Name == "_"+"__cgodebug_data" {
+				if i := int(s.SectionNumber) - 1; 0 <= i && i < len(f.Sections) {
+					sect := f.Sections[i]
+					if s.Value < sect.Size {
+						if sdat, err := sect.Data(); err == nil {
+							data = sdat[s.Value:]
+						}
+					}
+				}
+			}
+		}
+		return d, binary.LittleEndian, data
 	}
 
 	fatalf("cannot parse gcc output %s as ELF, Mach-O, PE object", gccTmp())
@@ -889,16 +952,19 @@ type typeConv struct {
 	void                                   ast.Expr
 	unsafePointer                          ast.Expr
 	string                                 ast.Expr
+	goVoid                                 ast.Expr // _Ctype_void, denotes C's void
 
 	ptrSize int64
+	intSize int64
 }
 
 var tagGen int
 var typedef = make(map[string]*Type)
 var goIdent = make(map[string]*ast.Ident)
 
-func (c *typeConv) Init(ptrSize int64) {
+func (c *typeConv) Init(ptrSize, intSize int64) {
 	c.ptrSize = ptrSize
+	c.intSize = intSize
 	c.m = make(map[dwarf.Type]*Type)
 	c.bool = c.Ident("bool")
 	c.byte = c.Ident("byte")
@@ -918,6 +984,7 @@ func (c *typeConv) Init(ptrSize int64) {
 	c.unsafePointer = c.Ident("unsafe.Pointer")
 	c.void = c.Ident("void")
 	c.string = c.Ident("string")
+	c.goVoid = c.Ident("_Ctype_void")
 }
 
 // base strips away qualifiers and typedefs to get the underlying type
@@ -988,6 +1055,12 @@ func (c *typeConv) Type(dtype dwarf.Type, pos token.Pos) *Type {
 		return t
 	}
 
+	// clang won't generate DW_AT_byte_size for pointer types,
+	// so we have to fix it here.
+	if dt, ok := base(dtype).(*dwarf.PtrType); ok && dt.ByteSize == -1 {
+		dt.ByteSize = c.ptrSize
+	}
+
 	t := new(Type)
 	t.Size = dtype.Size()
 	t.Align = -1
@@ -1032,7 +1105,7 @@ func (c *typeConv) Type(dtype dwarf.Type, pos token.Pos) *Type {
 
 	case *dwarf.BoolType:
 		t.Go = c.bool
-		t.Align = c.ptrSize
+		t.Align = 1
 
 	case *dwarf.CharType:
 		if t.Size != 1 {
@@ -1163,11 +1236,12 @@ func (c *typeConv) Type(dtype dwarf.Type, pos token.Pos) *Type {
 		t.Go = name // publish before recursive calls
 		goIdent[name.Name] = name
 		switch dt.Kind {
-		case "union", "class":
+		case "class", "union":
 			t.Go = c.Opaque(t.Size)
 			if t.C.Empty() {
 				t.C.Set("typeof(unsigned char[%d])", t.Size)
 			}
+			t.Align = 1 // TODO: should probably base this on field alignment.
 			typedef[name.Name] = t
 		case "struct":
 			g, csyntax, align := c.Struct(dt, pos)
@@ -1245,8 +1319,9 @@ func (c *typeConv) Type(dtype dwarf.Type, pos token.Pos) *Type {
 		}
 
 	case *dwarf.VoidType:
-		t.Go = c.void
+		t.Go = c.goVoid
 		t.C.Set("void")
+		t.Align = 1
 	}
 
 	switch dtype.(type) {
@@ -1334,7 +1409,9 @@ func (c *typeConv) FuncType(dtype *dwarf.FuncType, pos token.Pos) *FuncType {
 	}
 	var r *Type
 	var gr []*ast.Field
-	if _, ok := dtype.ReturnType.(*dwarf.VoidType); !ok && dtype.ReturnType != nil {
+	if _, ok := dtype.ReturnType.(*dwarf.VoidType); ok {
+		gr = []*ast.Field{{Type: c.goVoid}}
+	} else if dtype.ReturnType != nil {
 		r = c.Type(dtype.ReturnType, pos)
 		gr = []*ast.Field{{Type: r.Go}}
 	}
@@ -1493,8 +1570,8 @@ func godefsFields(fld []*ast.Field) {
 	npad := 0
 	for _, f := range fld {
 		for _, n := range f.Names {
-			if strings.HasPrefix(n.Name, prefix) && n.Name != prefix {
-				n.Name = n.Name[len(prefix):]
+			if n.Name != prefix {
+				n.Name = strings.TrimPrefix(n.Name, prefix)
 			}
 			if n.Name == "_" {
 				// Use exported name instead.
@@ -1522,7 +1599,7 @@ func godefsFields(fld []*ast.Field) {
 }
 
 // fieldPrefix returns the prefix that should be removed from all the
-// field names when generating the C or Go code.  For generated 
+// field names when generating the C or Go code.  For generated
 // C, we leave the names as is (tv_sec, tv_usec), since that's what
 // people are used to seeing in C.  For generated Go code, such as
 // package syscall's data structures, we drop a common prefix
@@ -1539,7 +1616,7 @@ func fieldPrefix(fld []*ast.Field) string {
 			// named, say, _pad in an otherwise prefixed header.
 			// If the struct has 3 fields tv_sec, tv_usec, _pad1, then we
 			// still want to remove the tv_ prefix.
-			// The check for "orig_" here handles orig_eax in the 
+			// The check for "orig_" here handles orig_eax in the
 			// x86 ptrace register sets, which otherwise have all fields
 			// with reg_ prefixes.
 			if strings.HasPrefix(n.Name, "orig_") || strings.HasPrefix(n.Name, "_") {

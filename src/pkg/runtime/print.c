@@ -18,10 +18,10 @@ gwrite(void *v, int32 n)
 		runtime·write(2, v, n);
 		return;
 	}
-	
+
 	if(g->writenbuf == 0)
 		return;
-	
+
 	if(n > g->writenbuf)
 		n = g->writenbuf;
 	runtime·memmove(g->writebuf, v, n);
@@ -84,40 +84,41 @@ vprintf(int8 *s, byte *base)
 		narg = 0;
 		switch(*p) {
 		case 't':
+		case 'c':
 			narg = arg + 1;
 			break;
 		case 'd':	// 32-bit
 		case 'x':
-			arg = runtime·rnd(arg, 4);
+			arg = ROUND(arg, 4);
 			narg = arg + 4;
 			break;
 		case 'D':	// 64-bit
 		case 'U':
 		case 'X':
 		case 'f':
-			arg = runtime·rnd(arg, sizeof(uintptr));
+			arg = ROUND(arg, sizeof(uintptr));
 			narg = arg + 8;
 			break;
 		case 'C':
-			arg = runtime·rnd(arg, sizeof(uintptr));
+			arg = ROUND(arg, sizeof(uintptr));
 			narg = arg + 16;
 			break;
 		case 'p':	// pointer-sized
 		case 's':
-			arg = runtime·rnd(arg, sizeof(uintptr));
+			arg = ROUND(arg, sizeof(uintptr));
 			narg = arg + sizeof(uintptr);
 			break;
 		case 'S':	// pointer-aligned but bigger
-			arg = runtime·rnd(arg, sizeof(uintptr));
+			arg = ROUND(arg, sizeof(uintptr));
 			narg = arg + sizeof(String);
 			break;
 		case 'a':	// pointer-aligned but bigger
-			arg = runtime·rnd(arg, sizeof(uintptr));
+			arg = ROUND(arg, sizeof(uintptr));
 			narg = arg + sizeof(Slice);
 			break;
 		case 'i':	// pointer-aligned but bigger
 		case 'e':
-			arg = runtime·rnd(arg, sizeof(uintptr));
+			arg = ROUND(arg, sizeof(uintptr));
 			narg = arg + sizeof(Eface);
 			break;
 		}
@@ -125,6 +126,9 @@ vprintf(int8 *s, byte *base)
 		switch(*p) {
 		case 'a':
 			runtime·printslice(*(Slice*)v);
+			break;
+		case 'c':
+			runtime·printbyte(*(int8*)v);
 			break;
 		case 'd':
 			runtime·printint(*(int32*)v);
@@ -203,21 +207,27 @@ runtime·printbool(bool v)
 }
 
 void
+runtime·printbyte(int8 c)
+{
+	gwrite(&c, 1);
+}
+
+void
 runtime·printfloat(float64 v)
 {
 	byte buf[20];
 	int32 e, s, i, n;
 	float64 h;
 
-	if(runtime·isNaN(v)) {
+	if(ISNAN(v)) {
 		gwrite("NaN", 3);
 		return;
 	}
-	if(runtime·isInf(v, 1)) {
+	if(v == runtime·posinf) {
 		gwrite("+Inf", 4);
 		return;
 	}
-	if(runtime·isInf(v, -1)) {
+	if(v == runtime·neginf) {
 		gwrite("-Inf", 4);
 		return;
 	}
@@ -343,7 +353,7 @@ runtime·printstring(String v)
 	extern uint32 runtime·maxstring;
 
 	if(v.len > runtime·maxstring) {
-		gwrite("[invalid string]", 16);
+		gwrite("[string too long]", 17);
 		return;
 	}
 	if(v.len > 0)

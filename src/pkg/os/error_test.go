@@ -79,3 +79,54 @@ func checkErrorPredicate(predName string, pred func(error) bool, err error) stri
 	}
 	return ""
 }
+
+var isExistTests = []struct {
+	err   error
+	is    bool
+	isnot bool
+}{
+	{&os.PathError{Err: os.ErrInvalid}, false, false},
+	{&os.PathError{Err: os.ErrPermission}, false, false},
+	{&os.PathError{Err: os.ErrExist}, true, false},
+	{&os.PathError{Err: os.ErrNotExist}, false, true},
+	{&os.LinkError{Err: os.ErrInvalid}, false, false},
+	{&os.LinkError{Err: os.ErrPermission}, false, false},
+	{&os.LinkError{Err: os.ErrExist}, true, false},
+	{&os.LinkError{Err: os.ErrNotExist}, false, true},
+	{nil, false, false},
+}
+
+func TestIsExist(t *testing.T) {
+	for _, tt := range isExistTests {
+		if is := os.IsExist(tt.err); is != tt.is {
+			t.Errorf("os.IsExist(%T %v) = %v, want %v", tt.err, tt.err, is, tt.is)
+		}
+		if isnot := os.IsNotExist(tt.err); isnot != tt.isnot {
+			t.Errorf("os.IsNotExist(%T %v) = %v, want %v", tt.err, tt.err, isnot, tt.isnot)
+		}
+	}
+}
+
+func TestErrPathNUL(t *testing.T) {
+	f, err := ioutil.TempFile("", "_Go_ErrPathNUL\x00")
+	if err == nil {
+		f.Close()
+		t.Fatal("TempFile should have failed")
+	}
+	f, err = ioutil.TempFile("", "_Go_ErrPathNUL")
+	if err != nil {
+		t.Fatalf("open ErrPathNUL tempfile: %s", err)
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	f2, err := os.OpenFile(f.Name(), os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatalf("open ErrPathNUL: %s", err)
+	}
+	f2.Close()
+	f2, err = os.OpenFile(f.Name()+"\x00", os.O_RDWR, 0600)
+	if err == nil {
+		f2.Close()
+		t.Fatal("Open should have failed")
+	}
+}

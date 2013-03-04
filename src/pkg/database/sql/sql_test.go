@@ -8,7 +8,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +62,10 @@ func exec(t *testing.T, db *DB, query string, args ...interface{}) {
 }
 
 func closeDB(t *testing.T, db *DB) {
+	if e := recover(); e != nil {
+		fmt.Printf("Panic: %v\n", e)
+		panic(e)
+	}
 	err := db.Close()
 	if err != nil {
 		t.Fatalf("error closing DB: %v", err)
@@ -270,6 +273,35 @@ func TestStatementQueryRow(t *testing.T) {
 
 }
 
+// golang.org/issue/3734
+func TestStatementQueryRowConcurrent(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+	stmt, err := db.Prepare("SELECT|people|age|name=?")
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	defer stmt.Close()
+
+	const n = 10
+	ch := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			var age int
+			err := stmt.QueryRow("Alice").Scan(&age)
+			if err == nil && age != 1 {
+				err = fmt.Errorf("unexpected age %d", age)
+			}
+			ch <- err
+		}()
+	}
+	for i := 0; i < n; i++ {
+		if err := <-ch; err != nil {
+			t.Error(err)
+		}
+	}
+}
+
 // just a test of fakedb itself
 func TestBogusPreboundParameters(t *testing.T) {
 	db := newTestDB(t, "foo")
@@ -306,8 +338,8 @@ func TestExec(t *testing.T) {
 		{[]interface{}{7, 9}, ""},
 
 		// Invalid conversions:
-		{[]interface{}{"Brad", int64(0xFFFFFFFF)}, "sql: converting Exec argument #1's type: sql/driver: value 4294967295 overflows int32"},
-		{[]interface{}{"Brad", "strconv fail"}, "sql: converting Exec argument #1's type: sql/driver: value \"strconv fail\" can't be converted to int32"},
+		{[]interface{}{"Brad", int64(0xFFFFFFFF)}, "sql: converting argument #1's type: sql/driver: value 4294967295 overflows int32"},
+		{[]interface{}{"Brad", "strconv fail"}, "sql: converting argument #1's type: sql/driver: value \"strconv fail\" can't be converted to int32"},
 
 		// Wrong number of args:
 		{[]interface{}{}, "sql: expected 2 arguments, got 0"},
@@ -402,6 +434,39 @@ func TestTxQueryInvalid(t *testing.T) {
 	}
 }
 
+// Tests fix for issue 4433, that retries in Begin happen when
+// conn.Begin() returns ErrBadConn
+func TestTxErrBadConn(t *testing.T) {
+	db, err := Open("test", fakeDBName+";badConn")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := db.Exec("WIPE"); err != nil {
+		t.Fatalf("exec wipe: %v", err)
+	}
+	defer closeDB(t, db)
+	exec(t, db, "CREATE|t1|name=string,age=int32,dead=bool")
+	stmt, err := db.Prepare("INSERT|t1|name=?,age=?")
+	if err != nil {
+		t.Fatalf("Stmt, err = %v, %v", stmt, err)
+	}
+	defer stmt.Close()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin = %v", err)
+	}
+	txs := tx.Stmt(stmt)
+	defer txs.Close()
+	_, err = txs.Exec("Bobby", 7)
+	if err != nil {
+		t.Fatalf("Exec = %v", err)
+	}
+	err = tx.Commit()
+	if err != nil {
+		t.Fatalf("Commit = %v", err)
+	}
+}
+
 // Tests fix for issue 2542, that we release a lock when querying on
 // a closed connection.
 func TestIssue2542Deadlock(t *testing.T) {
@@ -413,6 +478,30 @@ func TestIssue2542Deadlock(t *testing.T) {
 			t.Fatalf("expected error")
 		}
 	}
+}
+
+// From golang.org/issue/3865
+func TestCloseStmtBeforeRows(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+
+	s, err := db.Prepare("SELECT|people|name|")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := s.Query()
+	if err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+
+	err = s.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r.Close()
 }
 
 // Tests fix for issue 2788, that we bind nil to a []byte if the
@@ -608,7 +697,14 @@ func nullTestRun(t *testing.T, spec nullTestSpec) {
 	}
 }
 
-func stack() string {
-	buf := make([]byte, 1024)
-	return string(buf[:runtime.Stack(buf, false)])
+// golang.org/issue/4859
+func TestQueryRowNilScanDest(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+	var name *string // nil pointer
+	err := db.QueryRow("SELECT|people|name|").Scan(name)
+	want := "sql: Scan error on column index 0: destination pointer is nil"
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %q; want %q", err.Error(), want)
+	}
 }

@@ -1,5 +1,7 @@
 #define SIG_DFL ((void*)0)
 #define SIG_IGN ((void*)1)
+#define SIGHUP 1
+#define SS_DISABLE 4
 
 int32	runtime·thr_new(ThrParam*, int32);
 void	runtime·sighandler(int32 sig, Siginfo *info, void *context, G *gp);
@@ -15,7 +17,7 @@ int32	runtime·sysctl(uint32*, uint32, byte*, uintptr*, byte*, uintptr);
 void	runtime·raisesigpipe(void);
 
 #define	NSIG 33
-#define	SI_USER	0
+#define	SI_USER	0x10001
 
 #define RLIMIT_AS 10
 typedef struct Rlimit Rlimit;

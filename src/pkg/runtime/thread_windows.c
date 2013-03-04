@@ -135,6 +135,7 @@ runtime·write(int32 fd, void *buf, int32 n)
 	return written;
 }
 
+#pragma textflag 7
 void
 runtime·osyield(void)
 {
@@ -186,28 +187,43 @@ runtime·semacreate(void)
 #define STACK_SIZE_PARAM_IS_A_RESERVATION ((uintptr)0x00010000)
 
 void
-runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
+runtime·newosproc(M *mp, void *stk)
 {
 	void *thandle;
 
 	USED(stk);
-	USED(g);	// assuming g = m->g0
-	USED(fn);	// assuming fn = mstart
 
 	thandle = runtime·stdcall(runtime·CreateThread, 6,
-		nil, (uintptr)0x20000, runtime·tstart_stdcall, m,
+		nil, (uintptr)0x20000, runtime·tstart_stdcall, mp,
 		STACK_SIZE_PARAM_IS_A_RESERVATION, nil);
 	if(thandle == nil) {
 		runtime·printf("runtime: failed to create new OS thread (have %d already; errno=%d)\n", runtime·mcount(), runtime·getlasterror());
 		runtime·throw("runtime.newosproc");
 	}
-	runtime·atomicstorep(&m->thread, thandle);
+	runtime·atomicstorep(&mp->thread, thandle);
 }
 
 // Called to initialize a new m (including the bootstrap m).
+// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
+void
+runtime·mpreinit(M *mp)
+{
+	USED(mp);
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the new thread, can not allocate memory.
 void
 runtime·minit(void)
 {
+	runtime·install_exception_handler();
+}
+
+// Called from dropm to undo the effect of an minit.
+void
+runtime·unminit(void)
+{
+	runtime·remove_exception_handler();
 }
 
 int64

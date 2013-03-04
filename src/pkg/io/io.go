@@ -130,11 +130,23 @@ type ReadWriteSeeker interface {
 }
 
 // ReaderFrom is the interface that wraps the ReadFrom method.
+//
+// ReadFrom reads data from r until EOF or error.
+// The return value n is the number of bytes read.
+// Any error except io.EOF encountered during the read is also returned.
+//
+// The Copy function uses ReaderFrom if available.
 type ReaderFrom interface {
 	ReadFrom(r Reader) (n int64, err error)
 }
 
 // WriterTo is the interface that wraps the WriteTo method.
+//
+// WriteTo writes data to w until there's no more data to write or
+// when an error occurs. The return value n is the number of bytes
+// written. Any error encountered during the write is also returned.
+//
+// The Copy function uses WriterTo if available.
 type WriterTo interface {
 	WriteTo(w Writer) (n int64, err error)
 }
@@ -204,6 +216,11 @@ type ByteScanner interface {
 	UnreadByte() error
 }
 
+// ByteWriter is the interface that wraps the WriteByte method.
+type ByteWriter interface {
+	WriteByte(c byte) error
+}
+
 // RuneReader is the interface that wraps the ReadRune method.
 //
 // ReadRune reads a single UTF-8 encoded Unicode character
@@ -245,6 +262,7 @@ func WriteString(w Writer, s string) (n int, err error) {
 // If an EOF happens after reading fewer than min bytes,
 // ReadAtLeast returns ErrUnexpectedEOF.
 // If min is greater than the length of buf, ReadAtLeast returns ErrShortBuffer.
+// On return, n >= min if and only if err == nil.
 func ReadAtLeast(r Reader, buf []byte, min int) (n int, err error) {
 	if len(buf) < min {
 		return 0, ErrShortBuffer
@@ -254,12 +272,10 @@ func ReadAtLeast(r Reader, buf []byte, min int) (n int, err error) {
 		nn, err = r.Read(buf[n:])
 		n += nn
 	}
-	if err == EOF {
-		if n >= min {
-			err = nil
-		} else if n > 0 {
-			err = ErrUnexpectedEOF
-		}
+	if n >= min {
+		err = nil
+	} else if n > 0 && err == EOF {
+		err = ErrUnexpectedEOF
 	}
 	return
 }
@@ -269,56 +285,28 @@ func ReadAtLeast(r Reader, buf []byte, min int) (n int, err error) {
 // The error is EOF only if no bytes were read.
 // If an EOF happens after reading some but not all the bytes,
 // ReadFull returns ErrUnexpectedEOF.
+// On return, n == len(buf) if and only if err == nil.
 func ReadFull(r Reader, buf []byte) (n int, err error) {
 	return ReadAtLeast(r, buf, len(buf))
 }
 
 // CopyN copies n bytes (or until an error) from src to dst.
 // It returns the number of bytes copied and the earliest
-// error encountered while copying.  Because Read can
-// return the full amount requested as well as an error
-// (including EOF), so can CopyN.
+// error encountered while copying.
+// On return, written == n if and only if err == nil.
 //
 // If dst implements the ReaderFrom interface,
 // the copy is implemented using it.
 func CopyN(dst Writer, src Reader, n int64) (written int64, err error) {
-	// If the writer has a ReadFrom method, use it to do the copy.
-	// Avoids a buffer allocation and a copy.
-	if rt, ok := dst.(ReaderFrom); ok {
-		written, err = rt.ReadFrom(LimitReader(src, n))
-		if written < n && err == nil {
-			// rt stopped early; must have been EOF.
-			err = EOF
-		}
-		return
+	written, err = Copy(dst, LimitReader(src, n))
+	if written == n {
+		return n, nil
 	}
-	buf := make([]byte, 32*1024)
-	for written < n {
-		l := len(buf)
-		if d := n - written; d < int64(l) {
-			l = int(d)
-		}
-		nr, er := src.Read(buf[0:l])
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			if nw > 0 {
-				written += int64(nw)
-			}
-			if ew != nil {
-				err = ew
-				break
-			}
-			if nr != nw {
-				err = ErrShortWrite
-				break
-			}
-		}
-		if er != nil {
-			err = er
-			break
-		}
+	if written < n && err == nil {
+		// src stopped early; must have been EOF.
+		err = EOF
 	}
-	return written, err
+	return
 }
 
 // Copy copies from src to dst until either EOF is reached
@@ -451,6 +439,11 @@ func (s *SectionReader) ReadAt(p []byte, off int64) (n int, err error) {
 	off += s.base
 	if max := s.limit - off; int64(len(p)) > max {
 		p = p[0:max]
+		n, err = s.r.ReadAt(p, off)
+		if err == nil {
+			err = EOF
+		}
+		return n, err
 	}
 	return s.r.ReadAt(p, off)
 }

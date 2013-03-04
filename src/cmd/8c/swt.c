@@ -251,18 +251,12 @@ outcode(void)
 	Binit(&b, f, OWRITE);
 
 	Bprint(&b, "go object %s %s %s\n", getgoos(), thestring, getgoversion());
-	if(ndynimp > 0 || ndynexp > 0) {
-		int i;
-
+	if(pragcgobuf.to > pragcgobuf.start) {
 		Bprint(&b, "\n");
 		Bprint(&b, "$$  // exports\n\n");
 		Bprint(&b, "$$  // local types\n\n");
-		Bprint(&b, "$$  // dynimport\n");
-		for(i=0; i<ndynimp; i++)
-			Bprint(&b, "dynimport %s %s %s\n", dynimp[i].local, dynimp[i].remote, dynimp[i].path);
-		Bprint(&b, "\n$$  // dynexport\n");
-		for(i=0; i<ndynexp; i++)
-			Bprint(&b, "dynexport %s %s\n", dynexp[i].local, dynexp[i].remote);
+		Bprint(&b, "$$  // cgo\n");
+		Bprint(&b, "%s", fmtstrflush(&pragcgobuf));
 		Bprint(&b, "\n$$\n\n");
 	}
 	Bprint(&b, "!\n");
@@ -343,12 +337,38 @@ outhist(Biobuf *b)
 	char *p, *q, *op, c;
 	Prog pg;
 	int n;
+	char *tofree;
+	static int first = 1;
+	static char *goroot, *goroot_final;
 
+	if(first) {
+		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
+		first = 0;
+		goroot = getenv("GOROOT");
+		goroot_final = getenv("GOROOT_FINAL");
+		if(goroot == nil)
+			goroot = "";
+		if(goroot_final == nil)
+			goroot_final = goroot;
+		if(strcmp(goroot, goroot_final) == 0) {
+			goroot = nil;
+			goroot_final = nil;
+		}
+	}
+
+	tofree = nil;
 	pg = zprog;
 	pg.as = AHISTORY;
 	c = pathchar();
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
+		if(p != nil && goroot != nil) {
+			n = strlen(goroot);
+			if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
+				tofree = smprint("%s%s", goroot_final, p+n);
+				p = tofree;
+			}
+		}
 		op = 0;
 		if(systemtype(Windows) && p && p[1] == ':'){
 			c = p[2];
@@ -404,6 +424,11 @@ outhist(Biobuf *b)
 		Bputc(b, pg.lineno>>24);
 		zaddr(b, &pg.from, 0);
 		zaddr(b, &pg.to, 0);
+
+		if(tofree) {
+			free(tofree);
+			tofree = nil;
+		}
 	}
 }
 
@@ -597,8 +622,8 @@ align(int32 i, Type *t, int op, int32 *maxalign)
 int32
 maxround(int32 max, int32 v)
 {
-	v += SZ_LONG-1;
+	v = xround(v, SZ_LONG);
 	if(v > max)
-		max = xround(v, SZ_LONG);
+		return v;
 	return max;
 }

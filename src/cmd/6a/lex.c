@@ -340,6 +340,8 @@ struct
 	"BSRL",		LTYPE3,	ABSRL,
 	"BSRQ",		LTYPE3,	ABSRQ,
 	"BSRW",		LTYPE3,	ABSRW,
+	"BSWAPL",	LTYPE1,	ABSWAPL,
+	"BSWAPQ",	LTYPE1,	ABSWAPQ,
 	"BTCL",		LTYPE3,	ABTCL,
 	"BTCQ",		LTYPE3,	ABTCQ,
 	"BTCW",		LTYPE3,	ABTCW,
@@ -1001,6 +1003,19 @@ struct
 	"XORPS",	LTYPE3,	AXORPS,
 	"CRC32B",	LTYPE4, ACRC32B,
 	"CRC32Q",	LTYPE4, ACRC32Q,
+	"PREFETCHT0",		LTYPE2,	APREFETCHT0,
+	"PREFETCHT1",		LTYPE2,	APREFETCHT1,
+	"PREFETCHT2",		LTYPE2,	APREFETCHT2,
+	"PREFETCHNTA",		LTYPE2,	APREFETCHNTA,
+	"UNDEF",	LTYPE0,	AUNDEF,
+	"AESENC",	LTYPE3,	AAESENC,
+	"AESENCLAST",	LTYPE3, AAESENCLAST,
+	"AESDEC",	LTYPE3, AAESDEC,
+	"AESDECLAST",	LTYPE3, AAESDECLAST,
+	"AESIMC",	LTYPE3, AAESIMC,
+	"AESKEYGENASSIST", LTYPEX, AAESKEYGENASSIST,
+	"PSHUFD",	LTYPEX, APSHUFD,
+	"USEFIELD",	LTYPEN, AUSEFIELD,
 
 	0
 };
@@ -1250,11 +1265,38 @@ outhist(void)
 	Hist *h;
 	char *p, *q, *op, c;
 	int n;
+	char *tofree;
+	static int first = 1;
+	static char *goroot, *goroot_final;
+
+	if(first) {
+		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
+		first = 0;
+		goroot = getenv("GOROOT");
+		goroot_final = getenv("GOROOT_FINAL");
+		if(goroot == nil)
+			goroot = "";
+		if(goroot_final == nil)
+			goroot_final = goroot;
+		if(strcmp(goroot, goroot_final) == 0) {
+			goroot = nil;
+			goroot_final = nil;
+		}
+	}
+
+	tofree = nil;
 
 	g = nullgen;
 	c = pathchar();
 	for(h = hist; h != H; h = h->link) {
 		p = h->name;
+		if(p != nil && goroot != nil) {
+			n = strlen(goroot);
+			if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
+				tofree = smprint("%s%s", goroot_final, p+n);
+				p = tofree;
+			}
+		}
 		op = 0;
 		if(systemtype(Windows) && p && p[1] == ':'){
 			c = p[2];
@@ -1306,21 +1348,12 @@ outhist(void)
 		Bputc(&obuf, h->line>>24);
 		zaddr(&nullgen, 0);
 		zaddr(&g, 0);
+
+		if(tofree) {
+			free(tofree);
+			tofree = nil;
+		}
 	}
-}
-
-void
-pragbldicks(void)
-{
-	while(getnsc() != '\n')
-		;
-}
-
-void
-praghjdicks(void)
-{
-	while(getnsc() != '\n')
-		;
 }
 
 #include "../cc/lexbody"

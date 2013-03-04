@@ -13,17 +13,6 @@ import (
 
 func sigpipe() // implemented in package runtime
 
-func epipecheck(file *File, e error) {
-	if e == syscall.EPIPE {
-		file.nepipe++
-		if file.nepipe >= 10 {
-			sigpipe()
-		}
-	} else {
-		file.nepipe = 0
-	}
-}
-
 // Link creates newname as a hard link to the oldname file.
 // If there is an error, it will be of type *LinkError.
 func Link(oldname, newname string) error {
@@ -164,12 +153,10 @@ func (f *File) Sync() (err error) {
 // less precise time unit.
 // If there is an error, it will be of type *PathError.
 func Chtimes(name string, atime time.Time, mtime time.Time) error {
-	var utimes [2]syscall.Timeval
-	atime_ns := atime.Unix()*1e9 + int64(atime.Nanosecond())
-	mtime_ns := mtime.Unix()*1e9 + int64(mtime.Nanosecond())
-	utimes[0] = syscall.NsecToTimeval(atime_ns)
-	utimes[1] = syscall.NsecToTimeval(mtime_ns)
-	if e := syscall.Utimes(name, utimes[0:]); e != nil {
+	var utimes [2]syscall.Timespec
+	utimes[0] = syscall.NsecToTimespec(atime.UnixNano())
+	utimes[1] = syscall.NsecToTimespec(mtime.UnixNano())
+	if e := syscall.UtimesNano(name, utimes[0:]); e != nil {
 		return &PathError{"chtimes", name, e}
 	}
 	return nil

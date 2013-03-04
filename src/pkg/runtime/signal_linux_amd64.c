@@ -60,7 +60,7 @@ runtime·sighandler(int32 sig, Siginfo *info, void *context, G *gp)
 
 	t = &runtime·sigtab[sig];
 	if(info->si_code != SI_USER && (t->flags & SigPanic)) {
-		if(gp == nil)
+		if(gp == nil || gp == m->g0)
 			goto Throw;
 		// Make it look like a call to the signal func.
 		// Have to pass arguments out of band since
@@ -103,6 +103,10 @@ Throw:
 		runtime·printf("%s\n", runtime·sigtab[sig].name);
 
 	runtime·printf("PC=%X\n", r->rip);
+	if(m->lockedg != nil && m->ncgo > 0 && gp == m->g0) {
+		runtime·printf("signal arrived during cgo execution\n");
+		gp = m->lockedg;
+	}
 	runtime·printf("\n");
 
 	if(runtime·gotraceback()){
@@ -122,6 +126,8 @@ runtime·signalstack(byte *p, int32 n)
 	st.ss_sp = p;
 	st.ss_size = n;
 	st.ss_flags = 0;
+	if(p == nil)
+		st.ss_flags = SS_DISABLE;
 	runtime·sigaltstack(&st, nil);
 }
 
@@ -130,14 +136,27 @@ runtime·setsig(int32 i, void (*fn)(int32, Siginfo*, void*, G*), bool restart)
 {
 	Sigaction sa;
 
+	// If SIGHUP handler is SIG_IGN, assume running
+	// under nohup and do not set explicit handler.
+	if(i == SIGHUP) {
+		runtime·memclr((byte*)&sa, sizeof sa);
+		if(runtime·rt_sigaction(i, nil, &sa, sizeof(sa.sa_mask)) != 0)
+			runtime·throw("rt_sigaction read failure");
+		if(sa.sa_handler == SIG_IGN)
+			return;
+	}
+
 	runtime·memclr((byte*)&sa, sizeof sa);
 	sa.sa_flags = SA_ONSTACK | SA_SIGINFO | SA_RESTORER;
 	if(restart)
 		sa.sa_flags |= SA_RESTART;
 	sa.sa_mask = ~0ULL;
+	// TODO(adonovan): Linux manpage says "sa_restorer element is
+	// obsolete and should not be used".  Avoid it here, and test.
 	sa.sa_restorer = (void*)runtime·sigreturn;
 	if(fn == runtime·sighandler)
 		fn = (void*)runtime·sigtramp;
 	sa.sa_handler = fn;
-	runtime·rt_sigaction(i, &sa, nil, 8);
+	if(runtime·rt_sigaction(i, &sa, nil, sizeof(sa.sa_mask)) != 0)
+		runtime·throw("rt_sigaction failure");
 }

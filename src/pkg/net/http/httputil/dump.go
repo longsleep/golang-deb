@@ -75,7 +75,7 @@ func DumpRequestOut(req *http.Request, body bool) ([]byte, error) {
 
 	// Use the actual Transport code to record what we would send
 	// on the wire, but not using TCP.  Use a Transport with a
-	// customer dialer that returns a fake net.Conn that waits
+	// custom dialer that returns a fake net.Conn that waits
 	// for the full input (and recording it), and then responds
 	// with a dummy response.
 	var buf bytes.Buffer // records the output
@@ -89,7 +89,7 @@ func DumpRequestOut(req *http.Request, body bool) ([]byte, error) {
 
 	t := &http.Transport{
 		Dial: func(net, addr string) (net.Conn, error) {
-			return &dumpConn{io.MultiWriter(pw, &buf), dr}, nil
+			return &dumpConn{io.MultiWriter(&buf, pw), dr}, nil
 		},
 	}
 

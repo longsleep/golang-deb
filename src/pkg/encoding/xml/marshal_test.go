@@ -5,6 +5,10 @@
 package xml
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
@@ -54,6 +58,36 @@ type Domain struct {
 type Book struct {
 	XMLName struct{} `xml:"book"`
 	Title   string   `xml:",chardata"`
+}
+
+type Event struct {
+	XMLName struct{} `xml:"event"`
+	Year    int      `xml:",chardata"`
+}
+
+type Movie struct {
+	XMLName struct{} `xml:"movie"`
+	Length  uint     `xml:",chardata"`
+}
+
+type Pi struct {
+	XMLName       struct{} `xml:"pi"`
+	Approximation float32  `xml:",chardata"`
+}
+
+type Universe struct {
+	XMLName struct{} `xml:"universe"`
+	Visible float64  `xml:",chardata"`
+}
+
+type Particle struct {
+	XMLName struct{} `xml:"particle"`
+	HasMass bool     `xml:",chardata"`
+}
+
+type Departure struct {
+	XMLName struct{}  `xml:"departure"`
+	When    time.Time `xml:",chardata"`
 }
 
 type SecretAgent struct {
@@ -108,7 +142,7 @@ type EmbedA struct {
 
 type EmbedB struct {
 	FieldB string
-	EmbedC
+	*EmbedC
 }
 
 type EmbedC struct {
@@ -183,6 +217,18 @@ type AnyTest struct {
 	XMLName  struct{}  `xml:"a"`
 	Nested   string    `xml:"nested>value"`
 	AnyField AnyHolder `xml:",any"`
+}
+
+type AnyOmitTest struct {
+	XMLName  struct{}   `xml:"a"`
+	Nested   string     `xml:"nested>value"`
+	AnyField *AnyHolder `xml:",any,omitempty"`
+}
+
+type AnySliceTest struct {
+	XMLName  struct{}    `xml:"a"`
+	Nested   string      `xml:"nested>value"`
+	AnyField []AnyHolder `xml:",any"`
 }
 
 type AnyHolder struct {
@@ -330,6 +376,12 @@ var marshalTests = []struct {
 	{Value: &Domain{Name: []byte("google.com&friends")}, ExpectXML: `<domain>google.com&amp;friends</domain>`},
 	{Value: &Domain{Name: []byte("google.com"), Comment: []byte(" &friends ")}, ExpectXML: `<domain>google.com<!-- &friends --></domain>`},
 	{Value: &Book{Title: "Pride & Prejudice"}, ExpectXML: `<book>Pride &amp; Prejudice</book>`},
+	{Value: &Event{Year: -3114}, ExpectXML: `<event>-3114</event>`},
+	{Value: &Movie{Length: 13440}, ExpectXML: `<movie>13440</movie>`},
+	{Value: &Pi{Approximation: 3.14159265}, ExpectXML: `<pi>3.1415927</pi>`},
+	{Value: &Universe{Visible: 9.3e13}, ExpectXML: `<universe>9.3e+13</universe>`},
+	{Value: &Particle{HasMass: true}, ExpectXML: `<particle>true</particle>`},
+	{Value: &Departure{When: ParseTime("2013-01-09T00:15:00-09:00")}, ExpectXML: `<departure>2013-01-09T00:15:00-09:00</departure>`},
 	{Value: atomValue, ExpectXML: atomXml},
 	{
 		Value: &Ship{
@@ -493,7 +545,7 @@ var marshalTests = []struct {
 			},
 			EmbedB: EmbedB{
 				FieldB: "A.B.B",
-				EmbedC: EmbedC{
+				EmbedC: &EmbedC{
 					FieldA1: "A.B.C.A1",
 					FieldA2: "A.B.C.A2",
 					FieldB:  "", // Shadowed by A.B.B
@@ -649,12 +701,43 @@ var marshalTests = []struct {
 				XML:     "<sub>unknown</sub>",
 			},
 		},
-		UnmarshalOnly: true,
 	},
 	{
-		Value:       &AnyTest{Nested: "known", AnyField: AnyHolder{XML: "<unknown/>"}},
-		ExpectXML:   `<a><nested><value>known</value></nested></a>`,
-		MarshalOnly: true,
+		Value: &AnyTest{Nested: "known",
+			AnyField: AnyHolder{
+				XML:     "<unknown/>",
+				XMLName: Name{Local: "AnyField"},
+			},
+		},
+		ExpectXML: `<a><nested><value>known</value></nested><AnyField><unknown/></AnyField></a>`,
+	},
+	{
+		ExpectXML: `<a><nested><value>b</value></nested></a>`,
+		Value: &AnyOmitTest{
+			Nested: "b",
+		},
+	},
+	{
+		ExpectXML: `<a><nested><value>b</value></nested><c><d>e</d></c><g xmlns="f"><h>i</h></g></a>`,
+		Value: &AnySliceTest{
+			Nested: "b",
+			AnyField: []AnyHolder{
+				{
+					XMLName: Name{Local: "c"},
+					XML:     "<d>e</d>",
+				},
+				{
+					XMLName: Name{Space: "f", Local: "g"},
+					XML:     "<h>i</h>",
+				},
+			},
+		},
+	},
+	{
+		ExpectXML: `<a><nested><value>b</value></nested></a>`,
+		Value: &AnySliceTest{
+			Nested: "b",
+		},
 	},
 
 	// Test recursive types.
@@ -682,6 +765,29 @@ var marshalTests = []struct {
 	{
 		ExpectXML:     `<IgnoreTest><PublicSecret>ignore me</PublicSecret></IgnoreTest>`,
 		Value:         &IgnoreTest{},
+		UnmarshalOnly: true,
+	},
+
+	// Test escaping.
+	{
+		ExpectXML: `<a><nested><value>dquote: &#34;; squote: &#39;; ampersand: &amp;; less: &lt;; greater: &gt;;</value></nested><empty></empty></a>`,
+		Value: &AnyTest{
+			Nested:   `dquote: "; squote: '; ampersand: &; less: <; greater: >;`,
+			AnyField: AnyHolder{XMLName: Name{Local: "empty"}},
+		},
+	},
+	{
+		ExpectXML: `<a><nested><value>newline: &#xA;; cr: &#xD;; tab: &#x9;;</value></nested><AnyField></AnyField></a>`,
+		Value: &AnyTest{
+			Nested:   "newline: \n; cr: \r; tab: \t;",
+			AnyField: AnyHolder{XMLName: Name{Local: "AnyField"}},
+		},
+	},
+	{
+		ExpectXML: "<a><nested><value>1\r2\r\n3\n\r4\n5</value></nested></a>",
+		Value: &AnyTest{
+			Nested: "1\n2\n3\n\n4\n5",
+		},
 		UnmarshalOnly: true,
 	},
 }
@@ -735,6 +841,24 @@ var marshalErrorTests = []struct {
 	},
 }
 
+var marshalIndentTests = []struct {
+	Value     interface{}
+	Prefix    string
+	Indent    string
+	ExpectXML string
+}{
+	{
+		Value: &SecretAgent{
+			Handle:    "007",
+			Identity:  "James Bond",
+			Obfuscate: "<redacted/>",
+		},
+		Prefix:    "",
+		Indent:    "\t",
+		ExpectXML: fmt.Sprintf("<agent handle=\"007\">\n\t<Identity>James Bond</Identity><redacted/>\n</agent>"),
+	},
+}
+
 func TestMarshalErrors(t *testing.T) {
 	for idx, test := range marshalErrorTests {
 		_, err := Marshal(test.Value)
@@ -776,6 +900,78 @@ func TestUnmarshal(t *testing.T) {
 		} else if got, want := dest, test.Value; !reflect.DeepEqual(got, want) {
 			t.Errorf("#%d: unmarshal(%q):\nhave %#v\nwant %#v", i, test.ExpectXML, got, want)
 		}
+	}
+}
+
+func TestMarshalIndent(t *testing.T) {
+	for i, test := range marshalIndentTests {
+		data, err := MarshalIndent(test.Value, test.Prefix, test.Indent)
+		if err != nil {
+			t.Errorf("#%d: Error: %s", i, err)
+			continue
+		}
+		if got, want := string(data), test.ExpectXML; got != want {
+			t.Errorf("#%d: MarshalIndent:\nGot:%s\nWant:\n%s", i, got, want)
+		}
+	}
+}
+
+type limitedBytesWriter struct {
+	w      io.Writer
+	remain int // until writes fail
+}
+
+func (lw *limitedBytesWriter) Write(p []byte) (n int, err error) {
+	if lw.remain <= 0 {
+		println("error")
+		return 0, errors.New("write limit hit")
+	}
+	if len(p) > lw.remain {
+		p = p[:lw.remain]
+		n, _ = lw.w.Write(p)
+		lw.remain = 0
+		return n, errors.New("write limit hit")
+	}
+	n, err = lw.w.Write(p)
+	lw.remain -= n
+	return n, err
+}
+
+func TestMarshalWriteErrors(t *testing.T) {
+	var buf bytes.Buffer
+	const writeCap = 1024
+	w := &limitedBytesWriter{&buf, writeCap}
+	enc := NewEncoder(w)
+	var err error
+	var i int
+	const n = 4000
+	for i = 1; i <= n; i++ {
+		err = enc.Encode(&Passenger{
+			Name:   []string{"Alice", "Bob"},
+			Weight: 5,
+		})
+		if err != nil {
+			break
+		}
+	}
+	if err == nil {
+		t.Error("expected an error")
+	}
+	if i == n {
+		t.Errorf("expected to fail before the end")
+	}
+	if buf.Len() != writeCap {
+		t.Errorf("buf.Len() = %d; want %d", buf.Len(), writeCap)
+	}
+}
+
+func TestMarshalWriteIOErrors(t *testing.T) {
+	enc := NewEncoder(errWriter{})
+
+	expectErr := "unwritable"
+	err := enc.Encode(&Passenger{})
+	if err == nil || err.Error() != expectErr {
+		t.Errorf("EscapeTest = [error] %v, want %v", err, expectErr)
 	}
 }
 

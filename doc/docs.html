@@ -45,8 +45,10 @@ learned. You can <a href="http://tour.golang.org/">take the tour online</a> or
 
 <h3 id="code"><a href="code.html">How to write Go code</a></h3>
 <p>
-How to use the <a href="/cmd/go/">go command</a> to fetch, build, and install
-packages, commands, and run tests.
+Also available as a
+<a href="http://www.youtube.com/watch?v=XCsL89YtqCs">screencast</a>, this doc
+explains how to use the <a href="/cmd/go/">go command</a> to fetch, build, and
+install packages, commands, and run tests.
 </p>
 
 <h3 id="effective_go"><a href="effective_go.html">Effective Go</a></h3>
@@ -56,10 +58,13 @@ A must read for any new Go programmer. It augments the tour and
 the language specification, both of which should be read first.
 </p>
 
-<h3 id="appengine"><a href="http://code.google.com/appengine/docs/go/gettingstarted/">Getting Started with Go on App Engine</a></h3>
+<h3 id="ref"><a href="/ref/">Go References</a></h3>
+<p>Language specification, memory model, and detailed documentation for the commands and packages.</p>
+
+<h3 id="appengine"><a href="https://developers.google.com/appengine/docs/go/gettingstarted/">Getting Started with Go on App Engine</a></h3>
 <p>
 How to develop and deploy a simple Go project with
-<a href="http://code.google.com/appengine/">Google App Engine</a>.
+<a href="https://developers.google.com/appengine/">Google App Engine</a>.
 </p>
 
 <h3 id="go_faq"><a href="go_faq.html">Frequently Asked Questions (FAQ)</a></h3>
@@ -127,6 +132,7 @@ Guided tours of Go programs.
 <li><a href="/doc/gdb">Debugging Go Code with GDB</a></li>
 <li><a href="/doc/articles/godoc_documenting_go_code.html">Godoc: documenting Go code</a> - writing good documentation for <a href="/cmd/godoc/">godoc</a>.</li>
 <li><a href="http://blog.golang.org/2011/06/profiling-go-programs.html">Profiling Go Programs</a></li>
+<li><a href="/doc/articles/race_detector.html">Data Race Detector</a> - testing Go programs for race conditions.</li>
 </ul>
 
 <h2 id="talks">Talks</h2>
@@ -139,27 +145,29 @@ before Go 1 and contain some examples that are no longer correct, but they are
 still of value.
 </p>
 
+<h3 id="video_tour_of_go"><a href="http://research.swtch.com/gotour">A Video Tour of Go</a></h3>
+<p>
+Three things that make Go fast, fun, and productive:
+interfaces, reflection, and concurrency. Builds a toy web crawler to
+demonstrate these.
+</p>
+
+<h3 id="go_concurrency_patterns"><a href="http://www.youtube.com/watch?v=f6kdp27TYZs">Go Concurrency Patterns</a></h3>
+<p>
+Concurrency is the key to designing high performance network services. Go's concurrency primitives (goroutines and channels) provide a simple and efficient means of expressing concurrent execution. In this talk we see how tricky concurrency problems can be solved gracefully with simple Go code.
+</p>
+
+<h3 id="meet_the_go_team"><a href="http://www.youtube.com/watch?v=sln-gJaURzk">Meet the Go team</a></h3>
+<p>
+A panel discussion with David Symonds, Robert Griesemer, Rob Pike, Ken Thompson, Andrew Gerrand, and Brad Fitzpatrick.
+</p>
+
 <h3 id="writing_web_apps"><a href="http://www.youtube.com/watch?v=-i0hat7pdpk">Writing Web Apps in Go</a><font color="red">*</font></h3>
 <p>
 A talk by Rob Pike and Andrew Gerrand presented at Google I/O 2011.
 It walks through the construction and deployment of a simple web application
 and unveils the <a href="http://blog.golang.org/2011/05/go-and-google-app-engine.html">Go runtime for App Engine</a>.
-See the <a href="/doc/talks/io2011/Writing_Web_Apps_in_Go.pdf">presentation slides</a>.
-</p>
-
-<h3 id="real_world_go"><a href="http://www.youtube.com/watch?v=7QDVRowyUQA">Real World Go</a><font color="red">*</font></h3>
-<p>
-A talk by Andrew Gerrand presented at Google I/O Bootcamp 2011.
-It gives a broad overview of Go's type system and concurrency model
-and provides four examples of Go programs that solve real problems.
-See the <a href="/doc/talks/io2011/Real_World_Go.pdf">presentation slides</a>.
-</p>
-
-<h3 id="integrated_apps"><a href="http://www.youtube.com/watch?v=Mo1YKpIF1PQ">Building Integrated Apps on Google's Cloud Platform</a></h3>
-<p>
-A talk by Andrew Gerrand presented at Google Developer Day Japan 2011.
-It discusses the development of a web application that runs on Google
-App Engine and renders images that it stores on Google Cloud Storage.
+See the <a href="http://talks.golang.org/2011/Writing_Web_Apps_in_Go.pdf">presentation slides</a>.
 </p>
 
 <h3 id="go_programming"><a href="http://www.youtube.com/watch?v=jgVhBThJdXc">Go Programming</a><font color="red">*</font></h3>
@@ -168,14 +176,6 @@ A presentation delivered by Rob Pike and Russ Cox at Google I/O 2010.  It
 illustrates how programming in Go differs from other languages through a set of
 examples demonstrating features particular to Go.  These include concurrency,
 embedded types, methods on any type, and program construction using interfaces.
-</p>
-
-<h3 id="practical_go_programming"><a href="http://www.youtube.com/watch?v=2-pPAvqyluI">Practical Go Programming</a><font color="red">*</font></h3>
-<p>
-This talk presents the development of a complete web application in Go.
-It looks at design, storage, concurrency, and scaling issues in detail, using
-the simple example of an URL shortening service.
-See the <a href="http://wh3rd.net/practical-go/">presentation slides</a>.
 </p>
 
 <h4 id="talks_more">More</h4>
@@ -201,7 +201,7 @@ documentation.
 <p>The <a href="http://groups.google.com/group/golang-nuts">golang-nuts</a>
 mailing list is for general Go discussion.</p>
 
-<h3 id="projects"><a href="http://godashboard.appspot.com/project">Go Project Dashboard</a></h3>
+<h3 id="projects"><a href="http://code.google.com/p/go-wiki/wiki/Projects">Go Wiki Projects Page</a></h3>
 <p>A list of external Go projects including programs and libraries.</p>
 
 <h3 id="irc"><a href="irc:irc.freenode.net/go-nuts">Go IRC Channel</a></h3>

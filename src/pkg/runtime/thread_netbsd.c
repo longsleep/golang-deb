@@ -11,7 +11,7 @@ enum
 	ESRCH = 3,
 	ENOTSUP = 91,
 
-	// From NetBSD's sys/time.h
+	// From NetBSD's <sys/time.h>
 	CLOCK_REALTIME = 0,
 	CLOCK_VIRTUAL = 1,
 	CLOCK_PROF = 2,
@@ -20,9 +20,15 @@ enum
 
 extern SigTab runtime·sigtab[];
 
-extern int64 runtime·rfork_thread(int32 flags, void *stack, M *m, G *g, void (*fn)(void));
-extern int32 runtime·thrsleep(void *ident, int32 clock_id, void *tsp, void *lock);
-extern int32 runtime·thrwakeup(void *ident, int32 n);
+static Sigset sigset_none;
+static Sigset sigset_all = { ~(uint32)0, ~(uint32)0, ~(uint32)0, ~(uint32)0, };
+
+extern void runtime·getcontext(UcontextT *context);
+extern int32 runtime·lwp_create(UcontextT *context, uintptr flags, void *lwpid);
+extern void runtime·lwp_mcontext_init(void *mc, void *stack, M *mp, G *gp, void (*fn)(void));
+extern int32 runtime·lwp_park(Timespec *abstime, int32 unpark, void *hint, void *unparkhint);
+extern int32 runtime·lwp_unpark(int32 lwp, void *hint);
+extern int32 runtime·lwp_self(void);
 
 // From NetBSD's <sys/sysctl.h>
 #define	CTL_HW	6
@@ -68,13 +74,30 @@ runtime·semasleep(int64 ns)
 		if(m->waitsemacount == 0) {
 			// sleep until semaphore != 0 or timeout.
 			// thrsleep unlocks m->waitsemalock.
-			if(ns < 0)
-				runtime·thrsleep(&m->waitsemacount, 0, nil, &m->waitsemalock);
-			else {
+			if(ns < 0) {
+				// TODO(jsing) - potential deadlock!
+				//
+				// There is a potential deadlock here since we
+				// have to release the waitsemalock mutex
+				// before we call lwp_park() to suspend the
+				// thread. This allows another thread to
+				// release the lock and call lwp_unpark()
+				// before the thread is actually suspended.
+				// If this occurs the current thread will end
+				// up sleeping indefinitely. Unfortunately
+				// the NetBSD kernel does not appear to provide
+				// a mechanism for unlocking the userspace
+				// mutex once the thread is actually parked.
+				runtime·atomicstore(&m->waitsemalock, 0);
+				runtime·lwp_park(nil, 0, &m->waitsemacount, nil);
+			} else {
 				ns += runtime·nanotime();
 				ts.tv_sec = ns/1000000000LL;
 				ts.tv_nsec = ns%1000000000LL;
-				runtime·thrsleep(&m->waitsemacount, CLOCK_REALTIME, &ts, &m->waitsemalock);
+				// TODO(jsing) - potential deadlock!
+				// See above for details.
+				runtime·atomicstore(&m->waitsemalock, 0);
+				runtime·lwp_park(&ts, 0, &m->waitsemacount, nil);
 			}
 			// reacquire lock
 			while(runtime·xchg(&m->waitsemalock, 1))
@@ -112,39 +135,41 @@ runtime·semawakeup(M *mp)
 	while(runtime·xchg(&mp->waitsemalock, 1))
 		runtime·osyield();
 	mp->waitsemacount++;
-	ret = runtime·thrwakeup(&mp->waitsemacount, 1);
+	// TODO(jsing) - potential deadlock, see semasleep() for details.
+	// Confirm that LWP is parked before unparking...
+	ret = runtime·lwp_unpark(mp->procid, &mp->waitsemacount);
 	if(ret != 0 && ret != ESRCH)
 		runtime·printf("thrwakeup addr=%p sem=%d ret=%d\n", &mp->waitsemacount, mp->waitsemacount, ret);
 	// spin-mutex unlock
 	runtime·atomicstore(&mp->waitsemalock, 0);
 }
 
-// From NetBSD's sys/param.h
-#define	RFPROC		(1<<4)	/* change child (else changes curproc) */
-#define	RFMEM		(1<<5)	/* share `address space' */
-#define	RFNOWAIT	(1<<6)	/* parent need not wait() on child */
-#define	RFTHREAD	(1<<13)	/* create a thread, not a process */
-
 void
-runtime·newosproc(M *m, G *g, void *stk, void (*fn)(void))
+runtime·newosproc(M *mp, void *stk)
 {
-	int32 flags;
+	UcontextT uc;
 	int32 ret;
 
-	flags = RFPROC | RFTHREAD | RFMEM | RFNOWAIT;
-
-	if (0) {
+	if(0) {
 		runtime·printf(
-			"newosproc stk=%p m=%p g=%p fn=%p id=%d/%d ostk=%p\n",
-			stk, m, g, fn, m->id, m->tls[0], &m);
+			"newosproc stk=%p m=%p g=%p id=%d/%d ostk=%p\n",
+			stk, mp, mp->g0, mp->id, (int32)mp->tls[0], &mp);
 	}
 
-	m->tls[0] = m->id;	// so 386 asm can find it
+	mp->tls[0] = mp->id;	// so 386 asm can find it
 
-	if((ret = runtime·rfork_thread(flags, stk, m, g, fn)) < 0) {
+	runtime·getcontext(&uc);
+	
+	uc.uc_flags = _UC_SIGMASK | _UC_CPU;
+	uc.uc_link = nil;
+	uc.uc_sigmask = sigset_all;
+
+	runtime·lwp_mcontext_init(&uc.uc_mcontext, stk, mp, mp->g0, runtime·mstart);
+
+	ret = runtime·lwp_create(&uc, 0, &mp->procid);
+
+	if(ret < 0) {
 		runtime·printf("runtime: failed to create new OS thread (have %d already; errno=%d)\n", runtime·mcount() - 1, -ret);
-		if (ret == -ENOTSUP)
-			runtime·printf("runtime: is kern.rthreads disabled?\n");
 		runtime·throw("runtime.newosproc");
 	}
 }
@@ -162,12 +187,30 @@ runtime·goenvs(void)
 }
 
 // Called to initialize a new m (including the bootstrap m).
+// Called on the parent thread (main thread in case of bootstrap), can allocate memory.
+void
+runtime·mpreinit(M *mp)
+{
+	mp->gsignal = runtime·malg(32*1024);
+}
+
+// Called to initialize a new m (including the bootstrap m).
+// Called on the new thread, can not allocate memory.
 void
 runtime·minit(void)
 {
+	m->procid = runtime·lwp_self();
+
 	// Initialize signal handling
-	m->gsignal = runtime·malg(32*1024);
-	runtime·signalstack(m->gsignal->stackguard - StackGuard, 32*1024);
+	runtime·signalstack((byte*)m->gsignal->stackguard - StackGuard, 32*1024);
+	runtime·sigprocmask(SIG_SETMASK, &sigset_none, nil);
+}
+
+// Called from dropm to undo the effect of an minit.
+void
+runtime·unminit(void)
+{
+	runtime·signalstack(nil, 0);
 }
 
 void
@@ -224,12 +267,22 @@ runtime·badcallback(void)
 	runtime·write(2, badcallback, sizeof badcallback - 1);
 }
 
-static int8 badsignal[] = "runtime: signal received on thread not created by Go.\n";
+static int8 badsignal[] = "runtime: signal received on thread not created by Go: ";
 
 // This runs on a foreign stack, without an m or a g.  No stack split.
 #pragma textflag 7
 void
-runtime·badsignal(void)
+runtime·badsignal(int32 sig)
 {
+	if (sig == SIGPROF) {
+		return;  // Ignore SIGPROFs intended for a non-Go thread.
+	}
 	runtime·write(2, badsignal, sizeof badsignal - 1);
+	if (0 <= sig && sig < NSIG) {
+		// Call runtime·findnull dynamically to circumvent static stack size check.
+		static int32 (*findnull)(byte*) = runtime·findnull;
+		runtime·write(2, runtime·sigtab[sig].name, findnull((byte*)runtime·sigtab[sig].name));
+	}
+	runtime·write(2, "\n", 1);
+	runtime·exit(1);
 }

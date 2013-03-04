@@ -11,7 +11,7 @@ package unsafe
 // part of the unsafe package.  It represents the type of an arbitrary Go expression.
 type ArbitraryType int
 
-// Pointer represents a pointer to an arbitrary type.  There are three special operations
+// Pointer represents a pointer to an arbitrary type.  There are four special operations
 // available for type Pointer that are not available for other types.
 //	1) A pointer value of any type can be converted to a Pointer.
 //	2) A Pointer can be converted to a pointer value of any type.
@@ -32,6 +32,6 @@ func Sizeof(v ArbitraryType) uintptr
 func Offsetof(v ArbitraryType) uintptr
 
 // Alignof returns the alignment of the value v.  It is the maximum value m such
-// that the address of a variable with the type of v will always always be zero mod m.
+// that the address of a variable with the type of v will always be zero mod m.
 // If v is of the form structValue.field, it returns the alignment of field f within struct object obj.
 func Alignof(v ArbitraryType) uintptr

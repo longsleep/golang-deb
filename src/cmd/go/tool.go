@@ -47,7 +47,7 @@ const toolWindowsExtension = ".exe"
 
 func tool(name string) string {
 	p := filepath.Join(toolDir, name)
-	if toolIsWindows {
+	if toolIsWindows && name != "pprof" {
 		p += toolWindowsExtension
 	}
 	return p
@@ -76,6 +76,16 @@ func runTool(cmd *Command, args []string) {
 		setExitStatus(3)
 		return
 	}
+	if toolIsWindows && toolName == "pprof" {
+		args = append([]string{"perl", toolPath}, args[1:]...)
+		var err error
+		toolPath, err = exec.LookPath("perl")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "go tool: perl not found\n")
+			setExitStatus(3)
+			return
+		}
+	}
 
 	if toolN {
 		fmt.Printf("%s %s\n", toolPath, strings.Join(args[1:], " "))
@@ -90,7 +100,14 @@ func runTool(cmd *Command, args []string) {
 	}
 	err := toolCmd.Run()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go tool %s: %s\n", toolName, err)
+		// Only print about the exit status if the command
+		// didn't even run (not an ExitError) or it didn't exit cleanly
+		// or we're printing command lines too (-x mode).
+		// Assume if command exited cleanly (even with non-zero status)
+		// it printed any messages it wanted to print.
+		if e, ok := err.(*exec.ExitError); !ok || !e.Exited() || buildX {
+			fmt.Fprintf(os.Stderr, "go tool %s: %s\n", toolName, err)
+		}
 		setExitStatus(1)
 		return
 	}

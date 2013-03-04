@@ -37,8 +37,8 @@ static void fixlbrace(int);
 // |sed 's/.*	//' |9 fmt -l1 |sort |9 fmt -l50 | sed 's/^/%xxx		/'
 
 %token	<val>	LLITERAL
-%token	<i>	LASOP
-%token	<sym>	LBREAK LCASE LCHAN LCOLAS LCONST LCONTINUE LDDD
+%token	<i>	LASOP LCOLAS
+%token	<sym>	LBREAK LCASE LCHAN LCONST LCONTINUE LDDD
 %token	<sym>	LDEFAULT LDEFER LELSE LFALL LFOR LFUNC LGO LGOTO
 %token	<sym>	LIF LIMPORT LINTERFACE LMAP LNAME
 %token	<sym>	LPACKAGE LRANGE LRETURN LSELECT LSTRUCT LSWITCH
@@ -54,10 +54,10 @@ static void fixlbrace(int);
 %type	<node>	stmt ntype
 %type	<node>	arg_type
 %type	<node>	case caseblock
-%type	<node>	compound_stmt dotname embed expr complitexpr
+%type	<node>	compound_stmt dotname embed expr complitexpr bare_complitexpr
 %type	<node>	expr_or_type
 %type	<node>	fndcl hidden_fndcl fnliteral
-%type	<node>	for_body for_header for_stmt if_header if_stmt else non_dcl_stmt
+%type	<node>	for_body for_header for_stmt if_header if_stmt non_dcl_stmt
 %type	<node>	interfacedcl keyval labelname name
 %type	<node>	name_or_type non_expr_type
 %type	<node>	new_name dcl_name oexpr typedclname
@@ -70,7 +70,7 @@ static void fixlbrace(int);
 
 %type	<list>	xdcl fnbody fnres loop_body dcl_name_list
 %type	<list>	new_name_list expr_list keyval_list braced_keyval_list expr_or_type_list xdcl_list
-%type	<list>	oexpr_list caseblock_list stmt_list oarg_type_list_ocomma arg_type_list
+%type	<list>	oexpr_list caseblock_list elseif elseif_list else stmt_list oarg_type_list_ocomma arg_type_list
 %type	<list>	interfacedcl_list vardcl vardcl_list structdcl structdcl_list
 %type	<list>	common_dcl constdcl constdcl1 constdcl_list typedcl_list
 
@@ -405,6 +405,20 @@ simple_stmt:
 	expr
 	{
 		$$ = $1;
+
+		// These nodes do not carry line numbers.
+		// Since a bare name used as an expression is an error,
+		// introduce a wrapper node to give the correct line.
+		switch($$->op) {
+		case ONAME:
+		case ONONAME:
+		case OTYPE:
+		case OPACK:
+		case OLITERAL:
+			$$ = nod(OPAREN, $$, N);
+			$$->implicit = 1;
+			break;
+		}
 	}
 |	expr LASOP expr
 	{
@@ -437,7 +451,7 @@ simple_stmt:
 				$$->left = dclname($1->n->sym);  // it's a colas, so must not re-use an oldname.
 			break;
 		}
-		$$ = colas($1, $3);
+		$$ = colas($1, $3, $2);
 	}
 |	expr LINC
 	{
@@ -496,7 +510,7 @@ case:
 		// done in casebody()
 		markdcl();
 		$$ = nod(OXCASE, N, N);
-		$$->list = list1(colas($2, list1($4)));
+		$$->list = list1(colas($2, list1($4), $3));
 	}
 |	LDEFAULT ':'
 	{
@@ -661,25 +675,56 @@ if_stmt:
 	{
 		$3->nbody = $5;
 	}
-	else
+	elseif_list else
 	{
-		popdcl();
+		Node *n;
+		NodeList *nn;
+
 		$$ = $3;
-		if($7 != N)
-			$$->nelse = list1($7);
+		n = $3;
+		popdcl();
+		for(nn = concat($7, $8); nn; nn = nn->next) {
+			if(nn->n->op == OIF)
+				popdcl();
+			n->nelse = list1(nn->n);
+			n = nn->n;
+		}
+	}
+
+elseif:
+	LELSE LIF 
+	{
+		markdcl();
+	}
+	if_header loop_body
+	{
+		if($4->ntest == N)
+			yyerror("missing condition in if statement");
+		$4->nbody = $5;
+		$$ = list1($4);
+	}
+
+elseif_list:
+	{
+		$$ = nil;
+	}
+|	elseif_list elseif
+	{
+		$$ = concat($1, $2);
 	}
 
 else:
 	{
-		$$ = N;
-	}
-|	LELSE if_stmt
-	{
-		$$ = $2;
+		$$ = nil;
 	}
 |	LELSE compound_stmt
 	{
-		$$ = $2;
+		NodeList *node;
+		
+		node = mal(sizeof *node);
+		node->n = $2;
+		node->end = node;
+		$$ = node;
 	}
 
 switch_stmt:
@@ -902,7 +947,7 @@ pexpr_no_paren:
 		$$ = nod(OSLICE, $1, nod(OKEY, $3, $5));
 	}
 |	pseudocall
-|	convtype '(' expr ')'
+|	convtype '(' expr ocomma ')'
 	{
 		// conversion
 		$$ = nod(OCALL, $1, N);
@@ -943,6 +988,30 @@ keyval:
 		$$ = nod(OKEY, $1, $3);
 	}
 
+bare_complitexpr:
+	expr
+	{
+		// These nodes do not carry line numbers.
+		// Since a composite literal commonly spans several lines,
+		// the line number on errors may be misleading.
+		// Introduce a wrapper node to give the correct line.
+		$$ = $1;
+		switch($$->op) {
+		case ONAME:
+		case ONONAME:
+		case OTYPE:
+		case OPACK:
+		case OLITERAL:
+			$$ = nod(OPAREN, $$, N);
+			$$->implicit = 1;
+		}
+	}
+|	'{' start_complit braced_keyval_list '}'
+	{
+		$$ = $2;
+		$$->list = $3;
+	}
+
 complitexpr:
 	expr
 |	'{' start_complit braced_keyval_list '}'
@@ -966,6 +1035,7 @@ pexpr:
 		case OPACK:
 		case OTYPE:
 		case OLITERAL:
+		case OTYPESW:
 			$$ = nod(OPAREN, $$, N);
 		}
 	}
@@ -1030,10 +1100,16 @@ sym:
 hidden_importsym:
 	'@' LLITERAL '.' LNAME
 	{
+		Pkg *p;
+
 		if($2.u.sval->len == 0)
-			$$ = pkglookup($4->name, importpkg);
-		else
-			$$ = pkglookup($4->name, mkpkg($2.u.sval));
+			p = importpkg;
+		else {
+			if(isbadimport($2.u.sval))
+				errorexit();
+			p = mkpkg($2.u.sval);
+		}
+		$$ = pkglookup($4->name, p);
 	}
 
 name:
@@ -1201,8 +1277,11 @@ xfndcl:
 		$$ = $2;
 		if($$ == N)
 			break;
+		if(noescape && $3 != nil)
+			yyerror("can only use //go:noescape with external func implementations");
 		$$->nbody = $3;
 		$$->endlineno = lineno;
+		$$->noescape = noescape;
 		funcbody($$);
 	}
 
@@ -1269,6 +1348,7 @@ fndcl:
 		$$->nname = methodname1($$->shortname, rcvr->right);
 		$$->nname->defn = $$;
 		$$->nname->ntype = t;
+		$$->nname->nointerface = nointerface;
 		declare($$->nname, PFUNC);
 
 		funchdr($$);
@@ -1287,8 +1367,10 @@ hidden_fndcl:
 
 		importsym(s, ONAME);
 		if(s->def != N && s->def->op == ONAME) {
-			if(eqtype(t, s->def->type))
+			if(eqtype(t, s->def->type)) {
+				dclcontext = PDISCARD;  // since we skip funchdr below
 				break;
+			}
 			yyerror("inconsistent definition for func %S during import\n\t%T\n\t%T", s, s->def->type, t);
 		}
 
@@ -1304,7 +1386,8 @@ hidden_fndcl:
 		$$->type = functype($2->n, $6, $8);
 
 		checkwidth($$->type);
-		addmethod($4, $$->type, 0);
+		addmethod($4, $$->type, 0, nointerface);
+		nointerface = 0;
 		funchdr($$);
 		
 		// inl.c's inlnode in on a dotmeth node expects to find the inlineable body as
@@ -1381,6 +1464,8 @@ xdcl_list:
 		$$ = concat($1, $2);
 		if(nsyntaxerrors == 0)
 			testdclstack();
+		nointerface = 0;
+		noescape = 0;
 	}
 
 vardcl_list:
@@ -1719,7 +1804,7 @@ keyval_list:
 	{
 		$$ = list1($1);
 	}
-|	complitexpr
+|	bare_complitexpr
 	{
 		$$ = list1($1);
 	}
@@ -1727,7 +1812,7 @@ keyval_list:
 	{
 		$$ = list($1, $3);
 	}
-|	keyval_list ',' complitexpr
+|	keyval_list ',' bare_complitexpr
 	{
 		$$ = list($1, $3);
 	}
@@ -1818,8 +1903,10 @@ hidden_import:
 	}
 |	LFUNC hidden_fndcl fnbody ';'
 	{
-		if($2 == N)
+		if($2 == N) {
+			dclcontext = PEXTERN;  // since we skip the funcbody below
 			break;
+		}
 
 		$2->inl = $3;
 
@@ -1828,7 +1915,7 @@ hidden_import:
 
 		if(debug['E']) {
 			print("import [%Z] func %lN \n", importpkg->path, $2);
-			if(debug['l'] > 2 && $2->inl)
+			if(debug['m'] > 2 && $2->inl)
 				print("inl body:%+H\n", $2->inl);
 		}
 	}
@@ -2039,6 +2126,8 @@ hidden_constant:
 			mpaddfixfix($2->val.u.xval, $4->val.u.xval, 0);
 			break;
 		}
+		$4->val.u.cval->real = $4->val.u.cval->imag;
+		mpmovecflt(&$4->val.u.cval->imag, 0.0);
 		$$ = nodcplxlit($2->val, $4->val);
 	}
 

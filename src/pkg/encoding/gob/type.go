@@ -712,6 +712,7 @@ type GobDecoder interface {
 }
 
 var (
+	registerLock       sync.RWMutex
 	nameToConcreteType = make(map[string]reflect.Type)
 	concreteTypeToName = make(map[reflect.Type]string)
 )
@@ -723,6 +724,8 @@ func RegisterName(name string, value interface{}) {
 		// reserved for nil
 		panic("attempt to register empty name")
 	}
+	registerLock.Lock()
+	defer registerLock.Unlock()
 	ut := userType(reflect.TypeOf(value))
 	// Check for incompatible duplicates. The name must refer to the
 	// same user type, and vice versa.
@@ -749,12 +752,28 @@ func Register(value interface{}) {
 	rt := reflect.TypeOf(value)
 	name := rt.String()
 
-	// But for named types (or pointers to them), qualify with import path.
+	// But for named types (or pointers to them), qualify with import path (but see inner comment).
 	// Dereference one pointer looking for a named type.
 	star := ""
 	if rt.Name() == "" {
 		if pt := rt; pt.Kind() == reflect.Ptr {
 			star = "*"
+			// NOTE: The following line should be rt = pt.Elem() to implement
+			// what the comment above claims, but fixing it would break compatibility
+			// with existing gobs.
+			//
+			// Given package p imported as "full/p" with these definitions:
+			//     package p
+			//     type T1 struct { ... }
+			// this table shows the intended and actual strings used by gob to
+			// name the types:
+			//
+			// Type      Correct string     Actual string
+			//
+			// T1        full/p.T1          full/p.T1
+			// *T1       *full/p.T1         *p.T1
+			//
+			// The missing full path cannot be fixed without breaking existing gob decoders.
 			rt = pt
 		}
 	}

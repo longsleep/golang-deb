@@ -15,8 +15,8 @@
 
 static int defercalc;
 
-uint32
-rnd(uint32 o, uint32 r)
+vlong
+rnd(vlong o, vlong r)
 {
 	if(r < 1 || r > 8 || (r&(r-1)) != 0)
 		fatal("rnd");
@@ -54,6 +54,11 @@ widstruct(Type *errtype, Type *t, vlong o, int flag)
 	for(f=t->type; f!=T; f=f->down) {
 		if(f->etype != TFIELD)
 			fatal("widstruct: not TFIELD: %lT", f);
+		if(f->type == T) {
+			// broken field, just skip it so that other valid fields
+			// get a width.
+			continue;
+		}
 		dowidth(f->type);
 		if(f->type->align > maxalign)
 			maxalign = f->type->align;
@@ -248,8 +253,12 @@ dowidth(Type *t)
 			checkwidth(t->type);
 			t->align = widthptr;
 		}
-		else if(t->bound == -100)
-			yyerror("use of [...] array outside of array literal");
+		else if(t->bound == -100) {
+			if(!t->broke) {
+				yyerror("use of [...] array outside of array literal");
+				t->broke = 1;
+			}
+		}
 		else
 			fatal("dowidth %T", t);	// probably [...]T
 		break;
@@ -607,7 +616,7 @@ typeinit(void)
 			fatal("typeinit: %s already defined", s->name);
 
 		t = typ(etype);
-		t->sym = s;
+		t->sym = s1;
 
 		dowidth(t);
 		types[etype] = t;
@@ -615,12 +624,12 @@ typeinit(void)
 	}
 
 	Array_array = rnd(0, widthptr);
-	Array_nel = rnd(Array_array+widthptr, types[TUINT32]->width);
-	Array_cap = rnd(Array_nel+types[TUINT32]->width, types[TUINT32]->width);
-	sizeof_Array = rnd(Array_cap+types[TUINT32]->width, widthptr);
+	Array_nel = rnd(Array_array+widthptr, widthint);
+	Array_cap = rnd(Array_nel+widthint, widthint);
+	sizeof_Array = rnd(Array_cap+widthint, widthptr);
 
 	// string is same as slice wo the cap
-	sizeof_String = rnd(Array_nel+types[TUINT32]->width, widthptr);
+	sizeof_String = rnd(Array_nel+widthint, widthptr);
 
 	dowidth(types[TSTRING]);
 	dowidth(idealstring);

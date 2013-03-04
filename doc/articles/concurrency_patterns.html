@@ -17,7 +17,7 @@ and launching a goroutine that sleeps before sending on the channel:
 We can then use a <code>select</code> statement to receive from either
 <code>ch</code> or <code>timeout</code>. If nothing arrives on <code>ch</code>
 after one second, the timeout case is selected and the attempt to read from
-<cde>ch</cde> is abandoned.
+<code>ch</code> is abandoned.
 </p>
 
 {{code "/doc/progs/timeout1.go" `/select {/` `/STOP/`}}
@@ -64,7 +64,7 @@ could fail since no one is ready.
 </p>
 
 <p>
-This problem is a textbook of example of what is known as a
+This problem is a textbook example of what is known as a
 <a href="https://en.wikipedia.org/wiki/Race_condition">race condition</a>, but
 the fix is trivial. We just make sure to buffer the channel <code>ch</code> (by
 adding the buffer length as the second argument to <a href="/pkg/builtin/#make">make</a>),

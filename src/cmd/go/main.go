@@ -127,6 +127,17 @@ func main() {
 	// which is not what most people want when they do it.
 	if gopath := os.Getenv("GOPATH"); gopath == runtime.GOROOT() {
 		fmt.Fprintf(os.Stderr, "warning: GOPATH set to GOROOT (%s) has no effect\n", gopath)
+	} else {
+		for _, p := range filepath.SplitList(gopath) {
+			if strings.Contains(p, "~") && runtime.GOOS != "windows" {
+				fmt.Fprintf(os.Stderr, "go: GOPATH entry cannot contain shell metacharacter '~': %q\n", p)
+				os.Exit(2)
+			}
+			if build.IsLocalImport(p) {
+				fmt.Fprintf(os.Stderr, "go: GOPATH entry is relative; must be absolute path: %q.\nRun 'go help gopath' for usage.\n", p)
+				os.Exit(2)
+			}
+		}
 	}
 
 	for _, cmd := range commands {
@@ -189,7 +200,7 @@ var documentationTemplate = `// Copyright 2011 The Go Authors.  All rights reser
 
 
 {{end}}*/
-package documentation
+package main
 
 // NOTE: cmdDoc is in fmt.go.
 `
@@ -368,6 +379,25 @@ func runOut(dir string, cmdargs ...interface{}) []byte {
 	return out
 }
 
+// envForDir returns a copy of the environment
+// suitable for running in the given directory.
+// The environment is the current process's environment
+// but with an updated $PWD, so that an os.Getwd in the
+// child will be faster.
+func envForDir(dir string) []string {
+	env := os.Environ()
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PWD=") {
+			env[i] = "PWD=" + dir
+			return env
+		}
+	}
+	// Internally we only use rooted paths, so dir is rooted.
+	// Even if dir is not rooted, no harm done.
+	env = append(env, "PWD="+dir)
+	return env
+}
+
 // matchPattern(pattern)(name) reports whether
 // name matches pattern.  Pattern is a limited glob
 // pattern in which '...' means 'any string' and there
@@ -423,19 +453,20 @@ func matchPackages(pattern string) []string {
 			return filepath.SkipDir
 		}
 
-		_, err = build.ImportDir(path, 0)
+		// We use, e.g., cmd/gofmt as the pseudo import path for gofmt.
+		name = "cmd/" + name
+		if have[name] {
+			return nil
+		}
+		have[name] = true
+		if !match(name) {
+			return nil
+		}
+		_, err = buildContext.ImportDir(path, 0)
 		if err != nil {
 			return nil
 		}
-
-		// We use, e.g., cmd/gofmt as the pseudo import path for gofmt.
-		name = "cmd/" + name
-		if !have[name] {
-			have[name] = true
-			if match(name) {
-				pkgs = append(pkgs, name)
-			}
-		}
+		pkgs = append(pkgs, name)
 		return nil
 	})
 
@@ -463,14 +494,14 @@ func matchPackages(pattern string) []string {
 				return nil
 			}
 			have[name] = true
-
-			_, err = build.ImportDir(path, 0)
+			if !match(name) {
+				return nil
+			}
+			_, err = buildContext.ImportDir(path, 0)
 			if err != nil && strings.Contains(err.Error(), "no Go source files") {
 				return nil
 			}
-			if match(name) {
-				pkgs = append(pkgs, name)
-			}
+			pkgs = append(pkgs, name)
 			return nil
 		})
 	}
@@ -558,4 +589,61 @@ func stringList(args ...interface{}) []string {
 		}
 	}
 	return x
+}
+
+// toFold returns a string with the property that
+//	strings.EqualFold(s, t) iff toFold(s) == toFold(t)
+// This lets us test a large set of strings for fold-equivalent
+// duplicates without making a quadratic number of calls
+// to EqualFold. Note that strings.ToUpper and strings.ToLower
+// have the desired property in some corner cases.
+func toFold(s string) string {
+	// Fast path: all ASCII, no upper case.
+	// Most paths look like this already.
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= utf8.RuneSelf || 'A' <= c && c <= 'Z' {
+			goto Slow
+		}
+	}
+	return s
+
+Slow:
+	var buf bytes.Buffer
+	for _, r := range s {
+		// SimpleFold(x) cycles to the next equivalent rune > x
+		// or wraps around to smaller values. Iterate until it wraps,
+		// and we've found the minimum value.
+		for {
+			r0 := r
+			r = unicode.SimpleFold(r0)
+			if r <= r0 {
+				break
+			}
+		}
+		// Exception to allow fast path above: A-Z => a-z
+		if 'A' <= r && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		buf.WriteRune(r)
+	}
+	return buf.String()
+}
+
+// foldDup reports a pair of strings from the list that are
+// equal according to strings.EqualFold.
+// It returns "", "" if there are no such strings.
+func foldDup(list []string) (string, string) {
+	clash := map[string]string{}
+	for _, s := range list {
+		fold := toFold(s)
+		if t := clash[fold]; t != "" {
+			if s > t {
+				s, t = t, s
+			}
+			return s, t
+		}
+		clash[fold] = s
+	}
+	return "", ""
 }

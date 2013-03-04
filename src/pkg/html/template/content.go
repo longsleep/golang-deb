@@ -30,7 +30,7 @@ type (
 	HTMLAttr string
 
 	// JS encapsulates a known safe EcmaScript5 Expression, for example,
-	// `(x + y * z())`. 
+	// `(x + y * z())`.
 	// Template authors are responsible for ensuring that typed expressions
 	// do not break the intended precedence and that there is no
 	// statement/expression ambiguity as when passing an expression like
@@ -47,7 +47,7 @@ type (
 	// JSStr("foo\\nbar") is fine, but JSStr("foo\\\nbar") is not.
 	JSStr string
 
-	// URL encapsulates a known safe URL as defined in RFC 3896.
+	// URL encapsulates a known safe URL or URL substring (see RFC 3986).
 	// A URL like `javascript:checkThatFormNotEditedBeforeLeavingPage()`
 	// from a trusted source should go in the page, but by default dynamic
 	// `javascript:` URLs are filtered out since they are a frequently

@@ -61,6 +61,19 @@ func TestDotSlashImport(t *testing.T) {
 	}
 }
 
+func TestEmptyImport(t *testing.T) {
+	p, err := Import("", Default.GOROOT, FindOnly)
+	if err == nil {
+		t.Fatal(`Import("") returned nil error.`)
+	}
+	if p == nil {
+		t.Fatal(`Import("") returned nil package.`)
+	}
+	if p.ImportPath != "" {
+		t.Fatalf("ImportPath=%q, want %q.", p.ImportPath, "")
+	}
+}
+
 func TestLocalDirectory(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -73,5 +86,34 @@ func TestLocalDirectory(t *testing.T) {
 	}
 	if p.ImportPath != "go/build" {
 		t.Fatalf("ImportPath=%q, want %q", p.ImportPath, "go/build")
+	}
+}
+
+func TestShouldBuild(t *testing.T) {
+	const file1 = "// +build tag1\n\n" +
+		"package main\n"
+
+	const file2 = "// +build cgo\n\n" +
+		"// This package implements parsing of tags like\n" +
+		"// +build tag1\n" +
+		"package build"
+
+	const file3 = "// Copyright The Go Authors.\n\n" +
+		"package build\n\n" +
+		"// shouldBuild checks tags given by lines of the form\n" +
+		"// +build tag\n" +
+		"func shouldBuild(content []byte)\n"
+
+	ctx := &Context{BuildTags: []string{"tag1"}}
+	if !ctx.shouldBuild([]byte(file1)) {
+		t.Errorf("should not build file1, expected the contrary")
+	}
+	if ctx.shouldBuild([]byte(file2)) {
+		t.Errorf("should build file2, expected the contrary")
+	}
+
+	ctx = &Context{BuildTags: nil}
+	if !ctx.shouldBuild([]byte(file3)) {
+		t.Errorf("should not build file3, expected the contrary")
 	}
 }
