@@ -59,7 +59,7 @@ ilookup(char *name)
 		if(x->name[0] == name[0] && strcmp(x->name, name) == 0)
 			return x;
 	x = mal(sizeof *x);
-	x->name = strdup(name);
+	x->name = estrdup(name);
 	x->hash = ihash[h];
 	ihash[h] = x;
 	nimport++;
@@ -70,8 +70,6 @@ static void loadpkgdata(char*, char*, char*, int);
 static void loadcgo(char*, char*, char*, int);
 static int parsemethod(char**, char*, char**);
 static int parsepkgdata(char*, char*, char**, char*, char**, char**, char**);
-
-static Sym **dynexp;
 
 void
 ldpkg(Biobuf *f, char *pkg, int64 len, char *filename, int whence)
@@ -205,14 +203,14 @@ loadpkgdata(char *file, char *pkg, char *data, int len)
 	char *p, *ep, *prefix, *name, *def;
 	Import *x;
 
-	file = strdup(file);
+	file = estrdup(file);
 	p = data;
 	ep = data + len;
 	while(parsepkgdata(file, pkg, &p, ep, &prefix, &name, &def) > 0) {
 		x = ilookup(name);
 		if(x->prefix == nil) {
 			x->prefix = prefix;
-			x->def = strdup(def);
+			x->def = estrdup(def);
 			x->file = file;
 		} else if(strcmp(x->prefix, prefix) != 0) {
 			fprint(2, "%s: conflicting definitions for %s\n", argv0, name);
@@ -244,7 +242,7 @@ expandpkg(char *t0, char *pkg)
 		n++;
 
 	if(n == 0)
-		return strdup(t0);
+		return estrdup(t0);
 
 	// use malloc, not mal, so that caller can free
 	w0 = malloc(strlen(t0) + strlen(pkg)*n);
@@ -429,7 +427,7 @@ loadcgo(char *file, char *pkg, char *p, int n)
 			*next++ = '\0';
 
 		free(p0);
-		p0 = strdup(p); // save for error message
+		p0 = estrdup(p); // save for error message
 		nf = tokenize(p, f, nelem(f));
 		
 		if(strcmp(f[0], "cgo_import_dynamic") == 0) {
@@ -467,7 +465,7 @@ loadcgo(char *file, char *pkg, char *p, int n)
 				free(local);
 			if(s->type == 0 || s->type == SXREF) {
 				s->dynimplib = lib;
-				s->dynimpname = remote;
+				s->extname = remote;
 				s->dynimpvers = q;
 				s->type = SDYNIMPORT;
 				havedynamic = 1;
@@ -478,16 +476,18 @@ loadcgo(char *file, char *pkg, char *p, int n)
 		if(strcmp(f[0], "cgo_import_static") == 0) {
 			if(nf != 2)
 				goto err;
-			if(isobj) {
-				local = f[1];
-				s = lookup(local, 0);
-				s->type = SHOSTOBJ;
-				s->size = 0;
-			}
+			local = f[1];
+			s = lookup(local, 0);
+			s->type = SHOSTOBJ;
+			s->size = 0;
 			continue;
 		}
 
-		if(strcmp(f[0], "cgo_export") == 0) {
+		if(strcmp(f[0], "cgo_export_static") == 0 || strcmp(f[0], "cgo_export_dynamic") == 0) {
+			// TODO: Remove once we know Windows is okay.
+			if(strcmp(f[0], "cgo_export_static") == 0 && HEADTYPE == Hwindows)
+				continue;
+
 			if(nf < 2 || nf > 3)
 				goto err;
 			local = f[1];
@@ -497,17 +497,30 @@ loadcgo(char *file, char *pkg, char *p, int n)
 				remote = local;
 			local = expandpkg(local, pkg);
 			s = lookup(local, 0);
+
+			// export overrides import, for openbsd/cgo.
+			// see issue 4878.
 			if(s->dynimplib != nil) {
-				fprint(2, "%s: symbol is both imported and exported: %s\n", argv0, local);
-				nerrors++;
+				s->dynimplib = nil;
+				s->extname = nil;
+				s->dynimpvers = nil;
+				s->type = 0;
 			}
-			s->dynimpname = remote;
-			s->dynexport = 1;
 
-			if(ndynexp%32 == 0)
-				dynexp = realloc(dynexp, (ndynexp+32)*sizeof dynexp[0]);
-			dynexp[ndynexp++] = s;
-
+			if(s->cgoexport == 0) {
+				if(strcmp(f[0], "cgo_export_static") == 0)
+					s->cgoexport |= CgoExportStatic;
+				else
+					s->cgoexport |= CgoExportDynamic;
+				s->extname = remote;
+				if(ndynexp%32 == 0)
+					dynexp = erealloc(dynexp, (ndynexp+32)*sizeof dynexp[0]);
+				dynexp[ndynexp++] = s;
+			} else if(strcmp(s->extname, remote) != 0) {
+				fprint(2, "%s: conflicting cgo_export directives: %s as %s and %s\n", argv0, s->name, s->extname, remote);
+				nerrors++;
+				return;
+			}
 			if(local != f[1])
 				free(local);
 			continue;
@@ -524,8 +537,17 @@ loadcgo(char *file, char *pkg, char *p, int n)
 					return;
 				}
 				free(interpreter);
-				interpreter = strdup(f[1]);
+				interpreter = estrdup(f[1]);
 			}
+			continue;
+		}
+		
+		if(strcmp(f[0], "cgo_ldflag") == 0) {
+			if(nf != 2)
+				goto err;
+			if(nldflag%32 == 0)
+				ldflag = erealloc(ldflag, (nldflag+32)*sizeof ldflag[0]);
+			ldflag[nldflag++] = estrdup(f[1]);
 			continue;
 		}
 	}
@@ -751,6 +773,9 @@ addexport(void)
 {
 	int i;
 	
+	if(HEADTYPE == Hdarwin)
+		return;
+
 	for(i=0; i<ndynexp; i++)
 		adddynsym(dynexp[i]);
 }
@@ -829,7 +854,7 @@ getpkg(char *path)
 		if(strcmp(p->path, path) == 0)
 			return p;
 	p = mal(sizeof *p);
-	p->path = strdup(path);
+	p->path = estrdup(path);
 	p->next = phash[h];
 	phash[h] = p;
 	p->all = pkgall;
@@ -853,7 +878,7 @@ imported(char *pkg, char *import)
 		i->mimpby *= 2;
 		if(i->mimpby == 0)
 			i->mimpby = 16;
-		i->impby = realloc(i->impby, i->mimpby*sizeof i->impby[0]);
+		i->impby = erealloc(i->impby, i->mimpby*sizeof i->impby[0]);
 	}
 	i->impby[i->nimpby++] = p;
 	free(pkg);
@@ -899,27 +924,17 @@ importcycles(void)
 		cycle(p);
 }
 
-static int
-scmp(const void *p1, const void *p2)
-{
-	Sym *s1, *s2;
-
-	s1 = *(Sym**)p1;
-	s2 = *(Sym**)p2;
-	return strcmp(s1->dynimpname, s2->dynimpname);
-}
 void
-sortdynexp(void)
+setlinkmode(char *arg)
 {
-	int i;
-
-	// On Mac OS X Mountain Lion, we must sort exported symbols
-	// So we sort them here and pre-allocate dynid for them
-	// See http://golang.org/issue/4029
-	if(HEADTYPE != Hdarwin)
-		return;
-	qsort(dynexp, ndynexp, sizeof dynexp[0], scmp);
-	for(i=0; i<ndynexp; i++) {
-		dynexp[i]->dynid = -i-100; // also known to [68]l/asm.c:^adddynsym
+	if(strcmp(arg, "internal") == 0)
+		linkmode = LinkInternal;
+	else if(strcmp(arg, "external") == 0)
+		linkmode = LinkExternal;
+	else if(strcmp(arg, "auto") == 0)
+		linkmode = LinkAuto;
+	else {
+		fprint(2, "unknown link mode -linkmode %s\n", arg);
+		errorexit();
 	}
 }

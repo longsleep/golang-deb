@@ -292,6 +292,10 @@ extern	char*	getgoversion(void);
 extern	char*	getgoarm(void);
 extern	char*	getgo386(void);
 
+extern	char*	mktempdir(void);
+extern	void	removeall(char*);
+extern	int	runcmd(char**);
+
 extern	void	flagcount(char*, char*, int*);
 extern	void	flagint32(char*, char*, int32*);
 extern	void	flagint64(char*, char*, int64*);
@@ -304,7 +308,7 @@ extern	void	flagprint(int);
 
 #ifdef _WIN32
 
-#ifndef _WIN64
+#if !defined(_WIN64) && !defined(__MINGW64_VERSION_MAJOR)
 struct timespec {
 	int tv_sec;
 	long tv_nsec;

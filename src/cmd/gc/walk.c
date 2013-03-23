@@ -29,40 +29,6 @@ static	void	walkdiv(Node**, NodeList**);
 static	int	bounded(Node*, int64);
 static	Mpint	mpzero;
 
-// can this code branch reach the end
-// without an unconditional RETURN
-// this is hard, so it is conservative
-static int
-walkret(NodeList *l)
-{
-	Node *n;
-
-loop:
-	while(l && l->next)
-		l = l->next;
-	if(l == nil)
-		return 1;
-
-	// at this point, we have the last
-	// statement of the function
-	n = l->n;
-	switch(n->op) {
-	case OBLOCK:
-		l = n->list;
-		goto loop;
-
-	case OGOTO:
-	case ORETURN:
-	case OPANIC:
-		return 0;
-		break;
-	}
-
-	// all other statements
-	// will flow to the end
-	return 1;
-}
-
 void
 walk(Node *fn)
 {
@@ -76,9 +42,6 @@ walk(Node *fn)
 		snprint(s, sizeof(s), "\nbefore %S", curfn->nname->sym);
 		dumplist(s, curfn->nbody);
 	}
-	if(curfn->type->outtuple)
-		if(walkret(curfn->nbody))
-			yyerror("function ends without a return statement");
 
 	lno = lineno;
 
@@ -221,6 +184,7 @@ walkstmt(Node **np)
 	case OLABEL:
 	case ODCLCONST:
 	case ODCLTYPE:
+	case OCHECKNOTNIL:
 		break;
 
 	case OBLOCK:
@@ -433,13 +397,28 @@ walkexpr(Node **np, NodeList **init)
 	case OIMAG:
 	case ODOTMETH:
 	case ODOTINTER:
+		walkexpr(&n->left, init);
+		goto ret;
+
 	case OIND:
+		if(n->left->type->type->width == 0) {
+			n->left = cheapexpr(n->left, init);
+			checknotnil(n->left, init);
+		}
 		walkexpr(&n->left, init);
 		goto ret;
 
 	case ODOT:
+		usefield(n);
+		walkexpr(&n->left, init);
+		goto ret;
+
 	case ODOTPTR:
 		usefield(n);
+		if(n->op == ODOTPTR && n->left->type->type->width == 0) {
+			n->left = cheapexpr(n->left, init);
+			checknotnil(n->left, init);
+		}
 		walkexpr(&n->left, init);
 		goto ret;
 
@@ -561,13 +540,6 @@ walkexpr(Node **np, NodeList **init)
 		if(n->list && n->list->n->op == OAS)
 			goto ret;
 
-		/*
-		if(n->left->op == OCLOSURE) {
-			walkcallclosure(n, init);
-			t = n->left->type;
-		}
-		*/
-
 		walkexpr(&n->left, init);
 		walkexprlist(n->list, init);
 
@@ -673,8 +645,48 @@ walkexpr(Node **np, NodeList **init)
 		r = n->rlist->n;
 		walkexprlistsafe(n->list, init);
 		walkexpr(&r->left, init);
-		fn = mapfn("mapaccess2", r->left->type);
-		r = mkcall1(fn, getoutargx(fn->type), init, typename(r->left->type), r->left, r->right);
+		t = r->left->type;
+		p = nil;
+		if(t->type->width <= 128) { // Check ../../pkg/runtime/hashmap.c:MAXVALUESIZE before changing.
+			switch(simsimtype(t->down)) {
+			case TINT32:
+			case TUINT32:
+				p = "mapaccess2_fast32";
+				break;
+			case TINT64:
+			case TUINT64:
+				p = "mapaccess2_fast64";
+				break;
+			case TSTRING:
+				p = "mapaccess2_faststr";
+				break;
+			}
+		}
+		if(p != nil) {
+			// from:
+			//   a,b = m[i]
+			// to:
+			//   var,b = mapaccess2_fast*(t, m, i)
+			//   a = *var
+			a = n->list->n;
+			var = temp(ptrto(t->type));
+			var->typecheck = 1;
+
+			fn = mapfn(p, t);
+			r = mkcall1(fn, getoutargx(fn->type), init, typename(t), r->left, r->right);
+			n->rlist = list1(r);
+			n->op = OAS2FUNC;
+			n->list->n = var;
+			walkexpr(&n, init);
+			*init = list(*init, n);
+
+			n = nod(OAS, a, nod(OIND, var, N));
+			typecheck(&n, Etop);
+			walkexpr(&n, init);
+			goto ret;
+		}
+		fn = mapfn("mapaccess2", t);
+		r = mkcall1(fn, getoutargx(fn->type), init, typename(t), r->left, r->right);
 		n->rlist = list1(r);
 		n->op = OAS2FUNC;
 		goto as2func;
@@ -1041,7 +1053,33 @@ walkexpr(Node **np, NodeList **init)
 			goto ret;
 
 		t = n->left->type;
-		n = mkcall1(mapfn("mapaccess1", t), t->type, init, typename(t), n->left, n->right);
+		p = nil;
+		if(t->type->width <= 128) {  // Check ../../pkg/runtime/hashmap.c:MAXVALUESIZE before changing.
+			switch(simsimtype(t->down)) {
+			case TINT32:
+			case TUINT32:
+				p = "mapaccess1_fast32";
+				break;
+			case TINT64:
+			case TUINT64:
+				p = "mapaccess1_fast64";
+				break;
+			case TSTRING:
+				p = "mapaccess1_faststr";
+				break;
+			}
+		}
+		if(p != nil) {
+			// use fast version.  The fast versions return a pointer to the value - we need
+			// to dereference it to get the result.
+			n = mkcall1(mapfn(p, t), ptrto(t->type), init, typename(t), n->left, n->right);
+			n = nod(OIND, n, N);
+			n->type = t->type;
+			n->typecheck = 1;
+		} else {
+			// no fast version for this key
+			n = mkcall1(mapfn("mapaccess1", t), t->type, init, typename(t), n->left, n->right);
+		}
 		goto ret;
 
 	case ORECV:
@@ -1291,6 +1329,10 @@ walkexpr(Node **np, NodeList **init)
 
 	case OCLOSURE:
 		n = walkclosure(n, init);
+		goto ret;
+	
+	case OCALLPART:
+		n = walkpartialcall(n, init);
 		goto ret;
 	}
 	fatal("missing switch %O", n->op);

@@ -42,6 +42,7 @@ enum
 	thechar = '8',
 	PtrSize = 4,
 	IntSize = 4,
+	MaxAlign = 32,	// max data alignment
 	FuncAlign = 16
 };
 
@@ -83,9 +84,12 @@ struct	Reloc
 {
 	int32	off;
 	uchar	siz;
+	uchar	done;
 	int32	type;
 	int32	add;
+	int32	xadd;
 	Sym*	sym;
+	Sym*	xsym;
 };
 
 struct	Prog
@@ -122,11 +126,12 @@ struct	Auto
 struct	Sym
 {
 	char*	name;
+	char*	extname;	// name used in external object files
 	short	type;
 	short	version;
 	uchar	dupok;
 	uchar	reachable;
-	uchar	dynexport;
+	uchar	cgoexport;
 	uchar	special;
 	uchar	stkcheck;
 	uchar	hide;
@@ -149,7 +154,6 @@ struct	Sym
 	Sym*	reachparent;
 	Sym*	queue;
 	char*	file;
-	char*	dynimpname;
 	char*	dynimplib;
 	char*	dynimpvers;
 	struct Section*	sect;
@@ -172,7 +176,7 @@ struct	Optab
 	short	as;
 	uchar*	ytab;
 	uchar	prefix;
-	uchar	op[10];
+	uchar	op[12];
 };
 
 enum
@@ -217,6 +221,7 @@ enum
 	Zxxx		= 0,
 
 	Zlit,
+	Zlitm_r,
 	Z_rp,
 	Zbr,
 	Zcall,
@@ -233,6 +238,7 @@ enum
 	Zloop,
 	Zm_o,
 	Zm_r,
+	Zm2_r,
 	Zm_r_xm,
 	Zm_r_i_xm,
 	Zaut_r,
@@ -249,6 +255,7 @@ enum
 	Zib_rr,
 	Zil_rr,
 	Zclr,
+	Zibm_r,	/* mmx1,mmx2/mem64,imm8 */
 	Zbyte,
 	Zmov,
 	Zmax,

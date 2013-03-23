@@ -268,6 +268,7 @@ struct	Node
 	uchar	addrtaken;	// address taken, even if not moved to heap
 	uchar	dupok;	// duplicate definitions ok (for func)
 	schar	likely; // likeliness of if statement
+	uchar	hasbreak;	// has break statement
 
 	// most nodes
 	Type*	type;
@@ -368,6 +369,7 @@ struct	Sym
 	uchar	sym;		// huffman encoding in object file
 	Sym*	link;
 	int32	npkg;	// number of imported packages with this name
+	uint32	uniqgen;
 
 	// saved and restored by dcopy
 	Pkg*	pkg;
@@ -450,6 +452,7 @@ enum
 	OCALLFUNC,	// f()
 	OCALLMETH,	// t.Method()
 	OCALLINTER,	// err.Error()
+	OCALLPART,	// t.Method (without ())
 	OCAP,	// cap
 	OCLOSE,	// close
 	OCLOSURE,	// f = func() { etc }
@@ -562,6 +565,7 @@ enum
 	OITAB,	// itable word of an interface value.
 	OCLOSUREVAR, // variable reference at beginning of closure function
 	OCFUNC,	// reference to c function pointer (not go func value)
+	OCHECKNOTNIL, // emit code to ensure pointer/interface not nil
 
 	// arch-specific registers
 	OREGISTER,	// a register, such as AX.
@@ -987,7 +991,8 @@ Node*	closurebody(NodeList *body);
 void	closurehdr(Node *ntype);
 void	typecheckclosure(Node *func, int top);
 Node*	walkclosure(Node *func, NodeList **init);
-void	walkcallclosure(Node *n, NodeList **init);
+void	typecheckpartialcall(Node*, Node*);
+Node*	walkpartialcall(Node*, NodeList**);
 
 /*
  *	const.c
@@ -1363,6 +1368,7 @@ Node*	typecheck(Node **np, int top);
 void	typechecklist(NodeList *l, int top);
 Node*	typecheckdef(Node *n);
 void	copytype(Node *n, Type *t);
+void	checkreturn(Node*);
 void	queuemethod(Node *n);
 
 /*
@@ -1416,7 +1422,8 @@ EXTERN	Node*	nodfp;
 int	anyregalloc(void);
 void	betypeinit(void);
 void	bgen(Node *n, int true, int likely, Prog *to);
-void	checkref(Node*);
+void	checkref(Node *n, int force);
+void	checknotnil(Node*, NodeList**);
 void	cgen(Node*, Node*);
 void	cgen_asop(Node *n);
 void	cgen_call(Node *n, int proc);

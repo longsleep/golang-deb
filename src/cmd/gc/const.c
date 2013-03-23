@@ -119,6 +119,27 @@ convlit1(Node **np, Type *t, int explicit)
 		}
 		n->type = t;
 		return;
+	case OCOMPLEX:
+		if(n->type->etype == TIDEAL) {
+			switch(t->etype) {
+			default:
+				// If trying to convert to non-complex type,
+				// leave as complex128 and let typechecker complain.
+				t = types[TCOMPLEX128];
+				//fallthrough
+			case TCOMPLEX128:
+				n->type = t;
+				convlit(&n->left, types[TFLOAT64]);
+				convlit(&n->right, types[TFLOAT64]);
+				break;
+			case TCOMPLEX64:
+				n->type = t;
+				convlit(&n->left, types[TFLOAT32]);
+				convlit(&n->right, types[TFLOAT32]);
+				break;
+			}
+		}
+		return;
 	}
 
 	// avoided repeated calculations, errors
@@ -1068,6 +1089,11 @@ idealkind(Node *n)
 			return k1;
 		else
 			return k2;
+	case OREAL:
+	case OIMAG:
+		return CTFLT;
+	case OCOMPLEX:
+		return CTCPLX;
 	case OADDSTR:
 		return CTSTR;
 	case OANDAND:
@@ -1185,6 +1211,7 @@ void
 defaultlit2(Node **lp, Node **rp, int force)
 {
 	Node *l, *r;
+	int lkind, rkind;
 
 	l = *lp;
 	r = *rp;
@@ -1204,18 +1231,20 @@ defaultlit2(Node **lp, Node **rp, int force)
 		convlit(lp, types[TBOOL]);
 		convlit(rp, types[TBOOL]);
 	}
-	if(isconst(l, CTCPLX) || isconst(r, CTCPLX)) {
+	lkind = idealkind(l);
+	rkind = idealkind(r);
+	if(lkind == CTCPLX || rkind == CTCPLX) {
 		convlit(lp, types[TCOMPLEX128]);
 		convlit(rp, types[TCOMPLEX128]);
 		return;
 	}
-	if(isconst(l, CTFLT) || isconst(r, CTFLT)) {
+	if(lkind == CTFLT || rkind == CTFLT) {
 		convlit(lp, types[TFLOAT64]);
 		convlit(rp, types[TFLOAT64]);
 		return;
 	}
 
-	if(isconst(l, CTRUNE) || isconst(r, CTRUNE)) {
+	if(lkind == CTRUNE || rkind == CTRUNE) {
 		convlit(lp, runetype);
 		convlit(rp, runetype);
 		return;

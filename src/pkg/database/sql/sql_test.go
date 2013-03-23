@@ -5,7 +5,6 @@
 package sql
 
 import (
-	"database/sql/driver"
 	"fmt"
 	"reflect"
 	"strings"
@@ -16,10 +15,10 @@ import (
 func init() {
 	type dbConn struct {
 		db *DB
-		c  driver.Conn
+		c  *driverConn
 	}
 	freedFrom := make(map[dbConn]string)
-	putConnHook = func(db *DB, c driver.Conn) {
+	putConnHook = func(db *DB, c *driverConn) {
 		for _, oc := range db.freeConn {
 			if oc == c {
 				// print before panic, as panic may get lost due to conflicting panic
@@ -78,7 +77,7 @@ func numPrepares(t *testing.T, db *DB) int {
 	if n := len(db.freeConn); n != 1 {
 		t.Fatalf("free conns = %d; want 1", n)
 	}
-	return db.freeConn[0].(*fakeConn).numPrepare
+	return db.freeConn[0].ci.(*fakeConn).numPrepare
 }
 
 func TestQuery(t *testing.T) {
@@ -576,7 +575,7 @@ func TestQueryRowClosingStmt(t *testing.T) {
 	if len(db.freeConn) != 1 {
 		t.Fatalf("expected 1 free conn")
 	}
-	fakeConn := db.freeConn[0].(*fakeConn)
+	fakeConn := db.freeConn[0].ci.(*fakeConn)
 	if made, closed := fakeConn.stmtsMade, fakeConn.stmtsClosed; made != closed {
 		t.Errorf("statement close mismatch: made %d, closed %d", made, closed)
 	}
@@ -706,5 +705,88 @@ func TestQueryRowNilScanDest(t *testing.T) {
 	want := "sql: Scan error on column index 0: destination pointer is nil"
 	if err == nil || err.Error() != want {
 		t.Errorf("error = %q; want %q", err.Error(), want)
+	}
+}
+
+func TestIssue4902(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+
+	driver := db.driver.(*fakeDriver)
+	opens0 := driver.openCount
+
+	var stmt *Stmt
+	var err error
+	for i := 0; i < 10; i++ {
+		stmt, err = db.Prepare("SELECT|people|name|")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = stmt.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	opens := driver.openCount - opens0
+	if opens > 1 {
+		t.Errorf("opens = %d; want <= 1", opens)
+		t.Logf("db = %#v", db)
+		t.Logf("driver = %#v", driver)
+		t.Logf("stmt = %#v", stmt)
+	}
+}
+
+// Issue 3857
+// This used to deadlock.
+func TestSimultaneousQueries(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	r1, err := tx.Query("SELECT|people|name|")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r1.Close()
+
+	r2, err := tx.Query("SELECT|people|name|")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+}
+
+func TestMaxIdleConns(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	if got := len(db.freeConn); got != 1 {
+		t.Errorf("freeConns = %d; want 1", got)
+	}
+
+	db.SetMaxIdleConns(0)
+
+	if got := len(db.freeConn); got != 0 {
+		t.Errorf("freeConns after set to zero = %d; want 0", got)
+	}
+
+	tx, err = db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	if got := len(db.freeConn); got != 0 {
+		t.Errorf("freeConns = %d; want 0", got)
 	}
 }

@@ -17,21 +17,34 @@ enum {
  */
 void	runtime·sigpanic(void);
 
+// The GOTRACEBACK environment variable controls the
+// behavior of a Go program that is crashing and exiting.
+//	GOTRACEBACK=0   suppress all tracebacks
+//	GOTRACEBACK=1   default behavior - show tracebacks but exclude runtime frames
+//	GOTRACEBACK=2   show tracebacks including runtime frames
+//	GOTRACEBACK=crash   show tracebacks including runtime frames, then crash (core dump etc)
 int32
-runtime·gotraceback(void)
+runtime·gotraceback(bool *crash)
 {
 	byte *p;
 
+	if(crash != nil)
+		*crash = false;
 	p = runtime·getenv("GOTRACEBACK");
 	if(p == nil || p[0] == '\0')
 		return 1;	// default is on
+	if(runtime·strcmp(p, (byte*)"crash") == 0) {
+		if(crash != nil)
+			*crash = true;
+		return 2;	// extra information
+	}
 	return runtime·atoi(p);
 }
 
 int32
-runtime·mcmp(byte *s1, byte *s2, uint32 n)
+runtime·mcmp(byte *s1, byte *s2, uintptr n)
 {
-	uint32 i;
+	uintptr i;
 	byte c1, c2;
 
 	for(i=0; i<n; i++) {
@@ -74,6 +87,11 @@ runtime·args(int32 c, uint8 **v)
 
 int32 runtime·isplan9;
 int32 runtime·iswindows;
+
+// Information about what cpu features are available.
+// Set on startup in asm_{x86/amd64}.s.
+uint32 runtime·cpuid_ecx;
+uint32 runtime·cpuid_edx;
 
 void
 runtime·goargs(void)
@@ -156,6 +174,10 @@ TestAtomic64(void)
 		runtime·throw("xadd64 failed");
 	if(runtime·atomicload64(&z64) != (2ull<<40)+2)
 		runtime·throw("xadd64 failed");
+	if(runtime·xchg64(&z64, (3ull<<40)+3) != (2ull<<40)+2)
+		runtime·throw("xchg64 failed");
+	if(runtime·atomicload64(&z64) != (3ull<<40)+3)
+		runtime·throw("xchg64 failed");
 }
 
 void

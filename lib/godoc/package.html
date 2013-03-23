@@ -10,7 +10,11 @@
 	correspond to Go identifiers).
 -->
 {{with .PDoc}}
-	{{if not $.IsMain}}
+	{{if $.IsMain}}
+		{{/* command documentation */}}
+		{{comment_html .Doc}}
+	{{else}}
+		{{/* package documentation */}}
 		<div id="short-nav">
 			<dl>
 			<dd><code>import "{{html .ImportPath}}"</code></dd>
@@ -71,9 +75,9 @@
 				{{end}}
 			{{end}}
 			{{if $.Notes}}
-                                {{range $marker, $item := $.Notes}}
+				{{range $marker, $item := $.Notes}}
 				<dd><a href="#pkg-note-{{$marker}}">{{noteTitle $marker | html}}s</a></dd>
-                                {{end}}
+				{{end}}
 			{{end}}
 			</dl>
 			</div><!-- #manual-nav -->
@@ -88,7 +92,7 @@
 			</dl>
 		</div>
 		{{end}}
-	
+
 		{{with .Filenames}}
 			<h4>Package files</h4>
 			<p>
@@ -101,7 +105,7 @@
 		{{end}}
 		</div><!-- .expanded -->
 		</div><!-- #pkg-index -->
-	
+
 		{{with .Consts}}
 			<h2 id="pkg-constants">Constants</h2>
 			{{range .}}
@@ -160,16 +164,16 @@
 				{{example_html $name $.Examples $.FSet}}
 			{{end}}
 		{{end}}
-	{{else}}  {{/* not a package; is a command */}}
-		{{comment_html .Doc}}
 	{{end}}
 
 	{{with $.Notes}}
-                {{range $marker, $content := .}}
-		    <h2 id="pkg-note-{{$marker}}">{{noteTitle $marker | html}}s</h2>
-		    {{range .}}
-		    {{comment_html .}}
-                    {{end}}
+		{{range $marker, $content := .}}
+			<h2 id="pkg-note-{{$marker}}">{{noteTitle $marker | html}}s</h2>
+			<ul>
+			{{range .}}
+			<li>{{html .Body}}</li>
+			{{end}}
+			</ul>
 		{{end}}
 	{{end}}
 {{end}}
@@ -250,7 +254,7 @@ $(document).ready(function() {
 			var resize = function() {
 				code.height(0);
 				var h = code[0].scrollHeight;
-				code.height(h+20); // minimize bouncing
+				code.height(h+20); // minimize bouncing.
 				code.closest('.input').height(h);
 			};
 			code.on('keydown', resize);

@@ -84,15 +84,11 @@ var (
 	cmdHandler docServer
 	pkgHandler docServer
 
-	// which code 'Notes' to show
-	notes = flag.String("notes", "BUG", "comma separated list of Note markers as per pkg:go/doc")
-	// list of 'Notes' to show
-	notesToShow []string
+	// source code notes
+	notes = flag.String("notes", "BUG", "regular expression matching note markers to show")
 )
 
 func initHandlers() {
-	notesToShow = strings.Split(*notes, ",")
-
 	fileServer = http.FileServer(&httpFS{fs})
 	cmdHandler = docServer{"/cmd/", "/src/cmd"}
 	pkgHandler = docServer{"/pkg/", "/src/pkg"}
@@ -911,12 +907,12 @@ type PageInfo struct {
 	Err     error  // error or nil
 
 	// package info
-	FSet     *token.FileSet      // nil if no package documentation
-	PDoc     *doc.Package        // nil if no package documentation
-	Examples []*doc.Example      // nil if no example code
-	Notes    map[string][]string // nil if no package Notes
-	PAst     *ast.File           // nil if no AST with package exports
-	IsMain   bool                // true for package main
+	FSet     *token.FileSet         // nil if no package documentation
+	PDoc     *doc.Package           // nil if no package documentation
+	Examples []*doc.Example         // nil if no example code
+	Notes    map[string][]*doc.Note // nil if no package Notes
+	PAst     *ast.File              // nil if no AST with package exports
+	IsMain   bool                   // true for package main
 
 	// directory info
 	Dirs    *DirList  // nil if no directory information
@@ -1100,10 +1096,15 @@ func (h *docServer) getPageInfo(abspath, relpath string, mode PageInfoMode) (inf
 
 			// collect any notes that we want to show
 			if info.PDoc.Notes != nil {
-				info.Notes = make(map[string][]string)
-				for _, m := range notesToShow {
-					if n := info.PDoc.Notes[m]; n != nil {
-						info.Notes[m] = n
+				// could regexp.Compile only once per godoc, but probably not worth it
+				if rx, err := regexp.Compile(*notes); err == nil {
+					for m, n := range info.PDoc.Notes {
+						if rx.MatchString(m) {
+							if info.Notes == nil {
+								info.Notes = make(map[string][]*doc.Note)
+							}
+							info.Notes[m] = n
+						}
 					}
 				}
 			}

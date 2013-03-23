@@ -168,7 +168,7 @@ Lconv(Fmt *fp)
 		lno = a[i].incl->line - 1;	// now print out start of this file
 	}
 	if(n == 0)
-		fmtprint(fp, "<epoch>");
+		fmtprint(fp, "<unknown line number>");
 
 	return 0;
 }
@@ -1022,6 +1022,7 @@ static int opprec[] = {
 	[ODOTTYPE] = 8,
 	[ODOT] = 8,
 	[OXDOT] = 8,
+	[OCALLPART] = 8,
 
 	[OPLUS] = 7,
 	[ONOT] = 7,
@@ -1269,9 +1270,10 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case ODOTPTR:
 	case ODOTINTER:
 	case ODOTMETH:
+	case OCALLPART:
 		exprfmt(f, n->left, nprec);
 		if(n->right == N || n->right->sym == S)
-			fmtstrcpy(f, ".<nil>");
+			return fmtstrcpy(f, ".<nil>");
 		return fmtprint(f, ".%hhS", n->right->sym);
 
 	case ODOTTYPE:
