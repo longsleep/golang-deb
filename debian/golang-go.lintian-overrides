@@ -3,10 +3,6 @@ golang-go: unstripped-binary-or-object usr/bin/gofmt
 golang-go: statically-linked-binary usr/bin/gofmt
 golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/api
 golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/cgo
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/colcmp
-golang-go: unstripped-binary-or-object usr/lib/go/pkg/tool/linux_amd64/ebnflint
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/ebnflint
 golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/fix
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/gotype
 golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/vet
 golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/yacc
