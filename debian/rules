@@ -45,6 +45,8 @@ override_dh_install:
 	find $(CURDIR)/debian/golang-src/usr/share/go/src/pkg/runtime/race -type f -name '*.syso' -delete
 	# Remove Plan9 rc(1) scripts
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name "*.rc" -delete
+	# Remove empty /usr/share/go/src from golang-go, it is provided by golang-src
+	find $(CURDIR)/debian/golang-go/usr/share/go/src -type d -delete
 	# Touch built and installed files and directories to have same timestamp
 	touch $(CURDIR)/debian/golang-go/usr/lib/go/pkg
 	find $(CURDIR)/debian/golang-go/usr/lib/go/pkg -exec touch -r $(CURDIR)/debian/golang-go/usr/lib/go/pkg {} \;
