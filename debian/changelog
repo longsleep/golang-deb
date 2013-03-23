@@ -1,6 +1,7 @@
 golang (2:1.1~hg20130323-1) experimental; urgency=low
 
   * Provide a new hg tip snapshot.
+  * Add debian/watch (Closes: #699698)
 
  -- Michael Stapelberg <stapelberg@debian.org>  Sat, 23 Mar 2013 11:31:26 +0100
 
