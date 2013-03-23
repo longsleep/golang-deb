@@ -399,12 +399,10 @@ func (WriteFailCodec) WriteRequest(*Request, interface{}) error {
 
 func (WriteFailCodec) ReadResponseHeader(*Response) error {
 	select {}
-	panic("unreachable")
 }
 
 func (WriteFailCodec) ReadResponseBody(interface{}) error {
 	select {}
-	panic("unreachable")
 }
 
 func (WriteFailCodec) Close() error {
@@ -465,10 +463,16 @@ func countMallocs(dial func() (*Client, error), t *testing.T) float64 {
 }
 
 func TestCountMallocs(t *testing.T) {
+	if runtime.GOMAXPROCS(0) > 1 {
+		t.Skip("skipping; GOMAXPROCS>1")
+	}
 	fmt.Printf("mallocs per rpc round trip: %v\n", countMallocs(dialDirect, t))
 }
 
 func TestCountMallocsOverHTTP(t *testing.T) {
+	if runtime.GOMAXPROCS(0) > 1 {
+		t.Skip("skipping; GOMAXPROCS>1")
+	}
 	fmt.Printf("mallocs per HTTP rpc round trip: %v\n", countMallocs(dialHTTP, t))
 }
 

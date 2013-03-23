@@ -83,6 +83,7 @@ main(int argc, char *argv[])
 	INITRND = -1;
 	INITENTRY = 0;
 	LIBINITENTRY = 0;
+	linkmode = LinkInternal; // TODO: LinkAuto once everything works.
 	nuxiinit();
 
 	flagcount("1", "use alternate profiling code", &debug['1']);
@@ -108,7 +109,7 @@ main(int argc, char *argv[])
 	flagcount("d", "disable dynamic executable", &debug['d']);
 	flagcount("f", "ignore version mismatch", &debug['f']);
 	flagcount("g", "disable go package data checks", &debug['g']);
-	flagcount("hostobj", "generate host object file", &isobj);
+	flagfn1("linkmode", "mode: set link mode (internal, external, auto)", setlinkmode);
 	flagstr("k", "sym: set field tracking symbol", &tracksym);
 	flagcount("n", "dump symbol table", &debug['n']);
 	flagstr("o", "outfile: set output file", &outfile);
@@ -116,10 +117,11 @@ main(int argc, char *argv[])
 	flagstr("r", "dir1:dir2:...: set ELF dynamic linker search path", &rpath);
 	flagcount("race", "enable race detector", &flag_race);
 	flagcount("s", "disable symbol table", &debug['s']);
+	flagcount("shared", "generate shared object", &flag_shared);
+	flagstr("tmpdir", "leave temporary files in this directory", &tmpdir);
 	flagcount("u", "reject unsafe packages", &debug['u']);
 	flagcount("v", "print link trace", &debug['v']);
 	flagcount("w", "disable DWARF generation", &debug['w']);
-	flagcount("shared", "generate shared object", &flag_shared);
 	
 	flagparse(&argc, &argv, usage);
 
@@ -131,13 +133,19 @@ main(int argc, char *argv[])
 	if(HEADTYPE == -1)
 		HEADTYPE = headtype(goos);
 
-	if(isobj) {
-		switch(HEADTYPE) {
-		default:
-			sysfatal("cannot use -hostobj with -H %s", headstr(HEADTYPE));
-		case Hlinux:
-			break;
-		}
+	switch(HEADTYPE) {
+	default:
+		if(linkmode == LinkAuto)
+			linkmode = LinkInternal;
+		if(linkmode == LinkExternal)
+			sysfatal("cannot use -linkmode=external with -H %s", headstr(HEADTYPE));
+		break;
+	case Hdarwin:
+	case Hfreebsd:
+	case Hlinux:
+	case Hnetbsd:
+	case Hopenbsd:
+		break;
 	}
 
 	if(outfile == nil) {
@@ -282,6 +290,7 @@ main(int argc, char *argv[])
 	reloc();
 	asmb();
 	undef();
+	hostlink();
 	if(debug['v']) {
 		Bprint(&bso, "%5.2f cpu time\n", cputime());
 		Bprint(&bso, "%d symbols\n", nsymbol);
@@ -412,6 +421,7 @@ ldobj1(Biobuf *f, char *pkg, int64 len, char *pn)
 	ntext = 0;
 	eof = Boffset(f) + len;
 	src[0] = 0;
+	pn = estrdup(pn); // we keep it in Sym* references
 
 newloop:
 	memset(h, 0, sizeof(h));

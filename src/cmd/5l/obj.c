@@ -82,6 +82,7 @@ main(int argc, char *argv[])
 	INITRND = -1;
 	INITENTRY = 0;
 	LIBINITENTRY = 0;
+	linkmode = LinkInternal; // TODO: LinkAuto once everything works.
 	nuxiinit();
 	
 	p = getgoarm();
@@ -116,21 +117,29 @@ main(int argc, char *argv[])
 	flagcount("f", "ignore version mismatch", &debug['f']);
 	flagcount("g", "disable go package data checks", &debug['g']);
 	flagstr("k", "sym: set field tracking symbol", &tracksym);
+	flagfn1("linkmode", "mode: set link mode (internal, external, auto)", setlinkmode);
 	flagcount("n", "dump symbol table", &debug['n']);
 	flagstr("o", "outfile: set output file", &outfile);
 	flagcount("p", "insert profiling code", &debug['p']);
 	flagstr("r", "dir1:dir2:...: set ELF dynamic linker search path", &rpath);
 	flagcount("race", "enable race detector", &flag_race);
 	flagcount("s", "disable symbol table", &debug['s']);
+	flagstr("tmpdir", "leave temporary files in this directory", &tmpdir);
 	flagcount("u", "reject unsafe packages", &debug['u']);
 	flagcount("v", "print link trace", &debug['v']);
 	flagcount("w", "disable DWARF generation", &debug['w']);
 	flagcount("shared", "generate shared object", &flag_shared);
+	// TODO: link mode flag
 	
 	flagparse(&argc, &argv, usage);
 
 	if(argc != 1)
 		usage();
+
+	if(linkmode != LinkInternal) {
+		diag("only -linkmode=internal is supported");
+		errorexit();
+	}
 
 	libinit();
 
@@ -268,6 +277,7 @@ main(int argc, char *argv[])
 	reloc();
 	asmb();
 	undef();
+	hostlink();
 
 	if(debug['c'])
 		print("ARM size = %d\n", armsize);
@@ -424,6 +434,7 @@ ldobj1(Biobuf *f, char *pkg, int64 len, char *pn)
 	ntext = 0;
 	eof = Boffset(f) + len;
 	src[0] = 0;
+	pn = estrdup(pn); // we keep it in Sym* references
 
 newloop:
 	memset(h, 0, sizeof(h));

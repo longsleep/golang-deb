@@ -2565,6 +2565,7 @@ genwrapper(Type *rcvr, Type *method, Sym *newnam, int iface)
 		fn->dupok = 1;
 	typecheck(&fn, Etop);
 	typechecklist(fn->nbody, Etop);
+	inlcalls(fn);
 	curfn = nil;
 	funccompile(fn, 0);
 }
@@ -3721,4 +3722,18 @@ isbadimport(Strlit *path)
 		}
 	}
 	return 0;
+}
+
+void
+checknotnil(Node *x, NodeList **init)
+{
+	Node *n;
+	
+	if(isinter(x->type)) {
+		x = nod(OITAB, x, N);
+		typecheck(&x, Erv);
+	}
+	n = nod(OCHECKNOTNIL, x, N);
+	n->typecheck = 1;
+	*init = list(*init, n);
 }

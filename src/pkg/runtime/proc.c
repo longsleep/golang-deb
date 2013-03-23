@@ -49,6 +49,7 @@ struct Sched {
 	Note	stopnote;
 	uint32	sysmonwait;
 	Note	sysmonnote;
+	uint64	lastpoll;
 
 	int32	profilehz;	// cpu profiling rate
 };
@@ -71,8 +72,6 @@ M*	runtime·extram;
 int8*	runtime·goos;
 int32	runtime·ncpu;
 static int32	newprocs;
-// Keep trace of scavenger's goroutine for deadlock detection.
-static G *scvg;
 
 void runtime·mstart(void);
 static void runqput(P*, G*);
@@ -109,6 +108,7 @@ static void globrunqput(G*);
 static G* globrunqget(P*);
 static P* pidleget(void);
 static void pidleput(P*);
+static void injectglist(G*);
 
 // The bootstrap sequence is:
 //
@@ -137,6 +137,7 @@ runtime·schedinit(void)
 	// so that we don't need to call malloc when we crash.
 	// runtime·findfunc(0);
 
+	runtime·sched.lastpoll = runtime·nanotime();
 	procs = 1;
 	p = runtime·getenv("GOMAXPROCS");
 	if(p != nil && (n = runtime·atoi(p)) > 0) {
@@ -174,8 +175,7 @@ runtime·main(void)
 	runtime·lockOSThread();
 	if(m != &runtime·m0)
 		runtime·throw("runtime·main not on m0");
-	scvg = runtime·newproc1(&scavenger, nil, 0, 0, runtime·main);
-	scvg->issystem = true;
+	runtime·newproc1(&scavenger, nil, 0, 0, runtime·main);
 	main·init();
 	runtime·unlockOSThread();
 
@@ -232,7 +232,7 @@ runtime·tracebackothers(G *me)
 	G *gp;
 	int32 traceback;
 
-	traceback = runtime·gotraceback();
+	traceback = runtime·gotraceback(nil);
 	for(gp = runtime·allg; gp != nil; gp = gp->alllink) {
 		if(gp == me || gp->status == Gdead)
 			continue;
@@ -332,7 +332,7 @@ runtime·helpgc(int32 nproc)
 		mp = mget();
 		if(mp == nil)
 			runtime·throw("runtime·gcprocs inconsistency");
-		mp->helpgc = 1;
+		mp->helpgc = n;
 		mp->mcache = runtime·allp[pos]->mcache;
 		pos++;
 		runtime·notewakeup(&mp->park);
@@ -386,16 +386,19 @@ runtime·stoptheworld(void)
 static void
 mhelpgc(void)
 {
-	m->helpgc = 1;
+	m->helpgc = -1;
 }
 
 void
 runtime·starttheworld(void)
 {
-	P *p;
+	P *p, *p1;
 	M *mp;
+	G *gp;
 	bool add;
 
+	gp = runtime·netpoll(false);  // non-blocking
+	injectglist(gp);
 	add = needaddgcproc();
 	runtime·lock(&runtime·sched);
 	if(newprocs) {
@@ -405,6 +408,7 @@ runtime·starttheworld(void)
 		procresize(runtime·gomaxprocs);
 	runtime·gcwaiting = 0;
 
+	p1 = nil;
 	while(p = pidleget()) {
 		// procresize() puts p's with work at the beginning of the list.
 		// Once we reach a p without a run queue, the rest don't have one either.
@@ -414,8 +418,9 @@ runtime·starttheworld(void)
 		}
 		mp = mget();
 		if(mp == nil) {
-			pidleput(p);
-			break;
+			p->link = p1;
+			p1 = p;
+			continue;
 		}
 		if(mp->nextp)
 			runtime·throw("starttheworld: inconsistent mp->nextp");
@@ -427,6 +432,13 @@ runtime·starttheworld(void)
 		runtime·notewakeup(&runtime·sched.sysmonnote);
 	}
 	runtime·unlock(&runtime·sched);
+
+	while(p1) {
+		p = p1;
+		p1 = p1->link;
+		add = false;
+		newm(nil, p);
+	}
 
 	if(add) {
 		// If GC could have used another helper proc, start one now,
@@ -473,7 +485,7 @@ runtime·mstart(void)
 		m->mstartfn();
 
 	if(m->helpgc) {
-		m->helpgc = false;
+		m->helpgc = 0;
 		stopm();
 	} else if(m != &runtime·m0) {
 		acquirep(m->nextp);
@@ -782,8 +794,8 @@ retry:
 	runtime·notesleep(&m->park);
 	runtime·noteclear(&m->park);
 	if(m->helpgc) {
-		m->helpgc = 0;
 		runtime·gchelper();
+		m->helpgc = 0;
 		m->mcache = nil;
 		goto retry;
 	}
@@ -970,7 +982,7 @@ execute(G *gp)
 }
 
 // Finds a runnable goroutine to execute.
-// Tries to steal from other P's and get g from global queue.
+// Tries to steal from other P's, get g from global queue, poll network.
 static G*
 findrunnable(void)
 {
@@ -994,6 +1006,13 @@ top:
 		runtime·unlock(&runtime·sched);
 		if(gp)
 			return gp;
+	}
+	// poll network
+	gp = runtime·netpoll(false);  // non-blocking
+	if(gp) {
+		injectglist(gp->schedlink);
+		gp->status = Grunnable;
+		return gp;
 	}
 	// If number of spinning M's >= number of busy P's, block.
 	// This is necessary to prevent excessive CPU consumption
@@ -1049,8 +1068,52 @@ stop:
 			break;
 		}
 	}
+	// poll network
+	if(runtime·xchg64(&runtime·sched.lastpoll, 0) != 0) {
+		if(m->p)
+			runtime·throw("findrunnable: netpoll with p");
+		if(m->spinning)
+			runtime·throw("findrunnable: netpoll with spinning");
+		gp = runtime·netpoll(true);  // block until new work is available
+		runtime·atomicstore64(&runtime·sched.lastpoll, runtime·nanotime());
+		if(gp) {
+			runtime·lock(&runtime·sched);
+			p = pidleget();
+			runtime·unlock(&runtime·sched);
+			if(p) {
+				acquirep(p);
+				injectglist(gp->schedlink);
+				gp->status = Grunnable;
+				return gp;
+			}
+			injectglist(gp);
+		}
+	}
 	stopm();
 	goto top;
+}
+
+// Injects the list of runnable G's into the scheduler.
+// Can run concurrently with GC.
+static void
+injectglist(G *glist)
+{
+	int32 n;
+	G *gp;
+
+	if(glist == nil)
+		return;
+	runtime·lock(&runtime·sched);
+	for(n = 0; glist; n++) {
+		gp = glist;
+		glist = gp->schedlink;
+		gp->status = Grunnable;
+		globrunqput(gp);
+	}
+	runtime·unlock(&runtime·sched);
+
+	for(; n && runtime·sched.npidle; n--)
+		startm(nil, false);
 }
 
 // One round of scheduler: find a runnable goroutine and execute it.
@@ -1164,6 +1227,11 @@ goexit0(G *gp)
 	gp->lockedm = nil;
 	m->curg = nil;
 	m->lockedg = nil;
+	if(m->locked & ~LockExternal) {
+		runtime·printf("invalid m->locked = %d", m->locked);
+		runtime·throw("internal lockOSThread error");
+	}	
+	m->locked = 0;
 	runtime·unwindstack(gp, nil);
 	gfput(m->p, gp);
 	schedule();
@@ -1251,7 +1319,7 @@ void
 
 	p = releasep();
 	handoffp(p);
-	if(g == scvg)  // do not consider blocked scavenger for deadlock detection
+	if(g->isbackground)  // do not consider blocked scavenger for deadlock detection
 		inclocked(1);
 	runtime·gosave(&g->sched);  // re-save for traceback
 }
@@ -1283,7 +1351,7 @@ runtime·exitsyscall(void)
 		return;
 	}
 
-	if(g == scvg)  // do not consider blocked scavenger for deadlock detection
+	if(g->isbackground)  // do not consider blocked scavenger for deadlock detection
 		inclocked(-1);
 	// Try to get any other idle P.
 	m->p = nil;
@@ -1885,7 +1953,7 @@ checkdead(void)
 	}
 	grunning = 0;
 	for(gp = runtime·allg; gp; gp = gp->alllink) {
-		if(gp == scvg)
+		if(gp->isbackground)
 			continue;
 		s = gp->status;
 		if(s == Gwaiting)
@@ -1905,6 +1973,8 @@ static void
 sysmon(void)
 {
 	uint32 idle, delay;
+	int64 now, lastpoll;
+	G *gp;
 	uint32 ticks[MaxGomaxprocs];
 
 	idle = 0;  // how many cycles in succession we had not wokeup somebody
@@ -1929,6 +1999,14 @@ sysmon(void)
 			} else
 				runtime·unlock(&runtime·sched);
 		}
+		// poll network if not polled for more than 10ms
+		lastpoll = runtime·atomicload64(&runtime·sched.lastpoll);
+		now = runtime·nanotime();
+		if(lastpoll != 0 && lastpoll + 10*1000*1000 > now) {
+			gp = runtime·netpoll(false);  // non-blocking
+			injectglist(gp);
+		}
+		// retake P's blocked in syscalls
 		if(retake(ticks))
 			idle = 0;
 		else

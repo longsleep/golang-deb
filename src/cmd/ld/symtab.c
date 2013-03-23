@@ -121,12 +121,22 @@ putelfsym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
 
 	// One pass for each binding: STB_LOCAL, STB_GLOBAL,
 	// maybe one day STB_WEAK.
-	bind = (ver || (x->type & SHIDDEN)) ? STB_LOCAL : STB_GLOBAL;
+	bind = STB_GLOBAL;
+	if(ver || (x->type & SHIDDEN))
+		bind = STB_LOCAL;
+
+	// In external linking mode, we have to invoke gcc with -rdynamic
+	// to get the exported symbols put into the dynamic symbol table.
+	// To avoid filling the dynamic table with lots of unnecessary symbols,
+	// mark all Go symbols local (not global) in the final executable.
+	if(linkmode == LinkExternal && !(x->cgoexport&CgoExportStatic))
+		bind = STB_LOCAL;
+
 	if(bind != elfbind)
 		return;
 
 	off = putelfstr(s);
-	if(isobj)
+	if(linkmode == LinkExternal)
 		addr -= xo->sect->vaddr;
 	putelfsyment(off, addr, size, (bind<<4)|(type&0xf), xo->sect->elfsect->shnum, (x->type & SHIDDEN) ? 2 : 0);
 	x->elfsym = numelfsym++;
@@ -424,10 +434,8 @@ symtab(void)
 		xdefine("datarelro", SDATARELRO, 0);
 		xdefine("edatarelro", SDATARELRO, 0);
 	}
-	xdefine("gcdata", SGCDATA, 0);
-	xdefine("egcdata", SGCDATA, 0);
-	xdefine("gcbss", SGCBSS, 0);
-	xdefine("egcbss", SGCBSS, 0);
+	xdefine("egcdata", STYPE, 0);
+	xdefine("egcbss", STYPE, 0);
 	xdefine("noptrdata", SNOPTRDATA, 0);
 	xdefine("enoptrdata", SNOPTRDATA, 0);
 	xdefine("data", SDATA, 0);

@@ -949,6 +949,38 @@ combined with the Go project's mostly linear, non-branching use of
 version control, a switch to git doesn't seem worthwhile.
 </p>
 
+<h3 id="git_https">
+Why does "go get" use HTTPS when cloning a repository?</h3>
+
+<p>
+Companies often permit outgoing traffic only on the standard TCP ports 80 (HTTP)
+and 443 (HTTPS), blocking outgoing traffic on other ports, including TCP port 9418 
+(git) and TCP port 22 (SSH).
+When using HTTPS instead of HTTP, <code>git</code> enforces certificate validation by
+default, providing protection against man-in-the-middle, eavesdropping and tampering attacks.
+The <code>go get</code> command therefore uses HTTPS for safety.
+</p>
+
+<p>
+If you use <code>git</code> and prefer to push changes through SSH using your existing key 
+it's easy to work around this. For GitHub, try one of these solutions:
+</p>
+<ul>
+<li>Manually clone the repository in the expected package directory:
+<pre>
+$ cd $GOPATH/src/github.com/username
+$ git clone git@github.com:username/package.git
+</pre>
+</li>
+<li>Force <code>git push</code> to use the <code>SSH</code> protocol by appending
+these two lines to <code>~/.gitconfig</code>:
+<pre>
+[url "git@github.com:"]
+	pushInsteadOf = https://github.com/
+</pre>
+</li>
+</ul>
+
 <h2 id="Pointers">Pointers and Allocation</h2>
 
 <h3 id="pass_by_value">
@@ -972,6 +1004,57 @@ makes a copy of the thing stored in the interface value.  If the interface
 value holds a struct, copying the interface value makes a copy of the
 struct.  If the interface value holds a pointer, copying the interface value
 makes a copy of the pointer, but again not the data it points to.
+</p>
+
+<h3 id="pointer_to_interface">
+When should I use a pointer to an interface?</h3>
+
+<p>
+Almost never. Pointers to interface values arise only in rare, tricky situations involving
+disguising an interface value's type for delayed evaluation.
+</p>
+
+<p>
+It is however a common mistake to pass a pointer to an interface value
+to a function expecting an interface. The compiler will complain about this
+error but the situation can still be confusing, because sometimes a
+<a href="#different_method_sets">pointer
+is necessary to satisfy an interface</a>.
+The insight is that although a pointer to a concrete type can satisfy
+an interface, with one exception <em>a pointer to an interface can never satisfy a interface</em>.
+</p>
+
+<p>
+Consider the variable declaration,
+</p>
+
+<pre>
+var w io.Writer
+</pre>
+
+<p>
+The printing function <code>fmt.Fprintf</code> takes as its first argument
+a value that satisfies <code>io.Writer</code>—something that implements
+the canonical <code>Write</code> method. Thus we can write
+</p>
+
+<pre>
+fmt.Fprintf(w, "hello, world\n")
+</pre>
+
+<p>
+If however we pass the address of <code>w</code>, the program will not compile.
+</p>
+
+<pre>
+fmt.Fprintf(&amp;w, "hello, world\n") // Compile-time error.
+</pre>
+
+<p>
+The one exception is that any value, even a pointer to an interface, can be assigned to
+a variable of empty interface type (<code>interface{}</code>).
+Even so, it's almost certainly a mistake if the value is a pointer to an interface;
+the result can be confusing.
 </p>
 
 <h3 id="methods_on_values_or_pointers">
@@ -1407,7 +1490,7 @@ test cases. The standard Go library is full of illustrative examples, such as in
 What compiler technology is used to build the compilers?</h3>
 
 <p>
-<code>Gccgo</code> has a C++ front-end with a recursive descent parser coupled to the
+<code>Gccgo</code> has a front end written in C++, with a recursive descent parser coupled to the
 standard GCC back end. <code>Gc</code> is written in C using
 <code>yacc</code>/<code>bison</code> for the parser.
 Although it's a new program, it fits in the Plan 9 C compiler suite

@@ -85,6 +85,7 @@ typedef	struct	LFNode		LFNode;
 typedef	struct	ParFor		ParFor;
 typedef	struct	ParForThread	ParForThread;
 typedef	struct	CgoMal		CgoMal;
+typedef	struct	PollDesc	PollDesc;
 
 /*
  * Per-CPU declaration.
@@ -235,8 +236,9 @@ struct	G
 	int8*	waitreason;	// if status==Gwaiting
 	G*	schedlink;
 	bool	ispanic;
-	bool	issystem;
-	int8	raceignore; // ignore race detection events
+	bool	issystem;	// do not output in stack dump
+	bool	isbackground;	// ignore in deadlock detector
+	int8	raceignore;	// ignore race detection events
 	M*	m;		// for debuggers, but offset not hard-coded
 	M*	lockedm;
 	int32	sig;
@@ -320,6 +322,7 @@ struct	M
 #endif
 #ifdef GOOS_plan9
 	int8*		notesig;
+	byte*	errstr;
 #endif
 	SEH*	seh;
 	uintptr	end[];
@@ -381,6 +384,8 @@ enum
 	SigThrow = 1<<2,	// if signal.Notify doesn't take it, exit loudly
 	SigPanic = 1<<3,	// if the signal is from the kernel, panic
 	SigDefault = 1<<4,	// if the signal isn't explicitly requested, don't monitor it
+	SigHandling = 1<<5,	// our signal handler is registered
+	SigIgnored = 1<<6,	// the signal was ignored before we registered for it
 };
 
 // NOTE(rsc): keep in sync with extern.go:/type.Func.
@@ -482,6 +487,7 @@ struct ParFor
 	bool wait;			// if true, wait while all threads finish processing,
 					// otherwise parfor may return while other threads are still working
 	ParForThread *thr;		// array of thread descriptors
+	uint32 pad;			// to align ParForThread.pos for 64-bit atomic operations
 	// stats
 	uint64 nsteal;
 	uint64 nstealcnt;
@@ -555,11 +561,25 @@ struct	Alg
 
 extern	Alg	runtime·algarray[Amax];
 
+byte*	runtime·startup_random_data;
+uint32	runtime·startup_random_data_len;
+void	runtime·get_random_data(byte**, int32*);
+
+enum {
+	// hashinit wants this many random bytes
+	HashRandomBytes = 32
+};
+void	runtime·hashinit(void);
+
 void	runtime·memhash(uintptr*, uintptr, void*);
 void	runtime·nohash(uintptr*, uintptr, void*);
 void	runtime·strhash(uintptr*, uintptr, void*);
 void	runtime·interhash(uintptr*, uintptr, void*);
 void	runtime·nilinterhash(uintptr*, uintptr, void*);
+void	runtime·aeshash(uintptr*, uintptr, void*);
+void	runtime·aeshash32(uintptr*, uintptr, void*);
+void	runtime·aeshash64(uintptr*, uintptr, void*);
+void	runtime·aeshashstr(uintptr*, uintptr, void*);
 
 void	runtime·memequal(bool*, uintptr, void*, void*);
 void	runtime·noequal(bool*, uintptr, void*, void*);
@@ -578,7 +598,6 @@ void	runtime·memcopy16(uintptr, void*, void*);
 void	runtime·memcopy32(uintptr, void*, void*);
 void	runtime·memcopy64(uintptr, void*, void*);
 void	runtime·memcopy128(uintptr, void*, void*);
-void	runtime·memcopy(uintptr, void*, void*);
 void	runtime·strcopy(uintptr, void*, void*);
 void	runtime·algslicecopy(uintptr, void*, void*);
 void	runtime·intercopy(uintptr, void*, void*);
@@ -635,6 +654,8 @@ extern	bool	runtime·iscgo;
 extern 	void	(*runtime·sysargs)(int32, uint8**);
 extern	uint32	runtime·maxstring;
 extern	uint32	runtime·Hchansize;
+extern	uint32	runtime·cpuid_ecx;
+extern	uint32	runtime·cpuid_edx;
 
 /*
  * common functions and data
@@ -666,8 +687,8 @@ void	runtime·panicstring(int8*);
 void	runtime·prints(int8*);
 void	runtime·printf(int8*, ...);
 byte*	runtime·mchr(byte*, byte, byte*);
-int32	runtime·mcmp(byte*, byte*, uint32);
-void	runtime·memmove(void*, void*, uint32);
+int32	runtime·mcmp(byte*, byte*, uintptr);
+void	runtime·memmove(void*, void*, uintptr);
 void*	runtime·mal(uintptr);
 String	runtime·catstring(String, String);
 String	runtime·gostring(byte*);
@@ -677,11 +698,15 @@ String	runtime·gostringnocopy(byte*);
 String	runtime·gostringw(uint16*);
 void	runtime·initsig(void);
 void	runtime·sigenable(uint32 sig);
-int32	runtime·gotraceback(void);
+void	runtime·sigdisable(uint32 sig);
+int32	runtime·gotraceback(bool *crash);
 void	runtime·goroutineheader(G*);
 void	runtime·traceback(uint8 *pc, uint8 *sp, uint8 *lr, G* gp);
 void	runtime·tracebackothers(G*);
+int32	runtime·open(int8*, int32, int32);
+int32	runtime·read(int32, void*, int32);
 int32	runtime·write(int32, void*, int32);
+int32	runtime·close(int32);
 int32	runtime·mincore(void*, uintptr, byte*);
 bool	runtime·cas(uint32*, uint32, uint32);
 bool	runtime·cas64(uint64*, uint64*, uint64);
@@ -691,6 +716,7 @@ bool	runtime·casp(void**, void*, void*);
 uint32	runtime·xadd(uint32 volatile*, int32);
 uint64	runtime·xadd64(uint64 volatile*, int64);
 uint32	runtime·xchg(uint32 volatile*, uint32);
+uint64	runtime·xchg64(uint64 volatile*, uint64);
 uint32	runtime·atomicload(uint32 volatile*);
 void	runtime·atomicstore(uint32 volatile*, uint32);
 void	runtime·atomicstore64(uint64 volatile*, uint64);
@@ -761,6 +787,14 @@ int64	runtime·cputicks(void);
 int64	runtime·tickspersecond(void);
 void	runtime·blockevent(int64, int32);
 extern int64 runtime·blockprofilerate;
+void	runtime·addtimer(Timer*);
+bool	runtime·deltimer(Timer*);
+G*	runtime·netpoll(bool);
+void	runtime·netpollinit(void);
+int32	runtime·netpollopen(int32, PollDesc*);
+int32   runtime·netpollclose(int32);
+void	runtime·netpollready(G**, PollDesc*, int32);
+void	runtime·crash(void);
 
 #pragma	varargck	argpos	runtime·printf	1
 #pragma	varargck	type	"d"	int32
@@ -929,7 +963,6 @@ void	runtime·mapassign(MapType*, Hmap*, byte*, byte*);
 void	runtime·mapaccess(MapType*, Hmap*, byte*, byte*, bool*);
 void	runtime·mapiternext(struct hash_iter*);
 bool	runtime·mapiterkey(struct hash_iter*, void*);
-void	runtime·mapiterkeyvalue(struct hash_iter*, void*, void*);
 Hmap*	runtime·makemap_c(MapType*, int64);
 
 Hchan*	runtime·makechan_c(ChanType*, int64);

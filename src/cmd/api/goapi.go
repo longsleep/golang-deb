@@ -138,9 +138,7 @@ func main() {
 		}
 
 		for _, pkg := range pkgs {
-			if strings.HasPrefix(pkg, "cmd/") ||
-				strings.HasPrefix(pkg, "exp/") ||
-				strings.HasPrefix(pkg, "old/") {
+			if strings.HasPrefix(pkg, "cmd/") {
 				continue
 			}
 			if fi, err := os.Stat(filepath.Join(w.root, pkg)); err != nil || !fi.IsDir() {
@@ -725,7 +723,6 @@ func (w *Walker) varValueType(vi interface{}) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown const value type %T", vi)
 	}
-	panic("unreachable")
 }
 
 // resolveName finds a top-level node named name and returns the node
