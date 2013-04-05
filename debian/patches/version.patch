@@ -4,11 +4,11 @@ Author: Michael Stapelberg <stapelberg@debian.org>
 ---
 
 Forwarded: not-needed
-Last-Update: 2013-03-23
+Last-Update: 2013-04-05
 
 Index: golang/VERSION
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
 +++ golang/VERSION	2013-03-04 21:33:29.611697403 +0100
 @@ -0,0 +1 @@
-+1.1~hg20130323
++1.1~hg20130405
