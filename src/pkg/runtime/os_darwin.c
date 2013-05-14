@@ -92,7 +92,7 @@ runtime·goenvs(void)
 
 	// Register our thread-creation callback (see sys_darwin_{amd64,386}.s)
 	// but only if we're not using cgo.  If we are using cgo we need
-	// to let the C pthread libary install its own thread-creation callback.
+	// to let the C pthread library install its own thread-creation callback.
 	if(!runtime·iscgo) {
 		if(runtime·bsdthread_register() != 0) {
 			if(runtime·getenv("DYLD_INSERT_LIBRARIES"))
@@ -540,14 +540,17 @@ static int8 badsignal[] = "runtime: signal received on thread not created by Go:
 void
 runtime·badsignal(int32 sig)
 {
+	int32 len;
+
 	if (sig == SIGPROF) {
 		return;  // Ignore SIGPROFs intended for a non-Go thread.
 	}
 	runtime·write(2, badsignal, sizeof badsignal - 1);
 	if (0 <= sig && sig < NSIG) {
-		// Call runtime·findnull dynamically to circumvent static stack size check.
-		static int32 (*findnull)(byte*) = runtime·findnull;
-		runtime·write(2, runtime·sigtab[sig].name, findnull((byte*)runtime·sigtab[sig].name));
+		// Can't call findnull() because it will split stack.
+		for(len = 0; runtime·sigtab[sig].name[len]; len++)
+			;
+		runtime·write(2, runtime·sigtab[sig].name, len);
 	}
 	runtime·write(2, "\n", 1);
 	runtime·exit(1);

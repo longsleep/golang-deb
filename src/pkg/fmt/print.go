@@ -47,7 +47,7 @@ type State interface {
 }
 
 // Formatter is the interface implemented by values with a custom formatter.
-// The implementation of Format may call Sprintf or Fprintf(f) etc.
+// The implementation of Format may call Sprint(f) or Fprint(f) etc.
 // to generate its output.
 type Formatter interface {
 	Format(f State, c rune)
@@ -56,7 +56,8 @@ type Formatter interface {
 // Stringer is implemented by any value that has a String method,
 // which defines the ``native'' format for that value.
 // The String method is used to print values passed as an operand
-// to a %s or %v format or to an unformatted printer such as Print.
+// to any format that accepts a string or to an unformatted printer
+// such as Print.
 type Stringer interface {
 	String() string
 }
@@ -1071,7 +1072,7 @@ func (p *pp) doPrintf(format string, a []interface{}) {
 			p.fmt.wid, p.fmt.widPresent, i = parsenum(format, i, end)
 		}
 		// do we have precision?
-		if i < end && format[i] == '.' {
+		if i+1 < end && format[i] == '.' {
 			if format[i+1] == '*' {
 				p.fmt.prec, p.fmt.precPresent, i, fieldnum = intFromArg(a, end, i+1, fieldnum)
 				if !p.fmt.precPresent {

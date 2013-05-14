@@ -79,7 +79,7 @@ func (fd *netFD) name() string {
 	return fd.net + ":" + ls + "->" + rs
 }
 
-func (fd *netFD) connect(ra syscall.Sockaddr) error {
+func (fd *netFD) connect(la, ra syscall.Sockaddr) error {
 	fd.wio.Lock()
 	defer fd.wio.Unlock()
 	if err := fd.pd.PrepareWrite(); err != nil {
@@ -122,12 +122,16 @@ func (fd *netFD) incref(closing bool) error {
 func (fd *netFD) decref() {
 	fd.sysmu.Lock()
 	fd.sysref--
-	if fd.closing && fd.sysref == 0 && fd.sysfile != nil {
+	if fd.closing && fd.sysref == 0 {
 		// Poller may want to unregister fd in readiness notification mechanism,
 		// so this must be executed before sysfile.Close().
 		fd.pd.Close()
-		fd.sysfile.Close()
-		fd.sysfile = nil
+		if fd.sysfile != nil {
+			fd.sysfile.Close()
+			fd.sysfile = nil
+		} else {
+			closesocket(fd.sysfd)
+		}
 		fd.sysfd = -1
 	}
 	fd.sysmu.Unlock()

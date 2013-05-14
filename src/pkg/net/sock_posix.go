@@ -57,8 +57,8 @@ func socket(net string, f, t, p int, ipv6only bool, ulsa, ursa syscall.Sockaddr,
 		if !deadline.IsZero() {
 			setWriteDeadline(fd, deadline)
 		}
-		if err = fd.connect(ursa); err != nil {
-			closesocket(s)
+		if err = fd.connect(ulsa, ursa); err != nil {
+			fd.Close()
 			return nil, err
 		}
 		fd.isConnected = true

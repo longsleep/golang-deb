@@ -368,3 +368,39 @@ func TestErrAtEOF(t *testing.T) {
 		t.Fatal("wrong error:", s.Err())
 	}
 }
+
+// Test for issue 5268.
+type alwaysError struct{}
+
+func (alwaysError) Read(p []byte) (int, error) {
+	return 0, io.ErrUnexpectedEOF
+}
+
+func TestNonEOFWithEmptyRead(t *testing.T) {
+	scanner := NewScanner(alwaysError{})
+	for scanner.Scan() {
+		t.Fatal("read should fail")
+	}
+	err := scanner.Err()
+	if err != io.ErrUnexpectedEOF {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// Test that Scan finishes if we have endless empty reads.
+type endlessZeros struct{}
+
+func (endlessZeros) Read(p []byte) (int, error) {
+	return 0, nil
+}
+
+func TestBadReader(t *testing.T) {
+	scanner := NewScanner(endlessZeros{})
+	for scanner.Scan() {
+		t.Fatal("read should fail")
+	}
+	err := scanner.Err()
+	if err != io.ErrNoProgress {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

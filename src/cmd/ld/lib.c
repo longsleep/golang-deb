@@ -45,6 +45,10 @@ int	nlibdir = 0;
 static int	maxlibdir = 0;
 static int	cout = -1;
 
+// Set if we see an object compiled by the host compiler that is not
+// from a package that is known to support internal linking mode.
+static int	externalobj = 0;
+
 static	void	hostlinksetup(void);
 
 char*	goroot;
@@ -295,6 +299,19 @@ loadlib(void)
 		loadinternal("math");
 	if(flag_race)
 		loadinternal("runtime/race");
+	if(linkmode == LinkExternal) {
+		// This indicates a user requested -linkmode=external.
+		// The startup code uses an import of runtime/cgo to decide
+		// whether to initialize the TLS.  So give it one.  This could
+		// be handled differently but it's an unusual case.
+		loadinternal("runtime/cgo");
+		// Pretend that we really imported the package.
+		// This will do no harm if we did in fact import it.
+		s = lookup("go.importpath.runtime/cgo.", 0);
+		s->type = SDATA;
+		s->dupok = 1;
+		s->reachable = 1;
+	}
 
 	for(i=0; i<libraryp; i++) {
 		if(debug['v'])
@@ -303,19 +320,27 @@ loadlib(void)
 		objfile(library[i].file, library[i].pkg);
 	}
 	
-	if(linkmode == LinkExternal && !iscgo)
-		linkmode = LinkInternal;
-
-	// If we got this far in automatic mode, there were no
-	// cgo uses that suggest we need external mode.
-	// Switch to internal.
 	if(linkmode == LinkAuto) {
-		linkmode = LinkInternal;
+		if(iscgo && externalobj)
+			linkmode = LinkExternal;
+		else
+			linkmode = LinkInternal;
+	}
+
+	if(linkmode == LinkInternal) {
 		// Drop all the cgo_import_static declarations.
 		// Turns out we won't be needing them.
 		for(s = allsym; s != S; s = s->allsym)
-			if(s->type == SHOSTOBJ)
-				s->type = 0;
+			if(s->type == SHOSTOBJ) {
+				// If a symbol was marked both
+				// cgo_import_static and cgo_import_dynamic,
+				// then we want to make it cgo_import_dynamic
+				// now.
+				if(s->extname != nil && s->dynimplib != nil && s->cgoexport == 0) {
+					s->type = SDYNIMPORT;
+				} else
+					s->type = 0;
+			}
 	}
 	
 	// Now that we know the link mode, trim the dynexp list.
@@ -529,8 +554,8 @@ ldhostobj(void (*ld)(Biobuf*, char*, int64, char*), Biobuf *f, char *pkg, int64 
 		}
 	}
 
-	if(!isinternal && linkmode == LinkAuto)
-		linkmode = LinkExternal;
+	if(!isinternal)
+		externalobj = 1;
 
 	if(nhostobj >= mhostobj) {
 		if(mhostobj == 0)
@@ -670,6 +695,7 @@ hostlink(void)
 		argv[argc++] = p;
 		w = create(p, 1, 0775);
 		if(w < 0) {
+			cursym = S;
 			diag("cannot create %s: %r", p);
 			errorexit();
 		}
@@ -681,6 +707,7 @@ hostlink(void)
 			len -= n;
 		}
 		if(close(w) < 0) {
+			cursym = S;
 			diag("cannot write %s: %r", p);
 			errorexit();
 		}
@@ -713,6 +740,7 @@ hostlink(void)
 	}
 
 	if(runcmd(argv) < 0) {
+		cursym = S;
 		diag("%s: running %s failed: %r", argv0, argv[0]);
 		errorexit();
 	}

@@ -330,3 +330,80 @@ func numFD() int {
 	// All tests using this should be skipped anyway, but:
 	panic("numFDs not implemented on " + runtime.GOOS)
 }
+
+var testPoller = flag.Bool("poller", false, "platform supports runtime-integrated poller")
+
+// Assert that a failed Dial attempt does not leak
+// runtime.PollDesc structures
+func TestDialFailPDLeak(t *testing.T) {
+	if !*testPoller {
+		t.Skip("test disabled; use -poller to enable")
+	}
+
+	const loops = 10
+	const count = 20000
+	var old runtime.MemStats // used by sysdelta
+	runtime.ReadMemStats(&old)
+	sysdelta := func() uint64 {
+		var new runtime.MemStats
+		runtime.ReadMemStats(&new)
+		delta := old.Sys - new.Sys
+		old = new
+		return delta
+	}
+	d := &Dialer{Timeout: time.Nanosecond} // don't bother TCP with handshaking
+	failcount := 0
+	for i := 0; i < loops; i++ {
+		for i := 0; i < count; i++ {
+			conn, err := d.Dial("tcp", "127.0.0.1:1")
+			if err == nil {
+				t.Error("dial should not succeed")
+				conn.Close()
+				t.FailNow()
+			}
+		}
+		if delta := sysdelta(); delta > 0 {
+			failcount++
+		}
+		// there are always some allocations on the first loop
+		if failcount > 3 {
+			t.Error("detected possible memory leak in runtime")
+			t.FailNow()
+		}
+	}
+}
+
+func TestDialer(t *testing.T) {
+	ln, err := Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer ln.Close()
+	ch := make(chan error, 1)
+	go func() {
+		var err error
+		c, err := ln.Accept()
+		if err != nil {
+			ch <- fmt.Errorf("Accept failed: %v", err)
+			return
+		}
+		defer c.Close()
+		ch <- nil
+	}()
+
+	laddr, err := ResolveTCPAddr("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("ResolveTCPAddr failed: %v", err)
+	}
+	d := &Dialer{LocalAddr: laddr}
+	c, err := d.Dial("tcp4", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer c.Close()
+	c.Read(make([]byte, 1))
+	err = <-ch
+	if err != nil {
+		t.Error(err)
+	}
+}

@@ -158,15 +158,25 @@ func (s *Scanner) Scan() bool {
 			s.start = 0
 			continue
 		}
-		// Finally we can read some input.
-		n, err := s.r.Read(s.buf[s.end:len(s.buf)])
-		if err != nil {
-			s.setErr(err)
+		// Finally we can read some input. Make sure we don't get stuck with
+		// a misbehaving Reader. Officially we don't need to do this, but let's
+		// be extra careful: Scanner is for safe, simple jobs.
+		for loop := 0; ; {
+			n, err := s.r.Read(s.buf[s.end:len(s.buf)])
+			s.end += n
+			if err != nil {
+				s.setErr(err)
+				break
+			}
+			if n > 0 {
+				break
+			}
+			loop++
+			if loop > 100 {
+				s.setErr(io.ErrNoProgress)
+				break
+			}
 		}
-		if n == 0 { // Don't loop forever if Reader doesn't deliver EOF.
-			s.err = io.EOF
-		}
-		s.end += n
 	}
 }
 

@@ -403,8 +403,10 @@ if owner != user {
 
 <p>
 By convention, one-method interfaces are named by
-the method name plus the -er suffix: <code>Reader</code>,
-<code>Writer</code>, <code>Formatter</code> etc.
+the method name plus an -er suffix or similar modification
+to construct an agent noun: <code>Reader</code>,
+<code>Writer</code>, <code>Formatter</code>,
+<code>CloseNotifier</code> etc.
 </p>
 
 <p>
@@ -1570,7 +1572,7 @@ _, present := timeZone[tz]
 <p>
 To delete a map entry, use the <code>delete</code>
 built-in function, whose arguments are the map and the key to be deleted.
-It's safe to do this this even if the key is already absent
+It's safe to do this even if the key is already absent
 from the map.
 </p>
 <pre>
@@ -1805,7 +1807,7 @@ is different from our custom <code>Append</code> function above.
 Schematically, it's like this:
 </p>
 <pre>
-func append(slice []<i>T</i>, elements...<i>T</i>) []<i>T</i>
+func append(slice []<i>T</i>, elements ...<i>T</i>) []<i>T</i>
 </pre>
 <p>
 where <i>T</i> is a placeholder for any given type.  You can't
@@ -2555,7 +2557,7 @@ if _, ok := val.(json.Marshaler); ok {
 
 <p>
 One place this situation arises is when it is necessary to guarantee within the package implementing the type that
-it it actually satisfies the interface.
+it actually satisfies the interface.
 If a type—for example,
 <code><a href="/pkg/encoding/json/#RawMessage">json.RawMessage</a></code>—needs
 a custom its JSON representation, it should implement
@@ -2947,7 +2949,7 @@ func Serve(queue chan *Request) {
         go func() {
             process(req)
             sem &lt;- 1
-        }
+        }()
     }
 }</pre>
 
@@ -3414,7 +3416,7 @@ func Compile(str string) (regexp *Regexp, err error) {
 <p>
 If <code>doParse</code> panics, the recovery block will set the
 return value to <code>nil</code>&mdash;deferred functions can modify
-named return values.  It then will then check, in the assignment
+named return values.  It will then check, in the assignment
 to <code>err</code>, that the problem was a parse error by asserting
 that it has the local type <code>Error</code>.
 If it does not, the type assertion will fail, causing a run-time error
