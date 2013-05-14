@@ -322,6 +322,10 @@ casebody(Node *sw, Node *typeswvar)
 				setlineno(last);
 				yyerror("cannot fallthrough in type switch");
 			}
+			if(l->next == nil) {
+				setlineno(last);
+				yyerror("cannot fallthrough final case in switch");
+			}
 			last->op = OFALL;
 		} else
 			stat = list(stat, br);
@@ -354,6 +358,8 @@ mkcaselist(Node *sw, int arg)
 		c = c1;
 
 		ord++;
+		if((uint16)ord != ord)
+			fatal("too many cases in switch");
 		c->ordinal = ord;
 		c->node = n;
 

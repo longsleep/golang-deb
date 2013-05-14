@@ -43,7 +43,7 @@ if errorlevel 1 goto fail
 echo.
 
 echo # runtime -cpu=1,2,4
-go test runtime -short -timeout=120s -cpu=1,2,4
+go test runtime -short -timeout=240s -cpu=1,2,4
 if errorlevel 1 goto fail
 echo.
 
@@ -72,16 +72,14 @@ if errorlevel 1 goto fail
 echo.
 
 :: cgo tests
-:: issue 4955 - cgo is broken
-goto nocgo
 if x%CGO_ENABLED% == x0 goto nocgo
 echo # ..\misc\cgo\life
-go run %GOROOT%\test\run.go - ..\misc\cgo\life
+go run "%GOROOT%\test\run.go" - ..\misc\cgo\life
 if errorlevel 1 goto fail
 echo.
 
 echo # ..\misc\cgo\stdio
-go run %GOROOT%\test\run.go - ..\misc\cgo\stdio
+go run "%GOROOT%\test\run.go" - ..\misc\cgo\stdio
 if errorlevel 1 goto fail
 echo.
 
@@ -89,10 +87,18 @@ echo # ..\misc\cgo\test
 go test ..\misc\cgo\test
 if errorlevel 1 goto fail
 echo.
+
+echo # ..\misc\cgo\testso
+cd ..\misc\cgo\testso
+set FAIL=0
+call test.bat
+cd ..\..\..\src
+if %FAIL%==1 goto fail
+echo.
 :nocgo
 
 echo # ..\doc\progs
-go run %GOROOT%\test\run.go - ..\doc\progs
+go run "%GOROOT%\test\run.go" - ..\doc\progs
 if errorlevel 1 goto fail
 echo.
 
@@ -115,7 +121,7 @@ set GOMAXPROCS=%OLDGOMAXPROCS%
 set OLDGOMAXPROCS=
 
 echo # Checking API compatibility.
-go tool api -c ..\api\go1.txt -next ..\api\next.txt -except ..\api\except.txt
+go tool api -c ..\api\go1.txt,..\api\go1.1.txt -next ..\api\next.txt -except ..\api\except.txt
 if errorlevel 1 goto fail
 echo.
 

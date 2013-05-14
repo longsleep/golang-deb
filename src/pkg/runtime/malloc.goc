@@ -35,7 +35,7 @@ runtime·mallocgc(uintptr size, uint32 flag, int32 dogc, int32 zeroed)
 	MSpan *s;
 	void *v;
 
-	if(runtime·gcwaiting && g != m->g0 && m->locks == 0)
+	if(runtime·gcwaiting && g != m->g0 && m->locks == 0 && dogc)
 		runtime·gosched();
 	if(m->mallocing)
 		runtime·throw("malloc/free - deadlock");
@@ -160,7 +160,7 @@ runtime·free(void *v)
 	if(sizeclass == 0) {
 		// Large object.
 		size = s->npages<<PageShift;
-		*(uintptr*)(s->start<<PageShift) = 1;	// mark as "needs to be zeroed"
+		*(uintptr*)(s->start<<PageShift) = (uintptr)0xfeedfeedfeedfeedll;	// mark as "needs to be zeroed"
 		// Must mark v freed before calling unmarkspan and MHeap_Free:
 		// they might coalesce v into other spans and change the bitmap further.
 		runtime·markfreed(v, size);
@@ -170,7 +170,7 @@ runtime·free(void *v)
 		// Small object.
 		size = runtime·class_to_size[sizeclass];
 		if(size > sizeof(uintptr))
-			((uintptr*)v)[1] = 1;	// mark as "needs to be zeroed"
+			((uintptr*)v)[1] = (uintptr)0xfeedfeedfeedfeedll;	// mark as "needs to be zeroed"
 		// Must mark v freed before calling MCache_Free:
 		// it might coalesce v and other blocks into a bigger span
 		// and change the bitmap further.
@@ -318,7 +318,10 @@ runtime·mallocinit(void)
 
 	runtime·InitSizes();
 
-	limit = runtime·memlimit();
+	// limit = runtime·memlimit();
+	// See https://code.google.com/p/go/issues/detail?id=5049
+	// TODO(rsc): Fix after 1.1.
+	limit = 0;
 
 	// Set up the allocation arena, a contiguous area of memory where
 	// allocated data will be found.  The arena begins with a bitmap large
@@ -516,7 +519,7 @@ runtime·settype_flush(M *mp, bool sysalloc)
 			nbytes3 = 8*sizeof(uintptr) + 1*ntypes;
 
 			if(!sysalloc) {
-				data3 = runtime·mallocgc(nbytes3, FlagNoPointers, 0, 1);
+				data3 = runtime·mallocgc(nbytes3, FlagNoProfiling|FlagNoPointers, 0, 1);
 			} else {
 				data3 = runtime·SysAlloc(nbytes3);
 				if(data3 == nil)
@@ -554,7 +557,7 @@ runtime·settype_flush(M *mp, bool sysalloc)
 				nbytes2 = ntypes * sizeof(uintptr);
 
 				if(!sysalloc) {
-					data2 = runtime·mallocgc(nbytes2, FlagNoPointers, 0, 1);
+					data2 = runtime·mallocgc(nbytes2, FlagNoProfiling|FlagNoPointers, 0, 1);
 				} else {
 					data2 = runtime·SysAlloc(nbytes2);
 					if(data2 == nil)

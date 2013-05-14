@@ -16,7 +16,7 @@ import (
 // the Scan method will step through the 'tokens' of a file, skipping
 // the bytes between the tokens. The specification of a token is
 // defined by a split function of type SplitFunc; the default split
-// function breaks the input into lines with newlines stripped. Split
+// function breaks the input into lines with line termination stripped. Split
 // functions are defined in this package for scanning a file into
 // lines, bytes, UTF-8-encoded runes, and space-delimited words. The
 // client may instead provide a custom split function.
@@ -26,8 +26,6 @@ import (
 // advanced arbitrarily far past the last token. Programs that need more
 // control over error handling or large tokens, or must run sequential scans
 // on a reader, should use bufio.Reader instead.
-//
-// TODO(r): Provide executable examples.
 //
 type Scanner struct {
 	r            io.Reader // The reader provided by the client.
@@ -72,6 +70,7 @@ const (
 )
 
 // NewScanner returns a new Scanner to read from r.
+// The split function defaults to ScanLines.
 func NewScanner(r io.Reader) *Scanner {
 	return &Scanner{
 		r:            r,
@@ -159,17 +158,26 @@ func (s *Scanner) Scan() bool {
 			s.start = 0
 			continue
 		}
-		// Finally we can read some input.
-		n, err := s.r.Read(s.buf[s.end:len(s.buf)])
-		if err != nil {
-			s.setErr(err)
+		// Finally we can read some input. Make sure we don't get stuck with
+		// a misbehaving Reader. Officially we don't need to do this, but let's
+		// be extra careful: Scanner is for safe, simple jobs.
+		for loop := 0; ; {
+			n, err := s.r.Read(s.buf[s.end:len(s.buf)])
+			s.end += n
+			if err != nil {
+				s.setErr(err)
+				break
+			}
+			if n > 0 {
+				break
+			}
+			loop++
+			if loop > 100 {
+				s.setErr(io.ErrNoProgress)
+				break
+			}
 		}
-		if n == 0 { // Don't loop forever if Reader doesn't deliver EOF.
-			s.err = io.EOF
-		}
-		s.end += n
 	}
-	panic("not reached")
 }
 
 // advance consumes n bytes of the buffer. It reports whether the advance was legal.
@@ -260,7 +268,7 @@ func dropCR(data []byte) []byte {
 // ScanLines is a split function for a Scanner that returns each line of
 // text, stripped of any trailing end-of-line marker. The returned line may
 // be empty. The end-of-line marker is one optional carriage return followed
-// by one mandatory newline. In regular expression notation, it is `\r?\n'.
+// by one mandatory newline. In regular expression notation, it is `\r?\n`.
 // The last non-empty line of input will be returned even if it has no
 // newline.
 func ScanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {

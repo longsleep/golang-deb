@@ -338,8 +338,7 @@ func TestRaceSliceVarCopy2(t *testing.T) {
 	<-c
 }
 
-// Not implemented.
-func TestRaceFailingSliceAppend(t *testing.T) {
+func TestRaceSliceAppend(t *testing.T) {
 	c := make(chan bool, 1)
 	s := make([]int, 10, 20)
 	go func() {
@@ -461,5 +460,26 @@ func TestRaceSliceRuneToString(t *testing.T) {
 		c <- string(s)
 	}()
 	s[9] = 42
+	<-c
+}
+
+func TestRaceConcatString(t *testing.T) {
+	s := "hello"
+	c := make(chan string, 1)
+	go func() {
+		c <- s + " world"
+	}()
+	s = "world"
+	<-c
+}
+
+func TestRaceCompareString(t *testing.T) {
+	s1 := "hello"
+	s2 := "world"
+	c := make(chan bool, 1)
+	go func() {
+		c <- s1 == s2
+	}()
+	s1 = s2
 	<-c
 }

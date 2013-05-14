@@ -6,8 +6,8 @@
 
 TEXT _rt0_386(SB),7,$0
 	// copy arguments forward on an even stack
-	MOVL	0(SP), AX		// argc
-	LEAL	4(SP), BX		// argv
+	MOVL	argc+0(FP), AX
+	MOVL	argv+4(FP), BX
 	SUBL	$128, SP		// plenty of scratch
 	ANDL	$~15, SP
 	MOVL	AX, 120(SP)		// save argc, argv away
@@ -20,15 +20,27 @@ TEXT _rt0_386(SB),7,$0
 	MOVL	BX, g_stackguard(BP)
 	MOVL	SP, g_stackbase(BP)
 	
+	// find out information about the processor we're on
+	MOVL	$0, AX
+	CPUID
+	CMPL	AX, $0
+	JE	nocpuinfo
+	MOVL	$1, AX
+	CPUID
+	MOVL	CX, runtime·cpuid_ecx(SB)
+	MOVL	DX, runtime·cpuid_edx(SB)
+nocpuinfo:	
+
 	// if there is an _cgo_init, call it to let it
 	// initialize and to set up GS.  if not,
 	// we set up GS ourselves.
 	MOVL	_cgo_init(SB), AX
 	TESTL	AX, AX
 	JZ	needtls
-	PUSHL	BP
+	MOVL	$setmg_gcc<>(SB), BX
+	MOVL	BX, 4(SP)
+	MOVL	BP, 0(SP)
 	CALL	AX
-	POPL	BP
 	// skip runtime·ldt0setup(SB) and tls test after _cgo_init for non-windows
 	CMPL runtime·iswindows(SB), $0
 	JEQ ok
@@ -72,6 +84,7 @@ ok:
 	MOVL	AX, 4(SP)
 	CALL	runtime·args(SB)
 	CALL	runtime·osinit(SB)
+	CALL	runtime·hashinit(SB)
 	CALL	runtime·schedinit(SB)
 
 	// create a new goroutine to start program
@@ -95,7 +108,7 @@ TEXT runtime·breakpoint(SB),7,$0
 	RET
 
 TEXT runtime·asminit(SB),7,$0
-	// Linux, Windows start the FPU in extended double precision.
+	// Linux and MinGW start the FPU in extended double precision.
 	// Other operating systems use double precision.
 	// Change to double precision to match them,
 	// and to match other hardware that only has double.
@@ -632,6 +645,15 @@ settls:
 	MOVL	BX, g(CX)
 	RET
 
+// void setmg_gcc(M*, G*); set m and g. for use by gcc
+TEXT setmg_gcc<>(SB), 7, $0	
+	get_tls(AX)
+	MOVL	mm+0(FP), DX
+	MOVL	DX, m(AX)
+	MOVL	gg+4(FP), DX
+	MOVL	DX,g (AX)
+	RET
+
 // check that SP is in range [g->stackbase, g->stackguard)
 TEXT runtime·stackcheck(SB), 7, $0
 	get_tls(CX)
@@ -706,7 +728,376 @@ TEXT runtime·stackguard(SB),7,$0
 	get_tls(CX)
 	MOVL	g(CX), BX
 	MOVL	g_stackguard(BX), DX
-	MOVL	DX, guard+4(FP)
+	MOVL	DX, limit+4(FP)
 	RET
 
 GLOBL runtime·tls0(SB), $32
+
+// hash function using AES hardware instructions
+TEXT runtime·aeshash(SB),7,$0
+	MOVL	4(SP), DX	// ptr to hash value
+	MOVL	8(SP), CX	// size
+	MOVL	12(SP), AX	// ptr to data
+	JMP	runtime·aeshashbody(SB)
+
+TEXT runtime·aeshashstr(SB),7,$0
+	MOVL	4(SP), DX	// ptr to hash value
+	MOVL	12(SP), AX	// ptr to string struct
+	MOVL	4(AX), CX	// length of string
+	MOVL	(AX), AX	// string data
+	JMP	runtime·aeshashbody(SB)
+
+// AX: data
+// CX: length
+// DX: ptr to seed input / hash output
+TEXT runtime·aeshashbody(SB),7,$0
+	MOVL	(DX), X0	// seed to low 32 bits of xmm0
+	PINSRD	$1, CX, X0	// size to next 32 bits of xmm0
+	MOVO	runtime·aeskeysched+0(SB), X2
+	MOVO	runtime·aeskeysched+16(SB), X3
+aesloop:
+	CMPL	CX, $16
+	JB	aesloopend
+	MOVOU	(AX), X1
+	AESENC	X2, X0
+	AESENC	X1, X0
+	SUBL	$16, CX
+	ADDL	$16, AX
+	JMP	aesloop
+aesloopend:
+	TESTL	CX, CX
+	JE	finalize	// no partial block
+
+	TESTL	$16, AX
+	JNE	highpartial
+
+	// address ends in 0xxxx.  16 bytes loaded
+	// at this address won't cross a page boundary, so
+	// we can load it directly.
+	MOVOU	(AX), X1
+	ADDL	CX, CX
+	PAND	masks(SB)(CX*8), X1
+	JMP	partial
+highpartial:
+	// address ends in 1xxxx.  Might be up against
+	// a page boundary, so load ending at last byte.
+	// Then shift bytes down using pshufb.
+	MOVOU	-16(AX)(CX*1), X1
+	ADDL	CX, CX
+	PSHUFB	shifts(SB)(CX*8), X1
+partial:
+	// incorporate partial block into hash
+	AESENC	X3, X0
+	AESENC	X1, X0
+finalize:	
+	// finalize hash
+	AESENC	X2, X0
+	AESENC	X3, X0
+	AESENC	X2, X0
+	MOVL	X0, (DX)
+	RET
+
+TEXT runtime·aeshash32(SB),7,$0
+	MOVL	4(SP), DX	// ptr to hash value
+	MOVL	12(SP), AX	// ptr to data
+	MOVL	(DX), X0	// seed
+	PINSRD	$1, (AX), X0	// data
+	AESENC	runtime·aeskeysched+0(SB), X0
+	AESENC	runtime·aeskeysched+16(SB), X0
+	AESENC	runtime·aeskeysched+0(SB), X0
+	MOVL	X0, (DX)
+	RET
+
+TEXT runtime·aeshash64(SB),7,$0
+	MOVL	4(SP), DX	// ptr to hash value
+	MOVL	12(SP), AX	// ptr to data
+	MOVQ	(AX), X0	// data
+	PINSRD	$2, (DX), X0	// seed
+	AESENC	runtime·aeskeysched+0(SB), X0
+	AESENC	runtime·aeskeysched+16(SB), X0
+	AESENC	runtime·aeskeysched+0(SB), X0
+	MOVL	X0, (DX)
+	RET
+
+
+// simple mask to get rid of data in the high part of the register.
+TEXT masks(SB),7,$0
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0x000000ff
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0x0000ffff
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0x00ffffff
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0x000000ff
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0x0000ffff
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0x00ffffff
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x000000ff
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x0000ffff
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x00ffffff
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x00000000
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x000000ff
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x0000ffff
+	
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0x00ffffff
+
+	// these are arguments to pshufb.  They move data down from
+	// the high bytes of the register to the low bytes of the register.
+	// index is how many bytes to move.
+TEXT shifts(SB),7,$0
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	LONG $0x00000000
+	
+	LONG $0xffffff0f
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0xffff0f0e
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0xff0f0e0d
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0x0f0e0d0c
+	LONG $0xffffffff
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0x0e0d0c0b
+	LONG $0xffffff0f
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0x0d0c0b0a
+	LONG $0xffff0f0e
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0x0c0b0a09
+	LONG $0xff0f0e0d
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0x0b0a0908
+	LONG $0x0f0e0d0c
+	LONG $0xffffffff
+	LONG $0xffffffff
+	
+	LONG $0x0a090807
+	LONG $0x0e0d0c0b
+	LONG $0xffffff0f
+	LONG $0xffffffff
+	
+	LONG $0x09080706
+	LONG $0x0d0c0b0a
+	LONG $0xffff0f0e
+	LONG $0xffffffff
+	
+	LONG $0x08070605
+	LONG $0x0c0b0a09
+	LONG $0xff0f0e0d
+	LONG $0xffffffff
+	
+	LONG $0x07060504
+	LONG $0x0b0a0908
+	LONG $0x0f0e0d0c
+	LONG $0xffffffff
+	
+	LONG $0x06050403
+	LONG $0x0a090807
+	LONG $0x0e0d0c0b
+	LONG $0xffffff0f
+	
+	LONG $0x05040302
+	LONG $0x09080706
+	LONG $0x0d0c0b0a
+	LONG $0xffff0f0e
+	
+	LONG $0x04030201
+	LONG $0x08070605
+	LONG $0x0c0b0a09
+	LONG $0xff0f0e0d
+
+TEXT runtime·memeq(SB),7,$0
+	MOVL	a+0(FP), SI
+	MOVL	b+4(FP), DI
+	MOVL	count+8(FP), BX
+	JMP	runtime·memeqbody(SB)
+
+
+TEXT bytes·Equal(SB),7,$0
+	MOVL	a_len+4(FP), BX
+	MOVL	b_len+16(FP), CX
+	XORL	AX, AX
+	CMPL	BX, CX
+	JNE	eqret
+	MOVL	a+0(FP), SI
+	MOVL	b+12(FP), DI
+	CALL	runtime·memeqbody(SB)
+eqret:
+	MOVB	AX, ret+24(FP)
+	RET
+
+// a in SI
+// b in DI
+// count in BX
+TEXT runtime·memeqbody(SB),7,$0
+	XORL	AX, AX
+
+	CMPL	BX, $4
+	JB	small
+
+	// 64 bytes at a time using xmm registers
+hugeloop:
+	CMPL	BX, $64
+	JB	bigloop
+	TESTL	$0x4000000, runtime·cpuid_edx(SB) // check for sse2
+	JE	bigloop
+	MOVOU	(SI), X0
+	MOVOU	(DI), X1
+	MOVOU	16(SI), X2
+	MOVOU	16(DI), X3
+	MOVOU	32(SI), X4
+	MOVOU	32(DI), X5
+	MOVOU	48(SI), X6
+	MOVOU	48(DI), X7
+	PCMPEQB	X1, X0
+	PCMPEQB	X3, X2
+	PCMPEQB	X5, X4
+	PCMPEQB	X7, X6
+	PAND	X2, X0
+	PAND	X6, X4
+	PAND	X4, X0
+	PMOVMSKB X0, DX
+	ADDL	$64, SI
+	ADDL	$64, DI
+	SUBL	$64, BX
+	CMPL	DX, $0xffff
+	JEQ	hugeloop
+	RET
+
+	// 4 bytes at a time using 32-bit register
+bigloop:
+	CMPL	BX, $4
+	JBE	leftover
+	MOVL	(SI), CX
+	MOVL	(DI), DX
+	ADDL	$4, SI
+	ADDL	$4, DI
+	SUBL	$4, BX
+	CMPL	CX, DX
+	JEQ	bigloop
+	RET
+
+	// remaining 0-4 bytes
+leftover:
+	MOVL	-4(SI)(BX*1), CX
+	MOVL	-4(DI)(BX*1), DX
+	CMPL	CX, DX
+	SETEQ	AX
+	RET
+
+small:
+	CMPL	BX, $0
+	JEQ	equal
+
+	LEAL	0(BX*8), CX
+	NEGL	CX
+
+	MOVL	SI, DX
+	CMPB	DX, $0xfc
+	JA	si_high
+
+	// load at SI won't cross a page boundary.
+	MOVL	(SI), SI
+	JMP	si_finish
+si_high:
+	// address ends in 111111xx.  Load up to bytes we want, move to correct position.
+	MOVL	-4(SI)(BX*1), SI
+	SHRL	CX, SI
+si_finish:
+
+	// same for DI.
+	MOVL	DI, DX
+	CMPB	DX, $0xfc
+	JA	di_high
+	MOVL	(DI), DI
+	JMP	di_finish
+di_high:
+	MOVL	-4(DI)(BX*1), DI
+	SHRL	CX, DI
+di_finish:
+
+	SUBL	SI, DI
+	SHLL	CX, DI
+equal:
+	SETEQ	AX
+	RET

@@ -5,9 +5,9 @@
 #include "runtime.h"
 #include "arch_GOARCH.h"
 
-static union {
+static struct {
 	Lock l;
-	byte pad [CacheLineSize];
+	byte pad[CacheLineSize-sizeof(Lock)];
 } locktab[57];
 
 #define LOCK(addr) (&locktab[((uintptr)(addr)>>3)%nelem(locktab)].l)
@@ -117,6 +117,19 @@ runtime·xadd64(uint64 volatile *addr, int64 delta)
 	runtime·lock(LOCK(addr));
 	res = *addr + delta;
 	*addr = res;
+	runtime·unlock(LOCK(addr));
+	return res;
+}
+
+#pragma textflag 7
+uint64
+runtime·xchg64(uint64 volatile *addr, uint64 v)
+{
+	uint64 res;
+
+	runtime·lock(LOCK(addr));
+	res = *addr;
+	*addr = v;
 	runtime·unlock(LOCK(addr));
 	return res;
 }

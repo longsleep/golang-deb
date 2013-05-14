@@ -491,6 +491,9 @@ gen(Node *n)
 	case ORETURN:
 		cgen_ret(n);
 		break;
+	
+	case OCHECKNOTNIL:
+		checkref(n->left, 1);
 	}
 
 ret:
@@ -807,7 +810,7 @@ cgen_slice(Node *n, Node *res)
 	if(n->op == OSLICEARR) {
 		if(!isptr[n->left->type->etype])
 			fatal("slicearr is supposed to work on pointer: %+N\n", n);
-		checkref(n->left);
+		checkref(n->left, 0);
 	}
 
 	if(isnil(n->left)) {
@@ -833,7 +836,7 @@ cgen_slice(Node *n, Node *res)
  * <0 is pointer to next field (+1)
  */
 int
-dotoffset(Node *n, int *oary, Node **nn)
+dotoffset(Node *n, int64 *oary, Node **nn)
 {
 	int i;
 

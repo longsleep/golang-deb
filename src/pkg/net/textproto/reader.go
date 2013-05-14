@@ -489,7 +489,6 @@ func (r *Reader) ReadMIMEHeader() (MIMEHeader, error) {
 			return m, err
 		}
 	}
-	panic("unreachable")
 }
 
 // CanonicalMIMEHeaderKey returns the canonical format of the
@@ -575,6 +574,7 @@ var commonHeaders = []string{
 	"Content-Length",
 	"Content-Transfer-Encoding",
 	"Content-Type",
+	"Cookie",
 	"Date",
 	"Dkim-Signature",
 	"Etag",

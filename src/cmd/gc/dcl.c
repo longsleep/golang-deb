@@ -225,8 +225,12 @@ declare(Node *n, int ctxt)
 	if(ctxt == PAUTO)
 		n->xoffset = 0;
 
-	if(s->block == block)
-		redeclare(s, "in this block");
+	if(s->block == block) {
+		// functype will print errors about duplicate function arguments.
+		// Don't repeat the error here.
+		if(ctxt != PPARAM && ctxt != PPARAMOUT)
+			redeclare(s, "in this block");
+	}
 
 	s->block = block;
 	s->lastlineno = parserline();
@@ -824,22 +828,24 @@ structfield(Node *n)
 	return f;
 }
 
+static uint32 uniqgen;
+
 static void
 checkdupfields(Type *t, char* what)
 {
-	Type* t1;
 	int lno;
 
 	lno = lineno;
 
-	for( ; t; t=t->down)
-		if(t->sym && t->nname && !isblank(t->nname))
-			for(t1=t->down; t1; t1=t1->down)
-				if(t1->sym == t->sym) {
-					lineno = t->nname->lineno;
-					yyerror("duplicate %s %s", what, t->sym->name);
-					break;
-				}
+	for( ; t; t=t->down) {
+		if(t->sym && t->nname && !isblank(t->nname)) {
+			if(t->sym->uniqgen == uniqgen) {
+				lineno = t->nname->lineno;
+				yyerror("duplicate %s %s", what, t->sym->name);
+			} else
+				t->sym->uniqgen = uniqgen;
+		}
+	}
 
 	lineno = lno;
 }
@@ -865,6 +871,7 @@ tostruct(NodeList *l)
 		if(f->broke)
 			t->broke = 1;
 
+	uniqgen++;
 	checkdupfields(t->type, "field");
 
 	if (!t->broke)
@@ -897,7 +904,6 @@ tofunargs(NodeList *l)
 		if(f->broke)
 			t->broke = 1;
 
-	checkdupfields(t->type, "argument");
 	return t;
 }
 
@@ -1004,6 +1010,7 @@ tointerface(NodeList *l)
 		if(f->broke)
 			t->broke = 1;
 
+	uniqgen++;
 	checkdupfields(t->type, "method");
 	t = sortinter(t);
 	checkwidth(t);
@@ -1187,6 +1194,11 @@ functype(Node *this, NodeList *in, NodeList *out)
 	t->type->down = tofunargs(out);
 	t->type->down->down = tofunargs(in);
 
+	uniqgen++;
+	checkdupfields(t->type->type, "argument");
+	checkdupfields(t->type->down->type, "argument");
+	checkdupfields(t->type->down->down->type, "argument");
+
 	if (t->type->broke || t->type->down->broke || t->type->down->down->broke)
 		t->broke = 1;
 
@@ -1327,6 +1339,8 @@ addmethod(Sym *sf, Type *t, int local, int nointerface)
 	f = methtype(pa, 1);
 	if(f == T) {
 		t = pa;
+		if(t == T) // rely on typecheck having complained before
+			return;
 		if(t != T) {
 			if(isptr[t->etype]) {
 				if(t->sym != S) {
@@ -1335,10 +1349,8 @@ addmethod(Sym *sf, Type *t, int local, int nointerface)
 				}
 				t = t->type;
 			}
-		}
-		if(t->broke) // rely on typecheck having complained before
-			return;
-		if(t != T) {
+			if(t->broke) // rely on typecheck having complained before
+				return;
 			if(t->sym == S) {
 				yyerror("invalid receiver type %T (%T is an unnamed type)", pa, t);
 				return;
@@ -1368,6 +1380,12 @@ addmethod(Sym *sf, Type *t, int local, int nointerface)
 		}
 	}
 
+	if(local && !pa->local) {
+		// defining method on non-local type.
+		yyerror("cannot define new methods on non-local type %T", pa);
+		return;
+	}
+
 	n = nod(ODCLFIELD, newname(sf), N);
 	n->type = t;
 
@@ -1380,12 +1398,6 @@ addmethod(Sym *sf, Type *t, int local, int nointerface)
 			continue;
 		if(!eqtype(t, f->type))
 			yyerror("method redeclared: %T.%S\n\t%T\n\t%T", pa, sf, f->type, t);
-		return;
-	}
-
-	if(local && !pa->local) {
-		// defining method on non-local type.
-		yyerror("cannot define new methods on non-local type %T", pa);
 		return;
 	}
 

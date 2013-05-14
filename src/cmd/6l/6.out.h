@@ -654,6 +654,8 @@ enum	as
 	APFSUB,
 	APFSUBR,
 	APINSRW,
+	APINSRD,
+	APINSRQ,
 	APMADDWL,
 	APMAXSW,
 	APMAXUB,
@@ -671,6 +673,7 @@ enum	as
 	APSHUFL,
 	APSHUFLW,
 	APSHUFW,
+	APSHUFB,
 	APSLLO,
 	APSLLL,
 	APSLLQ,
@@ -863,6 +866,7 @@ enum
 
 	D_SIZE = D_INDIR + D_INDIR,	/* 6l internal */
 	D_PCREL,
+	D_TLS,
 
 	T_TYPE		= 1<<0,
 	T_INDEX		= 1<<1,

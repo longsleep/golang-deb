@@ -95,7 +95,17 @@ static void unwindm(void);
 
 // Call from Go to C.
 
-static FuncVal unlockOSThread = { runtime·unlockOSThread };
+static void endcgo(void);
+static FuncVal endcgoV = { endcgo };
+
+// Gives a hint that the next syscall
+// executed by the current goroutine will block.
+// Currently used only on windows.
+void
+net·runtime_blockingSyscallHint(void)
+{
+	g->blockingsyscall = true;
+}
 
 void
 runtime·cgocall(void (*fn)(void*), void *arg)
@@ -123,7 +133,7 @@ runtime·cgocall(void (*fn)(void*), void *arg)
 	 * cgo callback. Add entry to defer stack in case of panic.
 	 */
 	runtime·lockOSThread();
-	d.fn = &unlockOSThread;
+	d.fn = &endcgoV;
 	d.siz = 0;
 	d.link = g->defer;
 	d.argp = (void*)-1;  // unused because unlockm never recovers
@@ -144,10 +154,24 @@ runtime·cgocall(void (*fn)(void*), void *arg)
 	 * so it is safe to call while "in a system call", outside
 	 * the $GOMAXPROCS accounting.
 	 */
-	runtime·entersyscall();
+	if(g->blockingsyscall) {
+		g->blockingsyscall = false;
+		runtime·entersyscallblock();
+	} else
+		runtime·entersyscall();
 	runtime·asmcgocall(fn, arg);
 	runtime·exitsyscall();
 
+	if(g->defer != &d || d.fn != &endcgoV)
+		runtime·throw("runtime: bad defer entry in cgocallback");
+	g->defer = d.link;
+	endcgo();
+}
+
+static void
+endcgo(void)
+{
+	runtime·unlockOSThread();
 	m->ncgo--;
 	if(m->ncgo == 0) {
 		// We are going back to Go and are not in a recursive
@@ -155,11 +179,6 @@ runtime·cgocall(void (*fn)(void*), void *arg)
 		// _cgo_allocate that is no longer referenced.
 		m->cgomal = nil;
 	}
-
-	if(g->defer != &d || d.fn != &unlockOSThread)
-		runtime·throw("runtime: bad defer entry in cgocallback");
-	g->defer = d.link;
-	runtime·unlockOSThread();
 
 	if(raceenabled)
 		runtime·raceacquire(&cgosync);
@@ -280,3 +299,9 @@ runtime·cgounimpl(void)	// called from (incomplete) assembly
 {
 	runtime·throw("runtime: cgo not implemented");
 }
+
+// For cgo-using programs with external linking,
+// export "main" (defined in assembly) so that libc can handle basic
+// C runtime startup and call the Go program as if it were
+// the C main function.
+#pragma cgo_export_static main

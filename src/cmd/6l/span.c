@@ -32,6 +32,7 @@
 
 #include	"l.h"
 #include	"../ld/lib.h"
+#include	"../ld/elf.h"
 
 static int	rexflag;
 static int	asmode;
@@ -880,7 +881,30 @@ putrelv:
 		r = addrel(cursym);
 		*r = rel;
 		r->off = curp->pc + andptr - and;
+	} else if(iself && linkmode == LinkExternal && a->type == D_INDIR+D_FS
+		&& HEADTYPE != Hopenbsd) {
+		Reloc *r;
+		Sym *s;
+		
+		r = addrel(cursym);
+		r->off = curp->pc + andptr - and;
+		r->add = 0;
+		r->xadd = 0;
+		r->siz = 4;
+		r->type = D_TLS;
+		if(a->offset == tlsoffset+0)
+			s = lookup("runtime.g", 0);
+		else
+			s = lookup("runtime.m", 0);
+		s->type = STLSBSS;
+		s->reachable = 1;
+		s->size = PtrSize;
+		s->hide = 1;
+		r->sym = s;
+		r->xsym = s;
+		v = 0;
 	}
+		
 	put4(v);
 	return;
 
@@ -1161,6 +1185,11 @@ found:
 		*andptr++ = Pe;
 		*andptr++ = Pm;
 		break;
+	case Pq3:	/* 16 bit escape, Rex.w, and opcode escape */
+		*andptr++ = Pe;
+		*andptr++ = Pw;
+		*andptr++ = Pm;
+		break;
 
 	case Pf2:	/* xmm opcode escape */
 	case Pf3:
@@ -1227,6 +1256,11 @@ found:
 		/* fall through */
 	case Zm_r:
 		*andptr++ = op;
+		asmand(&p->from, &p->to);
+		break;
+	case Zm2_r:
+		*andptr++ = op;
+		*andptr++ = o->op[z+1];
 		asmand(&p->from, &p->to);
 		break;
 

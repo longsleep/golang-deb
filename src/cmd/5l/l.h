@@ -38,6 +38,7 @@ enum
 	thechar = '5',
 	PtrSize = 4,
 	IntSize = 4,
+	MaxAlign = 8,	// max data alignment
 	FuncAlign = 4  // single-instruction alignment
 };
 
@@ -95,9 +96,12 @@ struct	Reloc
 {
 	int32	off;
 	uchar	siz;
+	uchar	done;
 	int16	type;
 	int32	add;
+	int32	xadd;
 	Sym*	sym;
+	Sym*	xsym;
 };
 
 struct	Prog
@@ -133,11 +137,12 @@ struct	Prog
 struct	Sym
 {
 	char*	name;
+	char*	extname;	// name used in external object files
 	short	type;
 	short	version;
 	uchar	dupok;
 	uchar	reachable;
-	uchar	dynexport;
+	uchar	cgoexport;
 	uchar	leaf;
 	int32	dynid;
 	int32	plt;
@@ -162,7 +167,6 @@ struct	Sym
 	Sym*	reachparent;
 	Sym*	queue;
 	char*	file;
-	char*	dynimpname;
 	char*	dynimplib;
 	char*	dynimpvers;
 	struct Section*	sect;
@@ -295,7 +299,6 @@ EXTERN	Auto*	curhist;
 EXTERN	Prog*	curp;
 EXTERN	Sym*	cursym;
 EXTERN	Sym*	datap;
-EXTERN	int32 	elfdatsize;
 EXTERN	int	debug[128];
 EXTERN	Sym*	etextp;
 EXTERN	char*	noname;

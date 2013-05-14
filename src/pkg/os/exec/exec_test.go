@@ -19,13 +19,14 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func helperCommand(s ...string) *Cmd {
 	cs := []string{"-test.run=TestHelperProcess", "--"}
 	cs = append(cs, s...)
 	cmd := Command(os.Args[0], cs...)
-	cmd.Env = append([]string{"GO_WANT_HELPER_PROCESS=1"}, os.Environ()...)
+	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
 	return cmd
 }
 
@@ -151,6 +152,33 @@ func TestPipes(t *testing.T) {
 	check("Wait", err)
 }
 
+// Issue 5071
+func TestPipeLookPathLeak(t *testing.T) {
+	fd0 := numOpenFDS(t)
+	for i := 0; i < 4; i++ {
+		cmd := Command("something-that-does-not-exist-binary")
+		cmd.StdoutPipe()
+		cmd.StderrPipe()
+		cmd.StdinPipe()
+		if err := cmd.Run(); err == nil {
+			t.Fatal("unexpected success")
+		}
+	}
+	fdGrowth := numOpenFDS(t) - fd0
+	if fdGrowth > 2 {
+		t.Errorf("leaked %d fds; want ~0", fdGrowth)
+	}
+}
+
+func numOpenFDS(t *testing.T) int {
+	lsof, err := Command("lsof", "-n", "-p", strconv.Itoa(os.Getpid())).Output()
+	if err != nil {
+		t.Skip("skipping test; error finding or running lsof")
+		return 0
+	}
+	return bytes.Count(lsof, []byte("\n"))
+}
+
 var testedAlreadyLeaked = false
 
 // basefds returns the number of expected file descriptors
@@ -165,6 +193,98 @@ func basefds() uintptr {
 		n++
 	}
 	return n
+}
+
+func TestExtraFilesFDShuffle(t *testing.T) {
+	t.Skip("TODO: TestExtraFilesFDShuffle is too non-portable; skipping")
+
+	// syscall.StartProcess maps all the FDs passed to it in
+	// ProcAttr.Files (the concatenation of stdin,stdout,stderr and
+	// ExtraFiles) into consecutive FDs in the child, that is:
+	// Files{11, 12, 6, 7, 9, 3} should result in the file
+	// represented by FD 11 in the parent being made available as 0
+	// in the child, 12 as 1, etc.
+	//
+	// We want to test that FDs in the child do not get overwritten
+	// by one another as this shuffle occurs. The original implementation
+	// was buggy in that in some data dependent cases it would ovewrite
+	// stderr in the child with one of the ExtraFile members.
+	// Testing for this case is difficult because it relies on using
+	// the same FD values as that case. In particular, an FD of 3
+	// must be at an index of 4 or higher in ProcAttr.Files and
+	// the FD of the write end of the Stderr pipe (as obtained by
+	// StderrPipe()) must be the same as the size of ProcAttr.Files;
+	// therefore we test that the read end of this pipe (which is what
+	// is returned to the parent by StderrPipe() being one less than
+	// the size of ProcAttr.Files, i.e. 3+len(cmd.ExtraFiles).
+	//
+	// Moving this test case around within the overall tests may
+	// affect the FDs obtained and hence the checks to catch these cases.
+	npipes := 2
+	c := helperCommand("extraFilesAndPipes", strconv.Itoa(npipes+1))
+	rd, wr, _ := os.Pipe()
+	defer rd.Close()
+	if rd.Fd() != 3 {
+		t.Errorf("bad test value for test pipe: fd %d", rd.Fd())
+	}
+	stderr, _ := c.StderrPipe()
+	wr.WriteString("_LAST")
+	wr.Close()
+
+	pipes := make([]struct {
+		r, w *os.File
+	}, npipes)
+	data := []string{"a", "b"}
+
+	for i := 0; i < npipes; i++ {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("unexpected error creating pipe: %s", err)
+		}
+		pipes[i].r = r
+		pipes[i].w = w
+		w.WriteString(data[i])
+		c.ExtraFiles = append(c.ExtraFiles, pipes[i].r)
+		defer func() {
+			r.Close()
+			w.Close()
+		}()
+	}
+	// Put fd 3 at the end.
+	c.ExtraFiles = append(c.ExtraFiles, rd)
+
+	stderrFd := int(stderr.(*os.File).Fd())
+	if stderrFd != ((len(c.ExtraFiles) + 3) - 1) {
+		t.Errorf("bad test value for stderr pipe")
+	}
+
+	expected := "child: " + strings.Join(data, "") + "_LAST"
+
+	err := c.Start()
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	ch := make(chan string, 1)
+	go func(ch chan string) {
+		buf := make([]byte, 512)
+		n, err := stderr.Read(buf)
+		if err != nil {
+			t.Fatalf("Read: %s", err)
+			ch <- err.Error()
+		} else {
+			ch <- string(buf[:n])
+		}
+		close(ch)
+	}(ch)
+	select {
+	case m := <-ch:
+		if m != expected {
+			t.Errorf("Read: '%s' not '%s'", m, expected)
+		}
+	case <-time.After(5 * time.Second):
+		t.Errorf("Read timedout")
+	}
+	c.Wait()
 }
 
 func TestExtraFiles(t *testing.T) {
@@ -289,6 +409,13 @@ func TestExtraFilesRace(t *testing.T) {
 		}
 		la.Close()
 		lb.Close()
+		for _, f := range ca.ExtraFiles {
+			f.Close()
+		}
+		for _, f := range cb.ExtraFiles {
+			f.Close()
+		}
+
 	}
 }
 
@@ -421,6 +548,35 @@ func TestHelperProcess(*testing.T) {
 				ln.Close()
 			}
 		}
+		os.Exit(0)
+	case "extraFilesAndPipes":
+		n, _ := strconv.Atoi(args[0])
+		pipes := make([]*os.File, n)
+		for i := 0; i < n; i++ {
+			pipes[i] = os.NewFile(uintptr(3+i), strconv.Itoa(i))
+		}
+		response := ""
+		for i, r := range pipes {
+			ch := make(chan string, 1)
+			go func(c chan string) {
+				buf := make([]byte, 10)
+				n, err := r.Read(buf)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Child: read error: %v on pipe %d\n", err, i)
+					os.Exit(1)
+				}
+				c <- string(buf[:n])
+				close(c)
+			}(ch)
+			select {
+			case m := <-ch:
+				response = response + m
+			case <-time.After(5 * time.Second):
+				fmt.Fprintf(os.Stderr, "Child: Timeout reading from pipe: %d\n", i)
+				os.Exit(1)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "child: %s", response)
 		os.Exit(0)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %q\n", cmd)

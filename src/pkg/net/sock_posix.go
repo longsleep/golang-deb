@@ -25,7 +25,8 @@ func socket(net string, f, t, p int, ipv6only bool, ulsa, ursa syscall.Sockaddr,
 		return nil, err
 	}
 
-	if ulsa != nil {
+	// This socket is used by a listener.
+	if ulsa != nil && ursa == nil {
 		// We provide a socket that listens to a wildcard
 		// address with reusable UDP port when the given ulsa
 		// is an appropriate UDP multicast address prefix.
@@ -37,6 +38,9 @@ func socket(net string, f, t, p int, ipv6only bool, ulsa, ursa syscall.Sockaddr,
 			closesocket(s)
 			return nil, err
 		}
+	}
+
+	if ulsa != nil {
 		if err = syscall.Bind(s, ulsa); err != nil {
 			closesocket(s)
 			return nil, err
@@ -48,19 +52,27 @@ func socket(net string, f, t, p int, ipv6only bool, ulsa, ursa syscall.Sockaddr,
 		return nil, err
 	}
 
+	// This socket is used by a dialer.
 	if ursa != nil {
-		fd.wdeadline.setTime(deadline)
-		if err = fd.connect(ursa); err != nil {
-			closesocket(s)
+		if !deadline.IsZero() {
+			setWriteDeadline(fd, deadline)
+		}
+		if err = fd.connect(ulsa, ursa); err != nil {
+			fd.Close()
 			return nil, err
 		}
 		fd.isConnected = true
-		fd.wdeadline.set(0)
+		if !deadline.IsZero() {
+			setWriteDeadline(fd, time.Time{})
+		}
 	}
 
 	lsa, _ := syscall.Getsockname(s)
 	laddr := toAddr(lsa)
 	rsa, _ := syscall.Getpeername(s)
+	if rsa == nil {
+		rsa = ursa
+	}
 	raddr := toAddr(rsa)
 	fd.setAddr(laddr, raddr)
 	return fd, nil

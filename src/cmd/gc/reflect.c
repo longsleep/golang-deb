@@ -1026,13 +1026,29 @@ dalgsym(Type *t)
 }
 
 static int
+gcinline(Type *t) {
+	switch(t->etype) {
+	case TARRAY:
+		if(t->bound == 1)
+			return 1;
+		if(t->width <= 4*widthptr)
+			return 1;
+		break;
+	}
+	return 0;
+}
+
+static int
 dgcsym1(Sym *s, int ot, Type *t, vlong *off, int stack_size)
 {
 	Type *t1;
-	vlong o, off2, fieldoffset;
+	vlong o, off2, fieldoffset, i;
 
 	if(t->align > 0 && (*off % t->align) != 0)
 		fatal("dgcsym1: invalid initial alignment, %T", t);
+
+	if(t->width == BADWIDTH)
+		dowidth(t);
 	
 	switch(t->etype) {
 	case TINT8:
@@ -1056,6 +1072,7 @@ dgcsym1(Sym *s, int ot, Type *t, vlong *off, int stack_size)
 
 	case TPTR32:
 	case TPTR64:
+		// NOTE: Any changes here need to be made to reflect.PtrTo as well.
 		if(*off % widthptr != 0)
 			fatal("dgcsym1: invalid alignment, %T", t);
 		if(!haspointers(t->type) || t->type->etype == TUINT8) {
@@ -1069,7 +1086,6 @@ dgcsym1(Sym *s, int ot, Type *t, vlong *off, int stack_size)
 		*off += t->width;
 		break;
 
-	case TCHAN:
 	case TUNSAFEPTR:
 	case TFUNC:
 		if(*off % widthptr != 0)
@@ -1079,8 +1095,20 @@ dgcsym1(Sym *s, int ot, Type *t, vlong *off, int stack_size)
 		*off += t->width;
 		break;
 
+	// struct Hchan*
+	case TCHAN:
+		// NOTE: Any changes here need to be made to reflect.ChanOf as well.
+		if(*off % widthptr != 0)
+			fatal("dgcsym1: invalid alignment, %T", t);
+		ot = duintptr(s, ot, GC_CHAN_PTR);
+		ot = duintptr(s, ot, *off);
+		ot = dsymptr(s, ot, dtypesym(t), 0);
+		*off += t->width;
+		break;
+
 	// struct Hmap*
 	case TMAP:
+		// NOTE: Any changes here need to be made to reflect.MapOf as well.
 		if(*off % widthptr != 0)
 			fatal("dgcsym1: invalid alignment, %T", t);
 		ot = duintptr(s, ot, GC_MAP_PTR);
@@ -1116,7 +1144,10 @@ dgcsym1(Sym *s, int ot, Type *t, vlong *off, int stack_size)
 	case TARRAY:
 		if(t->bound < -1)
 			fatal("dgcsym1: invalid bound, %T", t);
+		if(t->type->width == BADWIDTH)
+			dowidth(t->type);
 		if(isslice(t)) {
+			// NOTE: Any changes here need to be made to reflect.SliceOf as well.
 			// struct { byte* array; uint32 len; uint32 cap; }
 			if(*off % widthptr != 0)
 				fatal("dgcsym1: invalid alignment, %T", t);
@@ -1130,10 +1161,14 @@ dgcsym1(Sym *s, int ot, Type *t, vlong *off, int stack_size)
 			}
 			*off += t->width;
 		} else {
+			// NOTE: Any changes here need to be made to reflect.ArrayOf as well,
+			// at least once ArrayOf's gc info is implemented and ArrayOf is exported.
+			// struct { byte* array; uint32 len; uint32 cap; }
 			if(t->bound < 1 || !haspointers(t->type)) {
 				*off += t->width;
-			} else if(t->bound == 1) {
-				ot = dgcsym1(s, ot, t->type, off, stack_size);  // recursive call of dgcsym1
+			} else if(gcinline(t)) {
+				for(i=0; i<t->bound; i++)
+					ot = dgcsym1(s, ot, t->type, off, stack_size);  // recursive call of dgcsym1
 			} else {
 				if(stack_size < GC_STACK_CAPACITY) {
 					ot = duintptr(s, ot, GC_ARRAY_START);  // a stack push during GC
@@ -1183,6 +1218,9 @@ dgcsym(Type *t)
 	if(s->flags & SymGcgen)
 		return s;
 	s->flags |= SymGcgen;
+
+	if(t->width == BADWIDTH)
+		dowidth(t);
 
 	ot = 0;
 	off = 0;

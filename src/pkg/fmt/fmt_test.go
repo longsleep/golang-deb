@@ -9,6 +9,7 @@ import (
 	. "fmt"
 	"io"
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -496,6 +497,9 @@ var fmttests = []struct {
 	// causing +2+0i and +3+0i instead of 2+0i and 3+0i.
 	{"%v", []complex64{1, 2, 3}, "[(1+0i) (2+0i) (3+0i)]"},
 	{"%v", []complex128{1, 2, 3}, "[(1+0i) (2+0i) (3+0i)]"},
+
+	// Incomplete format specification caused crash.
+	{"%.", 3, "%!.(int=3)"},
 }
 
 func TestSprintf(t *testing.T) {
@@ -601,6 +605,9 @@ var mallocTest = []struct {
 var _ bytes.Buffer
 
 func TestCountMallocs(t *testing.T) {
+	if runtime.GOMAXPROCS(0) > 1 {
+		t.Skip("skipping; GOMAXPROCS>1")
+	}
 	for _, mt := range mallocTest {
 		mallocs := testing.AllocsPerRun(100, mt.fn)
 		if got, max := mallocs, float64(mt.count); got > max {

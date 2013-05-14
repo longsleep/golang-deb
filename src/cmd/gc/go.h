@@ -155,10 +155,10 @@ struct	Type
 	Type*	orig;		// original type (type literal or predefined type)
 	int		lineno;
 
-	// TFUNCT
-	uchar	thistuple;
-	uchar	outtuple;
-	uchar	intuple;
+	// TFUNC
+	int	thistuple;
+	int	outtuple;
+	int	intuple;
 	uchar	outnamed;
 
 	Type*	method;
@@ -252,9 +252,7 @@ struct	Node
 	uchar	embedded;	// ODCLFIELD embedded type
 	uchar	colas;		// OAS resulting from :=
 	uchar	diag;		// already printed error about this
-	uchar	esc;		// EscXXX
 	uchar	noescape;	// func arguments do not escape
-	uchar	funcdepth;
 	uchar	builtin;	// built-in name, like len or close
 	uchar	walkdef;
 	uchar	typecheck;
@@ -268,6 +266,9 @@ struct	Node
 	uchar	addrtaken;	// address taken, even if not moved to heap
 	uchar	dupok;	// duplicate definitions ok (for func)
 	schar	likely; // likeliness of if statement
+	uchar	hasbreak;	// has break statement
+	uint	esc;		// EscXXX
+	int	funcdepth;
 
 	// most nodes
 	Type*	type;
@@ -368,6 +369,7 @@ struct	Sym
 	uchar	sym;		// huffman encoding in object file
 	Sym*	link;
 	int32	npkg;	// number of imported packages with this name
+	uint32	uniqgen;
 
 	// saved and restored by dcopy
 	Pkg*	pkg;
@@ -392,6 +394,7 @@ struct	Pkg
 	uchar	imported;	// export data of this package was parsed
 	char	exported;	// import line written in export data
 	char	direct;	// imported directly
+	char	safe;	// whether the package is marked as safe
 };
 
 typedef	struct	Iter	Iter;
@@ -450,6 +453,7 @@ enum
 	OCALLFUNC,	// f()
 	OCALLMETH,	// t.Method()
 	OCALLINTER,	// err.Error()
+	OCALLPART,	// t.Method (without ())
 	OCAP,	// cap
 	OCLOSE,	// close
 	OCLOSURE,	// f = func() { etc }
@@ -562,6 +566,7 @@ enum
 	OITAB,	// itable word of an interface value.
 	OCLOSUREVAR, // variable reference at beginning of closure function
 	OCFUNC,	// reference to c function pointer (not go func value)
+	OCHECKNOTNIL, // emit code to ensure pointer/interface not nil
 
 	// arch-specific registers
 	OREGISTER,	// a register, such as AX.
@@ -987,7 +992,8 @@ Node*	closurebody(NodeList *body);
 void	closurehdr(Node *ntype);
 void	typecheckclosure(Node *func, int top);
 Node*	walkclosure(Node *func, NodeList **init);
-void	walkcallclosure(Node *n, NodeList **init);
+void	typecheckpartialcall(Node*, Node*);
+Node*	walkpartialcall(Node*, NodeList**);
 
 /*
  *	const.c
@@ -1097,7 +1103,7 @@ void	cgen_eface(Node* n, Node* res);
 void	cgen_slice(Node* n, Node* res);
 void	clearlabels(void);
 void	checklabels(void);
-int	dotoffset(Node *n, int *oary, Node **nn);
+int	dotoffset(Node *n, int64 *oary, Node **nn);
 void	gen(Node *n);
 void	genlist(NodeList *l);
 Node*	sysfunc(char *name);
@@ -1363,6 +1369,7 @@ Node*	typecheck(Node **np, int top);
 void	typechecklist(NodeList *l, int top);
 Node*	typecheckdef(Node *n);
 void	copytype(Node *n, Type *t);
+void	checkreturn(Node*);
 void	queuemethod(Node *n);
 
 /*
@@ -1416,7 +1423,8 @@ EXTERN	Node*	nodfp;
 int	anyregalloc(void);
 void	betypeinit(void);
 void	bgen(Node *n, int true, int likely, Prog *to);
-void	checkref(Node*);
+void	checkref(Node *n, int force);
+void	checknotnil(Node*, NodeList**);
 void	cgen(Node*, Node*);
 void	cgen_asop(Node *n);
 void	cgen_call(Node *n, int proc);

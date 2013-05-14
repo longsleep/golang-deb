@@ -50,6 +50,9 @@ the file pattern "*_test.go".  These additional files can contain test functions
 benchmark functions, and example functions.  See 'go help testfunc' for more.
 Each listed package causes the execution of a separate test binary.
 
+Test files that declare a package with the suffix "_test" will be compiled as a
+separate package, and then linked and run with the main test binary.
+
 By default, go test needs no arguments.  It compiles and tests the package
 with source in the current directory, including tests, and runs the tests.
 
@@ -59,6 +62,7 @@ non-test installation.
 In addition to the build flags, the flags handled by 'go test' itself are:
 
 	-c  Compile the test binary to pkg.test but do not run it.
+	    (Where pkg is the last element of the package's import path.)
 
 	-i
 	    Install packages that are dependencies of the test.
@@ -81,6 +85,11 @@ var helpTestflag = &Command{
 The 'go test' command takes both flags that apply to 'go test' itself
 and flags that apply to the resulting test binary.
 
+Several of the flags control profiling and write an execution profile
+suitable for "go tool pprof"; run "go tool pprof help" for more
+information.  The --alloc_space, --alloc_objects, and --show_bytes
+options of pprof control how the information is presented.
+
 The following flags are recognized by the 'go test' command and
 control the execution of any test:
 
@@ -93,17 +102,18 @@ control the execution of any test:
 	    Print memory allocation statistics for benchmarks.
 
 	-benchtime t
-		Run enough iterations of each benchmark to take t, specified
-		as a time.Duration (for example, -benchtime 1h30s).
-		The default is 1 second (1s).
+	    Run enough iterations of each benchmark to take t, specified
+	    as a time.Duration (for example, -benchtime 1h30s).
+	    The default is 1 second (1s).
 
 	-blockprofile block.out
 	    Write a goroutine blocking profile to the specified file
 	    when all tests are complete.
 
 	-blockprofilerate n
-	    Control the detail provided in goroutine blocking profiles by setting
-	    runtime.BlockProfileRate to n.  See 'godoc runtime BlockProfileRate'.
+	    Control the detail provided in goroutine blocking profiles by
+	    calling runtime.SetBlockProfileRate with n.
+	    See 'godoc runtime SetBlockProfileRate'.
 	    The profiler aims to sample, on average, one blocking event every
 	    n nanoseconds the program spends blocked.  By default,
 	    if -test.blockprofile is set without this flag, all blocking events
@@ -118,8 +128,8 @@ control the execution of any test:
 	    Write a CPU profile to the specified file before exiting.
 
 	-memprofile mem.out
-	    Write a memory profile to the specified file when all tests
-	    are complete.
+	    Write a memory profile to the specified file after all tests
+	    have passed.
 
 	-memprofilerate n
 	    Enable more precise (and expensive) memory profiles by setting
@@ -145,10 +155,11 @@ control the execution of any test:
 	    exhaustive tests.
 
 	-timeout t
-		If a test runs longer than t, panic.
+	    If a test runs longer than t, panic.
 
 	-v
-	    Verbose output: log all tests as they are run.
+	    Verbose output: log all tests as they are run. Also print all
+	    text from Log and Logf calls even if the test succeeds.
 
 The test binary, called pkg.test where pkg is the name of the
 directory containing the package sources, can be invoked directly

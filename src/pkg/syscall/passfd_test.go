@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"runtime"
 	"syscall"
 	"testing"
 	"time"
@@ -27,9 +26,6 @@ import (
 // "-test.run=^TestPassFD$" and an environment variable used to signal
 // that the test should become the child process instead.
 func TestPassFD(t *testing.T) {
-	if runtime.GOOS == "openbsd" {
-		t.Skip("issue 4956")
-	}
 	if os.Getenv("GO_WANT_HELPER_PROCESS") == "1" {
 		passFDChild()
 		return
@@ -53,7 +49,7 @@ func TestPassFD(t *testing.T) {
 	defer readFile.Close()
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestPassFD$", "--", tempDir)
-	cmd.Env = append([]string{"GO_WANT_HELPER_PROCESS=1"}, os.Environ()...)
+	cmd.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
 	cmd.ExtraFiles = []*os.File{writeFile}
 
 	out, err := cmd.CombinedOutput()

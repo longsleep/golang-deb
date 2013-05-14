@@ -26,7 +26,11 @@ func explode(s string, n int) []string {
 	i, cur := 0, 0
 	for ; i+1 < n; i++ {
 		ch, size = utf8.DecodeRuneInString(s[cur:])
-		a[i] = string(ch)
+		if ch == utf8.RuneError {
+			a[i] = string(utf8.RuneError)
+		} else {
+			a[i] = s[cur : cur+size]
+		}
 		cur += size
 	}
 	// add the rest, if there is any
@@ -488,10 +492,10 @@ func isSeparator(r rune) bool {
 	return unicode.IsSpace(r)
 }
 
-// BUG(r): The rule Title uses for word boundaries does not handle Unicode punctuation properly.
-
 // Title returns a copy of the string s with all Unicode letters that begin words
 // mapped to their title case.
+//
+// BUG: The rule Title uses for word boundaries does not handle Unicode punctuation properly.
 func Title(s string) string {
 	// Use a closure here to remember state.
 	// Hackish but effective. Depends on Map scanning in order and calling

@@ -26,6 +26,7 @@ static Node* uintptraddr(Node *n);
 static Node* basenod(Node *n);
 static void foreach(Node *n, void(*f)(Node*, void*), void *c);
 static void hascallspred(Node *n, void *c);
+static void appendinit(Node **np, NodeList *init);
 static Node* detachexpr(Node *n, NodeList **init);
 
 // Do not instrument the following packages at all,
@@ -132,14 +133,13 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 	case OASOP:
 	case OAS:
 	case OAS2:
-	case OAS2DOTTYPE:
 	case OAS2RECV:
 	case OAS2FUNC:
 	case OAS2MAPR:
 		racewalknode(&n->left, init, 1, 0);
 		racewalknode(&n->right, init, 0, 0);
 		goto ret;
-	
+
 	case OCFUNC:
 		// can't matter
 		goto ret;
@@ -185,17 +185,12 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 		racewalknode(&n->left, init, 0, 0);
 		goto ret;
 
-	case OSWITCH:
-		if(n->ntest->op == OTYPESW)
-			// TODO(dvyukov): the expression can contain calls or reads.
-			return;
-		goto ret;
-
 	case ONOT:
 	case OMINUS:
 	case OPLUS:
 	case OREAL:
 	case OIMAG:
+	case OCOM:
 		racewalknode(&n->left, init, wr, 0);
 		goto ret;
 
@@ -222,29 +217,24 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 	case OCAP:
 		racewalknode(&n->left, init, 0, 0);
 		if(istype(n->left->type, TMAP)) {
-			// crashes on len(m[0]) or len(f())
-			SET(n1);
-			USED(n1);
-			/*
-			n1 = nod(OADDR, n->left, N);
-			n1 = conv(n1, types[TUNSAFEPTR]);
-			n1 = conv(n1, ptrto(ptrto(types[TINT8])));
-			n1 = nod(OIND, n1, N);
+			n1 = nod(OCONVNOP, n->left, N);
+			n1->type = ptrto(types[TUINT8]);
 			n1 = nod(OIND, n1, N);
 			typecheck(&n1, Erv);
 			callinstr(&n1, init, 0, skip);
-			*/
 		}
 		goto ret;
 
 	case OLSH:
 	case ORSH:
+	case OLROT:
 	case OAND:
 	case OANDNOT:
 	case OOR:
 	case OXOR:
 	case OSUB:
 	case OMUL:
+	case OHMUL:
 	case OEQ:
 	case ONE:
 	case OLT:
@@ -260,9 +250,13 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 	case OANDAND:
 	case OOROR:
 		racewalknode(&n->left, init, wr, 0);
-		// It requires more complex tree transformation,
-		// because we don't know whether it will be executed or not.
-		//racewalknode(&n->right, init, wr, 0);
+		// walk has ensured the node has moved to a location where
+		// side effects are safe.
+		// n->right may not be executed,
+		// so instrumentation goes to n->right->ninit, not init.
+		l = nil;
+		racewalknode(&n->right, &l, wr, 0);
+		appendinit(&n->right, l);
 		goto ret;
 
 	case ONAME:
@@ -279,7 +273,6 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 
 	case ODIV:
 	case OMOD:
-		// TODO(dvyukov): add a test for this
 		racewalknode(&n->left, init, wr, 0);
 		racewalknode(&n->right, init, wr, 0);
 		goto ret;
@@ -313,6 +306,14 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 		racewalknode(&n->right, init, 0, 0);
 		goto ret;
 
+	case OITAB:
+		racewalknode(&n->left, init, 0, 0);
+		goto ret;
+
+	case OTYPESW:
+		racewalknode(&n->right, init, 0, 0);
+		goto ret;
+
 	// should not appear in AST by now
 	case OSEND:
 	case ORECV:
@@ -324,7 +325,37 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 	case OPANIC:
 	case ORECOVER:
 	case OCONVIFACE:
+	case OCMPIFACE:
+	case OMAKECHAN:
+	case OMAKEMAP:
+	case OMAKESLICE:
+	case OCALL:
+	case OCOPY:
+	case OAPPEND:
+	case ORUNESTR:
+	case OARRAYBYTESTR:
+	case OARRAYRUNESTR:
+	case OSTRARRAYBYTE:
+	case OSTRARRAYRUNE:
+	case OINDEXMAP:  // lowered to call
+	case OCMPSTR:
+	case OADDSTR:
+	case ODOTTYPE:
+	case ODOTTYPE2:
+	case OAS2DOTTYPE:
+	case OCALLPART: // lowered to PTRLIT
+	case OCLOSURE:  // lowered to PTRLIT
+	case ORANGE:    // lowered to ordinary for loop
+	case OARRAYLIT: // lowered to assignments
+	case OMAPLIT:
+	case OSTRUCTLIT:
 		yyerror("racewalk: %O must be lowered by now", n->op);
+		goto ret;
+
+	// impossible nodes: only appear in backend.
+	case ORROTC:
+	case OEXTEND:
+		yyerror("racewalk: %O cannot exist now", n->op);
 		goto ret;
 
 	// just do generic traversal
@@ -332,59 +363,31 @@ racewalknode(Node **np, NodeList **init, int wr, int skip)
 	case OIF:
 	case OCALLMETH:
 	case ORETURN:
+	case OSWITCH:
 	case OSELECT:
 	case OEMPTY:
-		goto ret;
-
-	// does not require instrumentation
-	case OINDEXMAP:  // implemented in runtime
-	case OPRINT:     // don't bother instrumenting it
-	case OPRINTN:    // don't bother instrumenting it
-	case OPARAM:     // it appears only in fn->exit to copy heap params back
-		goto ret;
-
-	// unimplemented
-	case OCMPSTR:
-	case OADDSTR:
-	case OSLICESTR:
-	case OAPPEND:
-	case OCOPY:
-	case OMAKECHAN:
-	case OMAKEMAP:
-	case OMAKESLICE:
-	case ORUNESTR:
-	case OARRAYBYTESTR:
-	case OARRAYRUNESTR:
-	case OSTRARRAYBYTE:
-	case OSTRARRAYRUNE:
-	case OCMPIFACE:
-	case OARRAYLIT:
-	case OMAPLIT:
-	case OSTRUCTLIT:
-	case OCLOSURE:
-	case ODOTTYPE:
-	case ODOTTYPE2:
-	case OCALL:
 	case OBREAK:
-	case ODCL:
 	case OCONTINUE:
 	case OFALL:
 	case OGOTO:
 	case OLABEL:
+		goto ret;
+
+	// does not require instrumentation
+	case OPRINT:     // don't bother instrumenting it
+	case OPRINTN:    // don't bother instrumenting it
+	case OCHECKNOTNIL: // always followed by a read.
+	case OPARAM:     // it appears only in fn->exit to copy heap params back
+	case OCLOSUREVAR:// immutable pointer to captured variable
+	case ODOTMETH:   // either part of CALLMETH or CALLPART (lowered to PTRLIT)
+	case OINDREG:    // at this stage, only n(SP) nodes from nodarg
+	case ODCL:       // declarations (without value) cannot be races
 	case ODCLCONST:
 	case ODCLTYPE:
-	case OLITERAL:
-	case ORANGE:
 	case OTYPE:
 	case ONONAME:
-	case OINDREG:
-	case OCOM:
-	case ODOTMETH:
-	case OITAB:
-	case OEXTEND:
-	case OHMUL:
-	case OLROT:
-	case ORROTC:
+	case OLITERAL:
+	case OSLICESTR:  // always preceded by bounds checking, avoid double instrumentation.
 		goto ret;
 	}
 
@@ -400,7 +403,6 @@ ret:
 	racewalklist(n->nbody, nil);
 	racewalklist(n->nelse, nil);
 	racewalklist(n->rlist, nil);
-
 	*np = n;
 }
 
@@ -442,6 +444,7 @@ callinstr(Node **np, NodeList **init, int wr, int skip)
 	if(isartificial(n))
 		return 0;
 	if(t->etype == TSTRUCT) {
+		// TODO: instrument arrays similarly.
 		// PARAMs w/o PHEAP are not interesting.
 		if(n->class == PPARAM || n->class == PPARAMOUT)
 			return 0;
@@ -478,7 +481,7 @@ callinstr(Node **np, NodeList **init, int wr, int skip)
 	// that has got a pointer inside. Whether it points to
 	// the heap or not is impossible to know at compile time
 	if((class&PHEAP) || class == PPARAMREF || class == PEXTERN
-		|| b->type->etype == TARRAY || b->op == ODOTPTR || b->op == OIND || b->op == OXDOT) {
+		|| b->op == OINDEX || b->op == ODOTPTR || b->op == OIND || b->op == OXDOT) {
 		hascalls = 0;
 		foreach(n, hascallspred, &hascalls);
 		if(hascalls) {
@@ -504,6 +507,8 @@ uintptraddr(Node *n)
 	return r;
 }
 
+// basenod returns the simplest child node of n pointing to the same
+// memory area.
 static Node*
 basenod(Node *n)
 {
@@ -512,7 +517,7 @@ basenod(Node *n)
 			n = n->left;
 			continue;
 		}
-		if(n->op == OINDEX) {
+		if(n->op == OINDEX && isfixedarray(n->type)) {
 			n = n->left;
 			continue;
 		}
@@ -577,3 +582,30 @@ hascallspred(Node *n, void *c)
 		(*(int*)c)++;
 	}
 }
+
+// appendinit is like addinit in subr.c
+// but appends rather than prepends.
+static void
+appendinit(Node **np, NodeList *init)
+{
+	Node *n;
+
+	if(init == nil)
+		return;
+
+	n = *np;
+	switch(n->op) {
+	case ONAME:
+	case OLITERAL:
+		// There may be multiple refs to this node;
+		// introduce OCONVNOP to hold init list.
+		n = nod(OCONVNOP, n, N);
+		n->type = n->left->type;
+		n->typecheck = 1;
+		*np = n;
+		break;
+	}
+	n->ninit = concat(n->ninit, init);
+	n->ullman = UINF;
+}
+

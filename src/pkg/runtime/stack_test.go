@@ -1533,7 +1533,7 @@ func stack5000() (uintptr, uintptr) { var buf [5000]byte; use(buf[:]); return St
 func TestStackMem(t *testing.T) {
 	const (
 		BatchSize      = 32
-		BatchCount     = 512
+		BatchCount     = 256
 		ArraySize      = 1024
 		RecursionDepth = 128
 	)
@@ -1562,6 +1562,11 @@ func TestStackMem(t *testing.T) {
 		for i := 0; i < BatchSize; i++ {
 			<-c
 		}
+
+		// The goroutines have signaled via c that they are ready to exit.
+		// Give them a chance to exit by sleeping. If we don't wait, we
+		// might not reuse them on the next batch.
+		time.Sleep(10 * time.Millisecond)
 	}
 	s1 := new(MemStats)
 	ReadMemStats(s1)
@@ -1571,7 +1576,9 @@ func TestStackMem(t *testing.T) {
 	if consumed > estimate {
 		t.Fatalf("Stack mem: want %v, got %v", estimate, consumed)
 	}
-	if s1.StackInuse > 4<<20 {
-		t.Fatalf("Stack inuse: want %v, got %v", 4<<20, s1.StackInuse)
+	inuse := s1.StackInuse - s0.StackInuse
+	t.Logf("Inuse %vMB for stack mem", inuse>>20)
+	if inuse > 4<<20 {
+		t.Fatalf("Stack inuse: want %v, got %v", 4<<20, inuse)
 	}
 }

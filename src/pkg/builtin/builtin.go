@@ -13,6 +13,12 @@ package builtin
 // bool is the set of boolean values, true and false.
 type bool bool
 
+// true and false are the two untyped boolean values.
+const (
+	true  = 0 == 0 // Untyped bool.
+	false = 0 != 0 // Untyped bool.
+)
+
 // uint8 is the set of all unsigned 8-bit integers.
 // Range: 0 through 255.
 type uint8 uint8
@@ -84,6 +90,15 @@ type byte byte
 // rune is an alias for int32 and is equivalent to int32 in all ways. It is
 // used, by convention, to distinguish character values from integer values.
 type rune rune
+
+// iota is a predeclared identifier representing the untyped integer ordinal
+// number of the current const specification in a (usually parenthesized)
+// const declaration. It is zero-indexed.
+const iota = 0 // Untyped int.
+
+// nil is a predeclared identifier representing the zero value for a
+// pointer, channel, func, interface, map, or slice type.
+var nil Type // Type must be a pointer, channel, func, interface, map, or slice type
 
 // Type is here for the purposes of documentation only. It is a stand-in
 // for any Go type, but represents the same type for any given function

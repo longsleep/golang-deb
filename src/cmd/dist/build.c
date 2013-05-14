@@ -20,6 +20,7 @@ char *goarm;
 char *go386;
 char *goroot = GOROOT_FINAL;
 char *goroot_final = GOROOT_FINAL;
+char *goextlinkenabled = "";
 char *workdir;
 char *tooldir;
 char *gochar;
@@ -138,6 +139,13 @@ init(void)
 		fatal("unknown $GOARCH %s", goarch);
 	bprintf(&b, "%c", gochars[i]);
 	gochar = btake(&b);
+
+	xgetenv(&b, "GO_EXTLINK_ENABLED");
+	if(b.len > 0) {
+		goextlinkenabled = btake(&b);
+		if(!streq(goextlinkenabled, "0") && !streq(goextlinkenabled, "1"))
+			fatal("unknown $GO_EXTLINK_ENABLED %s", goextlinkenabled);
+	}
 
 	xsetenv("GOROOT", goroot);
 	xsetenv("GOARCH", goarch);
@@ -313,7 +321,6 @@ static char *unreleased[] = {
 	"src/cmd/cov",
 	"src/cmd/prof",
 	"src/pkg/old",
-	"src/pkg/exp",
 };
 
 // setup sets up the tree for the initial build.
@@ -615,6 +622,10 @@ install(char *dir)
 			// clang is too smart about unused command-line arguments
 			vadd(&gccargs, "-Qunused-arguments");
 		}
+		if(streq(gohostos, "darwin")) {
+			// golang.org/issue/5261
+			vadd(&gccargs, "-mmacosx-version-min=10.6");
+		}
 	}
 
 	islib = hasprefix(dir, "lib") || streq(dir, "cmd/cc") || streq(dir, "cmd/gc");
@@ -795,6 +806,9 @@ install(char *dir)
 			bpathf(&b1, "%s/arch_%s.h", bstr(&path), goarch), 0);
 		copy(bpathf(&b, "%s/defs_GOOS_GOARCH.h", workdir),
 			bpathf(&b1, "%s/defs_%s_%s.h", bstr(&path), goos, goarch), 0);
+		p = bpathf(&b1, "%s/signal_%s_%s.h", bstr(&path), goos, goarch);
+		if(isfile(p))
+			copy(bpathf(&b, "%s/signal_GOOS_GOARCH.h", workdir), p, 0);
 		copy(bpathf(&b, "%s/os_GOOS.h", workdir),
 			bpathf(&b1, "%s/os_%s.h", bstr(&path), goos), 0);
 		copy(bpathf(&b, "%s/signals_GOOS.h", workdir),
@@ -920,6 +934,8 @@ install(char *dir)
 				vadd(&compile, bprintf(&b, "GOARM=\"%s\"", goarm));
 				vadd(&compile, "-D");
 				vadd(&compile, bprintf(&b, "GO386=\"%s\"", go386));
+				vadd(&compile, "-D");
+				vadd(&compile, bprintf(&b, "GO_EXTLINK_ENABLED=\"%s\"", goextlinkenabled));
 			}
 
 			// gc/lex.c records the GOEXPERIMENT setting used during the build.
@@ -940,6 +956,8 @@ install(char *dir)
 			}
 			vadd(&compile, "-I");
 			vadd(&compile, workdir);
+			vadd(&compile, "-I");
+			vadd(&compile, bprintf(&b, "%s/pkg/%s_%s", goroot, goos, goarch));
 			vadd(&compile, "-D");
 			vadd(&compile, bprintf(&b, "GOOS_%s", goos));
 			vadd(&compile, "-D");
@@ -1045,7 +1063,16 @@ out:
 static bool
 matchfield(char *f)
 {
-	return streq(f, goos) || streq(f, goarch) || streq(f, "cmd_go_bootstrap");
+	char *p;
+	bool res;
+
+	p = xstrrchr(f, ',');
+	if(p == nil)
+		return streq(f, goos) || streq(f, goarch) || streq(f, "cmd_go_bootstrap") || streq(f, "go1.1");
+	*p = 0;
+	res = matchfield(f) && matchfield(p+1);
+	*p = ',';
+	return res;
 }
 
 // shouldbuild reports whether we should build this file.
@@ -1071,7 +1098,8 @@ shouldbuild(char *file, char *dir)
 			name = lastelem(file);
 			if(streq(name, "goos.c") || streq(name, "flag.c"))
 				return 1;
-			return 0;
+			if(!contains(name, "plan9"))
+				return 0;
 		}
 		if(streq(dir, "libbio"))
 			return 0;
@@ -1574,7 +1602,7 @@ cmdclean(int argc, char **argv)
 void
 cmdbanner(int argc, char **argv)
 {
-	char *pathsep;
+	char *pathsep, *pid, *ns;
 	Buf b, b1, search, path;
 
 	ARGBEGIN{
@@ -1598,15 +1626,28 @@ cmdbanner(int argc, char **argv)
 	xprintf("Installed Go for %s/%s in %s\n", goos, goarch, goroot);
 	xprintf("Installed commands in %s\n", gobin);
 
-	// Check that gobin appears in $PATH.
-	xgetenv(&b, "PATH");
-	pathsep = ":";
-	if(streq(gohostos, "windows"))
-		pathsep = ";";
-	bprintf(&b1, "%s%s%s", pathsep, bstr(&b), pathsep);
-	bprintf(&search, "%s%s%s", pathsep, gobin, pathsep);
-	if(xstrstr(bstr(&b1), bstr(&search)) == nil)
-		xprintf("*** You need to add %s to your PATH.\n", gobin);
+	if(streq(gohostos, "plan9")) {
+		// Check that gobin is bound before /bin.
+		readfile(&b, "#c/pid");
+		bsubst(&b, " ", "");
+		pid = btake(&b);
+		bprintf(&b, "/proc/%s/ns", pid);
+		ns = btake(&b);
+		readfile(&b, ns);
+		bprintf(&search, "bind -b %s /bin\n", gobin);
+		if(xstrstr(bstr(&b), bstr(&search)) == nil)
+			xprintf("*** You need to bind %s before /bin.\n", gobin);
+	} else {
+		// Check that gobin appears in $PATH.
+		xgetenv(&b, "PATH");
+		pathsep = ":";
+		if(streq(gohostos, "windows"))
+			pathsep = ";";
+		bprintf(&b1, "%s%s%s", pathsep, bstr(&b), pathsep);
+		bprintf(&search, "%s%s%s", pathsep, gobin, pathsep);
+		if(xstrstr(bstr(&b1), bstr(&search)) == nil)
+			xprintf("*** You need to add %s to your PATH.\n", gobin);
+	}
 
 	if(streq(gohostos, "darwin")) {
 		if(isfile(bpathf(&path, "%s/cov", tooldir)))

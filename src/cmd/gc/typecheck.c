@@ -276,6 +276,29 @@ callrecvlist(NodeList *l)
 	return 0;
 }
 
+// indexlit implements typechecking of untyped values as
+// array/slice indexes. It is equivalent to defaultlit
+// except for constants of numerical kind, which are acceptable
+// whenever they can be represented by a value of type int.
+static void
+indexlit(Node **np)
+{
+	Node *n;
+
+	n = *np;
+	if(n == N || !isideal(n->type))
+		return;
+	switch(consttype(n)) {
+	case CTINT:
+	case CTRUNE:
+	case CTFLT:
+	case CTCPLX:
+		defaultlit(np, types[TINT]);
+		break;
+	}
+	defaultlit(np, T);
+}
+
 static void
 typecheck1(Node **np, int top)
 {
@@ -732,6 +755,7 @@ reswitch:
 			yyerror("rhs of . must be a name");	// impossible
 			goto error;
 		}
+		r = n->right;
 
 		if(n->left->op == OTYPE) {
 			if(!looktypedot(n, t, 0)) {
@@ -775,7 +799,12 @@ reswitch:
 		switch(n->op) {
 		case ODOTINTER:
 		case ODOTMETH:
-			ok |= Ecall;
+			if(top&Ecall)
+				ok |= Ecall;
+			else {
+				typecheckpartialcall(n, r);
+				ok |= Erv;
+			}
 			break;
 		default:
 			ok |= Erv;
@@ -839,7 +868,7 @@ reswitch:
 
 		case TSTRING:
 		case TARRAY:
-			defaultlit(&n->right, T);
+			indexlit(&n->right);
 			if(t->etype == TSTRING)
 				n->type = types[TUINT8];
 			else
@@ -855,8 +884,8 @@ reswitch:
 				yyerror("non-integer %s index %N", why, n->right);
 				break;
 			}
-			if(n->right->op == OLITERAL) {
-			       	if(mpgetfix(n->right->val.u.xval) < 0)
+			if(isconst(n->right, CTINT)) {
+				if(mpgetfix(n->right->val.u.xval) < 0)
 					yyerror("invalid %s index %N (index must be non-negative)", why, n->right);
 				else if(isfixedarray(t) && t->bound > 0 && mpgetfix(n->right->val.u.xval) >= t->bound)
 					yyerror("invalid array index %N (out of bounds for %d-element array)", n->right, t->bound);
@@ -932,8 +961,8 @@ reswitch:
 		typecheck(&n->right->left, Erv);
 		typecheck(&n->right->right, Erv);
 		defaultlit(&n->left, T);
-		defaultlit(&n->right->left, T);
-		defaultlit(&n->right->right, T);
+		indexlit(&n->right->left);
+		indexlit(&n->right->right);
 		l = n->left;
 		if(isfixedarray(l->type)) {
 			if(!islvalue(n->left)) {
@@ -1180,16 +1209,18 @@ reswitch:
 		if(l->type == T || r->type == T)
 			goto error;
 		defaultlit2(&l, &r, 0);
+		if(l->type == T || r->type == T)
+			goto error;
 		n->left = l;
 		n->right = r;
-		if(l->type->etype != r->type->etype) {
-		badcmplx:
-			yyerror("invalid operation: %N (complex of types %T, %T)", n, l->type, r->type);
+		if(!eqtype(l->type, r->type)) {
+			yyerror("invalid operation: %N (mismatched types %T and %T)", n, l->type, r->type);
 			goto error;
 		}
 		switch(l->type->etype) {
 		default:
-			goto badcmplx;
+			yyerror("invalid operation: %N (arguments have type %T, expected floating-point)", n, l->type, r->type);
+			goto error;
 		case TIDEAL:
 			t = types[TIDEAL];
 			break;
@@ -1690,10 +1721,6 @@ ret:
 	}
 	if((top & (Erv|Etype)) == Etype && n->op != OTYPE) {
 		yyerror("%N is not a type", n);
-		goto error;
-	}
-	if((ok & Ecall) && !(top & Ecall)) {
-		yyerror("method %N is not an expression, must be called", n);
 		goto error;
 	}
 	// TODO(rsc): simplify
@@ -2323,7 +2350,8 @@ pushtype(Node *n, Type *t)
 static void
 typecheckcomplit(Node **np)
 {
-	int bad, i, len, nerr;
+	int bad, i, nerr;
+	int64 len;
 	Node *l, *n, *norig, *r, **hash;
 	NodeList *ll;
 	Type *t, *f;
@@ -2558,6 +2586,7 @@ islvalue(Node *n)
 		// fall through
 	case OIND:
 	case ODOTPTR:
+	case OCLOSUREVAR:
 		return 1;
 	case ODOT:
 		return islvalue(n->left);
@@ -3143,4 +3172,149 @@ checkmake(Type *t, char *arg, Node *n)
 		return -1;
 	}
 	return 0;
+}
+
+static void	markbreaklist(NodeList*, Node*);
+
+static void
+markbreak(Node *n, Node *implicit)
+{
+	Label *lab;
+
+	if(n == N)
+		return;
+
+	switch(n->op) {
+	case OBREAK:
+		if(n->left == N) {
+			if(implicit)
+				implicit->hasbreak = 1;
+		} else {
+			lab = n->left->sym->label;
+			if(lab != L)
+				lab->def->hasbreak = 1;
+		}
+		break;
+	
+	case OFOR:
+	case OSWITCH:
+	case OTYPESW:
+	case OSELECT:
+	case ORANGE:
+		implicit = n;
+		// fall through
+	
+	default:
+		markbreak(n->left, implicit);
+		markbreak(n->right, implicit);
+		markbreak(n->ntest, implicit);
+		markbreak(n->nincr, implicit);
+		markbreaklist(n->ninit, implicit);
+		markbreaklist(n->nbody, implicit);
+		markbreaklist(n->nelse, implicit);
+		markbreaklist(n->list, implicit);
+		markbreaklist(n->rlist, implicit);
+		break;
+	}
+}
+
+static void
+markbreaklist(NodeList *l, Node *implicit)
+{
+	Node *n;
+	Label *lab;
+
+	for(; l; l=l->next) {
+		n = l->n;
+		if(n->op == OLABEL && l->next && n->defn == l->next->n) {
+			switch(n->defn->op) {
+			case OFOR:
+			case OSWITCH:
+			case OTYPESW:
+			case OSELECT:
+			case ORANGE:
+				lab = mal(sizeof *lab);
+				lab->def = n->defn;
+				n->left->sym->label = lab;
+				markbreak(n->defn, n->defn);
+				n->left->sym->label = L;
+				l = l->next;
+				continue;
+			}
+		}
+		markbreak(n, implicit);
+	}
+}
+
+static int
+isterminating(NodeList *l, int top)
+{
+	int def;
+	Node *n;
+
+	if(l == nil)
+		return 0;
+	if(top) {
+		while(l->next && l->n->op != OLABEL)
+			l = l->next;
+		markbreaklist(l, nil);
+	}
+	while(l->next)
+		l = l->next;
+	n = l->n;
+
+	if(n == N)
+		return 0;
+
+	switch(n->op) {
+	// NOTE: OLABEL is treated as a separate statement,
+	// not a separate prefix, so skipping to the last statement
+	// in the block handles the labeled statement case by
+	// skipping over the label. No case OLABEL here.
+
+	case OBLOCK:
+		return isterminating(n->list, 0);
+
+	case OGOTO:
+	case ORETURN:
+	case OPANIC:
+	case OXFALL:
+		return 1;
+
+	case OFOR:
+		if(n->ntest != N)
+			return 0;
+		if(n->hasbreak)
+			return 0;
+		return 1;
+
+	case OIF:
+		return isterminating(n->nbody, 0) && isterminating(n->nelse, 0);
+
+	case OSWITCH:
+	case OTYPESW:
+	case OSELECT:
+		if(n->hasbreak)
+			return 0;
+		def = 0;
+		for(l=n->list; l; l=l->next) {
+			if(!isterminating(l->n->nbody, 0))
+				return 0;
+			if(l->n->list == nil) // default
+				def = 1;
+		}
+		if(n->op != OSELECT && !def)
+			return 0;
+		return 1;
+	}
+	
+	return 0;
+}
+
+void
+checkreturn(Node *fn)
+{
+	if(fn->type->outtuple && fn->nbody != nil)
+		if(!isterminating(fn->nbody, 1))
+			yyerrorl(fn->endlineno, "missing return at end of function");
 }

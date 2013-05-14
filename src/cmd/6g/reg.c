@@ -182,7 +182,6 @@ regopt(Prog *firstp)
 		return;
 	}
 
-	r1 = R;
 	firstr = R;
 	lastr = R;
 
@@ -783,7 +782,7 @@ brk:
 				Var *v;
 
 				v = var + rgp->varno;
-				print("registerize %N+%d (bit=%2d et=%2E) in %R\n",
+				print("registerize %N+%lld (bit=%2d et=%2E) in %R\n",
 						v->node, v->offset, rgp->varno, v->etype, rgp->regno);
 			}
 			paint3(rgp->enter, rgp->varno, vreg, rgp->regno);
@@ -948,9 +947,9 @@ doregbits(int r)
 }
 
 static int
-overlap(int32 o1, int w1, int32 o2, int w2)
+overlap(int64 o1, int w1, int64 o2, int w2)
 {
-	int32 t1, t2;
+	int64 t1, t2;
 
 	t1 = o1+w1;
 	t2 = o2+w2;
@@ -968,7 +967,7 @@ mkvar(Reg *r, Adr *a)
 	int i, t, n, et, z, flag;
 	int64 w;
 	uint32 regu;
-	int32 o;
+	int64 o;
 	Bits bit;
 	Node *node;
 
@@ -1061,7 +1060,7 @@ mkvar(Reg *r, Adr *a)
 	v->node = node;
 
 	if(debug['R'])
-		print("bit=%2d et=%2E w=%d+%d %#N %D flag=%d\n", i, et, o, w, node, a, v->addr);
+		print("bit=%2d et=%2E w=%d+%lld %#N %D flag=%d\n", i, et, o, w, node, a, v->addr);
 
 	ostats.nvar++;
 

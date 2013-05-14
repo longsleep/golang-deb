@@ -30,7 +30,7 @@ type V struct {
 	F3 Number
 }
 
-// ifaceNumAsFloat64/ifaceNumAsNumber are used to test unmarshalling with and
+// ifaceNumAsFloat64/ifaceNumAsNumber are used to test unmarshaling with and
 // without UseNumber
 var ifaceNumAsFloat64 = map[string]interface{}{
 	"k1": float64(1),
@@ -1176,5 +1176,18 @@ func TestUnmarshalJSONLiteralError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "range") {
 		t.Errorf("got err = %v; want out of range error", err)
+	}
+}
+
+// Test that extra object elements in an array do not result in a
+// "data changing underfoot" error.
+// Issue 3717
+func TestSkipArrayObjects(t *testing.T) {
+	json := `[{}]`
+	var dest [0]interface{}
+
+	err := Unmarshal([]byte(json), &dest)
+	if err != nil {
+		t.Errorf("got error %q, want nil", err)
 	}
 }

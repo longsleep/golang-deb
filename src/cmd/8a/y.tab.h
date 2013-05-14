@@ -1,21 +1,24 @@
-/* A Bison parser, made by GNU Bison 2.6.5.  */
+/* A Bison parser, made by GNU Bison 2.3.  */
 
-/* Bison interface for Yacc-like parsers in C
-   
-      Copyright (C) 1984, 1989-1990, 2000-2012 Free Software Foundation, Inc.
-   
-   This program is free software: you can redistribute it and/or modify
+/* Skeleton interface for Bison's Yacc-like parsers in C
+
+   Copyright (C) 1984, 1989, 1990, 2000, 2001, 2002, 2003, 2004, 2005, 2006
+   Free Software Foundation, Inc.
+
+   This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-   
+   the Free Software Foundation; either version 2, or (at your option)
+   any later version.
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-   
+
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin Street, Fifth Floor,
+   Boston, MA 02110-1301, USA.  */
 
 /* As a special exception, you may create a larger work that contains
    part or all of the Bison parser skeleton and distribute that work
@@ -26,19 +29,9 @@
    special exception, which will cause the skeleton and the resulting
    Bison output files to be licensed under the GNU General Public
    License without this special exception.
-   
+
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
-
-#ifndef YY_YY_Y_TAB_H_INCLUDED
-# define YY_YY_Y_TAB_H_INCLUDED
-/* Enabling traces.  */
-#ifndef YYDEBUG
-# define YYDEBUG 0
-#endif
-#if YYDEBUG
-extern int yydebug;
-#endif
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
@@ -61,21 +54,22 @@ extern int yydebug;
      LTYPEI = 270,
      LTYPEG = 271,
      LTYPEXC = 272,
-     LCONST = 273,
-     LFP = 274,
-     LPC = 275,
-     LSB = 276,
-     LBREG = 277,
-     LLREG = 278,
-     LSREG = 279,
-     LFREG = 280,
-     LXREG = 281,
-     LFCONST = 282,
-     LSCONST = 283,
-     LSP = 284,
-     LNAME = 285,
-     LLAB = 286,
-     LVAR = 287
+     LTYPEX = 273,
+     LCONST = 274,
+     LFP = 275,
+     LPC = 276,
+     LSB = 277,
+     LBREG = 278,
+     LLREG = 279,
+     LSREG = 280,
+     LFREG = 281,
+     LXREG = 282,
+     LFCONST = 283,
+     LSCONST = 284,
+     LSP = 285,
+     LNAME = 286,
+     LLAB = 287,
+     LVAR = 288
    };
 #endif
 /* Tokens.  */
@@ -94,30 +88,30 @@ extern int yydebug;
 #define LTYPEI 270
 #define LTYPEG 271
 #define LTYPEXC 272
-#define LCONST 273
-#define LFP 274
-#define LPC 275
-#define LSB 276
-#define LBREG 277
-#define LLREG 278
-#define LSREG 279
-#define LFREG 280
-#define LXREG 281
-#define LFCONST 282
-#define LSCONST 283
-#define LSP 284
-#define LNAME 285
-#define LLAB 286
-#define LVAR 287
+#define LTYPEX 273
+#define LCONST 274
+#define LFP 275
+#define LPC 276
+#define LSB 277
+#define LBREG 278
+#define LLREG 279
+#define LSREG 280
+#define LFREG 281
+#define LXREG 282
+#define LFCONST 283
+#define LSCONST 284
+#define LSP 285
+#define LNAME 286
+#define LLAB 287
+#define LVAR 288
+
 
 
 
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 typedef union YYSTYPE
-{
-/* Line 2042 of yacc.c  */
 #line 37 "a.y"
-
+{
 	Sym	*sym;
 	int32	lval;
 	struct {
@@ -128,30 +122,14 @@ typedef union YYSTYPE
 	char	sval[8];
 	Gen	gen;
 	Gen2	gen2;
-
-
-/* Line 2042 of yacc.c  */
-#line 135 "y.tab.h"
-} YYSTYPE;
-# define YYSTYPE_IS_TRIVIAL 1
+}
+/* Line 1529 of yacc.c.  */
+#line 128 "y.tab.h"
+	YYSTYPE;
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
 # define YYSTYPE_IS_DECLARED 1
+# define YYSTYPE_IS_TRIVIAL 1
 #endif
 
 extern YYSTYPE yylval;
 
-#ifdef YYPARSE_PARAM
-#if defined __STDC__ || defined __cplusplus
-int yyparse (void *YYPARSE_PARAM);
-#else
-int yyparse ();
-#endif
-#else /* ! YYPARSE_PARAM */
-#if defined __STDC__ || defined __cplusplus
-int yyparse (void);
-#else
-int yyparse ();
-#endif
-#endif /* ! YYPARSE_PARAM */
-
-#endif /* !YY_YY_Y_TAB_H_INCLUDED  */

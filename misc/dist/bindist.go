@@ -29,13 +29,15 @@ import (
 )
 
 var (
-	tag      = flag.String("tag", "release", "mercurial tag to check out")
-	repo     = flag.String("repo", "https://code.google.com/p/go", "repo URL")
-	tourPath = flag.String("tour", "code.google.com/p/go-tour", "Go tour repo import path")
-	verbose  = flag.Bool("v", false, "verbose output")
-	upload   = flag.Bool("upload", true, "upload resulting files to Google Code")
-	wxsFile  = flag.String("wxs", "", "path to custom installer.wxs")
-	addLabel = flag.String("label", "", "additional label to apply to file when uploading")
+	tag             = flag.String("tag", "release", "mercurial tag to check out")
+	repo            = flag.String("repo", "https://code.google.com/p/go", "repo URL")
+	tourPath        = flag.String("tour", "code.google.com/p/go-tour", "Go tour repo import path")
+	verbose         = flag.Bool("v", false, "verbose output")
+	upload          = flag.Bool("upload", true, "upload resulting files to Google Code")
+	wxsFile         = flag.String("wxs", "", "path to custom installer.wxs")
+	addLabel        = flag.String("label", "", "additional label to apply to file when uploading")
+	includeRace     = flag.Bool("race", true, "build race detector packages")
+	versionOverride = flag.String("version", "", "override version name")
 
 	username, password string // for Google Code upload
 )
@@ -72,6 +74,7 @@ var tourPackages = []string{
 }
 
 var tourContent = []string{
+	"js",
 	"prog",
 	"solutions",
 	"static",
@@ -79,7 +82,14 @@ var tourContent = []string{
 	"tour.article",
 }
 
-var fileRe = regexp.MustCompile(`^go\.([a-z0-9-.]+)\.(src|([a-z0-9]+)-([a-z0-9]+))\.`)
+// The os-arches that support the race toolchain.
+var raceAvailable = []string{
+	"darwin-amd64",
+	"linux-amd64",
+	"windows-amd64",
+}
+
+var fileRe = regexp.MustCompile(`^(go[a-z0-9-.]+)\.(src|([a-z0-9]+)-([a-z0-9]+))\.`)
 
 func main() {
 	flag.Usage = func() {
@@ -130,6 +140,13 @@ func main() {
 			}
 			b.OS = p[0]
 			b.Arch = p[1]
+			if *includeRace {
+				for _, t := range raceAvailable {
+					if t == targ {
+						b.Race = true
+					}
+				}
+			}
 		}
 		if err := b.Do(); err != nil {
 			log.Printf("%s: %v", targ, err)
@@ -139,6 +156,7 @@ func main() {
 
 type Build struct {
 	Source bool // if true, OS and Arch must be empty
+	Race   bool // build race toolchain
 	OS     string
 	Arch   string
 	root   string
@@ -183,12 +201,28 @@ func (b *Build) Do() error {
 		} else {
 			_, err = b.run(src, "bash", "make.bash")
 		}
+		if b.Race {
+			if err != nil {
+				return err
+			}
+			goCmd := filepath.Join(b.root, "bin", "go")
+			if b.OS == "windows" {
+				goCmd += ".exe"
+			}
+			_, err = b.run(src, goCmd, "install", "-race", "std")
+			if err != nil {
+				return err
+			}
+			// Re-install std without -race, so that we're not left
+			// with a slower, race-enabled cmd/go, cmd/godoc, etc.
+			_, err = b.run(src, goCmd, "install", "-a", "std")
+		}
+		if err != nil {
+			return err
+		}
+		err = b.tour()
 	}
 	if err != nil {
-		return err
-	}
-
-	if err := b.tour(); err != nil {
 		return err
 	}
 
@@ -212,6 +246,9 @@ func (b *Build) Do() error {
 	fullVersion = bytes.TrimSpace(fullVersion)
 	v := bytes.SplitN(fullVersion, []byte(" "), 2)
 	version = string(v[0])
+	if *versionOverride != "" {
+		version = *versionOverride
+	}
 
 	// Write VERSION file.
 	err = ioutil.WriteFile(filepath.Join(b.root, "VERSION"), fullVersion, 0644)
@@ -386,9 +423,13 @@ func (b *Build) tour() error {
 	}
 
 	// Copy gotour binary to tool directory as "tour"; invoked as "go tool tour".
+	ext := ""
+	if runtime.GOOS == "windows" {
+		ext = ".exe"
+	}
 	return cp(
-		filepath.Join(b.root, "pkg", "tool", b.OS+"_"+b.Arch, "tour"),
-		filepath.Join(b.gopath, "bin", "gotour"),
+		filepath.Join(b.root, "pkg", "tool", b.OS+"_"+b.Arch, "tour"+ext),
+		filepath.Join(b.gopath, "bin", "gotour"+ext),
 	)
 }
 
@@ -501,7 +542,12 @@ func (b *Build) Upload(version string, filename string) error {
 		ftype = "Source"
 		summary = fmt.Sprintf("%s (source only)", version)
 	}
-	labels = append(labels, "OpSys-"+opsys, "Type-"+ftype)
+	if opsys != "" {
+		labels = append(labels, "OpSys-"+opsys)
+	}
+	if ftype != "" {
+		labels = append(labels, "Type-"+ftype)
+	}
 	if *addLabel != "" {
 		labels = append(labels, *addLabel)
 	}
@@ -620,8 +666,11 @@ func cp(dst, src string) error {
 		return err
 	}
 	defer df.Close()
-	if err := df.Chmod(fi.Mode()); err != nil {
-		return err
+	// Windows doesn't currently implement Fchmod
+	if runtime.GOOS != "windows" {
+		if err := df.Chmod(fi.Mode()); err != nil {
+			return err
+		}
 	}
 	_, err = io.Copy(df, sf)
 	return err

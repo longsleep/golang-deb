@@ -34,30 +34,29 @@ enum
 
 	/* order here is order in output file */
 	STEXT,
-	SMACHOPLT,
 	STYPE,
 	SSTRING,
 	SGOSTRING,
 	SRODATA,
 	STYPELINK,
-	SGCDATA,
-	SGCBSS,
 	SSYMTAB,
 	SPCLNTAB,
 	SELFROSECT,
+	SMACHOPLT,
 	SELFSECT,
+	SMACHO,	/* Mach-O __nl_symbol_ptr */
+	SMACHOGOT,
 	SNOPTRDATA,
 	SDATARELRO,
 	SDATA,
-	SMACHO,	/* Mach-O __nl_symbol_ptr */
-	SMACHOGOT,
 	SWINDOWS,
 	SBSS,
 	SNOPTRBSS,
+	STLSBSS,
 
 	SXREF,
-	SMACHODYNSTR,
-	SMACHODYNSYM,
+	SMACHOSYMSTR,
+	SMACHOSYMTAB,
 	SMACHOINDIRECTPLT,
 	SMACHOINDIRECTGOT,
 	SFILE,
@@ -70,6 +69,13 @@ enum
 	SHIDDEN = 1<<9, // hidden or local symbol
 
 	NHASH = 100003,
+};
+
+enum
+{
+	// This value is known to the garbage collector and should be kept in
+	// sync with runtime/pkg/runtime.h
+	ArgsSizeUnknown = 0x80000000
 };
 
 typedef struct Library Library;
@@ -104,6 +110,8 @@ struct Segment
 struct Section
 {
 	uchar	rwx;
+	int16	extnum;
+	int32	align;
 	char	*name;
 	uvlong	vaddr;
 	uvlong	len;
@@ -138,20 +146,40 @@ EXTERN	char*	outfile;
 EXTERN	int32	nsymbol;
 EXTERN	char*	thestring;
 EXTERN	int	ndynexp;
+EXTERN	Sym**	dynexp;
+EXTERN	int	nldflag;
+EXTERN	char**	ldflag;
 EXTERN	int	havedynamic;
 EXTERN	int	iscgo;
-EXTERN	int	isobj;
 EXTERN	int	elfglobalsymndx;
 EXTERN	int	flag_race;
 EXTERN	int flag_shared;
 EXTERN	char*	tracksym;
 EXTERN	char*	interpreter;
+EXTERN	char*	tmpdir;
+EXTERN	char*	extld;
+EXTERN	char*	extldflags;
+
+enum
+{
+	LinkAuto = 0,
+	LinkInternal,
+	LinkExternal,
+};
+EXTERN	int	linkmode;
+
+// for dynexport field of Sym
+enum
+{
+	CgoExportDynamic = 1<<0,
+	CgoExportStatic = 1<<1,
+};
 
 EXTERN	Segment	segtext;
 EXTERN	Segment	segdata;
-EXTERN	Segment	segsym;
-EXTERN	Segment segdwarf;
+EXTERN	Segment	segdwarf;
 
+void	setlinkmode(char*);
 void	addlib(char *src, char *obj);
 void	addlibpath(char *srcref, char *objref, char *file, char *pkg);
 Section*	addsection(Segment*, char*, int);
@@ -185,7 +213,7 @@ void	adddynrel(Sym*, Reloc*);
 void	adddynrela(Sym*, Sym*, Reloc*);
 Sym*	lookuprel(void);
 void	ldobj1(Biobuf *f, char*, int64 len, char *pn);
-void	ldobj(Biobuf*, char*, int64, char*, int);
+void	ldobj(Biobuf*, char*, int64, char*, char*, int);
 void	ldelf(Biobuf*, char*, int64, char*);
 void	ldmacho(Biobuf*, char*, int64, char*);
 void	ldpe(Biobuf*, char*, int64, char*);
@@ -207,11 +235,12 @@ vlong	adduint8(Sym*, uint8);
 vlong	adduint16(Sym*, uint16);
 vlong	adduint32(Sym*, uint32);
 vlong	adduint64(Sym*, uint64);
+vlong	adduintxx(Sym*, uint64, int);
 vlong	addaddr(Sym*, Sym*);
-vlong	addaddrplus(Sym*, Sym*, int32);
-vlong	addpcrelplus(Sym*, Sym*, int32);
+vlong	addaddrplus(Sym*, Sym*, vlong);
+vlong	addpcrelplus(Sym*, Sym*, vlong);
 vlong	addsize(Sym*, Sym*);
-vlong	setaddrplus(Sym*, vlong, Sym*, int32);
+vlong	setaddrplus(Sym*, vlong, Sym*, vlong);
 vlong	setaddr(Sym*, vlong, Sym*);
 void	setuint8(Sym*, vlong, uint8);
 void	setuint16(Sym*, vlong, uint16);
@@ -220,6 +249,8 @@ void	setuint64(Sym*, vlong, uint64);
 void	asmsym(void);
 void	asmelfsym(void);
 void	asmplan9sym(void);
+void	putelfsectionsym(Sym*, int);
+void	putelfsymshndx(vlong, int);
 void	strnput(char*, int);
 void	dodata(void);
 void	dosymtype(void);
@@ -240,6 +271,10 @@ void	usage(void);
 void	setinterp(char*);
 Sym*	listsort(Sym*, int(*cmp)(Sym*, Sym*), int);
 int	valuecmp(Sym*, Sym*);
+void	hostobjs(void);
+void	hostlink(void);
+char*	estrdup(char*);
+void*	erealloc(void*, long);
 
 int	pathchar(void);
 void*	mal(uint32);
@@ -359,5 +394,3 @@ char*	decodetype_structfieldname(Sym*, int);
 Sym*	decodetype_structfieldtype(Sym*, int);
 vlong	decodetype_structfieldoffs(Sym*, int);
 vlong	decodetype_ifacemethodcount(Sym*);
-
-void	sortdynexp(void);

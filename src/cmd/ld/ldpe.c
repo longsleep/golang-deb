@@ -135,7 +135,8 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 {
 	char *name;
 	int32 base;
-	int i, j, l, numaux;
+	uint32 l;
+	int i, j, numaux;
 	PeObj *obj;
 	PeSect *sect, *rsect;
 	IMAGE_SECTION_HEADER sh;
@@ -170,11 +171,12 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 		// TODO return error if found .cormeta
 	}
 	// load string table
-	Bseek(f, base+obj->fh.PointerToSymbolTable+18*obj->fh.NumberOfSymbols, 0);
-	if(Bread(f, &l, sizeof l) != sizeof l) 
+	Bseek(f, base+obj->fh.PointerToSymbolTable+sizeof(symbuf)*obj->fh.NumberOfSymbols, 0);
+	if(Bread(f, symbuf, 4) != 4) 
 		goto bad;
+	l = le32(symbuf);
 	obj->snames = mal(l);
-	Bseek(f, base+obj->fh.PointerToSymbolTable+18*obj->fh.NumberOfSymbols, 0);
+	Bseek(f, base+obj->fh.PointerToSymbolTable+sizeof(symbuf)*obj->fh.NumberOfSymbols, 0);
 	if(Bread(f, obj->snames, l) != l)
 		goto bad;
 	// read symbols
@@ -209,6 +211,13 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 		sect = &obj->sect[i];
 		if(sect->sh.Characteristics&IMAGE_SCN_MEM_DISCARDABLE)
 			continue;
+
+		if((sect->sh.Characteristics&(IMAGE_SCN_CNT_CODE|IMAGE_SCN_CNT_INITIALIZED_DATA|IMAGE_SCN_CNT_UNINITIALIZED_DATA)) == 0) {
+			// This has been seen for .idata sections, which we
+			// want to ignore.  See issues 5106 and 5273.
+			continue;
+		}
+
 		if(map(obj, sect) < 0)
 			goto bad;
 		
@@ -230,7 +239,7 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 				s->type = STEXT;
 				break;
 			default:
-				werrstr("unexpected flags for PE section %s", sect->name);
+				werrstr("unexpected flags %#08ux for PE section %s", sect->sh.Characteristics, sect->name);
 				goto bad;
 		}
 		s->p = sect->base;
@@ -248,6 +257,11 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 			continue;
 		if(rsect->sh.Characteristics&IMAGE_SCN_MEM_DISCARDABLE)
 			continue;
+		if((sect->sh.Characteristics&(IMAGE_SCN_CNT_CODE|IMAGE_SCN_CNT_INITIALIZED_DATA|IMAGE_SCN_CNT_UNINITIALIZED_DATA)) == 0) {
+			// This has been seen for .idata sections, which we
+			// want to ignore.  See issues 5106 and 5273.
+			continue;
+		}
 		r = mal(rsect->sh.NumberOfRelocations*sizeof r[0]);
 		Bseek(f, obj->base+rsect->sh.PointerToRelocations, 0);
 		for(j=0; j<rsect->sh.NumberOfRelocations; j++) {
@@ -277,7 +291,7 @@ ldpe(Biobuf *f, char *pkg, int64 len, char *pn)
 				case IMAGE_REL_AMD64_ADDR32: // R_X86_64_PC32
 				case IMAGE_REL_AMD64_ADDR32NB:
 					rp->type = D_PCREL;
-					rp->add = le32(rsect->base+rp->off);
+					rp->add = (int32)le32(rsect->base+rp->off);
 					break;
 				case IMAGE_REL_I386_DIR32NB:
 				case IMAGE_REL_I386_DIR32:

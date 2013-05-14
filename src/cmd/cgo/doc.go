@@ -70,7 +70,7 @@ assignment context to retrieve both the return value (if any) and the
 C errno variable as an error (use _ to skip the result value if the
 function returns void).  For example:
 
-	n, err := C.atoi("abc")
+	n, err := C.sqrt(-1)
 	_, err := C.voidFunc()
 
 In C, a function argument written as a fixed size array
@@ -463,7 +463,7 @@ The directives are:
 	#pragma cgo_import_dynamic puts puts#GLIBC_2.2.5
 	#pragma cgo_import_dynamic puts puts#GLIBC_2.2.5 "libc.so.6"
 
-	A side effect of the cgo_dynamic_import directive with a
+	A side effect of the cgo_import_dynamic directive with a
 	library is to make the final binary depend on that dynamic
 	library. To get the dependency without importing any specific
 	symbols, use _ for local and remote.
@@ -472,7 +472,7 @@ The directives are:
 	#pragma cgo_import_dynamic _ _ "libc.so.6"
 
 	For compatibility with current versions of SWIG,
-	#pragma dynimport is an alias for #pragma cgo_dynamic_import.
+	#pragma dynimport is an alias for #pragma cgo_import_dynamic.
 
 #pragma cgo_dynamic_linker "<path>"
 
@@ -484,16 +484,16 @@ The directives are:
 	Example:
 	#pragma cgo_dynamic_linker "/lib/ld-linux.so.2"
 
-#pragma cgo_export <local> <remote>
+#pragma cgo_export_dynamic <local> <remote>
 
-	In both internal and external linking modes, put the Go symbol
+	In internal linking mode, put the Go symbol
 	named <local> into the program's exported symbol table as
 	<remote>, so that C code can refer to it by that name. This
 	mechanism makes it possible for C code to call back into Go or
 	to share Go's data.
 
 	For compatibility with current versions of SWIG,
-	#pragma dynexport is an alias for #pragma cgo_export.
+	#pragma dynexport is an alias for #pragma cgo_export_dynamic.
 
 #pragma cgo_import_static <local>
 
@@ -504,6 +504,14 @@ The directives are:
 
 	Example:
 	#pragma cgo_import_static puts_wrapper
+
+#pragma cgo_export_static <local> <remote>
+
+	In external linking mode, put the Go symbol
+	named <local> into the program's exported symbol table as
+	<remote>, so that C code can refer to it by that name. This
+	mechanism makes it possible for C code to call back into Go or
+	to share Go's data.
 
 #pragma cgo_ldflag "<arg>"
 
@@ -565,7 +573,7 @@ The directives in the 6c-compiled file are used according to the kind
 of final link used.
 
 In internal mode, 6l itself processes all the host object files, in
-particular foo.cgo2.o. To do so, it uses the cgo_dynamic_import and
+particular foo.cgo2.o. To do so, it uses the cgo_import_dynamic and
 cgo_dynamic_linker directives to learn that the otherwise undefined
 reference to sin in foo.cgo2.o should be rewritten to refer to the
 symbol sin with version GLIBC_2.2.5 from the dynamic library

@@ -38,9 +38,7 @@ import (
 
 // Flags
 var (
-	// TODO(bradfitz): once Go 1.1 comes out, allow the -c flag to take a comma-separated
-	// list of files, rather than just one.
-	checkFile  = flag.String("c", "", "optional filename to check API against")
+	checkFile  = flag.String("c", "", "optional comma-separated filename(s) to check API against")
 	allowNew   = flag.Bool("allow_new", true, "allow API additions")
 	exceptFile = flag.String("except", "", "optional filename of packages that are allowed to change without triggering a failure in the tool")
 	nextFile   = flag.String("next", "", "optional filename of tentative upcoming API features for the next release. This file can be lazily maintained. It only affects the delta warnings from the -c file printed on success.")
@@ -138,9 +136,7 @@ func main() {
 		}
 
 		for _, pkg := range pkgs {
-			if strings.HasPrefix(pkg, "cmd/") ||
-				strings.HasPrefix(pkg, "exp/") ||
-				strings.HasPrefix(pkg, "old/") {
+			if strings.HasPrefix(pkg, "cmd/") {
 				continue
 			}
 			if fi, err := os.Stat(filepath.Join(w.root, pkg)); err != nil || !fi.IsDir() {
@@ -188,7 +184,10 @@ func main() {
 		return
 	}
 
-	required := fileFeatures(*checkFile)
+	var required []string
+	for _, file := range strings.Split(*checkFile, ",") {
+		required = append(required, fileFeatures(file)...)
+	}
 	optional := fileFeatures(*nextFile)
 	exception := fileFeatures(*exceptFile)
 	fail = !compareAPI(bw, features, required, optional, exception)
@@ -725,7 +724,6 @@ func (w *Walker) varValueType(vi interface{}) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown const value type %T", vi)
 	}
-	panic("unreachable")
 }
 
 // resolveName finds a top-level node named name and returns the node

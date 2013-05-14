@@ -605,9 +605,7 @@ elfdynhash(void)
 		if(sy->dynimpvers)
 			need[sy->dynid] = addelflib(&needlib, sy->dynimplib, sy->dynimpvers);
 
-		name = sy->dynimpname;
-		if(name == nil)
-			name = sy->name;
+		name = sy->extname;
 		hc = elfhash((uchar*)name);
 
 		b = hc % nbucket;
@@ -760,9 +758,13 @@ elfshbits(Section *sect)
 		sh->flags |= SHF_EXECINSTR;
 	if(sect->rwx & 2)
 		sh->flags |= SHF_WRITE;
-	if(!isobj)
+	if(strcmp(sect->name, ".tbss") == 0) {
+		sh->flags |= SHF_TLS;
+		sh->type = SHT_NOBITS;
+	}
+	if(linkmode != LinkExternal)
 		sh->addr = sect->vaddr;
-	sh->addralign = PtrSize;
+	sh->addralign = sect->align;
 	sh->size = sect->len;
 	sh->off = sect->seg->fileoff + sect->vaddr - sect->seg->vaddr;
 
@@ -781,7 +783,7 @@ elfshreloc(Section *sect)
 	// Also nothing to relocate in .shstrtab.
 	if(sect->vaddr >= sect->seg->vaddr + sect->seg->filelen)
 		return nil;
-	if(strcmp(sect->name, ".shstrtab") == 0)
+	if(strcmp(sect->name, ".shstrtab") == 0 || strcmp(sect->name, ".tbss") == 0)
 		return nil;
 
 	if(thechar == '6') {
@@ -807,10 +809,9 @@ elfshreloc(Section *sect)
 void
 elfrelocsect(Section *sect, Sym *first)
 {
-	Sym *sym, *rs;
+	Sym *sym;
 	int32 eaddr;
 	Reloc *r;
-	int64 add;
 
 	// If main section is SHT_NOBITS, nothing to relocate.
 	// Also nothing to relocate in .shstrtab.
@@ -836,28 +837,15 @@ elfrelocsect(Section *sect, Sym *first)
 		cursym = sym;
 		
 		for(r = sym->r; r < sym->r+sym->nr; r++) {
-			// Ignore relocations handled by reloc already.
-			switch(r->type) {
-			case D_SIZE:
+			if(r->done)
 				continue;
-			case D_ADDR:
-			case D_PCREL:
-				if(r->sym->type == SCONST)
-					continue;
-				break;
+			if(r->xsym == nil) {
+				diag("missing xsym in relocation");
+				continue;
 			}
-
-			add = r->add;
-			rs = r->sym;
-			while(rs->outer != nil) {
-				add += rs->value - rs->outer->value;
-				rs = rs->outer;
-			}
-				
-			if(rs->elfsym == 0)
-				diag("reloc %d to non-elf symbol %s (rs=%s) %d", r->type, r->sym->name, rs->name, rs->type);
-
-			if(elfreloc1(r, sym->value - sect->vaddr + r->off, rs->elfsym, add) < 0)
+			if(r->xsym->elfsym == 0)
+				diag("reloc %d to non-elf symbol %s (outer=%s) %d", r->type, r->sym->name, r->xsym->name, r->sym->type);
+			if(elfreloc1(r, sym->value+r->off - sect->vaddr) < 0)
 				diag("unsupported obj reloc %d/%d to %s", r->type, r->siz, r->sym->name);
 		}
 	}
@@ -899,6 +887,8 @@ doelf(void)
 	addstring(shstrtab, ".data");
 	addstring(shstrtab, ".bss");
 	addstring(shstrtab, ".noptrbss");
+	if(linkmode == LinkExternal && HEADTYPE != Hopenbsd)
+		addstring(shstrtab, ".tbss");
 	if(HEADTYPE == Hnetbsd)
 		addstring(shstrtab, ".note.netbsd.ident");
 	if(HEADTYPE == Hopenbsd)
@@ -915,7 +905,7 @@ doelf(void)
 	addstring(shstrtab, ".gosymtab");
 	addstring(shstrtab, ".gopclntab");
 	
-	if(isobj) {
+	if(linkmode == LinkExternal) {
 		debug['s'] = 0;
 		debug['d'] = 1;
 
@@ -940,6 +930,8 @@ doelf(void)
 			addstring(shstrtab, ".rel.noptrdata");
 			addstring(shstrtab, ".rel.data");
 		}
+		// add a .note.GNU-stack section to mark the stack as non-executable
+		addstring(shstrtab, ".note.GNU-stack");
 	}
 
 	if(!debug['s']) {
@@ -1120,7 +1112,7 @@ asmbelfsetup(void)
 void
 asmbelf(vlong symo)
 {
-	int a, o;
+	vlong a, o;
 	vlong startva, resoff;
 	ElfEhdr *eh;
 	ElfPhdr *ph, *pph, *pnote;
@@ -1147,7 +1139,7 @@ asmbelf(vlong symo)
 	resoff = ELFRESERVE;
 	
 	pph = nil;
-	if(isobj) {
+	if(linkmode == LinkExternal) {
 		/* skip program headers */
 		eh->phoff = 0;
 		eh->phentsize = 0;
@@ -1408,13 +1400,18 @@ elfobj:
 	for(sect=segdata.sect; sect!=nil; sect=sect->next)
 		elfshbits(sect);
 
-	if(isobj) {
+	if(linkmode == LinkExternal) {
 		for(sect=segtext.sect; sect!=nil; sect=sect->next)
 			elfshreloc(sect);
 		for(sect=segdata.sect; sect!=nil; sect=sect->next)
 			elfshreloc(sect);
+		// add a .note.GNU-stack section to mark the stack as non-executable
+		sh = elfshname(".note.GNU-stack");
+		sh->type = SHT_PROGBITS;
+		sh->addralign = 1;
+		sh->flags = 0;
 	}
-		
+
 	if(!debug['s']) {
 		sh = elfshname(".symtab");
 		sh->type = SHT_SYMTAB;
@@ -1431,9 +1428,7 @@ elfobj:
 		sh->size = elfstrsize;
 		sh->addralign = 1;
 
-		// TODO(rsc): Enable for isobj too, once we know it works.
-		if(!isobj)
-			dwarfaddelfheaders();
+		dwarfaddelfheaders();
 	}
 
 	/* Main header */
@@ -1456,12 +1451,12 @@ elfobj:
 
 	if(flag_shared)
 		eh->type = ET_DYN;
-	else if(isobj)
+	else if(linkmode == LinkExternal)
 		eh->type = ET_REL;
 	else
 		eh->type = ET_EXEC;
 
-	if(!isobj)
+	if(linkmode != LinkExternal)
 		eh->entry = entryvalue();
 
 	eh->version = EV_CURRENT;
@@ -1478,7 +1473,7 @@ elfobj:
 	a += elfwriteshdrs();
 	if(!debug['d'])
 		a += elfwriteinterp();
-	if(!isobj) {
+	if(linkmode != LinkExternal) {
 		if(HEADTYPE == Hnetbsd)
 			a += elfwritenetbsdsig();
 		if(HEADTYPE == Hopenbsd)

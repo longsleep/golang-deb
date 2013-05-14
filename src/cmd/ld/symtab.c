@@ -121,15 +121,50 @@ putelfsym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
 
 	// One pass for each binding: STB_LOCAL, STB_GLOBAL,
 	// maybe one day STB_WEAK.
-	bind = (ver || (x->type & SHIDDEN)) ? STB_LOCAL : STB_GLOBAL;
+	bind = STB_GLOBAL;
+	if(ver || (x->type & SHIDDEN))
+		bind = STB_LOCAL;
+
+	// In external linking mode, we have to invoke gcc with -rdynamic
+	// to get the exported symbols put into the dynamic symbol table.
+	// To avoid filling the dynamic table with lots of unnecessary symbols,
+	// mark all Go symbols local (not global) in the final executable.
+	if(linkmode == LinkExternal && !(x->cgoexport&CgoExportStatic))
+		bind = STB_LOCAL;
+
 	if(bind != elfbind)
 		return;
 
 	off = putelfstr(s);
-	if(isobj)
+	if(linkmode == LinkExternal)
 		addr -= xo->sect->vaddr;
 	putelfsyment(off, addr, size, (bind<<4)|(type&0xf), xo->sect->elfsect->shnum, (x->type & SHIDDEN) ? 2 : 0);
 	x->elfsym = numelfsym++;
+}
+
+void
+putelfsectionsym(Sym* s, int shndx)
+{
+	putelfsyment(0, 0, 0, (STB_LOCAL<<4)|STT_SECTION, shndx, 0);
+	s->elfsym = numelfsym++;
+}
+
+void
+putelfsymshndx(vlong sympos, int shndx)
+{
+	vlong here;
+
+	here = cpos();
+	switch(thechar) {
+	case '6':
+		cseek(sympos+6);
+		break;
+	default:
+		cseek(sympos+14);
+		break;
+	}
+	WPUT(shndx);
+	cseek(here);
 }
 
 void
@@ -140,8 +175,30 @@ asmelfsym(void)
 	// the first symbol entry is reserved
 	putelfsyment(0, 0, 0, (STB_LOCAL<<4)|STT_NOTYPE, 0, 0);
 
+	dwarfaddelfsectionsyms();
+
 	elfbind = STB_LOCAL;
 	genasmsym(putelfsym);
+	
+	if(linkmode == LinkExternal && HEADTYPE != Hopenbsd) {
+		s = lookup("runtime.m", 0);
+		if(s->sect == nil) {
+			cursym = nil;
+			diag("missing section for %s", s->name);
+			errorexit();
+		}
+		putelfsyment(putelfstr(s->name), 0, PtrSize, (STB_LOCAL<<4)|STT_TLS, s->sect->elfsect->shnum, 0);
+		s->elfsym = numelfsym++;
+
+		s = lookup("runtime.g", 0);
+		if(s->sect == nil) {
+			cursym = nil;
+			diag("missing section for %s", s->name);
+			errorexit();
+		}
+		putelfsyment(putelfstr(s->name), PtrSize, PtrSize, (STB_LOCAL<<4)|STT_TLS, s->sect->elfsect->shnum, 0);
+		s->elfsym = numelfsym++;
+	}
 
 	elfbind = STB_GLOBAL;
 	elfglobalsymndx = numelfsym;
@@ -317,7 +374,7 @@ putsymb(Sym *s, char *name, int t, vlong v, vlong size, int ver, Sym *typ)
 	
 	// type byte
 	if('A' <= t && t <= 'Z')
-		c = t - 'A';
+		c = t - 'A' + (ver ? 26 : 0);
 	else if('a' <= t && t <= 'z')
 		c = t - 'a' + 26;
 	else {
@@ -424,10 +481,8 @@ symtab(void)
 		xdefine("datarelro", SDATARELRO, 0);
 		xdefine("edatarelro", SDATARELRO, 0);
 	}
-	xdefine("gcdata", SGCDATA, 0);
-	xdefine("egcdata", SGCDATA, 0);
-	xdefine("gcbss", SGCBSS, 0);
-	xdefine("egcbss", SGCBSS, 0);
+	xdefine("egcdata", STYPE, 0);
+	xdefine("egcbss", STYPE, 0);
 	xdefine("noptrdata", SNOPTRDATA, 0);
 	xdefine("enoptrdata", SNOPTRDATA, 0);
 	xdefine("data", SDATA, 0);

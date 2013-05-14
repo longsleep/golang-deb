@@ -80,7 +80,9 @@ func foo12(yyy **int) { // ERROR "leaking param: yyy"
 	xxx = yyy
 }
 
-func foo13(yyy **int) { // ERROR "yyy does not escape"
+// Must treat yyy as leaking because *yyy leaks, and the escape analysis 
+// summaries in exported metadata do not distinguish these two cases.
+func foo13(yyy **int) { // ERROR "leaking param: yyy"
 	*xxx = *yyy
 }
 
@@ -299,7 +301,8 @@ func (f *Foo) foo45() { // ERROR "f does not escape"
 	F.x = f.x
 }
 
-func (f *Foo) foo46() { // ERROR "f does not escape"
+// See foo13 above for explanation of why f leaks.
+func (f *Foo) foo46() { // ERROR "leaking param: f"
 	F.xx = f.xx
 }
 
@@ -1299,4 +1302,26 @@ func G() {
 	
 	var buf4 [10]byte // ERROR "moved to heap: buf4"
 	F4(buf4[:]) // ERROR "buf4 escapes to heap"
+}
+
+type Tm struct {
+	x int
+}
+
+func (t *Tm) M() { // ERROR "t does not escape"
+}
+
+func foo141() {
+	var f func()
+	
+	t := new(Tm) // ERROR "escapes to heap"
+	f = t.M // ERROR "t.M does not escape"
+	_ = f
+}
+
+var gf func()
+
+func foo142() {
+	t := new(Tm) // ERROR "escapes to heap"
+	gf = t.M // ERROR "t.M escapes to heap"
 }
