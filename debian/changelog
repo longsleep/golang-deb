@@ -5,8 +5,9 @@ golang (2:1.1-1) unstable; urgency=low
     goinstall does not exist anymore since a long time.
     This also obsoletes the need for any translations
     (Closes: #685923, #692478)
+  * Emacs go-mode auto-mode-alist entry was fixed upstream (Closes: #670371)
 
- -- Michael Stapelberg <stapelberg@debian.org>  Tue, 14 May 2013 18:52:37 +0200
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 14 May 2013 19:36:04 +0200
 
 golang (2:1.1~hg20130405-1) experimental; urgency=low
 
