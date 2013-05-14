@@ -1,6 +1,10 @@
 golang (2:1.1-1) unstable; urgency=low
 
   * New upstream release: Go 1.1!
+  * Remove the long obsolete goinstall debconf question and config file.
+    goinstall does not exist anymore since a long time.
+    This also obsoletes the need for any translations
+    (Closes: #685923, #692478)
 
  -- Michael Stapelberg <stapelberg@debian.org>  Tue, 14 May 2013 18:52:37 +0200
 

@@ -1,66 +1,23 @@
 #!/bin/sh
 
-# Load debconf variables
-. /usr/share/debconf/confmodule
-
 confdir=/etc/golang
 conffile=$confdir/goinstall.conf
 
 set -e
 
-if [ -e $conffile ] ; then
-    # Fetch current values.
-    . $conffile
-fi
+. /usr/share/debconf/confmodule
 
-# Get this setting from debconf.  It was set based on the content of
-# /etc/golang/goinstall.conf in the 'config' script, so it should be
-# safe to ignore the value fetched by loading the file above.  This
-# should allow for using debconf to reconfigure the package.
-db_get golang-go/dashboard || true
-if [ "$RET" = "yes" ] || [ "$RET" = "YES" ] || [ "$RET" = "true" ]; then
-    DASHBOARD="yes"
-else
-    DASHBOARD="no"
-fi
-
-generate_conffile() {
-	if [ ! -d $confdir ]; then
-		mkdir $confdir
-	fi
-	cat <<-EOF >$conffile
-		# Config file for goinstall tool.
-		#
-		# To change this file, use:
-		#        dpkg-reconfigure golang-go
-		#
-		# You can also edit it by hand, if you so choose.
-		
-		DASHBOARD="$DASHBOARD"
-	EOF
-
-	# Make sure user nobody can read the file.
-	chmod a+r $conffile
-}
+# Cleanup old debconf dashboard question that was removed in golang-go 2:1.1
+# -- 2013-05-14 stapelberg
+db_purge
 
 case "$1" in
     configure)
-	if [ ! -e $conffile ]; then
-	    generate_conffile
-	else
-	    # Replace only if the content changed, to avoid changing the
-	    # config file date when no change was done.
-	    sedopts=" \
-		s/^DASHBOARD=.*$/DASHBOARD=\"$DASHBOARD\"/;   \
-                "
-	    if sed "$sedopts" < $conffile > $conffile.new &&
-		! cmp $conffile $conffile.new > /dev/null; then
-		mv $conffile.new $conffile
-		# Make sure user nobody can read the file.
-		chmod a+r $conffile
-	    else
-		rm $conffile.new
-	    fi
+	# Remove obsolete goinstall.conf.
+	# -- 2013-05-14 stapelberg
+	if [ -e $conffile ]; then
+		rm -f $conffile
+		rmdir /etc/golang || true
 	fi
 	# Very ugly hack to set timestamps same as /usr/bin/go
 	find /usr/lib/go/pkg -exec touch -r /usr/bin/go {} \;
