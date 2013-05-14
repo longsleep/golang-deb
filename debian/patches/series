@@ -10,4 +10,3 @@
 #012-sigfillset_kFreeBSD.patch
 #013-kFreeBSD-AI_MASK.patch
 godoc-symlinks.diff
-version.patch
