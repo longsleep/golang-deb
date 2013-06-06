@@ -60,6 +60,13 @@ debian/build.stamp:
 	rm -f debian/build.stamp
 	mkdir -p $(GOBIN)
 	+cd src && bash ./make.bash --no-banner
+	# For the race detector to work (go test -race), we need to install the
+	# std library with the race detector enabled. This will result in
+	# having an additional “architecture” directory, e.g. linux_amd64_race.
+	#
+	# The race detector currently only works on linux/amd64. The following
+	# check works precisely the same way src/race.bash does.
+	-[ "$(shell uname -m)" = "x86_64" ] && [ "$(shell uname)" = "Linux" ] && $(CURDIR)/bin/go install -race std
 	>debian/build.stamp
 
 opt_no_act =
