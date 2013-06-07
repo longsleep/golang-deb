@@ -1,3 +1,15 @@
+golang (2:1.1-2) unstable; urgency=low
+
+  [ Ondřej Surý ]
+  * Promote Michael to Maintainer
+
+  [ Michael Stapelberg ]
+  * Build golang-go-$GOOS-$GOARCH packages for cross-compiling (Closes: #710090)
+  * Build race detector on linux/amd64 (only supported arch) (Closes: #710691)
+  * Switch compression to xz (50% smaller binaries)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 07 Jun 2013 23:18:09 +0200
+
 golang (2:1.1-1) unstable; urgency=low
 
   * New upstream release: Go 1.1!
