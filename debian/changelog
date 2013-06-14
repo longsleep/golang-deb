@@ -1,3 +1,9 @@
+golang (2:1.1.1-1) raring; urgency=low
+
+  * Imported Upstream version 1.1.1
+
+ -- Ingo Oeser <nightlyone@googlemail.com>  Fri, 14 Jun 2013 23:25:44 +0200
+
 golang (2:1.1-2) unstable; urgency=low
 
   [ Ondřej Surý ]
