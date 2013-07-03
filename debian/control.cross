@@ -2,6 +2,8 @@
 Package: golang-go-@OS@-@ARCH@
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for @OS@_@ARCH@
  This package contains the Go standard library,
  compiled for @OS@_@ARCH@.

@@ -151,6 +151,8 @@ Description: Go programming language - Vim highlighting syntax files
 Package: golang-go-linux-amd64
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for linux_amd64
  This package contains the Go standard library,
  compiled for linux_amd64.
@@ -167,6 +169,8 @@ Description: Go standard library compiled for linux_amd64
 Package: golang-go-linux-arm
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for linux_arm
  This package contains the Go standard library,
  compiled for linux_arm.
@@ -183,6 +187,8 @@ Description: Go standard library compiled for linux_arm
 Package: golang-go-linux-386
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for linux_386
  This package contains the Go standard library,
  compiled for linux_386.
@@ -199,6 +205,8 @@ Description: Go standard library compiled for linux_386
 Package: golang-go-freebsd-amd64
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for freebsd_amd64
  This package contains the Go standard library,
  compiled for freebsd_amd64.
@@ -215,6 +223,8 @@ Description: Go standard library compiled for freebsd_amd64
 Package: golang-go-freebsd-arm
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for freebsd_arm
  This package contains the Go standard library,
  compiled for freebsd_arm.
@@ -231,6 +241,8 @@ Description: Go standard library compiled for freebsd_arm
 Package: golang-go-freebsd-386
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for freebsd_386
  This package contains the Go standard library,
  compiled for freebsd_386.
@@ -247,6 +259,8 @@ Description: Go standard library compiled for freebsd_386
 Package: golang-go-windows-amd64
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for windows_amd64
  This package contains the Go standard library,
  compiled for windows_amd64.
@@ -263,6 +277,8 @@ Description: Go standard library compiled for windows_amd64
 Package: golang-go-windows-386
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for windows_386
  This package contains the Go standard library,
  compiled for windows_386.
@@ -279,6 +295,8 @@ Description: Go standard library compiled for windows_386
 Package: golang-go-darwin-amd64
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for darwin_amd64
  This package contains the Go standard library,
  compiled for darwin_amd64.
@@ -295,6 +313,8 @@ Description: Go standard library compiled for darwin_amd64
 Package: golang-go-darwin-386
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for darwin_386
  This package contains the Go standard library,
  compiled for darwin_386.
@@ -311,6 +331,8 @@ Description: Go standard library compiled for darwin_386
 Package: golang-go-netbsd-amd64
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for netbsd_amd64
  This package contains the Go standard library,
  compiled for netbsd_amd64.
@@ -327,6 +349,8 @@ Description: Go standard library compiled for netbsd_amd64
 Package: golang-go-netbsd-386
 Architecture: all
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Breaks: golang-go (<< 2:1.1-2)
+Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for netbsd_386
  This package contains the Go standard library,
  compiled for netbsd_386.
