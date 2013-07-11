@@ -59,6 +59,16 @@ override_dh_install:
 		[ "$$arch" = "amd64" ] && [ "$$os" = "linux" ] && echo "pkg/linux_amd64_race /usr/lib/go/pkg" >> debian/golang-go-$$os-$$arch.install; \
 		echo "golang-go-$$os-$$arch: arch-independent-package-contains-binary-or-object" > debian/golang-go-$$os-$$arch.lintian-overrides; \
 	${FOR_GO_ARCH_END}
+	# Install the native runtime/cgo.a to the golang-go package.
+	# runtime/cgo is only built for the native architecture, but the
+	# golang-go-OS-ARCH packages are built on one particular buildd, which
+	# might either be i386 or amd64.
+	echo "listing of $$(pwd):"; ls -hlR .
+	echo "listing of GOBIN: ($(GOBIN))"; ls -hlR $(GOBIN)
+	for file in $$(cd pkg/ && ls */runtime/cgo.a); do \
+		mkdir -p $(CURDIR)/debian/golang-go/usr/lib/go/pkg/$$(dirname $$file); \
+		mv pkg/$$file $(CURDIR)/debian/golang-go/usr/lib/go/pkg/$$file; \
+	done
 	dh_install --fail-missing
 	# Replace jquery in the html documentation with a symlink to libjs-jquery.
 	-rm $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js && \

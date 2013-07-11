@@ -1,3 +1,14 @@
+golang (2:1.1.1-3) unstable; urgency=low
+
+  * Ship */runtime/cgo.a in golang-go to ensure it is present. It can only be
+    used on the native architecture anyway (cannot be used when
+    cross-compiling), so having it in golang-go-$GOOS-$GOARCH is not
+    necessary. Even worse, since these packages are arch: all, they will be
+    built precisely once, and only the runtime/cgo.a for the buildd’s native
+    arch will be present. (Closes: #715025)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Thu, 11 Jul 2013 20:25:52 +0200
+
 golang (2:1.1.1-2) unstable; urgency=low
 
   [ James Page ]
