@@ -1,10 +1,1 @@
-# commented out because i don’t precisely know what it’s for:
-# 001-allow_IPv4_on_IPv6_sockets.patch
-# http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=574371#46
-#003-set_correct_runpath.patch
-#006-fix_kfreebsd_build.patch
-#007-use_native_dynamic_linker_on_kfreebsd.patch
-#011-__FreeBSD_kernel__.patch
-#012-sigfillset_kFreeBSD.patch
-#013-kFreeBSD-AI_MASK.patch
 godoc-symlinks.diff
