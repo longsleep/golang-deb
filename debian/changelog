@@ -1,3 +1,11 @@
+golang (2:1.1.1-4) unstable; urgency=low
+
+  * Disable stripping, it breaks go binaries on some architectures. This drops
+    the golang-dbg package which would be empty now. (Thanks Robie Basak)
+    (Closes: #717172)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Wed, 17 Jul 2013 19:15:18 +0200
+
 golang (2:1.1.1-3) unstable; urgency=low
 
   * Ship */runtime/cgo.a in golang-go to ensure it is present. It can only be

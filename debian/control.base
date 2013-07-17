@@ -75,30 +75,6 @@ Description: Go programming language compiler - documentation
  language. You can view the formatted documentation by running "godoc
  --http=:6060", and then visiting http://localhost:6060/doc/install.html.
 
-Package: golang-dbg
-Replaces: golang-weekly-dbg
-Conflicts: golang-weekly-dbg
-Provides: golang-weekly-dbg
-Architecture: i386 amd64 armel armhf
-Depends: ${misc:Depends}, golang-go (= ${binary:Version})
-Recommends: gdb
-Section: debug
-Priority: extra
-Description: Go programming language compiler - debug files
- The Go programming language is an open source project to make
- programmers more productive. Go is expressive, concise, clean, and
- efficient. Its concurrency mechanisms make it easy to write programs
- that get the most out of multicore and networked machines, while its
- novel type system enables flexible and modular program construction.
- Go compiles quickly to machine code yet has the convenience of
- garbage collection and the power of run-time reflection. It's a
- fast, statically typed, compiled language that feels like a
- dynamically typed, interpreted language.
- .
- This package provides the debug symbols for Google's Go tool
- chain binaries (assembler, compiler, linker) needed for properly
- debugging errors in the tool chain with gdb.
-
 Package: golang
 Replaces: golang-weekly
 Conflicts: golang-weekly
