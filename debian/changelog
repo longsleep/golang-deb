@@ -1,3 +1,10 @@
+golang (2:1.1.1-5) UNRELEASED; urgency=low
+
+  * Relicense debian/ under the Go license to match upstream. All copyright
+    holders agreed to this. (Closes: #716907)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 19 Jul 2013 19:56:46 +0200
+
 golang (2:1.1.1-4) unstable; urgency=low
 
   * Disable stripping, it breaks go binaries on some architectures. This drops
