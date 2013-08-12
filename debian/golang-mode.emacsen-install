@@ -4,10 +4,12 @@
 FLAVOR=$1
 PACKAGE=golang-mode
 
-# Do nothing if generic flavor.
-if [ ${FLAVOR} = emacs ]; then
-       exit 0;
-fi
+# A number of old emacs versions are not supported by upstream:
+case $FLAVOR in
+    emacs|emacs19|emacs20|emacs21|xemacs21)
+        exit 0
+	;;
+esac
 
 echo install/${PACKAGE}: Handling install for emacsen flavor ${FLAVOR}
 
