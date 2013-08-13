@@ -1,11 +1,12 @@
-golang (2:1.1.1-5) UNRELEASED; urgency=low
+golang (2:1.1.2-1) unstable; urgency=low
 
+  * New upstream release.
   * Relicense debian/ under the Go license to match upstream. All copyright
     holders agreed to this. (Closes: #716907)
   * golang-mode: don’t install for a number of emacs versions which are not
     supported upstream (Thanks Kevin Ryde) (Closes: #702511, #717521)
 
- -- Michael Stapelberg <stapelberg@debian.org>  Fri, 19 Jul 2013 19:56:46 +0200
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 13 Aug 2013 13:47:58 +0200
 
 golang (2:1.1.1-4) unstable; urgency=low
 
