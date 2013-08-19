@@ -1,6 +1,6 @@
 
 Package: golang-go-@OS@-@ARCH@
-Architecture: all
+Architecture: @BUILDARCHS@
 Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
 Breaks: golang-go (<< 2:1.1-2)
 Replaces: golang-go (<< 2:1.1-2)
