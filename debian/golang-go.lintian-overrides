@@ -1,8 +1,4 @@
-golang-go: unstripped-binary-or-object usr/bin/godoc
-golang-go: unstripped-binary-or-object usr/bin/gofmt
-golang-go: statically-linked-binary usr/bin/gofmt
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/api
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/cgo
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/fix
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/vet
-golang-go: statically-linked-binary usr/lib/go/pkg/tool/linux_amd64/yacc
+# Stripping is not supported upstream and breaks the code.
+golang-go: unstripped-binary-or-object
+# Go always links statically.
+golang-go: statically-linked-binary

@@ -2,8 +2,10 @@ golang (2:1.1.2-2) unstable; urgency=low
 
   * Build golang-go-linux-* for each architecture (Thanks James Page)
     (Closes: #719611)
+  * Update lintian-overrides to override statically-linked-binary and
+    unstripped-binary-or-object for all of golang-go
 
- -- Michael Stapelberg <stapelberg@debian.org>  Mon, 19 Aug 2013 22:40:54 +0200
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 20 Aug 2013 08:13:40 +0200
 
 golang (2:1.1.2-1) unstable; urgency=low
 
