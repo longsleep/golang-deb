@@ -1,3 +1,10 @@
+golang (2:1.1.2-3) unstable; urgency=low
+
+  * cherry-pick upstream commit: archive-tar-fix-links-and-pax.patch
+    (Closes: #730566)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 26 Nov 2013 18:59:27 +0100
+
 golang (2:1.1.2-2) unstable; urgency=low
 
   * Build golang-go-linux-* for each architecture (Thanks James Page)
