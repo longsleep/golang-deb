@@ -1,8 +1,12 @@
 golang (2:1.2-1) unstable; urgency=low
 
   * New upstream release.
+  * drop patches/archive-tar-fix-links-and-pax.patch, it is merged upstream
+  * godoc(1) is now in the Debian package golang-go.tools, it was moved into a
+    separate repository by upstream.
+  * move patches/godoc-symlinks.diff to golang-go.tools
 
- -- Michael Stapelberg <stapelberg@debian.org>  Mon, 02 Dec 2013 17:30:15 +0100
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 02 Dec 2013 23:57:24 +0100
 
 golang (2:1.1.2-3) unstable; urgency=low
 
