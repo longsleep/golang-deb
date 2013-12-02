@@ -1,5 +1,4 @@
 bin/go /usr/bin
-bin/godoc /usr/bin
 bin/gofmt /usr/bin
 pkg/obj /usr/lib/go/pkg/
 pkg/tool /usr/lib/go/pkg/

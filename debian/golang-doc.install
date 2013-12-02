@@ -1,3 +1,2 @@
 doc/* /usr/share/doc/golang-doc/html/
-lib/godoc /usr/share/doc/golang-doc
 favicon.ico /usr/share/doc/golang-doc

@@ -75,8 +75,6 @@ override_dh_install:
 	# Replace jquery in the html documentation with a symlink to libjs-jquery.
 	-rm $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js && \
 	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js
-	# Make scripts executable
-	chmod +x $(CURDIR)/debian/golang-src/usr/share/go/src/cmd/godoc/setup-godoc-app.bash
 	# Remove testdata and tests from installed src directory
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type d -name testdata -prune -execdir rm -rf {} \;
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name '*_test.go' -delete
