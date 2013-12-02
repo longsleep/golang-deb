@@ -75,9 +75,6 @@ override_dh_install:
 	# Replace jquery in the html documentation with a symlink to libjs-jquery.
 	-rm $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js && \
 	ln -s /usr/share/javascript/jquery/jquery.min.js $(CURDIR)/debian/golang-doc/usr/share/doc/golang-doc/html/jquery.js
-	# Remove testdata and tests from installed src directory
-	find $(CURDIR)/debian/golang-src/usr/share/go/src -type d -name testdata -prune -execdir rm -rf {} \;
-	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name '*_test.go' -delete
 	# Remove .syso files of the race detector; it is not used yet and the files are arch-dependent.
 	find $(CURDIR)/debian/golang-src/usr/share/go/src/pkg/runtime/race -type f -name '*.syso' -delete
 	# Remove Plan9 rc(1) scripts
@@ -104,6 +101,9 @@ override_dh_prep:
 
 override_dh_builddeb:
 	dh_builddeb -- -Zxz
+
+override_dh_shlibdeps:
+	dh_shlibdeps -Xtestdata -Xtest
 
 debian/build.stamp:
 	rm -f debian/build.stamp
