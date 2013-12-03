@@ -2,7 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-TEXT _rt0_386_plan9(SB),7, $0
+#include "../../cmd/ld/textflag.h"
+
+TEXT _rt0_386_plan9(SB),NOSPLIT, $0
 	MOVL	AX, _tos(SB)
 	
 	// move arguments down to make room for
@@ -33,7 +35,7 @@ argv_fix:
 	PUSHL	AX
 	PUSHL	$-1
 
-	JMP	_rt0_386(SB)
+	JMP	_rt0_go(SB)
 
 DATA  runtime·isplan9(SB)/4, $1
 GLOBL runtime·isplan9(SB), $4

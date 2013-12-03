@@ -14,14 +14,14 @@ enum
 };
 
 void*
-runtime·SysAlloc(uintptr n)
+runtime·SysAlloc(uintptr n, uint64 *stat)
 {
 	void *v;
 
-	mstats.sys += n;
 	v = runtime·mmap(nil, n, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
 	if(v < (void*)4096)
 		return nil;
+	runtime·xadd64(stat, n);
 	return v;
 }
 
@@ -32,9 +32,16 @@ runtime·SysUnused(void *v, uintptr n)
 }
 
 void
-runtime·SysFree(void *v, uintptr n)
+runtime·SysUsed(void *v, uintptr n)
 {
-	mstats.sys -= n;
+	USED(v);
+	USED(n);
+}
+
+void
+runtime·SysFree(void *v, uintptr n, uint64 *stat)
+{
+	runtime·xadd64(stat, -(uint64)n);
 	runtime·munmap(v, n);
 }
 
@@ -56,11 +63,11 @@ runtime·SysReserve(void *v, uintptr n)
 }
 
 void
-runtime·SysMap(void *v, uintptr n)
+runtime·SysMap(void *v, uintptr n, uint64 *stat)
 {
 	void *p;
 	
-	mstats.sys += n;
+	runtime·xadd64(stat, n);
 
 	// On 64-bit, we don't actually have v reserved, so tread carefully.
 	if(sizeof(void*) == 8) {

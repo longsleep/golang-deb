@@ -391,6 +391,18 @@ pkg crypto/dsa, var ErrInvalidPublicKey error
 pkg crypto/ecdsa, func GenerateKey(elliptic.Curve, io.Reader) (*PrivateKey, error)
 pkg crypto/ecdsa, func Sign(io.Reader, *PrivateKey, []uint8) (*big.Int, *big.Int, error)
 pkg crypto/ecdsa, func Verify(*PublicKey, []uint8, *big.Int, *big.Int) bool
+pkg crypto/ecdsa, method (PrivateKey) Add(*big.Int, *big.Int, *big.Int, *big.Int) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PrivateKey) Double(*big.Int, *big.Int) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PrivateKey) IsOnCurve(*big.Int, *big.Int) bool
+pkg crypto/ecdsa, method (PrivateKey) Params() *elliptic.CurveParams
+pkg crypto/ecdsa, method (PrivateKey) ScalarBaseMult([]uint8) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PrivateKey) ScalarMult(*big.Int, *big.Int, []uint8) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PublicKey) Add(*big.Int, *big.Int, *big.Int, *big.Int) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PublicKey) Double(*big.Int, *big.Int) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PublicKey) IsOnCurve(*big.Int, *big.Int) bool
+pkg crypto/ecdsa, method (PublicKey) Params() *elliptic.CurveParams
+pkg crypto/ecdsa, method (PublicKey) ScalarBaseMult([]uint8) (*big.Int, *big.Int)
+pkg crypto/ecdsa, method (PublicKey) ScalarMult(*big.Int, *big.Int, []uint8) (*big.Int, *big.Int)
 pkg crypto/ecdsa, type PrivateKey struct
 pkg crypto/ecdsa, type PrivateKey struct, D *big.Int
 pkg crypto/ecdsa, type PrivateKey struct, embedded PublicKey
@@ -1614,6 +1626,7 @@ pkg debug/elf, method (NType) GoString() string
 pkg debug/elf, method (NType) String() string
 pkg debug/elf, method (OSABI) GoString() string
 pkg debug/elf, method (OSABI) String() string
+pkg debug/elf, method (Prog) ReadAt([]uint8, int64) (int, error)
 pkg debug/elf, method (ProgFlag) GoString() string
 pkg debug/elf, method (ProgFlag) String() string
 pkg debug/elf, method (ProgType) GoString() string
@@ -1630,6 +1643,7 @@ pkg debug/elf, method (R_SPARC) GoString() string
 pkg debug/elf, method (R_SPARC) String() string
 pkg debug/elf, method (R_X86_64) GoString() string
 pkg debug/elf, method (R_X86_64) String() string
+pkg debug/elf, method (Section) ReadAt([]uint8, int64) (int, error)
 pkg debug/elf, method (SectionFlag) GoString() string
 pkg debug/elf, method (SectionFlag) String() string
 pkg debug/elf, method (SectionIndex) GoString() string
@@ -1674,7 +1688,7 @@ pkg debug/elf, type Header32 struct
 pkg debug/elf, type Header32 struct, Ehsize uint16
 pkg debug/elf, type Header32 struct, Entry uint32
 pkg debug/elf, type Header32 struct, Flags uint32
-pkg debug/elf, type Header32 struct, Ident [EI_NIDENT]uint8
+pkg debug/elf, type Header32 struct, Ident [16]uint8
 pkg debug/elf, type Header32 struct, Machine uint16
 pkg debug/elf, type Header32 struct, Phentsize uint16
 pkg debug/elf, type Header32 struct, Phnum uint16
@@ -1689,7 +1703,7 @@ pkg debug/elf, type Header64 struct
 pkg debug/elf, type Header64 struct, Ehsize uint16
 pkg debug/elf, type Header64 struct, Entry uint64
 pkg debug/elf, type Header64 struct, Flags uint32
-pkg debug/elf, type Header64 struct, Ident [EI_NIDENT]uint8
+pkg debug/elf, type Header64 struct, Ident [16]uint8
 pkg debug/elf, type Header64 struct, Machine uint16
 pkg debug/elf, type Header64 struct, Phentsize uint16
 pkg debug/elf, type Header64 struct, Phnum uint16
@@ -1911,7 +1925,9 @@ pkg debug/macho, method (Dysymtab) Raw() []uint8
 pkg debug/macho, method (LoadBytes) Raw() []uint8
 pkg debug/macho, method (LoadCmd) GoString() string
 pkg debug/macho, method (LoadCmd) String() string
+pkg debug/macho, method (Section) ReadAt([]uint8, int64) (int, error)
 pkg debug/macho, method (Segment) Raw() []uint8
+pkg debug/macho, method (Segment) ReadAt([]uint8, int64) (int, error)
 pkg debug/macho, method (Symtab) Raw() []uint8
 pkg debug/macho, type Cpu uint32
 pkg debug/macho, type Dylib struct
@@ -2154,6 +2170,7 @@ pkg debug/pe, method (*File) Section(string) *Section
 pkg debug/pe, method (*FormatError) Error() string
 pkg debug/pe, method (*Section) Data() ([]uint8, error)
 pkg debug/pe, method (*Section) Open() io.ReadSeeker
+pkg debug/pe, method (Section) ReadAt([]uint8, int64) (int, error)
 pkg debug/pe, type File struct
 pkg debug/pe, type File struct, Sections []*Section
 pkg debug/pe, type File struct, embedded FileHeader
@@ -3659,7 +3676,7 @@ pkg image/draw, func Draw(Image, image.Rectangle, image.Image, image.Point, Op)
 pkg image/draw, func DrawMask(Image, image.Rectangle, image.Image, image.Point, image.Image, image.Point, Op)
 pkg image/draw, type Image interface { At, Bounds, ColorModel, Set }
 pkg image/draw, type Image interface, At(int, int) color.Color
-pkg image/draw, type Image interface, Bounds() Rectangle
+pkg image/draw, type Image interface, Bounds() image.Rectangle
 pkg image/draw, type Image interface, ColorModel() color.Model
 pkg image/draw, type Image interface, Set(int, int, color.Color)
 pkg image/draw, type Op int
@@ -4164,7 +4181,7 @@ pkg math, func Trunc(float64) float64
 pkg math, func Y0(float64) float64
 pkg math, func Y1(float64) float64
 pkg math, func Yn(int, float64) float64
-pkg math/big, const MaxBase ideal-int
+pkg math/big, const MaxBase ideal-char
 pkg math/big, func NewInt(int64) *Int
 pkg math/big, func NewRat(int64, int64) *Rat
 pkg math/big, method (*Int) Abs(*Int) *Int
@@ -5266,6 +5283,14 @@ pkg os/exec, method (*Cmd) StdoutPipe() (io.ReadCloser, error)
 pkg os/exec, method (*Cmd) Wait() error
 pkg os/exec, method (*Error) Error() string
 pkg os/exec, method (*ExitError) Error() string
+pkg os/exec, method (ExitError) Exited() bool
+pkg os/exec, method (ExitError) Pid() int
+pkg os/exec, method (ExitError) String() string
+pkg os/exec, method (ExitError) Success() bool
+pkg os/exec, method (ExitError) Sys() interface{}
+pkg os/exec, method (ExitError) SysUsage() interface{}
+pkg os/exec, method (ExitError) SystemTime() time.Duration
+pkg os/exec, method (ExitError) UserTime() time.Duration
 pkg os/exec, type Cmd struct
 pkg os/exec, type Cmd struct, Args []string
 pkg os/exec, type Cmd struct, Dir string
@@ -5687,6 +5712,7 @@ pkg runtime, type MemProfileRecord struct, Stack0 [32]uintptr
 pkg runtime, type MemStats struct
 pkg runtime, type MemStats struct, Alloc uint64
 pkg runtime, type MemStats struct, BuckHashSys uint64
+pkg runtime, type MemStats struct, BySize [61]struct
 pkg runtime, type MemStats struct, DebugGC bool
 pkg runtime, type MemStats struct, EnableGC bool
 pkg runtime, type MemStats struct, Frees uint64
@@ -6035,6 +6061,7 @@ pkg syscall (darwin-386), const EAUTH Errno
 pkg syscall (darwin-386), const EBADARCH Errno
 pkg syscall (darwin-386), const EBADEXEC Errno
 pkg syscall (darwin-386), const EBADMACHO Errno
+pkg syscall (darwin-386), const EBADMSG Errno
 pkg syscall (darwin-386), const EBADRPC Errno
 pkg syscall (darwin-386), const ECHO ideal-int
 pkg syscall (darwin-386), const ECHOCTL ideal-int
@@ -6046,9 +6073,11 @@ pkg syscall (darwin-386), const ECHOPRT ideal-int
 pkg syscall (darwin-386), const EDEVERR Errno
 pkg syscall (darwin-386), const EFTYPE Errno
 pkg syscall (darwin-386), const ELAST Errno
+pkg syscall (darwin-386), const EMULTIHOP Errno
 pkg syscall (darwin-386), const ENEEDAUTH Errno
 pkg syscall (darwin-386), const ENOATTR Errno
 pkg syscall (darwin-386), const ENODATA Errno
+pkg syscall (darwin-386), const ENOLINK Errno
 pkg syscall (darwin-386), const ENOPOLICY Errno
 pkg syscall (darwin-386), const ENOSR Errno
 pkg syscall (darwin-386), const ENOSTR Errno
@@ -6058,6 +6087,7 @@ pkg syscall (darwin-386), const EPROCLIM Errno
 pkg syscall (darwin-386), const EPROCUNAVAIL Errno
 pkg syscall (darwin-386), const EPROGMISMATCH Errno
 pkg syscall (darwin-386), const EPROGUNAVAIL Errno
+pkg syscall (darwin-386), const EPROTO Errno
 pkg syscall (darwin-386), const EPWROFF Errno
 pkg syscall (darwin-386), const ERPCMISMATCH Errno
 pkg syscall (darwin-386), const ESHLIBVERS Errno
@@ -7853,6 +7883,7 @@ pkg syscall (darwin-386-cgo), const EAUTH Errno
 pkg syscall (darwin-386-cgo), const EBADARCH Errno
 pkg syscall (darwin-386-cgo), const EBADEXEC Errno
 pkg syscall (darwin-386-cgo), const EBADMACHO Errno
+pkg syscall (darwin-386-cgo), const EBADMSG Errno
 pkg syscall (darwin-386-cgo), const EBADRPC Errno
 pkg syscall (darwin-386-cgo), const ECHO ideal-int
 pkg syscall (darwin-386-cgo), const ECHOCTL ideal-int
@@ -7864,9 +7895,11 @@ pkg syscall (darwin-386-cgo), const ECHOPRT ideal-int
 pkg syscall (darwin-386-cgo), const EDEVERR Errno
 pkg syscall (darwin-386-cgo), const EFTYPE Errno
 pkg syscall (darwin-386-cgo), const ELAST Errno
+pkg syscall (darwin-386-cgo), const EMULTIHOP Errno
 pkg syscall (darwin-386-cgo), const ENEEDAUTH Errno
 pkg syscall (darwin-386-cgo), const ENOATTR Errno
 pkg syscall (darwin-386-cgo), const ENODATA Errno
+pkg syscall (darwin-386-cgo), const ENOLINK Errno
 pkg syscall (darwin-386-cgo), const ENOPOLICY Errno
 pkg syscall (darwin-386-cgo), const ENOSR Errno
 pkg syscall (darwin-386-cgo), const ENOSTR Errno
@@ -7876,6 +7909,7 @@ pkg syscall (darwin-386-cgo), const EPROCLIM Errno
 pkg syscall (darwin-386-cgo), const EPROCUNAVAIL Errno
 pkg syscall (darwin-386-cgo), const EPROGMISMATCH Errno
 pkg syscall (darwin-386-cgo), const EPROGUNAVAIL Errno
+pkg syscall (darwin-386-cgo), const EPROTO Errno
 pkg syscall (darwin-386-cgo), const EPWROFF Errno
 pkg syscall (darwin-386-cgo), const ERPCMISMATCH Errno
 pkg syscall (darwin-386-cgo), const ESHLIBVERS Errno
@@ -9671,6 +9705,7 @@ pkg syscall (darwin-amd64), const EAUTH Errno
 pkg syscall (darwin-amd64), const EBADARCH Errno
 pkg syscall (darwin-amd64), const EBADEXEC Errno
 pkg syscall (darwin-amd64), const EBADMACHO Errno
+pkg syscall (darwin-amd64), const EBADMSG Errno
 pkg syscall (darwin-amd64), const EBADRPC Errno
 pkg syscall (darwin-amd64), const ECHO ideal-int
 pkg syscall (darwin-amd64), const ECHOCTL ideal-int
@@ -9682,9 +9717,11 @@ pkg syscall (darwin-amd64), const ECHOPRT ideal-int
 pkg syscall (darwin-amd64), const EDEVERR Errno
 pkg syscall (darwin-amd64), const EFTYPE Errno
 pkg syscall (darwin-amd64), const ELAST Errno
+pkg syscall (darwin-amd64), const EMULTIHOP Errno
 pkg syscall (darwin-amd64), const ENEEDAUTH Errno
 pkg syscall (darwin-amd64), const ENOATTR Errno
 pkg syscall (darwin-amd64), const ENODATA Errno
+pkg syscall (darwin-amd64), const ENOLINK Errno
 pkg syscall (darwin-amd64), const ENOPOLICY Errno
 pkg syscall (darwin-amd64), const ENOSR Errno
 pkg syscall (darwin-amd64), const ENOSTR Errno
@@ -9694,6 +9731,7 @@ pkg syscall (darwin-amd64), const EPROCLIM Errno
 pkg syscall (darwin-amd64), const EPROCUNAVAIL Errno
 pkg syscall (darwin-amd64), const EPROGMISMATCH Errno
 pkg syscall (darwin-amd64), const EPROGUNAVAIL Errno
+pkg syscall (darwin-amd64), const EPROTO Errno
 pkg syscall (darwin-amd64), const EPWROFF Errno
 pkg syscall (darwin-amd64), const ERPCMISMATCH Errno
 pkg syscall (darwin-amd64), const ESHLIBVERS Errno
@@ -11496,6 +11534,7 @@ pkg syscall (darwin-amd64-cgo), const EAUTH Errno
 pkg syscall (darwin-amd64-cgo), const EBADARCH Errno
 pkg syscall (darwin-amd64-cgo), const EBADEXEC Errno
 pkg syscall (darwin-amd64-cgo), const EBADMACHO Errno
+pkg syscall (darwin-amd64-cgo), const EBADMSG Errno
 pkg syscall (darwin-amd64-cgo), const EBADRPC Errno
 pkg syscall (darwin-amd64-cgo), const ECHO ideal-int
 pkg syscall (darwin-amd64-cgo), const ECHOCTL ideal-int
@@ -11507,9 +11546,11 @@ pkg syscall (darwin-amd64-cgo), const ECHOPRT ideal-int
 pkg syscall (darwin-amd64-cgo), const EDEVERR Errno
 pkg syscall (darwin-amd64-cgo), const EFTYPE Errno
 pkg syscall (darwin-amd64-cgo), const ELAST Errno
+pkg syscall (darwin-amd64-cgo), const EMULTIHOP Errno
 pkg syscall (darwin-amd64-cgo), const ENEEDAUTH Errno
 pkg syscall (darwin-amd64-cgo), const ENOATTR Errno
 pkg syscall (darwin-amd64-cgo), const ENODATA Errno
+pkg syscall (darwin-amd64-cgo), const ENOLINK Errno
 pkg syscall (darwin-amd64-cgo), const ENOPOLICY Errno
 pkg syscall (darwin-amd64-cgo), const ENOSR Errno
 pkg syscall (darwin-amd64-cgo), const ENOSTR Errno
@@ -11519,6 +11560,7 @@ pkg syscall (darwin-amd64-cgo), const EPROCLIM Errno
 pkg syscall (darwin-amd64-cgo), const EPROCUNAVAIL Errno
 pkg syscall (darwin-amd64-cgo), const EPROGMISMATCH Errno
 pkg syscall (darwin-amd64-cgo), const EPROGUNAVAIL Errno
+pkg syscall (darwin-amd64-cgo), const EPROTO Errno
 pkg syscall (darwin-amd64-cgo), const EPWROFF Errno
 pkg syscall (darwin-amd64-cgo), const ERPCMISMATCH Errno
 pkg syscall (darwin-amd64-cgo), const ESHLIBVERS Errno
@@ -13483,6 +13525,7 @@ pkg syscall (freebsd-386), const DT_SOCK ideal-int
 pkg syscall (freebsd-386), const DT_UNKNOWN ideal-int
 pkg syscall (freebsd-386), const DT_WHT ideal-int
 pkg syscall (freebsd-386), const EAUTH Errno
+pkg syscall (freebsd-386), const EBADMSG Errno
 pkg syscall (freebsd-386), const EBADRPC Errno
 pkg syscall (freebsd-386), const ECHO ideal-int
 pkg syscall (freebsd-386), const ECHOCTL ideal-int
@@ -13494,13 +13537,16 @@ pkg syscall (freebsd-386), const ECHOPRT ideal-int
 pkg syscall (freebsd-386), const EDOOFUS Errno
 pkg syscall (freebsd-386), const EFTYPE Errno
 pkg syscall (freebsd-386), const ELAST Errno
+pkg syscall (freebsd-386), const EMULTIHOP Errno
 pkg syscall (freebsd-386), const ENEEDAUTH Errno
 pkg syscall (freebsd-386), const ENOATTR Errno
+pkg syscall (freebsd-386), const ENOLINK Errno
 pkg syscall (freebsd-386), const ENOTCAPABLE Errno
 pkg syscall (freebsd-386), const EPROCLIM Errno
 pkg syscall (freebsd-386), const EPROCUNAVAIL Errno
 pkg syscall (freebsd-386), const EPROGMISMATCH Errno
 pkg syscall (freebsd-386), const EPROGUNAVAIL Errno
+pkg syscall (freebsd-386), const EPROTO Errno
 pkg syscall (freebsd-386), const ERPCMISMATCH Errno
 pkg syscall (freebsd-386), const EVFILT_AIO ideal-int
 pkg syscall (freebsd-386), const EVFILT_FS ideal-int
@@ -15455,6 +15501,7 @@ pkg syscall (freebsd-amd64), const DT_SOCK ideal-int
 pkg syscall (freebsd-amd64), const DT_UNKNOWN ideal-int
 pkg syscall (freebsd-amd64), const DT_WHT ideal-int
 pkg syscall (freebsd-amd64), const EAUTH Errno
+pkg syscall (freebsd-amd64), const EBADMSG Errno
 pkg syscall (freebsd-amd64), const EBADRPC Errno
 pkg syscall (freebsd-amd64), const ECHO ideal-int
 pkg syscall (freebsd-amd64), const ECHOCTL ideal-int
@@ -15466,13 +15513,16 @@ pkg syscall (freebsd-amd64), const ECHOPRT ideal-int
 pkg syscall (freebsd-amd64), const EDOOFUS Errno
 pkg syscall (freebsd-amd64), const EFTYPE Errno
 pkg syscall (freebsd-amd64), const ELAST Errno
+pkg syscall (freebsd-amd64), const EMULTIHOP Errno
 pkg syscall (freebsd-amd64), const ENEEDAUTH Errno
 pkg syscall (freebsd-amd64), const ENOATTR Errno
+pkg syscall (freebsd-amd64), const ENOLINK Errno
 pkg syscall (freebsd-amd64), const ENOTCAPABLE Errno
 pkg syscall (freebsd-amd64), const EPROCLIM Errno
 pkg syscall (freebsd-amd64), const EPROCUNAVAIL Errno
 pkg syscall (freebsd-amd64), const EPROGMISMATCH Errno
 pkg syscall (freebsd-amd64), const EPROGUNAVAIL Errno
+pkg syscall (freebsd-amd64), const EPROTO Errno
 pkg syscall (freebsd-amd64), const ERPCMISMATCH Errno
 pkg syscall (freebsd-amd64), const EVFILT_AIO ideal-int
 pkg syscall (freebsd-amd64), const EVFILT_FS ideal-int
@@ -17315,6 +17365,7 @@ pkg syscall (linux-386), const DT_WHT ideal-int
 pkg syscall (linux-386), const EADV Errno
 pkg syscall (linux-386), const EBADE Errno
 pkg syscall (linux-386), const EBADFD Errno
+pkg syscall (linux-386), const EBADMSG Errno
 pkg syscall (linux-386), const EBADR Errno
 pkg syscall (linux-386), const EBADRQC Errno
 pkg syscall (linux-386), const EBADSLT Errno
@@ -17345,11 +17396,13 @@ pkg syscall (linux-386), const ELIBMAX Errno
 pkg syscall (linux-386), const ELIBSCN Errno
 pkg syscall (linux-386), const ELNRNG Errno
 pkg syscall (linux-386), const EMEDIUMTYPE Errno
+pkg syscall (linux-386), const EMULTIHOP Errno
 pkg syscall (linux-386), const ENAVAIL Errno
 pkg syscall (linux-386), const ENOANO Errno
 pkg syscall (linux-386), const ENOCSI Errno
 pkg syscall (linux-386), const ENODATA Errno
 pkg syscall (linux-386), const ENOKEY Errno
+pkg syscall (linux-386), const ENOLINK Errno
 pkg syscall (linux-386), const ENOMEDIUM Errno
 pkg syscall (linux-386), const ENONET Errno
 pkg syscall (linux-386), const ENOPKG Errno
@@ -17377,6 +17430,7 @@ pkg syscall (linux-386), const EPOLL_CTL_ADD ideal-int
 pkg syscall (linux-386), const EPOLL_CTL_DEL ideal-int
 pkg syscall (linux-386), const EPOLL_CTL_MOD ideal-int
 pkg syscall (linux-386), const EPOLL_NONBLOCK ideal-int
+pkg syscall (linux-386), const EPROTO Errno
 pkg syscall (linux-386), const EREMCHG Errno
 pkg syscall (linux-386), const EREMOTEIO Errno
 pkg syscall (linux-386), const ERESTART Errno
@@ -19500,6 +19554,7 @@ pkg syscall (linux-386-cgo), const DT_WHT ideal-int
 pkg syscall (linux-386-cgo), const EADV Errno
 pkg syscall (linux-386-cgo), const EBADE Errno
 pkg syscall (linux-386-cgo), const EBADFD Errno
+pkg syscall (linux-386-cgo), const EBADMSG Errno
 pkg syscall (linux-386-cgo), const EBADR Errno
 pkg syscall (linux-386-cgo), const EBADRQC Errno
 pkg syscall (linux-386-cgo), const EBADSLT Errno
@@ -19530,11 +19585,13 @@ pkg syscall (linux-386-cgo), const ELIBMAX Errno
 pkg syscall (linux-386-cgo), const ELIBSCN Errno
 pkg syscall (linux-386-cgo), const ELNRNG Errno
 pkg syscall (linux-386-cgo), const EMEDIUMTYPE Errno
+pkg syscall (linux-386-cgo), const EMULTIHOP Errno
 pkg syscall (linux-386-cgo), const ENAVAIL Errno
 pkg syscall (linux-386-cgo), const ENOANO Errno
 pkg syscall (linux-386-cgo), const ENOCSI Errno
 pkg syscall (linux-386-cgo), const ENODATA Errno
 pkg syscall (linux-386-cgo), const ENOKEY Errno
+pkg syscall (linux-386-cgo), const ENOLINK Errno
 pkg syscall (linux-386-cgo), const ENOMEDIUM Errno
 pkg syscall (linux-386-cgo), const ENONET Errno
 pkg syscall (linux-386-cgo), const ENOPKG Errno
@@ -19562,6 +19619,7 @@ pkg syscall (linux-386-cgo), const EPOLL_CTL_ADD ideal-int
 pkg syscall (linux-386-cgo), const EPOLL_CTL_DEL ideal-int
 pkg syscall (linux-386-cgo), const EPOLL_CTL_MOD ideal-int
 pkg syscall (linux-386-cgo), const EPOLL_NONBLOCK ideal-int
+pkg syscall (linux-386-cgo), const EPROTO Errno
 pkg syscall (linux-386-cgo), const EREMCHG Errno
 pkg syscall (linux-386-cgo), const EREMOTEIO Errno
 pkg syscall (linux-386-cgo), const ERESTART Errno
@@ -21685,6 +21743,7 @@ pkg syscall (linux-amd64), const DT_WHT ideal-int
 pkg syscall (linux-amd64), const EADV Errno
 pkg syscall (linux-amd64), const EBADE Errno
 pkg syscall (linux-amd64), const EBADFD Errno
+pkg syscall (linux-amd64), const EBADMSG Errno
 pkg syscall (linux-amd64), const EBADR Errno
 pkg syscall (linux-amd64), const EBADRQC Errno
 pkg syscall (linux-amd64), const EBADSLT Errno
@@ -21715,11 +21774,13 @@ pkg syscall (linux-amd64), const ELIBMAX Errno
 pkg syscall (linux-amd64), const ELIBSCN Errno
 pkg syscall (linux-amd64), const ELNRNG Errno
 pkg syscall (linux-amd64), const EMEDIUMTYPE Errno
+pkg syscall (linux-amd64), const EMULTIHOP Errno
 pkg syscall (linux-amd64), const ENAVAIL Errno
 pkg syscall (linux-amd64), const ENOANO Errno
 pkg syscall (linux-amd64), const ENOCSI Errno
 pkg syscall (linux-amd64), const ENODATA Errno
 pkg syscall (linux-amd64), const ENOKEY Errno
+pkg syscall (linux-amd64), const ENOLINK Errno
 pkg syscall (linux-amd64), const ENOMEDIUM Errno
 pkg syscall (linux-amd64), const ENONET Errno
 pkg syscall (linux-amd64), const ENOPKG Errno
@@ -21747,6 +21808,7 @@ pkg syscall (linux-amd64), const EPOLL_CTL_ADD ideal-int
 pkg syscall (linux-amd64), const EPOLL_CTL_DEL ideal-int
 pkg syscall (linux-amd64), const EPOLL_CTL_MOD ideal-int
 pkg syscall (linux-amd64), const EPOLL_NONBLOCK ideal-int
+pkg syscall (linux-amd64), const EPROTO Errno
 pkg syscall (linux-amd64), const EREMCHG Errno
 pkg syscall (linux-amd64), const EREMOTEIO Errno
 pkg syscall (linux-amd64), const ERESTART Errno
@@ -23852,6 +23914,7 @@ pkg syscall (linux-amd64-cgo), const DT_WHT ideal-int
 pkg syscall (linux-amd64-cgo), const EADV Errno
 pkg syscall (linux-amd64-cgo), const EBADE Errno
 pkg syscall (linux-amd64-cgo), const EBADFD Errno
+pkg syscall (linux-amd64-cgo), const EBADMSG Errno
 pkg syscall (linux-amd64-cgo), const EBADR Errno
 pkg syscall (linux-amd64-cgo), const EBADRQC Errno
 pkg syscall (linux-amd64-cgo), const EBADSLT Errno
@@ -23882,11 +23945,13 @@ pkg syscall (linux-amd64-cgo), const ELIBMAX Errno
 pkg syscall (linux-amd64-cgo), const ELIBSCN Errno
 pkg syscall (linux-amd64-cgo), const ELNRNG Errno
 pkg syscall (linux-amd64-cgo), const EMEDIUMTYPE Errno
+pkg syscall (linux-amd64-cgo), const EMULTIHOP Errno
 pkg syscall (linux-amd64-cgo), const ENAVAIL Errno
 pkg syscall (linux-amd64-cgo), const ENOANO Errno
 pkg syscall (linux-amd64-cgo), const ENOCSI Errno
 pkg syscall (linux-amd64-cgo), const ENODATA Errno
 pkg syscall (linux-amd64-cgo), const ENOKEY Errno
+pkg syscall (linux-amd64-cgo), const ENOLINK Errno
 pkg syscall (linux-amd64-cgo), const ENOMEDIUM Errno
 pkg syscall (linux-amd64-cgo), const ENONET Errno
 pkg syscall (linux-amd64-cgo), const ENOPKG Errno
@@ -23914,6 +23979,7 @@ pkg syscall (linux-amd64-cgo), const EPOLL_CTL_ADD ideal-int
 pkg syscall (linux-amd64-cgo), const EPOLL_CTL_DEL ideal-int
 pkg syscall (linux-amd64-cgo), const EPOLL_CTL_MOD ideal-int
 pkg syscall (linux-amd64-cgo), const EPOLL_NONBLOCK ideal-int
+pkg syscall (linux-amd64-cgo), const EPROTO Errno
 pkg syscall (linux-amd64-cgo), const EREMCHG Errno
 pkg syscall (linux-amd64-cgo), const EREMOTEIO Errno
 pkg syscall (linux-amd64-cgo), const ERESTART Errno
@@ -26019,6 +26085,7 @@ pkg syscall (linux-arm), const DT_WHT ideal-int
 pkg syscall (linux-arm), const EADV Errno
 pkg syscall (linux-arm), const EBADE Errno
 pkg syscall (linux-arm), const EBADFD Errno
+pkg syscall (linux-arm), const EBADMSG Errno
 pkg syscall (linux-arm), const EBADR Errno
 pkg syscall (linux-arm), const EBADRQC Errno
 pkg syscall (linux-arm), const EBADSLT Errno
@@ -26052,11 +26119,13 @@ pkg syscall (linux-arm), const ELIBMAX Errno
 pkg syscall (linux-arm), const ELIBSCN Errno
 pkg syscall (linux-arm), const ELNRNG Errno
 pkg syscall (linux-arm), const EMEDIUMTYPE Errno
+pkg syscall (linux-arm), const EMULTIHOP Errno
 pkg syscall (linux-arm), const ENAVAIL Errno
 pkg syscall (linux-arm), const ENOANO Errno
 pkg syscall (linux-arm), const ENOCSI Errno
 pkg syscall (linux-arm), const ENODATA Errno
 pkg syscall (linux-arm), const ENOKEY Errno
+pkg syscall (linux-arm), const ENOLINK Errno
 pkg syscall (linux-arm), const ENOMEDIUM Errno
 pkg syscall (linux-arm), const ENONET Errno
 pkg syscall (linux-arm), const ENOPKG Errno
@@ -26084,6 +26153,7 @@ pkg syscall (linux-arm), const EPOLL_CTL_ADD ideal-int
 pkg syscall (linux-arm), const EPOLL_CTL_DEL ideal-int
 pkg syscall (linux-arm), const EPOLL_CTL_MOD ideal-int
 pkg syscall (linux-arm), const EPOLL_NONBLOCK ideal-int
+pkg syscall (linux-arm), const EPROTO Errno
 pkg syscall (linux-arm), const EREMCHG Errno
 pkg syscall (linux-arm), const EREMOTEIO Errno
 pkg syscall (linux-arm), const ERESTART Errno
@@ -28138,6 +28208,7 @@ pkg syscall (windows-386), const DUPLICATE_SAME_ACCESS ideal-int
 pkg syscall (windows-386), const EADV Errno
 pkg syscall (windows-386), const EBADE Errno
 pkg syscall (windows-386), const EBADFD Errno
+pkg syscall (windows-386), const EBADMSG Errno
 pkg syscall (windows-386), const EBADR Errno
 pkg syscall (windows-386), const EBADRQC Errno
 pkg syscall (windows-386), const EBADSLT Errno
@@ -28161,11 +28232,13 @@ pkg syscall (windows-386), const ELIBMAX Errno
 pkg syscall (windows-386), const ELIBSCN Errno
 pkg syscall (windows-386), const ELNRNG Errno
 pkg syscall (windows-386), const EMEDIUMTYPE Errno
+pkg syscall (windows-386), const EMULTIHOP Errno
 pkg syscall (windows-386), const ENAVAIL Errno
 pkg syscall (windows-386), const ENOANO Errno
 pkg syscall (windows-386), const ENOCSI Errno
 pkg syscall (windows-386), const ENODATA Errno
 pkg syscall (windows-386), const ENOKEY Errno
+pkg syscall (windows-386), const ENOLINK Errno
 pkg syscall (windows-386), const ENOMEDIUM Errno
 pkg syscall (windows-386), const ENONET Errno
 pkg syscall (windows-386), const ENOPKG Errno
@@ -28175,6 +28248,7 @@ pkg syscall (windows-386), const ENOTNAM Errno
 pkg syscall (windows-386), const ENOTRECOVERABLE Errno
 pkg syscall (windows-386), const ENOTUNIQ Errno
 pkg syscall (windows-386), const EOWNERDEAD Errno
+pkg syscall (windows-386), const EPROTO Errno
 pkg syscall (windows-386), const EREMCHG Errno
 pkg syscall (windows-386), const EREMOTEIO Errno
 pkg syscall (windows-386), const ERESTART Errno
@@ -28755,12 +28829,12 @@ pkg syscall (windows-386), type InterfaceInfo struct, BroadcastAddress SockaddrG
 pkg syscall (windows-386), type InterfaceInfo struct, Flags uint32
 pkg syscall (windows-386), type InterfaceInfo struct, Netmask SockaddrGen
 pkg syscall (windows-386), type IpAdapterInfo struct
-pkg syscall (windows-386), type IpAdapterInfo struct, AdapterName [MAX_ADAPTER_NAME_LENGTH + 4]uint8
-pkg syscall (windows-386), type IpAdapterInfo struct, Address [MAX_ADAPTER_ADDRESS_LENGTH]uint8
+pkg syscall (windows-386), type IpAdapterInfo struct, AdapterName [260]uint8
+pkg syscall (windows-386), type IpAdapterInfo struct, Address [8]uint8
 pkg syscall (windows-386), type IpAdapterInfo struct, AddressLength uint32
 pkg syscall (windows-386), type IpAdapterInfo struct, ComboIndex uint32
 pkg syscall (windows-386), type IpAdapterInfo struct, CurrentIpAddress *IpAddrString
-pkg syscall (windows-386), type IpAdapterInfo struct, Description [MAX_ADAPTER_DESCRIPTION_LENGTH + 4]uint8
+pkg syscall (windows-386), type IpAdapterInfo struct, Description [132]uint8
 pkg syscall (windows-386), type IpAdapterInfo struct, DhcpEnabled uint32
 pkg syscall (windows-386), type IpAdapterInfo struct, DhcpServer IpAddrString
 pkg syscall (windows-386), type IpAdapterInfo struct, GatewayList IpAddrString
@@ -28780,14 +28854,14 @@ pkg syscall (windows-386), type IpAddrString struct, IpMask IpMaskString
 pkg syscall (windows-386), type IpAddrString struct, Next *IpAddrString
 pkg syscall (windows-386), type IpAddressString struct
 pkg syscall (windows-386), type IpAddressString struct, String [16]uint8
-pkg syscall (windows-386), type IpMaskString IpAddressString
+pkg syscall (windows-386), type IpMaskString struct
 pkg syscall (windows-386), type LazyDLL struct
 pkg syscall (windows-386), type LazyDLL struct, Name string
 pkg syscall (windows-386), type LazyProc struct
 pkg syscall (windows-386), type LazyProc struct, Name string
 pkg syscall (windows-386), type MibIfRow struct
 pkg syscall (windows-386), type MibIfRow struct, AdminStatus uint32
-pkg syscall (windows-386), type MibIfRow struct, Descr [MAXLEN_IFDESCR]uint8
+pkg syscall (windows-386), type MibIfRow struct, Descr [256]uint8
 pkg syscall (windows-386), type MibIfRow struct, DescrLen uint32
 pkg syscall (windows-386), type MibIfRow struct, InDiscards uint32
 pkg syscall (windows-386), type MibIfRow struct, InErrors uint32
@@ -28798,7 +28872,7 @@ pkg syscall (windows-386), type MibIfRow struct, InUnknownProtos uint32
 pkg syscall (windows-386), type MibIfRow struct, Index uint32
 pkg syscall (windows-386), type MibIfRow struct, LastChange uint32
 pkg syscall (windows-386), type MibIfRow struct, Mtu uint32
-pkg syscall (windows-386), type MibIfRow struct, Name [MAX_INTERFACE_NAME_LEN]uint16
+pkg syscall (windows-386), type MibIfRow struct, Name [256]uint16
 pkg syscall (windows-386), type MibIfRow struct, OperStatus uint32
 pkg syscall (windows-386), type MibIfRow struct, OutDiscards uint32
 pkg syscall (windows-386), type MibIfRow struct, OutErrors uint32
@@ -28806,7 +28880,7 @@ pkg syscall (windows-386), type MibIfRow struct, OutNUcastPkts uint32
 pkg syscall (windows-386), type MibIfRow struct, OutOctets uint32
 pkg syscall (windows-386), type MibIfRow struct, OutQLen uint32
 pkg syscall (windows-386), type MibIfRow struct, OutUcastPkts uint32
-pkg syscall (windows-386), type MibIfRow struct, PhysAddr [MAXLEN_PHYSADDR]uint8
+pkg syscall (windows-386), type MibIfRow struct, PhysAddr [8]uint8
 pkg syscall (windows-386), type MibIfRow struct, PhysAddrLen uint32
 pkg syscall (windows-386), type MibIfRow struct, Speed uint32
 pkg syscall (windows-386), type MibIfRow struct, Type uint32
@@ -28895,7 +28969,7 @@ pkg syscall (windows-386), type Timezoneinformation struct, DaylightName [32]uin
 pkg syscall (windows-386), type Timezoneinformation struct, StandardBias int32
 pkg syscall (windows-386), type Timezoneinformation struct, StandardDate Systemtime
 pkg syscall (windows-386), type Timezoneinformation struct, StandardName [32]uint16
-pkg syscall (windows-386), type Token Handle
+pkg syscall (windows-386), type Token uintptr
 pkg syscall (windows-386), type Tokenprimarygroup struct
 pkg syscall (windows-386), type Tokenprimarygroup struct, PrimaryGroup *SID
 pkg syscall (windows-386), type Tokenuser struct
@@ -28914,11 +28988,11 @@ pkg syscall (windows-386), type WSABuf struct
 pkg syscall (windows-386), type WSABuf struct, Buf *uint8
 pkg syscall (windows-386), type WSABuf struct, Len uint32
 pkg syscall (windows-386), type WSAData struct
-pkg syscall (windows-386), type WSAData struct, Description [WSADESCRIPTION_LEN + 1]uint8
+pkg syscall (windows-386), type WSAData struct, Description [257]uint8
 pkg syscall (windows-386), type WSAData struct, HighVersion uint16
 pkg syscall (windows-386), type WSAData struct, MaxSockets uint16
 pkg syscall (windows-386), type WSAData struct, MaxUdpDg uint16
-pkg syscall (windows-386), type WSAData struct, SystemStatus [WSASYS_STATUS_LEN + 1]uint8
+pkg syscall (windows-386), type WSAData struct, SystemStatus [129]uint8
 pkg syscall (windows-386), type WSAData struct, VendorInfo *uint8
 pkg syscall (windows-386), type WSAData struct, Version uint16
 pkg syscall (windows-386), type WaitStatus struct
@@ -28934,7 +29008,7 @@ pkg syscall (windows-386), type Win32finddata struct
 pkg syscall (windows-386), type Win32finddata struct, AlternateFileName [13]uint16
 pkg syscall (windows-386), type Win32finddata struct, CreationTime Filetime
 pkg syscall (windows-386), type Win32finddata struct, FileAttributes uint32
-pkg syscall (windows-386), type Win32finddata struct, FileName [MAX_PATH - 1]uint16
+pkg syscall (windows-386), type Win32finddata struct, FileName [259]uint16
 pkg syscall (windows-386), type Win32finddata struct, FileSizeHigh uint32
 pkg syscall (windows-386), type Win32finddata struct, FileSizeLow uint32
 pkg syscall (windows-386), type Win32finddata struct, LastAccessTime Filetime
@@ -29063,6 +29137,7 @@ pkg syscall (windows-amd64), const DUPLICATE_SAME_ACCESS ideal-int
 pkg syscall (windows-amd64), const EADV Errno
 pkg syscall (windows-amd64), const EBADE Errno
 pkg syscall (windows-amd64), const EBADFD Errno
+pkg syscall (windows-amd64), const EBADMSG Errno
 pkg syscall (windows-amd64), const EBADR Errno
 pkg syscall (windows-amd64), const EBADRQC Errno
 pkg syscall (windows-amd64), const EBADSLT Errno
@@ -29086,11 +29161,13 @@ pkg syscall (windows-amd64), const ELIBMAX Errno
 pkg syscall (windows-amd64), const ELIBSCN Errno
 pkg syscall (windows-amd64), const ELNRNG Errno
 pkg syscall (windows-amd64), const EMEDIUMTYPE Errno
+pkg syscall (windows-amd64), const EMULTIHOP Errno
 pkg syscall (windows-amd64), const ENAVAIL Errno
 pkg syscall (windows-amd64), const ENOANO Errno
 pkg syscall (windows-amd64), const ENOCSI Errno
 pkg syscall (windows-amd64), const ENODATA Errno
 pkg syscall (windows-amd64), const ENOKEY Errno
+pkg syscall (windows-amd64), const ENOLINK Errno
 pkg syscall (windows-amd64), const ENOMEDIUM Errno
 pkg syscall (windows-amd64), const ENONET Errno
 pkg syscall (windows-amd64), const ENOPKG Errno
@@ -29100,6 +29177,7 @@ pkg syscall (windows-amd64), const ENOTNAM Errno
 pkg syscall (windows-amd64), const ENOTRECOVERABLE Errno
 pkg syscall (windows-amd64), const ENOTUNIQ Errno
 pkg syscall (windows-amd64), const EOWNERDEAD Errno
+pkg syscall (windows-amd64), const EPROTO Errno
 pkg syscall (windows-amd64), const EREMCHG Errno
 pkg syscall (windows-amd64), const EREMOTEIO Errno
 pkg syscall (windows-amd64), const ERESTART Errno
@@ -29680,12 +29758,12 @@ pkg syscall (windows-amd64), type InterfaceInfo struct, BroadcastAddress Sockadd
 pkg syscall (windows-amd64), type InterfaceInfo struct, Flags uint32
 pkg syscall (windows-amd64), type InterfaceInfo struct, Netmask SockaddrGen
 pkg syscall (windows-amd64), type IpAdapterInfo struct
-pkg syscall (windows-amd64), type IpAdapterInfo struct, AdapterName [MAX_ADAPTER_NAME_LENGTH + 4]uint8
-pkg syscall (windows-amd64), type IpAdapterInfo struct, Address [MAX_ADAPTER_ADDRESS_LENGTH]uint8
+pkg syscall (windows-amd64), type IpAdapterInfo struct, AdapterName [260]uint8
+pkg syscall (windows-amd64), type IpAdapterInfo struct, Address [8]uint8
 pkg syscall (windows-amd64), type IpAdapterInfo struct, AddressLength uint32
 pkg syscall (windows-amd64), type IpAdapterInfo struct, ComboIndex uint32
 pkg syscall (windows-amd64), type IpAdapterInfo struct, CurrentIpAddress *IpAddrString
-pkg syscall (windows-amd64), type IpAdapterInfo struct, Description [MAX_ADAPTER_DESCRIPTION_LENGTH + 4]uint8
+pkg syscall (windows-amd64), type IpAdapterInfo struct, Description [132]uint8
 pkg syscall (windows-amd64), type IpAdapterInfo struct, DhcpEnabled uint32
 pkg syscall (windows-amd64), type IpAdapterInfo struct, DhcpServer IpAddrString
 pkg syscall (windows-amd64), type IpAdapterInfo struct, GatewayList IpAddrString
@@ -29705,14 +29783,14 @@ pkg syscall (windows-amd64), type IpAddrString struct, IpMask IpMaskString
 pkg syscall (windows-amd64), type IpAddrString struct, Next *IpAddrString
 pkg syscall (windows-amd64), type IpAddressString struct
 pkg syscall (windows-amd64), type IpAddressString struct, String [16]uint8
-pkg syscall (windows-amd64), type IpMaskString IpAddressString
+pkg syscall (windows-amd64), type IpMaskString struct
 pkg syscall (windows-amd64), type LazyDLL struct
 pkg syscall (windows-amd64), type LazyDLL struct, Name string
 pkg syscall (windows-amd64), type LazyProc struct
 pkg syscall (windows-amd64), type LazyProc struct, Name string
 pkg syscall (windows-amd64), type MibIfRow struct
 pkg syscall (windows-amd64), type MibIfRow struct, AdminStatus uint32
-pkg syscall (windows-amd64), type MibIfRow struct, Descr [MAXLEN_IFDESCR]uint8
+pkg syscall (windows-amd64), type MibIfRow struct, Descr [256]uint8
 pkg syscall (windows-amd64), type MibIfRow struct, DescrLen uint32
 pkg syscall (windows-amd64), type MibIfRow struct, InDiscards uint32
 pkg syscall (windows-amd64), type MibIfRow struct, InErrors uint32
@@ -29723,7 +29801,7 @@ pkg syscall (windows-amd64), type MibIfRow struct, InUnknownProtos uint32
 pkg syscall (windows-amd64), type MibIfRow struct, Index uint32
 pkg syscall (windows-amd64), type MibIfRow struct, LastChange uint32
 pkg syscall (windows-amd64), type MibIfRow struct, Mtu uint32
-pkg syscall (windows-amd64), type MibIfRow struct, Name [MAX_INTERFACE_NAME_LEN]uint16
+pkg syscall (windows-amd64), type MibIfRow struct, Name [256]uint16
 pkg syscall (windows-amd64), type MibIfRow struct, OperStatus uint32
 pkg syscall (windows-amd64), type MibIfRow struct, OutDiscards uint32
 pkg syscall (windows-amd64), type MibIfRow struct, OutErrors uint32
@@ -29731,7 +29809,7 @@ pkg syscall (windows-amd64), type MibIfRow struct, OutNUcastPkts uint32
 pkg syscall (windows-amd64), type MibIfRow struct, OutOctets uint32
 pkg syscall (windows-amd64), type MibIfRow struct, OutQLen uint32
 pkg syscall (windows-amd64), type MibIfRow struct, OutUcastPkts uint32
-pkg syscall (windows-amd64), type MibIfRow struct, PhysAddr [MAXLEN_PHYSADDR]uint8
+pkg syscall (windows-amd64), type MibIfRow struct, PhysAddr [8]uint8
 pkg syscall (windows-amd64), type MibIfRow struct, PhysAddrLen uint32
 pkg syscall (windows-amd64), type MibIfRow struct, Speed uint32
 pkg syscall (windows-amd64), type MibIfRow struct, Type uint32
@@ -29820,7 +29898,7 @@ pkg syscall (windows-amd64), type Timezoneinformation struct, DaylightName [32]u
 pkg syscall (windows-amd64), type Timezoneinformation struct, StandardBias int32
 pkg syscall (windows-amd64), type Timezoneinformation struct, StandardDate Systemtime
 pkg syscall (windows-amd64), type Timezoneinformation struct, StandardName [32]uint16
-pkg syscall (windows-amd64), type Token Handle
+pkg syscall (windows-amd64), type Token uintptr
 pkg syscall (windows-amd64), type Tokenprimarygroup struct
 pkg syscall (windows-amd64), type Tokenprimarygroup struct, PrimaryGroup *SID
 pkg syscall (windows-amd64), type Tokenuser struct
@@ -29839,11 +29917,11 @@ pkg syscall (windows-amd64), type WSABuf struct
 pkg syscall (windows-amd64), type WSABuf struct, Buf *uint8
 pkg syscall (windows-amd64), type WSABuf struct, Len uint32
 pkg syscall (windows-amd64), type WSAData struct
-pkg syscall (windows-amd64), type WSAData struct, Description [WSADESCRIPTION_LEN + 1]uint8
+pkg syscall (windows-amd64), type WSAData struct, Description [257]uint8
 pkg syscall (windows-amd64), type WSAData struct, HighVersion uint16
 pkg syscall (windows-amd64), type WSAData struct, MaxSockets uint16
 pkg syscall (windows-amd64), type WSAData struct, MaxUdpDg uint16
-pkg syscall (windows-amd64), type WSAData struct, SystemStatus [WSASYS_STATUS_LEN + 1]uint8
+pkg syscall (windows-amd64), type WSAData struct, SystemStatus [129]uint8
 pkg syscall (windows-amd64), type WSAData struct, VendorInfo *uint8
 pkg syscall (windows-amd64), type WSAData struct, Version uint16
 pkg syscall (windows-amd64), type WaitStatus struct
@@ -29859,7 +29937,7 @@ pkg syscall (windows-amd64), type Win32finddata struct
 pkg syscall (windows-amd64), type Win32finddata struct, AlternateFileName [13]uint16
 pkg syscall (windows-amd64), type Win32finddata struct, CreationTime Filetime
 pkg syscall (windows-amd64), type Win32finddata struct, FileAttributes uint32
-pkg syscall (windows-amd64), type Win32finddata struct, FileName [MAX_PATH - 1]uint16
+pkg syscall (windows-amd64), type Win32finddata struct, FileName [259]uint16
 pkg syscall (windows-amd64), type Win32finddata struct, FileSizeHigh uint32
 pkg syscall (windows-amd64), type Win32finddata struct, FileSizeLow uint32
 pkg syscall (windows-amd64), type Win32finddata struct, LastAccessTime Filetime
@@ -29884,7 +29962,6 @@ pkg syscall, const EAFNOSUPPORT Errno
 pkg syscall, const EAGAIN Errno
 pkg syscall, const EALREADY Errno
 pkg syscall, const EBADF Errno
-pkg syscall, const EBADMSG Errno
 pkg syscall, const EBUSY Errno
 pkg syscall, const ECANCELED Errno
 pkg syscall, const ECHILD Errno
@@ -29912,7 +29989,6 @@ pkg syscall, const ELOOP Errno
 pkg syscall, const EMFILE Errno
 pkg syscall, const EMLINK Errno
 pkg syscall, const EMSGSIZE Errno
-pkg syscall, const EMULTIHOP Errno
 pkg syscall, const ENAMETOOLONG Errno
 pkg syscall, const ENETDOWN Errno
 pkg syscall, const ENETRESET Errno
@@ -29923,7 +29999,6 @@ pkg syscall, const ENODEV Errno
 pkg syscall, const ENOENT Errno
 pkg syscall, const ENOEXEC Errno
 pkg syscall, const ENOLCK Errno
-pkg syscall, const ENOLINK Errno
 pkg syscall, const ENOMEM Errno
 pkg syscall, const ENOMSG Errno
 pkg syscall, const ENOPROTOOPT Errno
@@ -29942,7 +30017,6 @@ pkg syscall, const EOVERFLOW Errno
 pkg syscall, const EPERM Errno
 pkg syscall, const EPFNOSUPPORT Errno
 pkg syscall, const EPIPE Errno
-pkg syscall, const EPROTO Errno
 pkg syscall, const EPROTONOSUPPORT Errno
 pkg syscall, const EPROTOTYPE Errno
 pkg syscall, const ERANGE Errno
@@ -29981,7 +30055,7 @@ pkg syscall, const IP_MULTICAST_LOOP ideal-int
 pkg syscall, const IP_MULTICAST_TTL ideal-int
 pkg syscall, const IP_TOS ideal-int
 pkg syscall, const IP_TTL ideal-int
-pkg syscall, const ImplementsGetwd bool
+pkg syscall, const ImplementsGetwd ideal-bool
 pkg syscall, const O_APPEND ideal-int
 pkg syscall, const O_ASYNC ideal-int
 pkg syscall, const O_CLOEXEC ideal-int
@@ -30548,7 +30622,7 @@ pkg unicode, const MaxRune ideal-char
 pkg unicode, const ReplacementChar ideal-char
 pkg unicode, const TitleCase ideal-int
 pkg unicode, const UpperCase ideal-int
-pkg unicode, const UpperLower ideal-int
+pkg unicode, const UpperLower ideal-char
 pkg unicode, const Version ideal-string
 pkg unicode, func Is(*RangeTable, int32) bool
 pkg unicode, func IsControl(int32) bool
@@ -30795,8 +30869,3 @@ pkg unicode/utf8, func RuneLen(int32) int
 pkg unicode/utf8, func RuneStart(uint8) bool
 pkg unicode/utf8, func Valid([]uint8) bool
 pkg unicode/utf8, func ValidString(string) bool
-pkg unsafe, func Alignof(ArbitraryType) uintptr
-pkg unsafe, func Offsetof(ArbitraryType) uintptr
-pkg unsafe, func Sizeof(ArbitraryType) uintptr
-pkg unsafe, type ArbitraryType int
-pkg unsafe, type Pointer *ArbitraryType

@@ -4,6 +4,7 @@
 
 #include "runtime.h"
 #include "type.h"
+#include "../../cmd/ld/textflag.h"
 
 #define M0 (sizeof(uintptr)==4 ? 2860486313UL : 33054211828000289ULL)
 #define M1 (sizeof(uintptr)==4 ? 3267000013UL : 23344194077549503ULL)
@@ -499,7 +500,7 @@ runtime·hashinit(void)
 }
 
 // func equal(t *Type, x T, y T) (ret bool)
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
 runtime·equal(Type *t, ...)
 {
@@ -511,4 +512,30 @@ runtime·equal(Type *t, ...)
 	ret = (uintptr)(y + t->size);
 	ret = ROUND(ret, Structrnd);
 	t->alg->equal((bool*)ret, t->size, x, y);
+}
+
+// Testing adapters for hash quality tests (see hash_test.go)
+void runtime·haveGoodHash(bool res) {
+	res = use_aeshash;
+	FLUSH(&res);
+}
+void runtime·stringHash(String s, uintptr seed, uintptr res) {
+	runtime·algarray[ASTRING].hash(&seed, sizeof(String), &s);
+	res = seed;
+	FLUSH(&res);
+}
+void runtime·bytesHash(Slice s, uintptr seed, uintptr res) {
+	runtime·algarray[AMEM].hash(&seed, s.len, s.array);
+	res = seed;
+	FLUSH(&res);
+}
+void runtime·int32Hash(uint32 i, uintptr seed, uintptr res) {
+	runtime·algarray[AMEM32].hash(&seed, sizeof(uint32), &i);
+	res = seed;
+	FLUSH(&res);
+}
+void runtime·int64Hash(uint64 i, uintptr seed, uintptr res) {
+	runtime·algarray[AMEM64].hash(&seed, sizeof(uint64), &i);
+	res = seed;
+	FLUSH(&res);
 }

@@ -7,41 +7,42 @@
 //
 
 #include "zasm_GOOS_GOARCH.h"
+#include "../../cmd/ld/textflag.h"
 
 // Exit the entire program (like C exit)
-TEXT runtime·exit(SB),7,$-4
+TEXT runtime·exit(SB),NOSPLIT,$-4
 	MOVW 0(FP), R0	// arg 1 exit status
 	SWI $0xa00001
-	MOVW.CS $0, R9	// crash on syscall failure
-	MOVW.CS R9, (R9)
+	MOVW.CS $0, R8	// crash on syscall failure
+	MOVW.CS R8, (R8)
 	RET
 
-TEXT runtime·exit1(SB),7,$-4
+TEXT runtime·exit1(SB),NOSPLIT,$-4
 	SWI $0xa00136	// sys__lwp_exit
-	MOVW $1, R9	// crash
-	MOVW R9, (R9)
+	MOVW $1, R8	// crash
+	MOVW R8, (R8)
 	RET
 	
-TEXT runtime·open(SB),7,$-8
+TEXT runtime·open(SB),NOSPLIT,$-8
 	MOVW 0(FP), R0
 	MOVW 4(FP), R1
 	MOVW 8(FP), R2
 	SWI $0xa00005
 	RET
 
-TEXT runtime·close(SB),7,$-8
+TEXT runtime·close(SB),NOSPLIT,$-8
 	MOVW 0(FP), R0
 	SWI $0xa00006
 	RET
 
-TEXT runtime·read(SB),7,$-8
+TEXT runtime·read(SB),NOSPLIT,$-8
 	MOVW 0(FP), R0
 	MOVW 4(FP), R1
 	MOVW 8(FP), R2
 	SWI $0xa00003
 	RET
 
-TEXT runtime·write(SB),7,$-4
+TEXT runtime·write(SB),NOSPLIT,$-4
 	MOVW	0(FP), R0	// arg 1 - fd
 	MOVW	4(FP), R1	// arg 2 - buf
 	MOVW	8(FP), R2	// arg 3 - nbyte
@@ -49,18 +50,18 @@ TEXT runtime·write(SB),7,$-4
 	RET
 
 // int32 lwp_create(void *context, uintptr flags, void *lwpid)
-TEXT runtime·lwp_create(SB),7,$0
+TEXT runtime·lwp_create(SB),NOSPLIT,$0
 	MOVW context+0(FP), R0
 	MOVW flags+4(FP), R1
 	MOVW lwpid+8(FP), R2
 	SWI $0xa00135	// sys__lwp_create
 	RET
 
-TEXT runtime·osyield(SB),7,$0
+TEXT runtime·osyield(SB),NOSPLIT,$0
 	SWI $0xa0015e	// sys_sched_yield
 	RET
 
-TEXT runtime·lwp_park(SB),7,$0
+TEXT runtime·lwp_park(SB),NOSPLIT,$0
 	MOVW 0(FP), R0	// arg 1 - abstime
 	MOVW 4(FP), R1	// arg 2 - unpark
 	MOVW 8(FP), R2	// arg 3 - hint
@@ -68,27 +69,27 @@ TEXT runtime·lwp_park(SB),7,$0
 	SWI $0xa001b2	// sys__lwp_park
 	RET
 
-TEXT runtime·lwp_unpark(SB),7,$0
+TEXT runtime·lwp_unpark(SB),NOSPLIT,$0
 	MOVW	0(FP), R0	// arg 1 - lwp
 	MOVW	4(FP), R1	// arg 2 - hint
 	SWI $0xa00141 // sys__lwp_unpark
 	RET
 
-TEXT runtime·lwp_self(SB),7,$0
+TEXT runtime·lwp_self(SB),NOSPLIT,$0
 	SWI $0xa00137	// sys__lwp_self
 	RET
 
-TEXT runtime·lwp_tramp(SB),7,$0
-	MOVW R0, R9 // m
-	MOVW R1, R10 // g
+TEXT runtime·lwp_tramp(SB),NOSPLIT,$0
+	MOVW R0, m
+	MOVW R1, g
 
 	BL runtime·emptyfunc(SB) // fault if stack check is wrong
 	BL (R2)
-	MOVW $2, R9  // crash (not reached)
-	MOVW R9, (R9)
+	MOVW $2, R8  // crash (not reached)
+	MOVW R8, (R8)
 	RET
 
-TEXT runtime·usleep(SB),7,$16
+TEXT runtime·usleep(SB),NOSPLIT,$16
 	MOVW usec+0(FP), R0
 	MOVW R0, R2
 	MOVW $1000000, R1
@@ -107,13 +108,13 @@ TEXT runtime·usleep(SB),7,$16
 	SWI $0xa001ae	// sys_nanosleep
 	RET
 
-TEXT runtime·raise(SB),7,$16
+TEXT runtime·raise(SB),NOSPLIT,$16
 	SWI $0xa00137	// sys__lwp_self, the returned R0 is arg 1
 	MOVW	sig+0(FP), R1	// arg 2 - signal
 	SWI $0xa0013e	// sys__lwp_kill
 	RET
 
-TEXT runtime·setitimer(SB),7,$-4
+TEXT runtime·setitimer(SB),NOSPLIT,$-4
 	MOVW 0(FP), R0	// arg 1 - which
 	MOVW 4(FP), R1	// arg 2 - itv
 	MOVW 8(FP), R2	// arg 3 - oitv
@@ -121,7 +122,7 @@ TEXT runtime·setitimer(SB),7,$-4
 	RET
 
 // func now() (sec int64, nsec int32)
-TEXT time·now(SB), 7, $32
+TEXT time·now(SB), NOSPLIT, $32
 	MOVW $0, R0	// CLOCK_REALTIME
 	MOVW $8(R13), R1
 	SWI $0xa001ab	// clock_gettime
@@ -137,7 +138,7 @@ TEXT time·now(SB), 7, $32
 
 // int64 nanotime(void) so really
 // void nanotime(int64 *nsec)
-TEXT runtime·nanotime(SB), 7, $32
+TEXT runtime·nanotime(SB), NOSPLIT, $32
 	MOVW $0, R0 // CLOCK_REALTIME
 	MOVW $8(R13), R1
 	SWI $0xa001ab	// clock_gettime
@@ -157,33 +158,33 @@ TEXT runtime·nanotime(SB), 7, $32
 	MOVW R1, 4(R3)
 	RET
 
-TEXT runtime·getcontext(SB),7,$-4
+TEXT runtime·getcontext(SB),NOSPLIT,$-4
 	MOVW 0(FP), R0	// arg 1 - context
 	SWI $0xa00133	// sys_getcontext
-	MOVW.CS $0, R9	// crash on syscall failure
-	MOVW.CS R9, (R9)
+	MOVW.CS $0, R8	// crash on syscall failure
+	MOVW.CS R8, (R8)
 	RET
 
-TEXT runtime·sigprocmask(SB),7,$0
+TEXT runtime·sigprocmask(SB),NOSPLIT,$0
 	MOVW 0(FP), R0	// arg 1 - how
 	MOVW 4(FP), R1	// arg 2 - set
 	MOVW 8(FP), R2	// arg 3 - oset
 	SWI $0xa00125	// sys_sigprocmask
-	MOVW.CS $0, R9	// crash on syscall failure
-	MOVW.CS R9, (R9)
+	MOVW.CS $0, R8	// crash on syscall failure
+	MOVW.CS R8, (R8)
 	RET
 
-TEXT runtime·sigreturn_tramp(SB),7,$-4
-	// in runtime·sigtramp, we saved ucontext into m->tls[0],
-	// here we just load it and call sys_setcontext
-	MOVW m_tls(m), R0
+TEXT runtime·sigreturn_tramp(SB),NOSPLIT,$-4
+	// on entry, SP points to siginfo, we add sizeof(ucontext)
+	// to SP to get a pointer to ucontext.
+	ADD $0x80, R13, R0 // 0x80 == sizeof(UcontextT)
 	SWI $0xa00134	// sys_setcontext
 	// something failed, we have to exit
 	MOVW $0x4242, R0 // magic return number
 	SWI $0xa00001	// sys_exit
 	B -2(PC)	// continue exit
 
-TEXT runtime·sigaction(SB),7,$4
+TEXT runtime·sigaction(SB),NOSPLIT,$4
 	MOVW 0(FP), R0	// arg 1 - signum
 	MOVW 4(FP), R1	// arg 2 - nsa
 	MOVW 8(FP), R2	// arg 3 - osa
@@ -193,42 +194,45 @@ TEXT runtime·sigaction(SB),7,$4
 	ADD $4, R13	// pass arg 5 on stack
 	SWI $0xa00154	// sys___sigaction_sigtramp
 	SUB $4, R13
-	MOVW.CS $3, R9	// crash on syscall failure
-	MOVW.CS R9, (R9)
+	MOVW.CS $3, R8	// crash on syscall failure
+	MOVW.CS R8, (R8)
 	RET
 
-TEXT runtime·sigtramp(SB),7,$24
+TEXT runtime·sigtramp(SB),NOSPLIT,$24
 	// this might be called in external code context,
 	// where g and m are not set.
-	// first save R0, because _cgo_load_gm will clobber it
-	// TODO(adonovan): call runtime·badsignal if m=0, like other platforms?
+	// first save R0, because runtime·load_gm will clobber it
 	MOVW	R0, 4(R13) // signum
-	MOVW	_cgo_load_gm(SB), R0
+	MOVB	runtime·iscgo(SB), R0
 	CMP 	$0, R0
-	BL.NE	(R0)
+	BL.NE	runtime·load_gm(SB)
+
+	CMP $0, m
+	BNE 4(PC)
+	// signal number is already prepared in 4(R13)
+	MOVW $runtime·badsignal(SB), R11
+	BL (R11)
+	RET
 
 	// save g
-	MOVW R10, R4
-	MOVW R10, 20(R13)
+	MOVW g, R4
+	MOVW g, 20(R13)
 
 	// g = m->signal
-	MOVW m_gsignal(R9), R10
+	MOVW m_gsignal(m), g
 
 	// R0 is already saved
 	MOVW R1, 8(R13) // info
 	MOVW R2, 12(R13) // context
 	MOVW R4, 16(R13) // gp
-	// we also save the ucontext into m->tls[0] for easy
-	// signal return
-	MOVW R2, m_tls(m)
 
 	BL runtime·sighandler(SB)
 
 	// restore g
-	MOVW 20(R13), R10
+	MOVW 20(R13), g
 	RET
 
-TEXT runtime·mmap(SB),7,$12
+TEXT runtime·mmap(SB),NOSPLIT,$12
 	MOVW 0(FP), R0	// arg 1 - addr
 	MOVW 4(FP), R1	// arg 2 - len
 	MOVW 8(FP), R2	// arg 3 - prot
@@ -246,15 +250,15 @@ TEXT runtime·mmap(SB),7,$12
 	SUB $4, R13
 	RET
 
-TEXT runtime·munmap(SB),7,$0
+TEXT runtime·munmap(SB),NOSPLIT,$0
 	MOVW 0(FP), R0	// arg 1 - addr
 	MOVW 4(FP), R1	// arg 2 - len
 	SWI $0xa00049	// sys_munmap
-	MOVW.CS $0, R9	// crash on syscall failure
-	MOVW.CS R9, (R9)
+	MOVW.CS $0, R8	// crash on syscall failure
+	MOVW.CS R8, (R8)
 	RET
 
-TEXT runtime·madvise(SB),7,$0
+TEXT runtime·madvise(SB),NOSPLIT,$0
 	MOVW 0(FP), R0	// arg 1 - addr
 	MOVW 4(FP), R1	// arg 2 - len
 	MOVW 8(FP), R2	// arg 3 - behav
@@ -262,15 +266,15 @@ TEXT runtime·madvise(SB),7,$0
 	// ignore failure - maybe pages are locked
 	RET
 
-TEXT runtime·sigaltstack(SB),7,$-4
+TEXT runtime·sigaltstack(SB),NOSPLIT,$-4
 	MOVW 0(FP), R0	// arg 1 - nss
 	MOVW 4(FP), R1	// arg 2 - oss
 	SWI $0xa00119	// sys___sigaltstack14
-	MOVW.CS $0, R9	// crash on syscall failure
-	MOVW.CS R9, (R9)
+	MOVW.CS $0, R8	// crash on syscall failure
+	MOVW.CS R8, (R8)
 	RET
 
-TEXT runtime·sysctl(SB),7,$8
+TEXT runtime·sysctl(SB),NOSPLIT,$8
 	MOVW 0(FP), R0	// arg 1 - name
 	MOVW 4(FP), R1	// arg 2 - namelen
 	MOVW 8(FP), R2	// arg 3 - oldp
@@ -284,7 +288,37 @@ TEXT runtime·sysctl(SB),7,$8
 	SUB $4, R13
 	RET
 
-TEXT runtime·casp(SB),7,$0
+// int32 runtime·kqueue(void)
+TEXT runtime·kqueue(SB),NOSPLIT,$0
+	SWI $0xa00158	// sys_kqueue
+	RSB.CS $0, R0
+	RET
+
+// int32 runtime·kevent(int kq, Kevent *changelist, int nchanges, Kevent *eventlist, int nevents, Timespec *timeout)
+TEXT runtime·kevent(SB),NOSPLIT,$8
+	MOVW 0(FP), R0	// kq
+	MOVW 4(FP), R1	// changelist
+	MOVW 8(FP), R2	// nchanges
+	MOVW 12(FP), R3	// eventlist
+	MOVW 16(FP), R4	// nevents
+	MOVW R4, 4(R13)
+	MOVW 20(FP), R4	// timeout
+	MOVW R4, 8(R13)
+	ADD $4, R13	// pass arg 5 and 6 on stack
+	SWI $0xa001b3	// sys___kevent50
+	RSB.CS $0, R0
+	SUB $4, R13
+	RET
+
+// void runtime·closeonexec(int32 fd)
+TEXT runtime·closeonexec(SB),NOSPLIT,$0
+	MOVW 0(FP), R0	// fd
+	MOVW $2, R1	// F_SETFD
+	MOVW $1, R2	// FD_CLOEXEC
+	SWI $0xa0005c	// sys_fcntl
+	RET
+
+TEXT runtime·casp(SB),NOSPLIT,$0
 	B	runtime·cas(SB)
 
 // TODO(minux): this is only valid for ARMv6+
@@ -295,5 +329,11 @@ TEXT runtime·casp(SB),7,$0
 //		return 1;
 //	}else
 //		return 0;
-TEXT runtime·cas(SB),7,$0
+TEXT runtime·cas(SB),NOSPLIT,$0
 	B runtime·armcas(SB)
+
+TEXT runtime·read_tls_fallback(SB),NOSPLIT,$-4
+	MOVM.WP [R1, R2, R3, R12], (R13)
+	SWI $0x00a0013c // _lwp_getprivate
+	MOVM.IAW    (R13), [R1, R2, R3, R12]
+	RET

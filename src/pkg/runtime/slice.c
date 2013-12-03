@@ -8,8 +8,12 @@
 #include "typekind.h"
 #include "malloc.h"
 #include "race.h"
+#include "../../cmd/ld/textflag.h"
 
-static	bool	debug	= 0;
+enum
+{
+	debug = 0
+};
 
 static	void	makeslice1(SliceType*, intgo, intgo, Slice*);
 static	void	growslice1(SliceType*, Slice, intgo, Slice *);
@@ -53,109 +57,6 @@ makeslice1(SliceType *t, intgo len, intgo cap, Slice *ret)
 	ret->array = runtime·cnewarray(t->elem, cap);
 }
 
-// appendslice(type *Type, x, y, []T) []T
-#pragma textflag 7
-void
-runtime·appendslice(SliceType *t, Slice x, Slice y, Slice ret)
-{
-	intgo m;
-	uintptr w;
-	void *pc;
-	uint8 *p, *q;
-
-	m = x.len+y.len;
-	w = t->elem->size;
-
-	if(m < x.len)
-		runtime·throw("append: slice overflow");
-
-	if(m > x.cap)
-		growslice1(t, x, m, &ret);
-	else
-		ret = x;
-
-	if(raceenabled) {
-		// Don't mark read/writes on the newly allocated slice.
-		pc = runtime·getcallerpc(&t);
-		// read x[:len]
-		if(m > x.cap)
-			runtime·racereadrangepc(x.array, x.len*w, w, pc, runtime·appendslice);
-		// read y
-		runtime·racereadrangepc(y.array, y.len*w, w, pc, runtime·appendslice);
-		// write x[len(x):len(x)+len(y)]
-		if(m <= x.cap)
-			runtime·racewriterangepc(ret.array+ret.len*w, y.len*w, w, pc, runtime·appendslice);
-	}
-
-	// A very common case is appending bytes. Small appends can avoid the overhead of memmove.
-	// We can generalize a bit here, and just pick small-sized appends.
-	p = ret.array+ret.len*w;
-	q = y.array;
-	w *= y.len;
-	if(w <= appendCrossover) {
-		if(p <= q || w <= p-q) // No overlap.
-			while(w-- > 0)
-				*p++ = *q++;
-		else {
-			p += w;
-			q += w;
-			while(w-- > 0)
-				*--p = *--q;
-		}
-	} else {
-		runtime·memmove(p, q, w);
-	}
-	ret.len += y.len;
-	FLUSH(&ret);
-}
-
-
-// appendstr([]byte, string) []byte
-#pragma textflag 7
-void
-runtime·appendstr(SliceType *t, Slice x, String y, Slice ret)
-{
-	intgo m;
-	void *pc;
-	uintptr w;
-	uint8 *p, *q;
-
-	m = x.len+y.len;
-
-	if(m < x.len)
-		runtime·throw("append: string overflow");
-
-	if(m > x.cap)
-		growslice1(t, x, m, &ret);
-	else
-		ret = x;
-
-	if(raceenabled) {
-		// Don't mark read/writes on the newly allocated slice.
-		pc = runtime·getcallerpc(&t);
-		// read x[:len]
-		if(m > x.cap)
-			runtime·racereadrangepc(x.array, x.len, 1, pc, runtime·appendstr);
-		// write x[len(x):len(x)+len(y)]
-		if(m <= x.cap)
-			runtime·racewriterangepc(ret.array+ret.len, y.len, 1, pc, runtime·appendstr);
-	}
-
-	// Small appends can avoid the overhead of memmove.
-	w = y.len;
-	p = ret.array+ret.len;
-	q = y.str;
-	if(w <= appendCrossover) {
-		while(w-- > 0)
-			*p++ = *q++;
-	} else {
-		runtime·memmove(p, q, w);
-	}
-	ret.len += y.len;
-	FLUSH(&ret);
-}
-
-
 // growslice(type *Type, x, []T, n int64) []T
 void
 runtime·growslice(SliceType *t, Slice old, int64 n, Slice ret)
@@ -173,7 +74,7 @@ runtime·growslice(SliceType *t, Slice old, int64 n, Slice ret)
 
 	if(raceenabled) {
 		pc = runtime·getcallerpc(&t);
-		runtime·racereadrangepc(old.array, old.len*t->elem->size, t->elem->size, pc, runtime·growslice);
+		runtime·racereadrangepc(old.array, old.len*t->elem->size, pc, runtime·growslice);
 	}
 
 	growslice1(t, old, cap, &ret);
@@ -214,7 +115,7 @@ growslice1(SliceType *t, Slice x, intgo newcap, Slice *ret)
 }
 
 // copy(to any, fr any, wid uintptr) int
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
 runtime·copy(Slice to, Slice fm, uintptr width, intgo ret)
 {
@@ -231,8 +132,8 @@ runtime·copy(Slice to, Slice fm, uintptr width, intgo ret)
 
 	if(raceenabled) {
 		pc = runtime·getcallerpc(&to);
-		runtime·racewriterangepc(to.array, ret*width, width, pc, runtime·copy);
-		runtime·racereadrangepc(fm.array, ret*width, width, pc, runtime·copy);
+		runtime·racewriterangepc(to.array, ret*width, pc, runtime·copy);
+		runtime·racereadrangepc(fm.array, ret*width, pc, runtime·copy);
 	}
 
 	if(ret == 1 && width == 1) {	// common case worth about 2x to do here
@@ -257,7 +158,7 @@ out:
 	}
 }
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
 runtime·slicestringcopy(Slice to, String fm, intgo ret)
 {
@@ -274,7 +175,7 @@ runtime·slicestringcopy(Slice to, String fm, intgo ret)
 
 	if(raceenabled) {
 		pc = runtime·getcallerpc(&to);
-		runtime·racewriterangepc(to.array, ret, 1, pc, runtime·slicestringcopy);
+		runtime·racewriterangepc(to.array, ret, pc, runtime·slicestringcopy);
 	}
 
 	runtime·memmove(to.array, fm.str, ret);

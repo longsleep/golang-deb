@@ -570,6 +570,7 @@ const (
 	F_WRLCK                           = 0x3
 	HUPCL                             = 0x4000
 	ICANON                            = 0x100
+	ICMP6_FILTER                      = 0x12
 	ICRNL                             = 0x100
 	IEXTEN                            = 0x400
 	IFAN_ARRIVAL                      = 0x0
@@ -1039,6 +1040,9 @@ const (
 	PARODD                            = 0x2000
 	PENDIN                            = 0x20000000
 	PRI_IOFLUSH                       = 0x7c
+	PRIO_PGRP                         = 0x1
+	PRIO_PROCESS                      = 0x0
+	PRIO_USER                         = 0x2
 	RLIMIT_AS                         = 0xa
 	RLIMIT_CORE                       = 0x4
 	RLIMIT_CPU                        = 0x0

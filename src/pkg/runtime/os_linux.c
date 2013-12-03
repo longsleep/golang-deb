@@ -7,6 +7,7 @@
 #include "os_GOOS.h"
 #include "signal_unix.h"
 #include "stack.h"
+#include "../../cmd/ld/textflag.h"
 
 extern SigTab runtime·sigtab[];
 
@@ -32,30 +33,26 @@ enum
 //	if(*addr == val) sleep
 // Might be woken up spuriously; that's allowed.
 // Don't sleep longer than ns; ns < 0 means forever.
+#pragma textflag NOSPLIT
 void
 runtime·futexsleep(uint32 *addr, uint32 val, int64 ns)
 {
-	Timespec ts, *tsp;
-	int64 secs;
-
-	if(ns < 0)
-		tsp = nil;
-	else {
-		secs = ns/1000000000LL;
-		// Avoid overflow
-		if(secs > 1LL<<30)
-			secs = 1LL<<30;
-		ts.tv_sec = secs;
-		ts.tv_nsec = ns%1000000000LL;
-		tsp = &ts;
-	}
+	Timespec ts;
 
 	// Some Linux kernels have a bug where futex of
 	// FUTEX_WAIT returns an internal error code
 	// as an errno.  Libpthread ignores the return value
 	// here, and so can we: as it says a few lines up,
 	// spurious wakeups are allowed.
-	runtime·futex(addr, FUTEX_WAIT, val, tsp, nil, 0);
+
+	if(ns < 0) {
+		runtime·futex(addr, FUTEX_WAIT, val, nil, nil, 0);
+		return;
+	}
+	// NOTE: tv_nsec is int64 on amd64, so this assumes a little-endian system.
+	ts.tv_nsec = 0;
+	ts.tv_sec = runtime·timediv(ns, 1000000000LL, (int32*)&ts.tv_nsec);
+	runtime·futex(addr, FUTEX_WAIT, val, &ts, nil, 0);
 }
 
 // If any procs are sleeping on addr, wake up at most cnt.
@@ -172,6 +169,7 @@ runtime·get_random_data(byte **rnd, int32 *rnd_len)
 		*rnd = runtime·startup_random_data;
 		*rnd_len = runtime·startup_random_data_len;
 	} else {
+		#pragma dataflag NOPTR
 		static byte urandom_data[HashRandomBytes];
 		int32 fd;
 		fd = runtime·open("/dev/urandom", 0 /* O_RDONLY */, 0);
@@ -275,45 +273,6 @@ runtime·memlimit(void)
 		return 0;
 
 	return rl.rlim_cur - used;
-}
-
-void
-runtime·setprof(bool on)
-{
-	USED(on);
-}
-
-static int8 badcallback[] = "runtime: cgo callback on thread not created by Go.\n";
-
-// This runs on a foreign stack, without an m or a g.  No stack split.
-#pragma textflag 7
-void
-runtime·badcallback(void)
-{
-	runtime·write(2, badcallback, sizeof badcallback - 1);
-}
-
-static int8 badsignal[] = "runtime: signal received on thread not created by Go: ";
-
-// This runs on a foreign stack, without an m or a g.  No stack split.
-#pragma textflag 7
-void
-runtime·badsignal(int32 sig)
-{
-	int32 len;
-
-	if (sig == SIGPROF) {
-		return;  // Ignore SIGPROFs intended for a non-Go thread.
-	}
-	runtime·write(2, badsignal, sizeof badsignal - 1);
-	if (0 <= sig && sig < NSIG) {
-		// Can't call findnull() because it will split stack.
-		for(len = 0; runtime·sigtab[sig].name[len]; len++)
-			;
-		runtime·write(2, runtime·sigtab[sig].name, len);
-	}
-	runtime·write(2, "\n", 1);
-	runtime·exit(1);
 }
 
 #ifdef GOARCH_386

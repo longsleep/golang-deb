@@ -181,22 +181,13 @@ asmelfsym(void)
 	genasmsym(putelfsym);
 	
 	if(linkmode == LinkExternal && HEADTYPE != Hopenbsd) {
-		s = lookup("runtime.m", 0);
+		s = lookup("runtime.tlsgm", 0);
 		if(s->sect == nil) {
 			cursym = nil;
 			diag("missing section for %s", s->name);
 			errorexit();
 		}
-		putelfsyment(putelfstr(s->name), 0, PtrSize, (STB_LOCAL<<4)|STT_TLS, s->sect->elfsect->shnum, 0);
-		s->elfsym = numelfsym++;
-
-		s = lookup("runtime.g", 0);
-		if(s->sect == nil) {
-			cursym = nil;
-			diag("missing section for %s", s->name);
-			errorexit();
-		}
-		putelfsyment(putelfstr(s->name), PtrSize, PtrSize, (STB_LOCAL<<4)|STT_TLS, s->sect->elfsect->shnum, 0);
+		putelfsyment(putelfstr(s->name), 0, 2*PtrSize, (STB_LOCAL<<4)|STT_TLS, s->sect->elfsect->shnum, 0);
 		s->elfsym = numelfsym++;
 	}
 
@@ -371,7 +362,7 @@ putsymb(Sym *s, char *name, int t, vlong v, vlong size, int ver, Sym *typ)
 	Reloc *rel;
 
 	USED(size);
-	
+
 	// type byte
 	if('A' <= t && t <= 'Z')
 		c = t - 'A' + (ver ? 26 : 0);
@@ -466,7 +457,8 @@ putsymb(Sym *s, char *name, int t, vlong v, vlong size, int ver, Sym *typ)
 void
 symtab(void)
 {
-	Sym *s, *symtype, *symtypelink, *symgostring;
+	Sym *s, *symtype, *symtypelink, *symgostring, *symgofunc;
+
 	dosymtype();
 
 	// Define these so that they'll get put into the symbol table.
@@ -477,12 +469,6 @@ symtab(void)
 	xdefine("etypelink", SRODATA, 0);
 	xdefine("rodata", SRODATA, 0);
 	xdefine("erodata", SRODATA, 0);
-	if(flag_shared) {
-		xdefine("datarelro", SDATARELRO, 0);
-		xdefine("edatarelro", SDATARELRO, 0);
-	}
-	xdefine("egcdata", STYPE, 0);
-	xdefine("egcbss", STYPE, 0);
 	xdefine("noptrdata", SNOPTRDATA, 0);
 	xdefine("enoptrdata", SNOPTRDATA, 0);
 	xdefine("data", SDATA, 0);
@@ -494,6 +480,19 @@ symtab(void)
 	xdefine("end", SBSS, 0);
 	xdefine("epclntab", SRODATA, 0);
 	xdefine("esymtab", SRODATA, 0);
+
+	// garbage collection symbols
+	s = lookup("gcdata", 0);
+	s->type = SRODATA;
+	s->size = 0;
+	s->reachable = 1;
+	xdefine("egcdata", SRODATA, 0);
+
+	s = lookup("gcbss", 0);
+	s->type = SRODATA;
+	s->size = 0;
+	s->reachable = 1;
+	xdefine("egcbss", SRODATA, 0);
 
 	// pseudo-symbols to mark locations of type, string, and go string data.
 	s = lookup("type.*", 0);
@@ -507,6 +506,12 @@ symtab(void)
 	s->size = 0;
 	s->reachable = 1;
 	symgostring = s;
+	
+	s = lookup("go.func.*", 0);
+	s->type = SGOFUNC;
+	s->size = 0;
+	s->reachable = 1;
+	symgofunc = s;
 	
 	symtypelink = lookup("typelink", 0);
 
@@ -536,6 +541,11 @@ symtab(void)
 			s->type = SGOSTRING;
 			s->hide = 1;
 			s->outer = symgostring;
+		}
+		if(strncmp(s->name, "go.func.", 8) == 0) {
+			s->type = SGOFUNC;
+			s->hide = 1;
+			s->outer = symgofunc;
 		}
 	}
 

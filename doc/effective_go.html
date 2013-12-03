@@ -44,8 +44,8 @@ use the language.
 Moreover, many of the packages contain working, self-contained
 executable examples you can run directly from the
 <a href="http://golang.org">golang.org</a> web site, such as
-<a href="http://golang.org/pkg/strings/#example_Map">this one</a> (click
-on the word "Example" to open it up).
+<a href="http://golang.org/pkg/strings/#example_Map">this one</a> (if
+necessary, click on the word "Example" to open it up).
 If you have a question about how to approach a problem or how something
 might be implemented, the documentation, code and examples in the
 library can provide answers, ideas and
@@ -506,6 +506,8 @@ slightly generalized
 <code>switch</code> is more flexible;
 <code>if</code> and <code>switch</code> accept an optional
 initialization statement like that of <code>for</code>;
+<code>break</code> and <code>continue</code> statements
+take an optional label to identify what to break or continue;
 and there are new control structures including a type switch and a
 multiway communications multiplexer, <code>select</code>.
 The syntax is also slightly different:
@@ -781,7 +783,47 @@ func shouldEscape(c byte) bool {
 </pre>
 
 <p>
-Here's a comparison routine for byte slices that uses two
+Although they are not nearly as common in Go as some other C-like
+languages, <code>break</code> statements can be used to terminate
+a <code>switch</code> early.
+Sometimes, though, it's necessary to break out of a surrounding loop,
+not the switch, and in Go that can be accomplished by putting a label
+on the loop and "breaking" to that label.
+This example shows both uses.
+</p>
+
+<pre>
+Loop:
+	for n := 0; n &lt; len(src); n += size {
+		switch {
+		case src[n] &lt; sizeOne:
+			if validateOnly {
+				break
+			}
+			size = 1
+			update(src[n])
+
+		case src[n] &lt; sizeTwo:
+			if n+1 &gt;= len(src) {
+				err = errShortInput
+				break Loop
+			}
+			if validateOnly {
+				break
+			}
+			size = 2
+			update(src[n] + src[n+1]&lt;&lt;shift)
+		}
+	}
+</pre>
+
+<p>
+Of course, the <code>continue</code> statement also accepts an optional label
+but it applies only to loops.
+</p>
+
+<p>
+To close this section, here's a comparison routine for byte slices that uses two
 <code>switch</code> statements:
 </p>
 <pre>
@@ -798,10 +840,10 @@ func Compare(a, b []byte) int {
         }
     }
     switch {
-    case len(a) &lt; len(b):
-        return -1
     case len(a) &gt; len(b):
         return 1
+    case len(a) &lt; len(b):
+        return -1
     }
     return 0
 }
@@ -882,7 +924,7 @@ func nextInt(b []byte, i int) (int, int) {
     }
     x := 0
     for ; i &lt; len(b) &amp;&amp; isDigit(b[i]); i++ {
-        x = x*10 + int(b[i])-'0'
+        x = x*10 + int(b[i]) - '0'
     }
     return x, i
 }
@@ -1496,7 +1538,7 @@ with colon-separated key-value pairs,
 so it's easy to build them during initialization.
 </p>
 <pre>
-var timeZone = map[string] int {
+var timeZone = map[string]int{
     "UTC":  0*60*60,
     "EST": -5*60*60,
     "CST": -6*60*60,
@@ -1523,7 +1565,7 @@ Set the map entry to <code>true</code> to put the value in the set, and then
 test it by simple indexing.
 </p>
 <pre>
-attended := map[string] bool {
+attended := map[string]bool{
     "Ann": true,
     "Joe": true,
     ...
@@ -1915,7 +1957,7 @@ initializer can be a general expression computed at run time.
 var (
     home   = os.Getenv("HOME")
     user   = os.Getenv("USER")
-    goRoot = os.Getenv("GOROOT")
+    gopath = os.Getenv("GOPATH")
 )
 </pre>
 
@@ -1944,11 +1986,11 @@ func init() {
     if home == "" {
         home = "/home/" + user
     }
-    if goRoot == "" {
-        goRoot = home + "/go"
+    if gopath == "" {
+        gopath = home + "/go"
     }
-    // goRoot may be overridden by --goroot flag on command line.
-    flag.StringVar(&amp;goRoot, "goroot", goRoot, "Go root directory")
+    // gopath may be overridden by --gopath flag on command line.
+    flag.StringVar(&amp;gopath, "gopath", gopath, "override default GOPATH")
 }
 </pre>
 
@@ -2536,7 +2578,7 @@ package, which defines a <code><a href="/pkg/encoding/json/#Marshaler">Marshaler
 interface. When the JSON encoder receives a value that implements that interface,
 the encoder invokes the value's marshaling method to convert it to JSON
 instead of doing the standard conversion.
-The encoder checks this property at run time with a <a href="interface_conversions">type assertion</a> like:
+The encoder checks this property at run time with a <a href="#interface_conversions">type assertion</a> like:
 </p>
 
 <pre>
@@ -2560,7 +2602,7 @@ One place this situation arises is when it is necessary to guarantee within the 
 it actually satisfies the interface.
 If a type—for example,
 <code><a href="/pkg/encoding/json/#RawMessage">json.RawMessage</a></code>—needs
-a custom its JSON representation, it should implement
+a custom JSON representation, it should implement
 <code>json.Marshaler</code>, but there are no static conversions that would
 cause the compiler to verify this automatically.
 If the type inadvertently fails to satisfy the interface, the JSON encoder will still work,
@@ -2912,7 +2954,7 @@ func handle(r *Request) {
 }
 
 func init() {
-    for i := 0; i < MaxOutstanding; i++ {
+    for i := 0; i &lt; MaxOutstanding; i++ {
         sem &lt;- 1
     }
 }
@@ -2940,12 +2982,53 @@ of them can run at any moment.
 As a result, the program can consume unlimited resources if the requests come in too fast.
 We can address that deficiency by changing <code>Serve</code> to
 gate the creation of the goroutines.
+Here's an obvious solution, but beware it has a bug we'll fix subsequently:
 </p>
 
 <pre>
 func Serve(queue chan *Request) {
     for req := range queue {
         &lt;-sem
+        go func() {
+            process(req) // Buggy; see explanation below.
+            sem &lt;- 1
+        }()
+    }
+}</pre>
+
+<p>
+The bug is that in a Go <code>for</code> loop, the loop variable
+is reused for each iteration, so the <code>req</code>
+variable is shared across all goroutines.
+That's not what we want.
+We need to make sure that <code>req</code> is unique for each goroutine.
+Here's one way to do that, passing the value of <code>req</code> as an argument
+to the closure in the goroutine:
+</p>
+
+<pre>
+func Serve(queue chan *Request) {
+    for req := range queue {
+        &lt;-sem
+        go func(req *Request) {
+            process(req)
+            sem &lt;- 1
+        }(req)
+    }
+}</pre>
+
+<p>
+Compare this version with the previous to see the difference in how
+the closure is declared and run.
+Another solution is just to create a new variable with the same
+name, as in this example:
+</p>
+
+<pre>
+func Serve(queue chan *Request) {
+    for req := range queue {
+        &lt;-sem
+        req := req // Create new instance of req for the goroutine.
         go func() {
             process(req)
             sem &lt;- 1
@@ -2954,7 +3037,22 @@ func Serve(queue chan *Request) {
 }</pre>
 
 <p>
-Another solution that manages resources well is to start a fixed
+It may seem odd to write
+</p>
+
+<pre>
+req := req
+</pre>
+
+<p>
+but it's a legal and idiomatic in Go to do this.
+You get a fresh version of the variable with the same name, deliberately
+shadowing the loop variable locally but unique to each goroutine.
+</p>
+
+<p>
+Going back to the general problem of writing the server,
+another approach that manages resources well is to start a fixed
 number of <code>handle</code> goroutines all reading from the request
 channel.
 The number of goroutines limits the number of simultaneous
@@ -3254,7 +3352,7 @@ for try := 0; try &lt; 2; try++ {
 </pre>
 
 <p>
-The second <code>if</code> statement here is another <a href="#interface_conversion">type assertion</a>.
+The second <code>if</code> statement here is another <a href="#interface_conversions">type assertion</a>.
 If it fails, <code>ok</code> will be false, and <code>e</code>
 will be <code>nil</code>.
 If it succeeds,  <code>ok</code> will be true, which means the
@@ -3437,7 +3535,7 @@ the parse stack by hand:
 </p>
 
 <pre>
-if pos==0 {
+if pos == 0 {
     re.error("'*' illegal at start of expression")
 }
 </pre>

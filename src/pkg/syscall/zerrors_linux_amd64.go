@@ -4,12 +4,8 @@
 // Created by cgo -godefs - DO NOT EDIT
 // cgo -godefs -- -m64 _const.go
 
-//line _const.go:1
 package syscall
 
-//line _const.go:51
-
-//line _const.go:50
 const (
 	AF_ALG                           = 0x26
 	AF_APPLETALK                     = 0x5
@@ -150,6 +146,28 @@ const (
 	BPF_TXA                          = 0x80
 	BPF_W                            = 0x0
 	BPF_X                            = 0x8
+	CLONE_CHILD_CLEARTID             = 0x200000
+	CLONE_CHILD_SETTID               = 0x1000000
+	CLONE_DETACHED                   = 0x400000
+	CLONE_FILES                      = 0x400
+	CLONE_FS                         = 0x200
+	CLONE_IO                         = 0x80000000
+	CLONE_NEWIPC                     = 0x8000000
+	CLONE_NEWNET                     = 0x40000000
+	CLONE_NEWNS                      = 0x20000
+	CLONE_NEWPID                     = 0x20000000
+	CLONE_NEWUSER                    = 0x10000000
+	CLONE_NEWUTS                     = 0x4000000
+	CLONE_PARENT                     = 0x8000
+	CLONE_PARENT_SETTID              = 0x100000
+	CLONE_PTRACE                     = 0x2000
+	CLONE_SETTLS                     = 0x80000
+	CLONE_SIGHAND                    = 0x800
+	CLONE_SYSVSEM                    = 0x40000
+	CLONE_THREAD                     = 0x10000
+	CLONE_UNTRACED                   = 0x800000
+	CLONE_VFORK                      = 0x4000
+	CLONE_VM                         = 0x100
 	DT_BLK                           = 0x6
 	DT_CHR                           = 0x2
 	DT_DIR                           = 0x4
@@ -276,6 +294,7 @@ const (
 	F_ULOCK                          = 0x0
 	F_UNLCK                          = 0x2
 	F_WRLCK                          = 0x1
+	ICMPV6_FILTER                    = 0x1
 	IFA_F_DADFAILED                  = 0x8
 	IFA_F_DEPRECATED                 = 0x20
 	IFA_F_HOMEADDRESS                = 0x10
@@ -657,6 +676,9 @@ const (
 	PACKET_RECV_OUTPUT               = 0x3
 	PACKET_RX_RING                   = 0x5
 	PACKET_STATISTICS                = 0x6
+	PRIO_PGRP                        = 0x1
+	PRIO_PROCESS                     = 0x0
+	PRIO_USER                        = 0x2
 	PROT_EXEC                        = 0x4
 	PROT_GROWSDOWN                   = 0x1000000
 	PROT_GROWSUP                     = 0x2000000
@@ -1063,6 +1085,9 @@ const (
 	S_IXGRP                          = 0x8
 	S_IXOTH                          = 0x1
 	S_IXUSR                          = 0x40
+	TCIFLUSH                         = 0x0
+	TCIOFLUSH                        = 0x2
+	TCOFLUSH                         = 0x1
 	TCP_CONGESTION                   = 0xd
 	TCP_CORK                         = 0x3
 	TCP_DEFER_ACCEPT                 = 0x9

@@ -16,7 +16,7 @@ var cmdRun = &Command{
 	Short:     "compile and run Go program",
 	Long: `
 Run compiles and runs the main package comprising the named Go source files.
-If no files are named, it compiles and runs all non-test Go source files.
+A Go source file is defined to be a file ending in a literal ".go" suffix.
 
 For more about build flags, see 'go help build'.
 

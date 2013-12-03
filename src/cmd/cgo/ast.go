@@ -13,6 +13,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -44,6 +45,13 @@ func sourceLine(n ast.Node) int {
 // a list of exported functions, and the actual AST, to be rewritten and
 // printed.
 func (f *File) ReadGo(name string) {
+	// Create absolute path for file, so that it will be used in error
+	// messages and recorded in debug line number information.
+	// This matches the rest of the toolchain. See golang.org/issue/5122.
+	if aname, err := filepath.Abs(name); err == nil {
+		name = aname
+	}
+
 	// Two different parses: once with comments, once without.
 	// The printer is not good enough at printing comments in the
 	// right place when we start editing the AST behind its back,
@@ -178,6 +186,13 @@ func (f *File) saveRef(x interface{}, context string) {
 			if goname == "errno" {
 				error_(sel.Pos(), "cannot refer to errno directly; see documentation")
 				return
+			}
+			if goname == "_CMalloc" {
+				error_(sel.Pos(), "cannot refer to C._CMalloc; use C.malloc")
+				return
+			}
+			if goname == "malloc" {
+				goname = "_CMalloc"
 			}
 			name := f.Name[goname]
 			if name == nil {

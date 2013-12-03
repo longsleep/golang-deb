@@ -23,6 +23,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include "../../cmd/ld/textflag.h"
+
 // TE or TS are spilled to the stack during bulk register moves.
 TS = 0
 TE = 8
@@ -56,7 +58,7 @@ FR2 = 4
 FW3 = 4
 FR3 = 8					/* shared with TE */
 
-TEXT runtime·memmove(SB), 7, $4
+TEXT runtime·memmove(SB), NOSPLIT, $4-12
 _memmove:
 	MOVW	to+0(FP), R(TS)
 	MOVW	from+4(FP), R(FROM)
@@ -85,7 +87,7 @@ _b4aligned:				/* is source now aligned? */
 	BNE	_bunaligned
 
 	ADD	$31, R(TS), R(TMP)	/* do 32-byte chunks if possible */
-	MOVW	R(TS), savedts+4(SP)
+	MOVW	R(TS), savedts-4(SP)
 _b32loop:
 	CMP	R(TMP), R(TE)
 	BLS	_b4tail
@@ -95,7 +97,7 @@ _b32loop:
 	B	_b32loop
 
 _b4tail:				/* do remaining words if possible */
-	MOVW	savedts+4(SP), R(TS)
+	MOVW	savedts-4(SP), R(TS)
 	ADD	$3, R(TS), R(TMP)
 _b4loop:
 	CMP	R(TMP), R(TE)
@@ -130,7 +132,7 @@ _f4aligned:				/* is source now aligned? */
 	BNE	_funaligned
 
 	SUB	$31, R(TE), R(TMP)	/* do 32-byte chunks if possible */
-	MOVW	R(TE), savedte+4(SP)
+	MOVW	R(TE), savedte-4(SP)
 _f32loop:
 	CMP	R(TMP), R(TS)
 	BHS	_f4tail
@@ -140,7 +142,7 @@ _f32loop:
 	B	_f32loop
 
 _f4tail:
-	MOVW	savedte+4(SP), R(TE)
+	MOVW	savedte-4(SP), R(TE)
 	SUB	$3, R(TE), R(TMP)	/* do remaining words if possible */
 _f4loop:
 	CMP	R(TMP), R(TS)
@@ -182,7 +184,7 @@ _bunaligned:
 	BLS	_b1tail
 
 	BIC	$3, R(FROM)		/* align source */
-	MOVW	R(TS), savedts+4(SP)
+	MOVW	R(TS), savedts-4(SP)
 	MOVW	(R(FROM)), R(BR0)	/* prime first block register */
 
 _bu16loop:
@@ -206,7 +208,7 @@ _bu16loop:
 	B	_bu16loop
 
 _bu1tail:
-	MOVW	savedts+4(SP), R(TS)
+	MOVW	savedts-4(SP), R(TS)
 	ADD	R(OFFSET), R(FROM)
 	B	_b1tail
 
@@ -230,7 +232,7 @@ _funaligned:
 	BHS	_f1tail
 
 	BIC	$3, R(FROM)		/* align source */
-	MOVW	R(TE), savedte+4(SP)
+	MOVW	R(TE), savedte-4(SP)
 	MOVW.P	4(R(FROM)), R(FR3)	/* prime last block register, implicit write back */
 
 _fu16loop:
@@ -254,6 +256,6 @@ _fu16loop:
 	B	_fu16loop
 
 _fu1tail:
-	MOVW	savedte+4(SP), R(TE)
+	MOVW	savedte-4(SP), R(TE)
 	SUB	R(OFFSET), R(FROM)
 	B	_f1tail

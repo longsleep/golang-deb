@@ -35,10 +35,9 @@
 void
 zname(Biobuf *b, Sym *s, int t)
 {
-	Bputc(b, ANAME);	/* as */
-	Bputc(b, ANAME>>8);	/* as */
-	Bputc(b, t);		/* type */
-	Bputc(b, s->sym);	/* sym */
+	BPUTLE2(b, ANAME);	/* as */
+	BPUTC(b, t);		/* type */
+	BPUTC(b, s->sym);	/* sym */
 
 	Bputname(b, s);
 }
@@ -46,13 +45,12 @@ zname(Biobuf *b, Sym *s, int t)
 void
 zfile(Biobuf *b, char *p, int n)
 {
-	Bputc(b, ANAME);
-	Bputc(b, ANAME>>8);
-	Bputc(b, D_FILE);
-	Bputc(b, 1);
-	Bputc(b, '<');
+	BPUTLE2(b, ANAME);
+	BPUTC(b, D_FILE);
+	BPUTC(b, 1);
+	BPUTC(b, '<');
 	Bwrite(b, p, n);
-	Bputc(b, 0);
+	BPUTC(b, 0);
 }
 
 void
@@ -60,12 +58,8 @@ zhist(Biobuf *b, int line, vlong offset)
 {
 	Addr a;
 
-	Bputc(b, AHISTORY);
-	Bputc(b, AHISTORY>>8);
-	Bputc(b, line);
-	Bputc(b, line>>8);
-	Bputc(b, line>>16);
-	Bputc(b, line>>24);
+	BPUTLE2(b, AHISTORY);
+	BPUTLE4(b, line);
 	zaddr(b, &zprog.from, 0, 0);
 	a = zprog.to;
 	if(offset != 0) {
@@ -114,54 +108,40 @@ zaddr(Biobuf *b, Addr *a, int s, int gotype)
 		t |= T_SCONST;
 		break;
 	}
-	Bputc(b, t);
+	BPUTC(b, t);
 
 	if(t & T_INDEX) {	/* implies index, scale */
-		Bputc(b, a->index);
-		Bputc(b, a->scale);
+		BPUTC(b, a->index);
+		BPUTC(b, a->scale);
 	}
 	if(t & T_OFFSET) {	/* implies offset */
 		l = a->offset;
-		Bputc(b, l);
-		Bputc(b, l>>8);
-		Bputc(b, l>>16);
-		Bputc(b, l>>24);
+		BPUTLE4(b, l);
 	}
 	if(t & T_OFFSET2) {	/* implies offset */
 		l = a->offset2;
-		Bputc(b, l);
-		Bputc(b, l>>8);
-		Bputc(b, l>>16);
-		Bputc(b, l>>24);
+		BPUTLE4(b, l);
 	}
 	if(t & T_SYM)		/* implies sym */
-		Bputc(b, s);
+		BPUTC(b, s);
 	if(t & T_FCONST) {
 		ieeedtod(&e, a->u.dval);
-		l = e;
-		Bputc(b, l);
-		Bputc(b, l>>8);
-		Bputc(b, l>>16);
-		Bputc(b, l>>24);
-		l = e >> 32;
-		Bputc(b, l);
-		Bputc(b, l>>8);
-		Bputc(b, l>>16);
-		Bputc(b, l>>24);
+		BPUTLE4(b, e);
+		BPUTLE4(b, e >> 32);
 		return;
 	}
 	if(t & T_SCONST) {
 		n = a->u.sval;
 		for(i=0; i<NSNAME; i++) {
-			Bputc(b, *n);
+			BPUTC(b, *n);
 			n++;
 		}
 		return;
 	}
 	if(t & T_TYPE)
-		Bputc(b, a->type);
+		BPUTC(b, a->type);
 	if(t & T_GOTYPE)
-		Bputc(b, gotype);
+		BPUTC(b, gotype);
 }
 
 static struct {
@@ -267,12 +247,8 @@ dumpfuncs(void)
 				break;
 			}
 
-			Bputc(bout, p->as);
-			Bputc(bout, p->as>>8);
-			Bputc(bout, p->lineno);
-			Bputc(bout, p->lineno>>8);
-			Bputc(bout, p->lineno>>16);
-			Bputc(bout, p->lineno>>24);
+			BPUTLE2(bout, p->as);
+			BPUTLE4(bout, p->lineno);
 			zaddr(bout, &p->from, sf, gf);
 			zaddr(bout, &p->to, st, gt);
 		}
@@ -505,111 +481,6 @@ dsymptr(Sym *s, int off, Sym *x, int xoff)
 	off += widthptr;
 
 	return off;
-}
-
-void
-genembedtramp(Type *rcvr, Type *method, Sym *newnam, int iface)
-{
-	Sym *e;
-	int c, d, o, mov, add, loaded;
-	Prog *p;
-	Type *f;
-
-	USED(iface);
-
-	e = method->sym;
-	for(d=0; d<nelem(dotlist); d++) {
-		c = adddot1(e, rcvr, d, nil, 0);
-		if(c == 1)
-			goto out;
-	}
-	fatal("genembedtramp %T.%S", rcvr, method->sym);
-
-out:
-	newplist()->name = newname(newnam);
-
-	//TEXT	main·S_test2(SB),7,$0
-	p = pc;
-	gins(ATEXT, N, N);
-	p->from.type = D_EXTERN;
-	p->from.sym = newnam;
-	p->to.type = D_CONST;
-	p->to.offset = 0;
-	p->from.scale = 7;
-//print("1. %P\n", p);
-
-	mov = AMOVL;
-	add = AADDL;
-
-	loaded = 0;
-	o = 0;
-	for(c=d-1; c>=0; c--) {
-		f = dotlist[c].field;
-		o += f->width;
-		if(!isptr[f->type->etype])
-			continue;
-		if(!loaded) {
-			loaded = 1;
-			//MOVL	4(SP), AX
-			p = pc;
-			gins(mov, N, N);
-			p->from.type = D_INDIR+D_SP;
-			p->from.offset = widthptr;
-			p->to.type = D_AX;
-//print("2. %P\n", p);
-		}
-
-		//MOVL	o(AX), AX
-		p = pc;
-		gins(mov, N, N);
-		p->from.type = D_INDIR+D_AX;
-		p->from.offset = o;
-		p->to.type = D_AX;
-//print("3. %P\n", p);
-		o = 0;
-	}
-	if(o != 0) {
-		//ADDL	$XX, AX
-		p = pc;
-		gins(add, N, N);
-		p->from.type = D_CONST;
-		p->from.offset = o;
-		if(loaded)
-			p->to.type = D_AX;
-		else {
-			p->to.type = D_INDIR+D_SP;
-			p->to.offset = widthptr;
-		}
-//print("4. %P\n", p);
-	}
-
-	//MOVL	AX, 4(SP)
-	if(loaded) {
-		p = pc;
-		gins(mov, N, N);
-		p->from.type = D_AX;
-		p->to.type = D_INDIR+D_SP;
-		p->to.offset = widthptr;
-//print("5. %P\n", p);
-	} else {
-		// TODO(rsc): obviously this is unnecessary,
-		// but 6l has a bug, and it can't handle
-		// JMP instructions too close to the top of
-		// a new function.
-		gins(ANOP, N, N);
-	}
-
-	f = dotlist[0].field;
-	//JMP	main·*Sub_test2(SB)
-	if(isptr[f->type->etype])
-		f = f->type;
-	p = pc;
-	gins(AJMP, N, N);
-	p->to.type = D_EXTERN;
-	p->to.sym = methodsym(method->sym, ptrto(f->type), 0);
-//print("6. %P\n", p);
-
-	pc->as = ARET;	// overwrite AEND
 }
 
 void

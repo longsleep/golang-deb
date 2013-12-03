@@ -224,7 +224,7 @@ Sym*
 lookup(void)
 {
 	Sym *s;
-	int32 h;
+	uint32 h;
 	char *p;
 	int c, l;
 	char *r, *w;
@@ -400,7 +400,7 @@ l1:
 			if(c >= '0' && c <= '9') {
 				if(c > '7' && c1 == 3)
 					break;
-				yylval.lval <<= c1;
+				yylval.lval = (uvlong)yylval.lval << c1;
 				yylval.lval += c - '0';
 				c = GETC();
 				continue;
@@ -410,7 +410,7 @@ l1:
 			if(c >= 'A' && c <= 'F')
 				c += 'a' - 'A';
 			if(c >= 'a' && c <= 'f') {
-				yylval.lval <<= c1;
+				yylval.lval = (uvlong)yylval.lval << c1;
 				yylval.lval += c - 'a' + 10;
 				c = GETC();
 				continue;
@@ -665,7 +665,7 @@ loop:
 		goto pop;
 	}
 	fi.p = i->b + 1;
-	return i->b[0];
+	return i->b[0] & 0xff;
 
 pop:
 	iostack = i->link;
@@ -678,7 +678,7 @@ pop:
 	fi.c = i->c;
 	if(--fi.c < 0)
 		goto loop;
-	return *fi.p++;
+	return *fi.p++ & 0xff;
 }
 
 void
@@ -762,7 +762,7 @@ ieeedtod(Ieee *ieee, double native)
 		return;
 	}
 	fr = frexp(native, &exp);
-	f = 2097152L;		/* shouldnt use fp constants here */
+	f = 2097152L;		/* shouldn't use fp constants here */
 	fr = modf(fr*f, &ho);
 	ieee->h = ho;
 	ieee->h &= 0xfffffL;
@@ -770,6 +770,6 @@ ieeedtod(Ieee *ieee, double native)
 	f = 65536L;
 	fr = modf(fr*f, &ho);
 	ieee->l = ho;
-	ieee->l <<= 16;
+	ieee->l = (uint32)ieee->l << 16;
 	ieee->l |= (int32)(fr*f);
 }

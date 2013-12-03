@@ -37,6 +37,25 @@ includes_Darwin='
 #include <termios.h>
 '
 
+includes_DragonFly='
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/socket.h>
+#include <sys/sockio.h>
+#include <sys/sysctl.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <sys/ioctl.h>
+#include <net/bpf.h>
+#include <net/if.h>
+#include <net/if_types.h>
+#include <net/route.h>
+#include <netinet/in.h>
+#include <termios.h>
+#include <netinet/ip.h>
+#include <net/ip_mroute/ip_mroute.h>
+'
+
 includes_FreeBSD='
 #include <sys/types.h>
 #include <sys/event.h>
@@ -71,6 +90,8 @@ includes_Linux='
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/time.h>
+#include <sys/socket.h>
 #include <linux/if_addr.h>
 #include <linux/if_ether.h>
 #include <linux/if_tun.h>
@@ -79,11 +100,14 @@ includes_Linux='
 #include <linux/reboot.h>
 #include <linux/rtnetlink.h>
 #include <linux/ptrace.h>
+#include <linux/sched.h>
 #include <linux/wait.h>
+#include <linux/icmpv6.h>
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <net/route.h>
 #include <netpacket/packet.h>
+#include <termios.h>
 
 #ifndef MSG_FASTOPEN
 #define MSG_FASTOPEN    0x20000000
@@ -200,7 +224,8 @@ ccflags="$@"
 		$2 ~ /^O[CNPFP][A-Z]+[^_][A-Z]+$/ ||
 		$2 ~ /^IN_/ ||
 		$2 ~ /^LOCK_(SH|EX|NB|UN)$/ ||
-		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|TCP|EVFILT|NOTE|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|MCL|DT|MADV|PR)_/ ||
+		$2 ~ /^(AF|SOCK|SO|SOL|IPPROTO|IP|IPV6|ICMP6|TCP|EVFILT|NOTE|EV|SHUT|PROT|MAP|PACKET|MSG|SCM|MCL|DT|MADV|PR)_/ ||
+		$2 == "ICMPV6_FILTER" ||
 		$2 == "SOMAXCONN" ||
 		$2 == "NAME_MAX" ||
 		$2 == "IFNAMSIZ" ||
@@ -219,6 +244,8 @@ ccflags="$@"
 		$2 ~ /^BIOC/ ||
 		$2 ~ /^RUSAGE_(SELF|CHILDREN|THREAD)/ ||
 		$2 ~ /^RLIMIT_(AS|CORE|CPU|DATA|FSIZE|NOFILE|STACK)|RLIM_INFINITY/ ||
+		$2 ~ /^PRIO_(PROCESS|PGRP|USER)/ ||
+		$2 ~ /^CLONE_[A-Z_]+/ ||
 		$2 !~ /^(BPF_TIMEVAL)$/ &&
 		$2 ~ /^(BPF|DLT)_/ ||
 		$2 !~ "WMESGLEN" &&

@@ -94,7 +94,8 @@ in an element in the list, surround it with either single or double quotes.
 
 For more about specifying packages, see 'go help packages'.
 For more about where packages and binaries are installed,
-see 'go help gopath'.
+run 'go help gopath'.  For more about calling between Go and C/C++,
+run 'go help c'.
 
 See also: go install, go get, go clean.
 	`,
@@ -183,6 +184,18 @@ func addBuildFlagsNX(cmd *Command) {
 
 func isSpaceByte(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+// fileExtSplit expects a filename and returns the name
+// and ext (without the dot). If the file has no
+// extension, ext will be empty.
+func fileExtSplit(file string) (name, ext string) {
+	dotExt := filepath.Ext(file)
+	name = file[:len(file)-len(dotExt)]
+	if dotExt != "" {
+		ext = dotExt[1:]
+	}
+	return
 }
 
 type stringsFlag []string
@@ -299,7 +312,13 @@ func runInstall(cmd *Command, args []string) {
 
 	for _, p := range pkgs {
 		if p.Target == "" && (!p.Standard || p.ImportPath != "unsafe") {
-			errorf("go install: no install location for directory %s outside GOPATH", p.Dir)
+			if p.cmdline {
+				errorf("go install: no install location for .go files listed on command line (GOBIN not set)")
+			} else if p.ConflictDir != "" {
+				errorf("go install: no install location for %s: hidden by %s", p.Dir, p.ConflictDir)
+			} else {
+				errorf("go install: no install location for directory %s outside GOPATH", p.Dir)
+			}
 		}
 	}
 	exitIfErrors()
@@ -416,7 +435,7 @@ func (b *builder) init() {
 			fatalf("%s", err)
 		}
 		if buildX || buildWork {
-			fmt.Printf("WORK=%s\n", b.work)
+			fmt.Fprintf(os.Stderr, "WORK=%s\n", b.work)
 		}
 		if !buildWork {
 			atexit(func() { os.RemoveAll(b.work) })
@@ -470,6 +489,7 @@ func goFilesPackage(gofiles []string) *Package {
 	bp, err := ctxt.ImportDir(dir, 0)
 	pkg := new(Package)
 	pkg.local = true
+	pkg.cmdline = true
 	pkg.load(&stk, bp, err)
 	pkg.localPrefix = dirToImportPath(dir)
 	pkg.ImportPath = "command-line-arguments"
@@ -558,8 +578,12 @@ func (b *builder) action(mode buildMode, depMode buildMode, p *Package) *action 
 		// Imported via local path.  No permanent target.
 		mode = modeBuild
 	}
-	a.objdir = filepath.Join(b.work, a.p.ImportPath, "_obj") + string(filepath.Separator)
-	a.objpkg = buildToolchain.pkgpath(b.work, a.p)
+	work := p.pkgdir
+	if work == "" {
+		work = b.work
+	}
+	a.objdir = filepath.Join(work, a.p.ImportPath, "_obj") + string(filepath.Separator)
+	a.objpkg = buildToolchain.pkgpath(work, a.p)
 	a.link = p.Name == "main"
 
 	switch mode {
@@ -727,6 +751,15 @@ func hasString(strings []string, s string) bool {
 
 // build is the action for building a single package or command.
 func (b *builder) build(a *action) (err error) {
+	// Return an error if the package has CXX files but it's not using
+	// cgo nor SWIG, since the CXX files can only be processed by cgo
+	// and SWIG (it's possible to have packages with C files without
+	// using cgo, they will get compiled with the plan9 C compiler and
+	// linked with the rest of the package).
+	if len(a.p.CXXFiles) > 0 && !a.p.usesCgo() && !a.p.usesSwig() {
+		return fmt.Errorf("can't build package %s because it contains C++ files (%s) but it's not using cgo nor SWIG",
+			a.p.ImportPath, strings.Join(a.p.CXXFiles, ","))
+	}
 	defer func() {
 		if err != nil && err != errPrintedOutput {
 			err = fmt.Errorf("go build %s: %v", a.p.ImportPath, err)
@@ -747,7 +780,7 @@ func (b *builder) build(a *action) (err error) {
 
 	if a.p.Standard && a.p.ImportPath == "runtime" && buildContext.Compiler == "gc" &&
 		!hasString(a.p.HFiles, "zasm_"+buildContext.GOOS+"_"+buildContext.GOARCH+".h") {
-		return fmt.Errorf("%s/%s must be bootstrapped using make.bash", buildContext.GOOS, buildContext.GOARCH)
+		return fmt.Errorf("%s/%s must be bootstrapped using make%v", buildContext.GOOS, buildContext.GOARCH, defaultSuffix())
 	}
 
 	// Make build directory.
@@ -765,13 +798,32 @@ func (b *builder) build(a *action) (err error) {
 	}
 
 	var gofiles, cfiles, sfiles, objects, cgoObjects []string
-	gofiles = append(gofiles, a.p.GoFiles...)
+
+	// If we're doing coverage, preprocess the .go files and put them in the work directory
+	if a.p.coverMode != "" {
+		for _, file := range a.p.GoFiles {
+			sourceFile := filepath.Join(a.p.Dir, file)
+			cover := a.p.coverVars[file]
+			if cover == nil || isTestFile(file) {
+				// Not covering this file.
+				gofiles = append(gofiles, file)
+				continue
+			}
+			coverFile := filepath.Join(obj, file)
+			if err := b.cover(a, coverFile, sourceFile, 0666, cover.Var); err != nil {
+				return err
+			}
+			gofiles = append(gofiles, coverFile)
+		}
+	} else {
+		gofiles = append(gofiles, a.p.GoFiles...)
+	}
 	cfiles = append(cfiles, a.p.CFiles...)
 	sfiles = append(sfiles, a.p.SFiles...)
 
 	// Run cgo.
-	if len(a.p.CgoFiles) > 0 {
-		// In a package using cgo, cgo compiles the C and assembly files with gcc.
+	if a.p.usesCgo() {
+		// In a package using cgo, cgo compiles the C, C++ and assembly files with gcc.
 		// There is one exception: runtime/cgo's job is to bridge the
 		// cgo and non-cgo worlds, so it necessarily has files in both.
 		// In that case gcc only gets the gcc_* files.
@@ -799,7 +851,7 @@ func (b *builder) build(a *action) (err error) {
 		if a.cgo != nil && a.cgo.target != "" {
 			cgoExe = a.cgo.target
 		}
-		outGo, outObj, err := b.cgo(a.p, cgoExe, obj, gccfiles)
+		outGo, outObj, err := b.cgo(a.p, cgoExe, obj, gccfiles, a.p.CXXFiles)
 		if err != nil {
 			return err
 		}
@@ -814,7 +866,7 @@ func (b *builder) build(a *action) (err error) {
 		gccfiles := append(cfiles, sfiles...)
 		cfiles = nil
 		sfiles = nil
-		outGo, outObj, err := b.swig(a.p, obj, gccfiles)
+		outGo, outObj, err := b.swig(a.p, obj, gccfiles, a.p.CXXFiles)
 		if err != nil {
 			return err
 		}
@@ -843,23 +895,24 @@ func (b *builder) build(a *action) (err error) {
 	// Copy .h files named for goos or goarch or goos_goarch
 	// to names using GOOS and GOARCH.
 	// For example, defs_linux_amd64.h becomes defs_GOOS_GOARCH.h.
-	_goos_goarch := "_" + goos + "_" + goarch + ".h"
-	_goos := "_" + goos + ".h"
-	_goarch := "_" + goarch + ".h"
+	_goos_goarch := "_" + goos + "_" + goarch
+	_goos := "_" + goos
+	_goarch := "_" + goarch
 	for _, file := range a.p.HFiles {
+		name, ext := fileExtSplit(file)
 		switch {
-		case strings.HasSuffix(file, _goos_goarch):
-			targ := file[:len(file)-len(_goos_goarch)] + "_GOOS_GOARCH.h"
+		case strings.HasSuffix(name, _goos_goarch):
+			targ := file[:len(name)-len(_goos_goarch)] + "_GOOS_GOARCH." + ext
 			if err := b.copyFile(a, obj+targ, filepath.Join(a.p.Dir, file), 0666); err != nil {
 				return err
 			}
-		case strings.HasSuffix(file, _goarch):
-			targ := file[:len(file)-len(_goarch)] + "_GOARCH.h"
+		case strings.HasSuffix(name, _goarch):
+			targ := file[:len(name)-len(_goarch)] + "_GOARCH." + ext
 			if err := b.copyFile(a, obj+targ, filepath.Join(a.p.Dir, file), 0666); err != nil {
 				return err
 			}
-		case strings.HasSuffix(file, _goos):
-			targ := file[:len(file)-len(_goos)] + "_GOOS.h"
+		case strings.HasSuffix(name, _goos):
+			targ := file[:len(name)-len(_goos)] + "_GOOS." + ext
 			if err := b.copyFile(a, obj+targ, filepath.Join(a.p.Dir, file), 0666); err != nil {
 				return err
 			}
@@ -955,8 +1008,9 @@ func (b *builder) install(a *action) (err error) {
 				return err
 			}
 			soname := a.p.swigSoname(f)
+			source := filepath.Join(a.objdir, soname)
 			target := filepath.Join(dir, soname)
-			if err = b.copyFile(a, target, soname, perm); err != nil {
+			if err = b.copyFile(a, target, source, perm); err != nil {
 				return err
 			}
 		}
@@ -997,8 +1051,8 @@ func (b *builder) includeArgs(flag string, all []*action) []string {
 				dir = filepath.Join(dir, "gccgo_"+goos+"_"+goarch)
 			} else {
 				dir = filepath.Join(dir, goos+"_"+goarch)
-				if buildRace {
-					dir += "_race"
+				if buildContext.InstallSuffix != "" {
+					dir += "_" + buildContext.InstallSuffix
 				}
 			}
 			inc = append(inc, flag, dir)
@@ -1047,7 +1101,7 @@ func (b *builder) copyFile(a *action, dst, src string, perm os.FileMode) error {
 	if err != nil && toolIsWindows {
 		// Windows does not allow deletion of a binary file
 		// while it is executing.  Try to move it out of the way.
-		// If the remove fails, which is likely, we'll try again the
+		// If the move fails, which is likely, we'll try again the
 		// next time we do an install of this binary.
 		if err := os.Rename(dst, dst+"~"); err == nil {
 			os.Remove(dst + "~")
@@ -1065,6 +1119,17 @@ func (b *builder) copyFile(a *action, dst, src string, perm os.FileMode) error {
 		return fmt.Errorf("copying %s to %s: %v", src, dst, err)
 	}
 	return nil
+}
+
+// cover runs, in effect,
+//	go tool cover -mode=b.coverMode -var="varName" -o dst.go src.go
+func (b *builder) cover(a *action, dst, src string, perm os.FileMode, varName string) error {
+	return b.run(a.objdir, "cover "+a.p.ImportPath, nil,
+		tool("cover"),
+		"-mode", a.p.coverMode,
+		"-var", varName,
+		"-o", dst,
+		src)
 }
 
 var objectMagic = [][]byte{
@@ -1454,7 +1519,7 @@ func (gcToolchain) gc(b *builder, p *Package, obj string, importArgs []string, g
 	// so that it can give good error messages about forward declarations.
 	// Exceptions: a few standard packages have forward declarations for
 	// pieces supplied behind-the-scenes by package runtime.
-	extFiles := len(p.CgoFiles) + len(p.CFiles) + len(p.SFiles) + len(p.SysoFiles) + len(p.SwigFiles) + len(p.SwigCXXFiles)
+	extFiles := len(p.CgoFiles) + len(p.CFiles) + len(p.CXXFiles) + len(p.SFiles) + len(p.SysoFiles) + len(p.SwigFiles) + len(p.SwigCXXFiles)
 	if p.Standard {
 		switch p.ImportPath {
 		case "os", "runtime/pprof", "sync", "time":
@@ -1463,6 +1528,9 @@ func (gcToolchain) gc(b *builder, p *Package, obj string, importArgs []string, g
 	}
 	if extFiles == 0 {
 		gcargs = append(gcargs, "-complete")
+	}
+	if buildContext.InstallSuffix != "" {
+		gcargs = append(gcargs, "-installsuffix", buildContext.InstallSuffix)
 	}
 
 	args := stringList(tool(archChar+"g"), "-o", ofile, buildGcflags, gcargs, "-D", p.localPrefix, importArgs)
@@ -1496,6 +1564,7 @@ func (gcToolchain) ld(b *builder, p *Package, out string, allactions []*action, 
 	importArgs := b.includeArgs("-L", allactions)
 	swigDirs := make(map[string]bool)
 	swigArg := []string{}
+	cxx := false
 	for _, a := range allactions {
 		if a.p != nil && a.p.usesSwig() {
 			sd := a.p.swigDir(&buildContext)
@@ -1506,9 +1575,59 @@ func (gcToolchain) ld(b *builder, p *Package, out string, allactions []*action, 
 				swigArg[1] += sd
 			}
 			swigDirs[sd] = true
+			if a.objdir != "" && !swigDirs[a.objdir] {
+				swigArg[1] += ":"
+				swigArg[1] += a.objdir
+				swigDirs[a.objdir] = true
+			}
+		}
+		if a.p != nil && len(a.p.CXXFiles) > 0 {
+			cxx = true
 		}
 	}
-	return b.run(".", p.ImportPath, nil, tool(archChar+"l"), "-o", out, importArgs, swigArg, buildLdflags, mainpkg)
+	ldflags := buildLdflags
+	if buildContext.InstallSuffix != "" {
+		ldflags = append(ldflags, "-installsuffix", buildContext.InstallSuffix)
+	}
+	if cxx {
+		// The program includes C++ code.  If the user has not
+		// specified the -extld option, then default to
+		// linking with the compiler named by the CXX
+		// environment variable, or g++ if CXX is not set.
+		extld := false
+		for _, f := range ldflags {
+			if f == "-extld" || strings.HasPrefix(f, "-extld=") {
+				extld = true
+				break
+			}
+		}
+		if !extld {
+			compiler := strings.Fields(os.Getenv("CXX"))
+			if len(compiler) == 0 {
+				compiler = []string{"g++"}
+			}
+			ldflags = append(ldflags, "-extld="+compiler[0])
+			if len(compiler) > 1 {
+				extldflags := false
+				add := strings.Join(compiler[1:], " ")
+				for i, f := range ldflags {
+					if f == "-extldflags" && i+1 < len(ldflags) {
+						ldflags[i+1] = add + " " + ldflags[i+1]
+						extldflags = true
+						break
+					} else if strings.HasPrefix(f, "-extldflags=") {
+						ldflags[i] = "-extldflags=" + add + " " + ldflags[i][len("-extldflags="):]
+						extldflags = true
+						break
+					}
+				}
+				if !extldflags {
+					ldflags = append(ldflags, "-extldflags="+add)
+				}
+			}
+		}
+	}
+	return b.run(".", p.ImportPath, nil, tool(archChar+"l"), "-o", out, importArgs, swigArg, ldflags, mainpkg)
 }
 
 func (gcToolchain) cc(b *builder, p *Package, objdir, ofile, cfile string) error {
@@ -1584,6 +1703,7 @@ func (tools gccgoToolchain) ld(b *builder, p *Package, out string, allactions []
 	ldflags := b.gccArchArgs()
 	cgoldflags := []string{}
 	usesCgo := false
+	cxx := false
 	for _, a := range allactions {
 		if a.p != nil {
 			if !a.p.Standard {
@@ -1597,11 +1717,17 @@ func (tools gccgoToolchain) ld(b *builder, p *Package, out string, allactions []
 			}
 			if a.p.usesSwig() {
 				sd := a.p.swigDir(&buildContext)
+				if a.objdir != "" {
+					sd = a.objdir
+				}
 				for _, f := range stringList(a.p.SwigFiles, a.p.SwigCXXFiles) {
 					soname := a.p.swigSoname(f)
 					sfiles[a.p] = append(sfiles[a.p], filepath.Join(sd, soname))
 				}
 				usesCgo = true
+			}
+			if len(a.p.CXXFiles) > 0 {
+				cxx = true
 			}
 		}
 	}
@@ -1614,6 +1740,9 @@ func (tools gccgoToolchain) ld(b *builder, p *Package, out string, allactions []
 	ldflags = append(ldflags, cgoldflags...)
 	if usesCgo && goos == "linux" {
 		ldflags = append(ldflags, "-Wl,-E")
+	}
+	if cxx {
+		ldflags = append(ldflags, "-lstdc++")
 	}
 	return b.run(".", p.ImportPath, nil, "gccgo", "-o", out, ofiles, "-Wl,-(", ldflags, "-Wl,-)", buildGccgoflags)
 }
@@ -1689,26 +1818,55 @@ func (b *builder) libgcc(p *Package) (string, error) {
 
 // gcc runs the gcc C compiler to create an object from a single C file.
 func (b *builder) gcc(p *Package, out string, flags []string, cfile string) error {
-	cfile = mkAbs(p.Dir, cfile)
-	return b.run(p.Dir, p.ImportPath, nil, b.gccCmd(p.Dir), flags, "-o", out, "-c", cfile)
+	return b.ccompile(p, out, flags, cfile, b.gccCmd(p.Dir))
 }
 
-// gccld runs the gcc linker to create an executable from a set of object files
+// gxx runs the g++ C++ compiler to create an object from a single C++ file.
+func (b *builder) gxx(p *Package, out string, flags []string, cxxfile string) error {
+	return b.ccompile(p, out, flags, cxxfile, b.gxxCmd(p.Dir))
+}
+
+// ccompile runs the given C or C++ compiler and creates an object from a single source file.
+func (b *builder) ccompile(p *Package, out string, flags []string, file string, compiler []string) error {
+	file = mkAbs(p.Dir, file)
+	return b.run(p.Dir, p.ImportPath, nil, compiler, flags, "-o", out, "-c", file)
+}
+
+// gccld runs the gcc linker to create an executable from a set of object files.
 func (b *builder) gccld(p *Package, out string, flags []string, obj []string) error {
-	return b.run(p.Dir, p.ImportPath, nil, b.gccCmd(p.Dir), "-o", out, obj, flags)
+	var cmd []string
+	if len(p.CXXFiles) > 0 {
+		cmd = b.gxxCmd(p.Dir)
+	} else {
+		cmd = b.gccCmd(p.Dir)
+	}
+	return b.run(p.Dir, p.ImportPath, nil, cmd, "-o", out, obj, flags)
 }
 
 // gccCmd returns a gcc command line prefix
+// defaultCC is defined in zdefaultcc.go, written by cmd/dist.
 func (b *builder) gccCmd(objdir string) []string {
+	return b.ccompilerCmd("CC", defaultCC, objdir)
+}
+
+// gxxCmd returns a g++ command line prefix
+// defaultCXX is defined in zdefaultcc.go, written by cmd/dist.
+func (b *builder) gxxCmd(objdir string) []string {
+	return b.ccompilerCmd("CXX", defaultCXX, objdir)
+}
+
+// ccompilerCmd returns a command line prefix for the given environment
+// variable and using the default command when the variable is empty
+func (b *builder) ccompilerCmd(envvar, defcmd, objdir string) []string {
 	// NOTE: env.go's mkEnv knows that the first three
 	// strings returned are "gcc", "-I", objdir (and cuts them off).
 
-	gcc := strings.Fields(os.Getenv("CC"))
-	if len(gcc) == 0 {
-		gcc = append(gcc, "gcc")
+	compiler := strings.Fields(os.Getenv(envvar))
+	if len(compiler) == 0 {
+		compiler = strings.Fields(defcmd)
 	}
-	a := []string{gcc[0], "-I", objdir, "-g", "-O2"}
-	a = append(a, gcc[1:]...)
+	a := []string{compiler[0], "-I", objdir, "-g", "-O2"}
+	a = append(a, compiler[1:]...)
 
 	// Definitely want -fPIC but on Windows gcc complains
 	// "-fPIC ignored for target (all code is position independent)"
@@ -1727,8 +1885,10 @@ func (b *builder) gccCmd(objdir string) []string {
 		}
 	}
 
-	// clang is too smart about command-line arguments
 	if strings.Contains(a[0], "clang") {
+		// disable ASCII art in clang errors, if possible
+		a = append(a, "-fno-caret-diagnostics")
+		// clang is too smart about command-line arguments
 		a = append(a, "-Qunused-arguments")
 	}
 
@@ -1767,12 +1927,14 @@ var (
 	cgoLibGccFileOnce sync.Once
 )
 
-func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo, outObj []string, err error) {
+func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string, gxxfiles []string) (outGo, outObj []string, err error) {
 	if goos != toolGOOS {
 		return nil, nil, errors.New("cannot use cgo when compiling for a different operating system")
 	}
 
+	cgoCPPFLAGS := stringList(envList("CGO_CPPFLAGS"), p.CgoCPPFLAGS)
 	cgoCFLAGS := stringList(envList("CGO_CFLAGS"), p.CgoCFLAGS)
+	cgoCXXFLAGS := stringList(envList("CGO_CXXFLAGS"), p.CgoCXXFLAGS)
 	cgoLDFLAGS := stringList(envList("CGO_LDFLAGS"), p.CgoLDFLAGS)
 
 	if pkgs := p.CgoPkgConfig; len(pkgs) > 0 {
@@ -1783,7 +1945,7 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 			return nil, nil, errPrintedOutput
 		}
 		if len(out) > 0 {
-			cgoCFLAGS = append(cgoCFLAGS, strings.Fields(string(out))...)
+			cgoCPPFLAGS = append(cgoCPPFLAGS, strings.Fields(string(out))...)
 		}
 		out, err = b.runOut(p.Dir, p.ImportPath, nil, "pkg-config", "--libs", pkgs)
 		if err != nil {
@@ -1797,7 +1959,7 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 	}
 
 	// Allows including _cgo_export.h from .[ch] files in the package.
-	cgoCFLAGS = append(cgoCFLAGS, "-I", obj)
+	cgoCPPFLAGS = append(cgoCPPFLAGS, "-I", obj)
 
 	// cgo
 	// TODO: CGOPKGPATH, CGO_FLAGS?
@@ -1839,7 +2001,7 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 		}
 		objExt = "o"
 	}
-	if err := b.run(p.Dir, p.ImportPath, cgoenv, cgoExe, "-objdir", obj, cgoflags, "--", cgoCFLAGS, p.CgoFiles); err != nil {
+	if err := b.run(p.Dir, p.ImportPath, cgoenv, cgoExe, "-objdir", obj, cgoflags, "--", cgoCPPFLAGS, cgoCFLAGS, p.CgoFiles); err != nil {
 		return nil, nil, err
 	}
 	outGo = append(outGo, gofiles...)
@@ -1855,14 +2017,24 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 	var linkobj []string
 
 	var bareLDFLAGS []string
-	// filter out -lsomelib, and -framework X if on Darwin
+	// filter out -lsomelib, -l somelib, *.{so,dll,dylib}, and (on Darwin) -framework X
 	for i := 0; i < len(cgoLDFLAGS); i++ {
 		f := cgoLDFLAGS[i]
-		if !strings.HasPrefix(f, "-l") {
-			if goos == "darwin" && f == "-framework" { // skip the -framework X
-				i += 1
-				continue
+		switch {
+		// skip "-lc" or "-l somelib"
+		case strings.HasPrefix(f, "-l"):
+			if f == "-l" {
+				i++
 			}
+		// skip "-framework X" on Darwin
+		case goos == "darwin" && f == "-framework":
+			i++
+		// skip "*.{dylib,so,dll}"
+		case strings.HasSuffix(f, ".dylib"),
+			strings.HasSuffix(f, ".so"),
+			strings.HasSuffix(f, ".dll"):
+			continue
+		default:
 			bareLDFLAGS = append(bareLDFLAGS, f)
 		}
 	}
@@ -1876,16 +2048,18 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 
 	var staticLibs []string
 	if goos == "windows" {
-		// libmingw32 and libmingwex might also use libgcc, so libgcc must come last
-		staticLibs = []string{"-lmingwex", "-lmingw32"}
+		// libmingw32 and libmingwex might also use libgcc, so libgcc must come last,
+		// and they also have some inter-dependencies, so must use linker groups.
+		staticLibs = []string{"-Wl,--start-group", "-lmingwex", "-lmingw32", "-Wl,--end-group"}
 	}
 	if cgoLibGccFile != "" {
 		staticLibs = append(staticLibs, cgoLibGccFile)
 	}
 
+	cflags := stringList(cgoCPPFLAGS, cgoCFLAGS)
 	for _, cfile := range cfiles {
 		ofile := obj + cfile[:len(cfile)-1] + "o"
-		if err := b.gcc(p, ofile, cgoCFLAGS, obj+cfile); err != nil {
+		if err := b.gcc(p, ofile, cflags, obj+cfile); err != nil {
 			return nil, nil, err
 		}
 		linkobj = append(linkobj, ofile)
@@ -1893,14 +2067,27 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 			outObj = append(outObj, ofile)
 		}
 	}
+
 	for _, file := range gccfiles {
 		ofile := obj + cgoRe.ReplaceAllString(file[:len(file)-1], "_") + "o"
-		if err := b.gcc(p, ofile, cgoCFLAGS, file); err != nil {
+		if err := b.gcc(p, ofile, cflags, file); err != nil {
 			return nil, nil, err
 		}
 		linkobj = append(linkobj, ofile)
 		outObj = append(outObj, ofile)
 	}
+
+	cxxflags := stringList(cgoCPPFLAGS, cgoCXXFLAGS)
+	for _, file := range gxxfiles {
+		// Append .o to the file, just in case the pkg has file.c and file.cpp
+		ofile := obj + cgoRe.ReplaceAllString(file, "_") + ".o"
+		if err := b.gxx(p, ofile, cxxflags, file); err != nil {
+			return nil, nil, err
+		}
+		linkobj = append(linkobj, ofile)
+		outObj = append(outObj, ofile)
+	}
+
 	linkobj = append(linkobj, p.SysoFiles...)
 	dynobj := obj + "_cgo_.o"
 	if goarch == "arm" && goos == "linux" { // we need to use -pie for Linux/ARM to get accurate imported sym
@@ -1956,7 +2143,27 @@ func (b *builder) cgo(p *Package, cgoExe, obj string, gccfiles []string) (outGo,
 }
 
 // Run SWIG on all SWIG input files.
-func (b *builder) swig(p *Package, obj string, gccfiles []string) (outGo, outObj []string, err error) {
+// TODO: Don't build a shared library, once SWIG emits the necessary
+// pragmas for external linking.
+func (b *builder) swig(p *Package, obj string, gccfiles, gxxfiles []string) (outGo, outObj []string, err error) {
+
+	var extraObj []string
+	for _, file := range gccfiles {
+		ofile := obj + cgoRe.ReplaceAllString(file[:len(file)-1], "_") + "o"
+		if err := b.gcc(p, ofile, nil, file); err != nil {
+			return nil, nil, err
+		}
+		extraObj = append(extraObj, ofile)
+	}
+
+	for _, file := range gxxfiles {
+		// Append .o to the file, just in case the pkg has file.c and file.cpp
+		ofile := obj + cgoRe.ReplaceAllString(file, "_") + ".o"
+		if err := b.gxx(p, ofile, nil, file); err != nil {
+			return nil, nil, err
+		}
+		extraObj = append(extraObj, ofile)
+	}
 
 	intgosize, err := b.swigIntSize(obj)
 	if err != nil {
@@ -1964,7 +2171,7 @@ func (b *builder) swig(p *Package, obj string, gccfiles []string) (outGo, outObj
 	}
 
 	for _, f := range p.SwigFiles {
-		goFile, objFile, err := b.swigOne(p, f, obj, false, intgosize)
+		goFile, objFile, err := b.swigOne(p, f, obj, false, intgosize, extraObj)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1976,7 +2183,7 @@ func (b *builder) swig(p *Package, obj string, gccfiles []string) (outGo, outObj
 		}
 	}
 	for _, f := range p.SwigCXXFiles {
-		goFile, objFile, err := b.swigOne(p, f, obj, true, intgosize)
+		goFile, objFile, err := b.swigOne(p, f, obj, true, intgosize, extraObj)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1999,6 +2206,9 @@ const i int = 1 << 32
 // Determine the size of int on the target system for the -intgosize option
 // of swig >= 2.0.9
 func (b *builder) swigIntSize(obj string) (intsize string, err error) {
+	if buildN {
+		return "$INTBITS", nil
+	}
 	src := filepath.Join(b.work, "swig_intsize.go")
 	if err = ioutil.WriteFile(src, []byte(swigIntSizeCode), 0644); err != nil {
 		return
@@ -2014,7 +2224,7 @@ func (b *builder) swigIntSize(obj string) (intsize string, err error) {
 }
 
 // Run SWIG on one SWIG input file.
-func (b *builder) swigOne(p *Package, file, obj string, cxx bool, intgosize string) (outGo, outObj string, err error) {
+func (b *builder) swigOne(p *Package, file, obj string, cxx bool, intgosize string, extraObj []string) (outGo, outObj string, err error) {
 	n := 5 // length of ".swig"
 	if cxx {
 		n = 8 // length of ".swigcxx"
@@ -2085,7 +2295,8 @@ func (b *builder) swigOne(p *Package, file, obj string, cxx bool, intgosize stri
 		cxxlib = []string{"-lstdc++"}
 	}
 	ldflags := stringList(osldflags[goos], cxxlib)
-	b.run(p.Dir, p.ImportPath, nil, b.gccCmd(p.Dir), "-o", soname, gccObj, ldflags)
+	target := filepath.Join(obj, soname)
+	b.run(p.Dir, p.ImportPath, nil, b.gccCmd(p.Dir), "-o", target, gccObj, extraObj, ldflags)
 
 	return obj + goFile, cObj, nil
 }
@@ -2129,4 +2340,17 @@ func raceInit() {
 	}
 	buildContext.InstallSuffix += "race"
 	buildContext.BuildTags = append(buildContext.BuildTags, "race")
+}
+
+// defaultSuffix returns file extension used for command files in
+// current os environment.
+func defaultSuffix() string {
+	switch runtime.GOOS {
+	case "windows":
+		return ".bat"
+	case "plan9":
+		return ".rc"
+	default:
+		return ".bash"
+	}
 }

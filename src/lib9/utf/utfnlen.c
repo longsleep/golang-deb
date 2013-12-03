@@ -11,8 +11,6 @@
  * REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
-#include <stdarg.h>
-#include <string.h>
 #include "utf.h"
 #include "utfdef.h"
 
@@ -20,7 +18,7 @@ int
 utfnlen(const char *s, long m)
 {
 	int c;
-	long n;
+	int n;
 	Rune rune;
 	const char *es;
 
@@ -33,7 +31,7 @@ utfnlen(const char *s, long m)
 			s++;
 			continue;
 		}
-		if(!fullrune(s, es-s))
+		if(!fullrune(s, (int)(es-s)))
 			break;
 		s += chartorune(&rune, s);
 	}

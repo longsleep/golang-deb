@@ -134,8 +134,7 @@ package:
 	{
 		prevlineno = lineno;
 		yyerror("package statement must be first");
-		flusherrors();
-		mkpackage("main");
+		errorexit();
 	}
 |	LPACKAGE sym ';'
 	{
@@ -193,6 +192,10 @@ import_stmt:
 
 		if(my->name[0] == '.') {
 			importdot(ipkg, pack);
+			break;
+		}
+		if(strcmp(my->name, "init") == 0) {
+			yyerror("cannot import package as init - init must be a func");
 			break;
 		}
 		if(my->name[0] == '_' && my->name[1] == '\0')
@@ -950,6 +953,14 @@ pexpr_no_paren:
 	{
 		$$ = nod(OSLICE, $1, nod(OKEY, $3, $5));
 	}
+|	pexpr '[' oexpr ':' oexpr ':' oexpr ']'
+	{
+		if($5 == N)
+			yyerror("middle index required in 3-index slice");
+		if($7 == N)
+			yyerror("final index required in 3-index slice");
+		$$ = nod(OSLICE3, $1, nod(OKEY, $3, nod(OKEY, $5, $7)));
+	}
 |	pseudocall
 |	convtype '(' expr ocomma ')'
 	{
@@ -1114,6 +1125,19 @@ hidden_importsym:
 			p = mkpkg($2.u.sval);
 		}
 		$$ = pkglookup($4->name, p);
+	}
+|	'@' LLITERAL '.' '?'
+	{
+		Pkg *p;
+
+		if($2.u.sval->len == 0)
+			p = importpkg;
+		else {
+			if(isbadimport($2.u.sval))
+				errorexit();
+			p = mkpkg($2.u.sval);
+		}
+		$$ = pkglookup("?", p);
 	}
 
 name:
@@ -1520,12 +1544,12 @@ structdcl:
 
 		Node *n;
 		l = $1;
-		if(l != nil && l->next == nil && l->n == nil) {
-			// ? symbol, during import
+		if(l == nil) {
+			// ? symbol, during import (list1(N) == nil)
 			n = $2;
 			if(n->op == OIND)
 				n = n->left;
-			n = embedded(n->sym);
+			n = embedded(n->sym, importpkg);
 			n->right = $2;
 			n->val = $3;
 			$$ = list1(n);
@@ -1596,7 +1620,7 @@ packname:
 embed:
 	packname
 	{
-		$$ = embedded($1);
+		$$ = embedded($1, localpkg);
 	}
 
 interfacedcl:
@@ -2050,15 +2074,19 @@ hidden_structdcl:
 	sym hidden_type oliteral
 	{
 		Sym *s;
+		Pkg *p;
 
-		if($1 != S) {
+		if($1 != S && strcmp($1->name, "?") != 0) {
 			$$ = nod(ODCLFIELD, newname($1), typenod($2));
 			$$->val = $3;
 		} else {
 			s = $2->sym;
 			if(s == S && isptr[$2->etype])
 				s = $2->type->sym;
-			$$ = embedded(s);
+			p = importpkg;
+			if($1 != S)
+				p = $1->pkg;
+			$$ = embedded(s, p);
 			$$->right = typenod($2);
 			$$->val = $3;
 		}

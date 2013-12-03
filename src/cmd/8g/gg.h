@@ -42,7 +42,7 @@ struct	Prog
 	Addr	from;		// src address
 	Addr	to;		// dst address
 	Prog*	link;		// next instruction in this func
-	void*	reg;		// pointer to containing Reg struct
+	void*	opt;		// for optimizer passes
 };
 
 #define TEXTFLAG from.scale
@@ -75,7 +75,6 @@ extern	uint32	unmappedzero;
  * ggen.c
  */
 void	compile(Node*);
-void	proglist(void);
 void	gen(Node*);
 Node*	lookdot(Node*, Node*, int);
 void	cgen_as(Node*, Node*);
@@ -123,7 +122,6 @@ void	cgen64(Node*, Node*);
  * gsubr.c
  */
 void	clearp(Prog*);
-void	proglist(void);
 Prog*	gbranch(int, Type*, int);
 Prog*	prog(int);
 void	gconv(int, int);
@@ -153,7 +151,7 @@ void	split64(Node*, Node*, Node*);
 void	splitclean(void);
 void	nswap(Node*, Node*);
 void	gtrack(Sym*);
-
+void	gargsize(int32);
 /*
  * cplx.c
  */

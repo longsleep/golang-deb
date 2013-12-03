@@ -204,6 +204,11 @@ func (p *Package) cdefs(f *File, srcfile string) string {
 		//		byte Z[4];
 		//	}
 		if strings.HasPrefix(line, "type ") && strings.HasSuffix(line, " struct {") {
+			if len(lines) > i+1 && lines[i+1] == "}" {
+				// do not output empty struct
+				i++
+				continue
+			}
 			s := line[len("type ") : len(line)-len(" struct {")]
 			printf("struct %s {\n", s)
 			for i++; i < len(lines) && lines[i] != "}"; i++ {
@@ -256,16 +261,16 @@ func cdecl(name, typ string) string {
 	if strings.HasPrefix(typ, "*[0]") {
 		typ = "*void"
 	}
-	// X *byte -> *X byte
-	if strings.HasPrefix(typ, "*") {
-		name = "*" + name
-		typ = typ[1:]
-	}
 	// X [4]byte -> X[4] byte
-	if strings.HasPrefix(typ, "[") {
+	for strings.HasPrefix(typ, "[") {
 		i := strings.Index(typ, "]") + 1
 		name = name + typ[:i]
 		typ = typ[i:]
+	}
+	// X *byte -> *X byte
+	for strings.HasPrefix(typ, "*") {
+		name = "*" + name
+		typ = typ[1:]
 	}
 	// X T -> T X
 	// Handle the special case: 'unsafe.Pointer' is 'void *'

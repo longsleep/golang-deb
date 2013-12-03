@@ -24,9 +24,6 @@ char *runtimeimport =
 	"func @\"\".printsp ()\n"
 	"func @\"\".goprintf ()\n"
 	"func @\"\".concatstring ()\n"
-	"func @\"\".append ()\n"
-	"func @\"\".appendslice (@\"\".typ·2 *byte, @\"\".x·3 any, @\"\".y·4 []any) (? any)\n"
-	"func @\"\".appendstr (@\"\".typ·2 *byte, @\"\".x·3 []byte, @\"\".y·4 string) (? []byte)\n"
 	"func @\"\".cmpstring (? string, ? string) (? int)\n"
 	"func @\"\".eqstring (? string, ? string) (? bool)\n"
 	"func @\"\".intstring (? int64) (? string)\n"
@@ -94,6 +91,7 @@ char *runtimeimport =
 	"func @\"\".block ()\n"
 	"func @\"\".makeslice (@\"\".typ·2 *byte, @\"\".nel·3 int64, @\"\".cap·4 int64) (@\"\".ary·1 []any)\n"
 	"func @\"\".growslice (@\"\".typ·2 *byte, @\"\".old·3 []any, @\"\".n·4 int64) (@\"\".ary·1 []any)\n"
+	"func @\"\".memmove (@\"\".to·1 *any, @\"\".frm·2 *any, @\"\".length·3 uintptr)\n"
 	"func @\"\".memequal (@\"\".eq·1 *bool, @\"\".size·2 uintptr, @\"\".x·3 *any, @\"\".y·4 *any)\n"
 	"func @\"\".memequal8 (@\"\".eq·1 *bool, @\"\".size·2 uintptr, @\"\".x·3 *any, @\"\".y·4 *any)\n"
 	"func @\"\".memequal16 (@\"\".eq·1 *bool, @\"\".size·2 uintptr, @\"\".x·3 *any, @\"\".y·4 *any)\n"
@@ -113,6 +111,8 @@ char *runtimeimport =
 	"func @\"\".racefuncexit ()\n"
 	"func @\"\".raceread (? uintptr)\n"
 	"func @\"\".racewrite (? uintptr)\n"
+	"func @\"\".racereadrange (@\"\".addr·1 uintptr, @\"\".size·2 uintptr)\n"
+	"func @\"\".racewriterange (@\"\".addr·1 uintptr, @\"\".size·2 uintptr)\n"
 	"\n"
 	"$$\n";
 char *unsafeimport =

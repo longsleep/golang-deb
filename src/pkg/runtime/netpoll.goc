@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin linux
+// +build darwin dragonfly freebsd linux netbsd openbsd windows
 
 package net
 
@@ -14,7 +14,7 @@ package net
 // Integrated network poller (platform-independent part).
 // A particular implementation (epoll/kqueue) must define the following functions:
 // void runtime·netpollinit(void);			// to initialize the poller
-// int32 runtime·netpollopen(int32 fd, PollDesc *pd);	// to arm edge-triggered notifications
+// int32 runtime·netpollopen(uintptr fd, PollDesc *pd);	// to arm edge-triggered notifications
 							// and associate fd with pd.
 // An implementation must call the following function to denote that the pd is ready.
 // void runtime·netpollready(G **gpp, PollDesc *pd, int32 mode);
@@ -25,7 +25,7 @@ struct PollDesc
 {
 	PollDesc* link;	// in pollcache, protected by pollcache.Lock
 	Lock;		// protectes the following fields
-	int32	fd;
+	uintptr	fd;
 	bool	closing;
 	uintptr	seq;	// protects from stale timers and ready notifications
 	G*	rg;	// G waiting for read or READY (binary semaphore)
@@ -47,8 +47,8 @@ static struct
 	// seq is incremented when deadlines are changed or descriptor is reused.
 } pollcache;
 
-static void	netpollblock(PollDesc*, int32);
-static G*	netpollunblock(PollDesc*, int32);
+static bool	netpollblock(PollDesc*, int32);
+static G*	netpollunblock(PollDesc*, int32, bool);
 static void	deadline(int64, Eface);
 static void	readDeadline(int64, Eface);
 static void	writeDeadline(int64, Eface);
@@ -63,7 +63,7 @@ func runtime_pollServerInit() {
 	runtime·netpollinit();
 }
 
-func runtime_pollOpen(fd int) (pd *PollDesc, errno int) {
+func runtime_pollOpen(fd uintptr) (pd *PollDesc, errno int) {
 	pd = allocPollDesc();
 	runtime·lock(pd);
 	if(pd->wg != nil && pd->wg != READY)
@@ -112,18 +112,35 @@ ret:
 func runtime_pollWait(pd *PollDesc, mode int) (err int) {
 	runtime·lock(pd);
 	err = checkerr(pd, mode);
-	if(err)
-		goto ret;
-	netpollblock(pd, mode);
-	err = checkerr(pd, mode);
-ret:
+	if(err == 0) {
+		while(!netpollblock(pd, mode)) {
+			err = checkerr(pd, mode);
+			if(err != 0)
+				break;
+			// Can happen if timeout has fired and unblocked us,
+			// but before we had a chance to run, timeout has been reset.
+			// Pretend it has not happened and retry.
+		}
+	}
+	runtime·unlock(pd);
+}
+
+func runtime_pollWaitCanceled(pd *PollDesc, mode int) {
+	runtime·lock(pd);
+	// wait for ioready, ignore closing or timeouts.
+	while(!netpollblock(pd, mode))
+		;
 	runtime·unlock(pd);
 }
 
 func runtime_pollSetDeadline(pd *PollDesc, d int64, mode int) {
+	G *rg, *wg;
+
 	runtime·lock(pd);
-	if(pd->closing)
-		goto ret;
+	if(pd->closing) {
+		runtime·unlock(pd);
+		return;
+	}
 	pd->seq++;  // invalidate current timers
 	// Reset current timers.
 	if(pd->rt.fv) {
@@ -135,9 +152,8 @@ func runtime_pollSetDeadline(pd *PollDesc, d int64, mode int) {
 		pd->wt.fv = nil;
 	}
 	// Setup new timers.
-	if(d != 0 && d <= runtime·nanotime()) {
+	if(d != 0 && d <= runtime·nanotime())
 		d = -1;
-	}
 	if(mode == 'r' || mode == 'r'+'w')
 		pd->rd = d;
 	if(mode == 'w' || mode == 'r'+'w')
@@ -167,8 +183,18 @@ func runtime_pollSetDeadline(pd *PollDesc, d int64, mode int) {
 			runtime·addtimer(&pd->wt);
 		}
 	}
-ret:
+	// If we set the new deadline in the past, unblock currently pending IO if any.
+	rg = nil;
+	wg = nil;
+	if(pd->rd < 0)
+		rg = netpollunblock(pd, 'r', false);
+	if(pd->wd < 0)
+		wg = netpollunblock(pd, 'w', false);
 	runtime·unlock(pd);
+	if(rg)
+		runtime·ready(rg);
+	if(wg)
+		runtime·ready(wg);
 }
 
 func runtime_pollUnblock(pd *PollDesc) {
@@ -179,8 +205,8 @@ func runtime_pollUnblock(pd *PollDesc) {
 		runtime·throw("runtime_pollUnblock: already closing");
 	pd->closing = true;
 	pd->seq++;
-	rg = netpollunblock(pd, 'r');
-	wg = netpollunblock(pd, 'w');
+	rg = netpollunblock(pd, 'r', false);
+	wg = netpollunblock(pd, 'w', false);
 	if(pd->rt.fv) {
 		runtime·deltimer(&pd->rt);
 		pd->rt.fv = nil;
@@ -196,6 +222,12 @@ func runtime_pollUnblock(pd *PollDesc) {
 		runtime·ready(wg);
 }
 
+uintptr
+runtime·netpollfd(PollDesc *pd)
+{
+	return pd->fd;
+}
+
 // make pd ready, newly runnable goroutines (if any) are enqueued info gpp list
 void
 runtime·netpollready(G **gpp, PollDesc *pd, int32 mode)
@@ -205,9 +237,9 @@ runtime·netpollready(G **gpp, PollDesc *pd, int32 mode)
 	rg = wg = nil;
 	runtime·lock(pd);
 	if(mode == 'r' || mode == 'r'+'w')
-		rg = netpollunblock(pd, 'r');
+		rg = netpollunblock(pd, 'r', true);
 	if(mode == 'w' || mode == 'r'+'w')
-		wg = netpollunblock(pd, 'w');
+		wg = netpollunblock(pd, 'w', true);
 	runtime·unlock(pd);
 	if(rg) {
 		rg->schedlink = *gpp;
@@ -229,7 +261,8 @@ checkerr(PollDesc *pd, int32 mode)
 	return 0;
 }
 
-static void
+// returns true if IO is ready, or false if timedout or closed
+static bool
 netpollblock(PollDesc *pd, int32 mode)
 {
 	G **gpp;
@@ -239,17 +272,20 @@ netpollblock(PollDesc *pd, int32 mode)
 		gpp = &pd->wg;
 	if(*gpp == READY) {
 		*gpp = nil;
-		return;
+		return true;
 	}
 	if(*gpp != nil)
-		runtime·throw("epoll: double wait");
+		runtime·throw("netpollblock: double wait");
 	*gpp = g;
 	runtime·park(runtime·unlock, &pd->Lock, "IO wait");
 	runtime·lock(pd);
+	if(g->param)
+		return true;
+	return false;
 }
 
 static G*
-netpollunblock(PollDesc *pd, int32 mode)
+netpollunblock(PollDesc *pd, int32 mode, bool ioready)
 {
 	G **gpp, *old;
 
@@ -259,10 +295,15 @@ netpollunblock(PollDesc *pd, int32 mode)
 	if(*gpp == READY)
 		return nil;
 	if(*gpp == nil) {
-		*gpp = READY;
+		// Only set READY for ioready. runtime_pollWait
+		// will check for timeout/cancel before waiting.
+		if(ioready)
+			*gpp = READY;
 		return nil;
 	}
 	old = *gpp;
+	// pass unblock reason onto blocked g
+	old->param = (void*)ioready;
 	*gpp = nil;
 	return old;
 }
@@ -291,14 +332,14 @@ deadlineimpl(int64 now, Eface arg, bool read, bool write)
 			runtime·throw("deadlineimpl: inconsistent read deadline");
 		pd->rd = -1;
 		pd->rt.fv = nil;
-		rg = netpollunblock(pd, 'r');
+		rg = netpollunblock(pd, 'r', false);
 	}
 	if(write) {
 		if(pd->wd <= 0 || (pd->wt.fv == nil && !read))
 			runtime·throw("deadlineimpl: inconsistent write deadline");
 		pd->wd = -1;
 		pd->wt.fv = nil;
-		wg = netpollunblock(pd, 'w');
+		wg = netpollunblock(pd, 'w', false);
 	}
 	runtime·unlock(pd);
 	if(rg)
@@ -338,7 +379,7 @@ allocPollDesc(void)
 			n = 1;
 		// Must be in non-GC memory because can be referenced
 		// only from epoll/kqueue internals.
-		pd = runtime·SysAlloc(n*sizeof(*pd));
+		pd = runtime·persistentalloc(n*sizeof(*pd), 0, &mstats.other_sys);
 		for(i = 0; i < n; i++) {
 			pd[i].link = pollcache.first;
 			pollcache.first = &pd[i];

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin freebsd linux netbsd openbsd
+// +build darwin dragonfly freebsd linux netbsd openbsd
 
 package os
 
@@ -96,6 +96,9 @@ func OpenFile(name string, flag int, perm FileMode) (file *File, err error) {
 // Close closes the File, rendering it unusable for I/O.
 // It returns an error, if any.
 func (f *File) Close() error {
+	if f == nil {
+		return ErrInvalid
+	}
 	return f.file.close()
 }
 
@@ -117,6 +120,9 @@ func (file *file) close() error {
 // Stat returns the FileInfo structure describing file.
 // If there is an error, it will be of type *PathError.
 func (f *File) Stat() (fi FileInfo, err error) {
+	if f == nil {
+		return nil, ErrInvalid
+	}
 	var stat syscall.Stat_t
 	err = syscall.Fstat(f.fd, &stat)
 	if err != nil {
@@ -158,12 +164,12 @@ func (f *File) readdir(n int) (fi []FileInfo, err error) {
 	names, err := f.Readdirnames(n)
 	fi = make([]FileInfo, len(names))
 	for i, filename := range names {
-		fip, err := Lstat(dirname + filename)
-		if err == nil {
-			fi[i] = fip
-		} else {
+		fip, lerr := lstat(dirname + filename)
+		if lerr != nil {
 			fi[i] = &fileStat{name: filename}
+			continue
 		}
+		fi[i] = fip
 	}
 	return fi, err
 }

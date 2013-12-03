@@ -26,8 +26,10 @@ char *tooldir;
 char *gochar;
 char *goversion;
 char *slash;	// / for unix, \ for windows
-
-bool	rebuildall = 0;
+char *defaultcc;
+char *defaultcxx;
+bool	rebuildall;
+bool defaultclang;
 
 static bool shouldbuild(char*, char*);
 static void copy(char*, char*, int);
@@ -47,6 +49,7 @@ static char *okgoarch[] = {
 // The known operating systems.
 static char *okgoos[] = {
 	"darwin",
+	"dragonfly",
 	"linux",
 	"freebsd",
 	"netbsd",
@@ -146,6 +149,29 @@ init(void)
 		if(!streq(goextlinkenabled, "0") && !streq(goextlinkenabled, "1"))
 			fatal("unknown $GO_EXTLINK_ENABLED %s", goextlinkenabled);
 	}
+	
+	xgetenv(&b, "CC");
+	if(b.len == 0) {
+		// Use clang on OS X, because gcc is deprecated there.
+		// Xcode for OS X 10.9 Mavericks will ship a fake "gcc" binary that
+		// actually runs clang. We prepare different command
+		// lines for the two binaries, so it matters what we call it.
+		// See golang.org/issue/5822.
+		if(defaultclang)
+			bprintf(&b, "clang");
+		else
+			bprintf(&b, "gcc");
+	}
+	defaultcc = btake(&b);
+
+	xgetenv(&b, "CXX");
+	if(b.len == 0) {
+		if(defaultclang)
+			bprintf(&b, "clang++");
+		else
+			bprintf(&b, "g++");
+	}
+	defaultcxx = btake(&b);
 
 	xsetenv("GOROOT", goroot);
 	xsetenv("GOARCH", goarch);
@@ -318,7 +344,6 @@ static char *oldtool[] = {
 // Unreleased directories (relative to $GOROOT) that should
 // not be in release branches.
 static char *unreleased[] = {
-	"src/cmd/cov",
 	"src/cmd/prof",
 	"src/pkg/old",
 };
@@ -408,12 +433,16 @@ static char *proto_gccargs[] = {
 	// native Plan 9 compilers don't like non-standard prototypes
 	// so let gcc catch them.
 	"-Wstrict-prototypes",
+	"-Wextra",
+	"-Wunused",
+	"-Wuninitialized",
 	"-Wno-sign-compare",
 	"-Wno-missing-braces",
 	"-Wno-parentheses",
 	"-Wno-unknown-pragmas",
 	"-Wno-switch",
 	"-Wno-comment",
+	"-Wno-missing-field-initializers",
 	"-Werror",
 	"-fno-common",
 	"-ggdb",
@@ -471,6 +500,7 @@ static struct {
 	{"cmd/gc", {
 		"-cplx.c",
 		"-pgen.c",
+		"-popt.c",
 		"-y1.tab.c",  // makefile dreg
 		"opnames.h",
 	}},
@@ -495,18 +525,24 @@ static struct {
 	{"cmd/5g", {
 		"../gc/cplx.c",
 		"../gc/pgen.c",
+		"../gc/popt.c",
+		"../gc/popt.h",
 		"../5l/enam.c",
 		"$GOROOT/pkg/obj/$GOOS_$GOARCH/libgc.a",
 	}},
 	{"cmd/6g", {
 		"../gc/cplx.c",
 		"../gc/pgen.c",
+		"../gc/popt.c",
+		"../gc/popt.h",
 		"../6l/enam.c",
 		"$GOROOT/pkg/obj/$GOOS_$GOARCH/libgc.a",
 	}},
 	{"cmd/8g", {
 		"../gc/cplx.c",
 		"../gc/pgen.c",
+		"../gc/popt.c",
+		"../gc/popt.h",
 		"../8l/enam.c",
 		"$GOROOT/pkg/obj/$GOOS_$GOARCH/libgc.a",
 	}},
@@ -522,13 +558,18 @@ static struct {
 		"../ld/*",
 		"enam.c",
 	}},
+	{"cmd/go", {
+		"zdefaultcc.go",
+	}},
 	{"cmd/", {
 		"$GOROOT/pkg/obj/$GOOS_$GOARCH/libmach.a",
 		"$GOROOT/pkg/obj/$GOOS_$GOARCH/libbio.a",
 		"$GOROOT/pkg/obj/$GOOS_$GOARCH/lib9.a",
 	}},
 	{"pkg/runtime", {
+		"zaexperiment.h", // must sort above zasm
 		"zasm_$GOOS_$GOARCH.h",
+		"zsys_$GOOS_$GOARCH.s",
 		"zgoarch_$GOARCH.go",
 		"zgoos_$GOOS.go",
 		"zruntime_defs_$GOOS_$GOARCH.go",
@@ -553,10 +594,13 @@ static struct {
 	{"opnames.h", gcopnames},
 	{"enam.c", mkenam},
 	{"zasm_", mkzasm},
+	{"zdefaultcc.go", mkzdefaultcc},
+	{"zsys_", mkzsys},
 	{"zgoarch_", mkzgoarch},
 	{"zgoos_", mkzgoos},
 	{"zruntime_defs_", mkzruntimedefs},
 	{"zversion.go", mkzversion},
+	{"zaexperiment.h", mkzexperiment},
 };
 
 // install installs the library, package, or binary associated with dir,
@@ -565,7 +609,7 @@ static void
 install(char *dir)
 {
 	char *name, *p, *elem, *prefix, *exe;
-	bool islib, ispkg, isgo, stale, clang;
+	bool islib, ispkg, isgo, stale;
 	Buf b, b1, path;
 	Vec compile, files, link, go, missing, clean, lib, extra;
 	Time ttarg, t;
@@ -602,8 +646,8 @@ install(char *dir)
 		goto out;
 	}
 
-	// For release, cmd/prof and cmd/cov are not included.
-	if((streq(dir, "cmd/cov") || streq(dir, "cmd/prof")) && !isdir(bstr(&path))) {
+	// For release, cmd/prof is not included.
+	if((streq(dir, "cmd/prof")) && !isdir(bstr(&path))) {
 		if(vflag > 1)
 			errprintf("skipping %s - does not exist\n", dir);
 		goto out;
@@ -611,14 +655,13 @@ install(char *dir)
 
 	// set up gcc command line on first run.
 	if(gccargs.len == 0) {
-		xgetenv(&b, "CC");
-		if(b.len == 0)
-			bprintf(&b, "gcc");
-		clang = contains(bstr(&b), "clang");
+		bprintf(&b, "%s", defaultcc);
 		splitfields(&gccargs, bstr(&b));
 		for(i=0; i<nelem(proto_gccargs); i++)
 			vadd(&gccargs, proto_gccargs[i]);
-		if(clang) {
+		if(contains(gccargs.p[0], "clang")) {
+			// disable ASCII art in clang errors, if possible
+			vadd(&gccargs, "-fno-caret-diagnostics");
 			// clang is too smart about unused command-line arguments
 			vadd(&gccargs, "-Qunused-arguments");
 		}
@@ -677,6 +720,8 @@ install(char *dir)
 			vadd(&link, bpathf(&b, "%s/%s", tooldir, name));
 		} else {
 			vcopy(&link, gccargs.p, gccargs.len);
+			if(sflag)
+				vadd(&link, "-static");
 			vadd(&link, "-o");
 			targ = link.len;
 			vadd(&link, bpathf(&b, "%s/%s%s", tooldir, name, exe));
@@ -901,6 +946,8 @@ install(char *dir)
 					vadd(&compile, "-Bp+");
 				vadd(&compile, bpathf(&b, "-I%s/include/plan9", goroot));
 				vadd(&compile, bpathf(&b, "-I%s/include/plan9/%s", goroot, gohostarch));
+				// Work around Plan 9 C compiler's handling of #include with .. path.
+				vadd(&compile, bpathf(&b, "-I%s/src/cmd/ld", goroot));
 			} else {
 				vcopy(&compile, gccargs.p, gccargs.len);
 				vadd(&compile, "-c");
@@ -962,6 +1009,8 @@ install(char *dir)
 			vadd(&compile, bprintf(&b, "GOOS_%s", goos));
 			vadd(&compile, "-D");
 			vadd(&compile, bprintf(&b, "GOARCH_%s", goarch));
+			vadd(&compile, "-D");
+			vadd(&compile, bprintf(&b, "GOOS_GOARCH_%s_%s", goos, goarch));
 		}
 
 		bpathf(&b, "%s/%s", workdir, lastelem(files.p[i]));
@@ -1198,7 +1247,6 @@ static char *buildorder[] = {
 	"misc/pprof",
 
 	"cmd/addr2line",
-	"cmd/cov",
 	"cmd/nm",
 	"cmd/objdump",
 	"cmd/pack",
@@ -1236,6 +1284,7 @@ static char *buildorder[] = {
 	"pkg/os",
 	"pkg/reflect",
 	"pkg/fmt",
+	"pkg/encoding",
 	"pkg/encoding/json",
 	"pkg/flag",
 	"pkg/path/filepath",
@@ -1276,7 +1325,6 @@ static char *cleantab[] = {
 	"cmd/8l",
 	"cmd/addr2line",
 	"cmd/cc",
-	"cmd/cov",
 	"cmd/gc",
 	"cmd/go",
 	"cmd/nm",
@@ -1289,6 +1337,7 @@ static char *cleantab[] = {
 	"pkg/bufio",
 	"pkg/bytes",
 	"pkg/container/heap",
+	"pkg/encoding",
 	"pkg/encoding/base64",
 	"pkg/encoding/json",
 	"pkg/errors",
@@ -1339,7 +1388,7 @@ clean(void)
 	vinit(&dir);
 
 	for(i=0; i<nelem(cleantab); i++) {
-		if((streq(cleantab[i], "cmd/cov") || streq(cleantab[i], "cmd/prof")) && !isdir(cleantab[i]))
+		if((streq(cleantab[i], "cmd/prof")) && !isdir(cleantab[i]))
 			continue;
 		bpathf(&path, "%s/src/%s", goroot, cleantab[i]);
 		xreaddir(&dir, bstr(&path));
@@ -1438,6 +1487,7 @@ cmdenv(int argc, char **argv)
 	if(argc > 0)
 		usage();
 
+	xprintf(format, "CC", defaultcc);
 	xprintf(format, "GOROOT", goroot);
 	xprintf(format, "GOBIN", gobin);
 	xprintf(format, "GOARCH", goarch);
@@ -1478,6 +1528,9 @@ cmdbootstrap(int argc, char **argv)
 	ARGBEGIN{
 	case 'a':
 		rebuildall = 1;
+		break;
+	case 's':
+		sflag++;
 		break;
 	case 'v':
 		vflag++;
@@ -1565,6 +1618,9 @@ cmdinstall(int argc, char **argv)
 	int i;
 
 	ARGBEGIN{
+	case 's':
+		sflag++;
+		break;
 	case 'v':
 		vflag++;
 		break;
@@ -1626,7 +1682,10 @@ cmdbanner(int argc, char **argv)
 	xprintf("Installed Go for %s/%s in %s\n", goos, goarch, goroot);
 	xprintf("Installed commands in %s\n", gobin);
 
-	if(streq(gohostos, "plan9")) {
+	if(!xsamefile(goroot_final, goroot)) {
+		// If the files are to be moved, don't check that gobin
+		// is on PATH; assume they know what they are doing.
+	} else if(streq(gohostos, "plan9")) {
 		// Check that gobin is bound before /bin.
 		readfile(&b, "#c/pid");
 		bsubst(&b, " ", "");

@@ -139,9 +139,7 @@ gclean(void)
 			continue;
 		if(s->type == types[TENUM])
 			continue;
-		textflag = s->dataflag;
 		gpseudo(AGLOBL, s, nodconst(s->type->width));
-		textflag = 0;
 	}
 	nextpc();
 	p->as = AEND;
@@ -596,13 +594,13 @@ gmove(Node *f, Node *t)
 			a = AMOVD;
 			break;
 		case TCHAR:
-			a = AMOVB;
+			a = AMOVBS;
 			break;
 		case TUCHAR:
 			a = AMOVBU;
 			break;
 		case TSHORT:
-			a = AMOVH;
+			a = AMOVHS;
 			break;
 		case TUSHORT:
 			a = AMOVHU;
@@ -632,13 +630,13 @@ gmove(Node *f, Node *t)
 			a = AMOVBU;
 			break;
 		case TCHAR:
-			a = AMOVB;
+			a = AMOVBS;
 			break;
 		case TUSHORT:
 			a = AMOVHU;
 			break;
 		case TSHORT:
-			a = AMOVH;
+			a = AMOVHS;
 			break;
 		case TFLOAT:
 			a = AMOVF;
@@ -763,13 +761,13 @@ gmove(Node *f, Node *t)
 		switch(tt) {
 		case TDOUBLE:
 			regalloc(&nod, f, Z);
-			gins(AMOVH, f, &nod);
+			gins(AMOVHS, f, &nod);
 			gins(AMOVWD, &nod, t);
 			regfree(&nod);
 			return;
 		case TFLOAT:
 			regalloc(&nod, f, Z);
-			gins(AMOVH, f, &nod);
+			gins(AMOVHS, f, &nod);
 			gins(AMOVWF, &nod, t);
 			regfree(&nod);
 			return;
@@ -778,7 +776,7 @@ gmove(Node *f, Node *t)
 		case TULONG:
 		case TLONG:
 		case TIND:
-			a = AMOVH;
+			a = AMOVHS;
 			break;
 		case TSHORT:
 		case TUSHORT:
@@ -821,13 +819,13 @@ gmove(Node *f, Node *t)
 		switch(tt) {
 		case TDOUBLE:
 			regalloc(&nod, f, Z);
-			gins(AMOVB, f, &nod);
+			gins(AMOVBS, f, &nod);
 			gins(AMOVWD, &nod, t);
 			regfree(&nod);
 			return;
 		case TFLOAT:
 			regalloc(&nod, f, Z);
-			gins(AMOVB, f, &nod);
+			gins(AMOVBS, f, &nod);
 			gins(AMOVWF, &nod, t);
 			regfree(&nod);
 			return;
@@ -838,7 +836,7 @@ gmove(Node *f, Node *t)
 		case TIND:
 		case TSHORT:
 		case TUSHORT:
-			a = AMOVB;
+			a = AMOVBS;
 			break;
 		case TCHAR:
 		case TUCHAR:
@@ -895,13 +893,13 @@ gmover(Node *f, Node *t)
 	if(typechlp[ft] && typechlp[tt] && ewidth[ft] >= ewidth[tt]){
 		switch(tt){
 		case TSHORT:
-			a = AMOVH;
+			a = AMOVHS;
 			break;
 		case TUSHORT:
 			a = AMOVHU;
 			break;
 		case TCHAR:
-			a = AMOVB;
+			a = AMOVBS;
 			break;
 		case TUCHAR:
 			a = AMOVBU;
@@ -1181,15 +1179,31 @@ gpseudo(int a, Sym *s, Node *n)
 	p->from.type = D_OREG;
 	p->from.sym = s;
 	p->from.name = D_EXTERN;
-	if(a == ATEXT || a == AGLOBL) {
+
+	switch(a) {
+	case ATEXT:
 		p->reg = textflag;
 		textflag = 0;
+		break;
+	case AGLOBL:
+		p->reg = s->dataflag;
+		break;
 	}
+
 	if(s->class == CSTATIC)
 		p->from.name = D_STATIC;
 	naddr(n, &p->to);
 	if(a == ADATA || a == AGLOBL)
 		pc--;
+}
+
+void
+gpcdata(int index, int value)
+{
+	Node n1;
+	
+	n1 = *nodconst(index);
+	gins(APCDATA, &n1, nodconst(value));
 }
 
 void

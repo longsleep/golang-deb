@@ -118,6 +118,7 @@ main(int argc, char *argv[])
 {
 	int c;
 
+	quotefmtinstall(); // before cinit, which overrides %Q
 	ensuresymb(NSYMB);
 	memset(debug, 0, sizeof(debug));
 	tinit();
@@ -126,7 +127,6 @@ main(int argc, char *argv[])
 	arginit();
 	
 	fmtstrinit(&pragcgobuf);
-	quotefmtinstall();
 
 	tufield = simplet((1L<<tfield->etype) | BUNSIGNED);
 	ndef = 0;
@@ -533,7 +533,7 @@ l1:
 				yyerror("missing '");
 				peekc = c1;
 			}
-			yylval.vval = convvtox(c, TUSHORT);
+			yylval.vval = convvtox(c, TRUNE);
 			return LUCONST;
 		}
 		if(c == '"') {
@@ -607,15 +607,15 @@ l1:
 			c = escchar('"', 1, 0);
 			if(c == EOF)
 				break;
-			cp = allocn(cp, c1, sizeof(ushort));
-			*(ushort*)(cp + c1) = c;
-			c1 += sizeof(ushort);
+			cp = allocn(cp, c1, sizeof(TRune));
+			*(TRune*)(cp + c1) = c;
+			c1 += sizeof(TRune);
 		}
 		yylval.sval.l = c1;
 		do {
-			cp = allocn(cp, c1, sizeof(ushort));
-			*(ushort*)(cp + c1) = 0;
-			c1 += sizeof(ushort);
+			cp = allocn(cp, c1, sizeof(TRune));
+			*(TRune*)(cp + c1) = 0;
+			c1 += sizeof(TRune);
 		} while(c1 & MAXALIGN);
 		yylval.sval.s = cp;
 		return LLSTRING;
@@ -1019,7 +1019,7 @@ hex:
 			c += 10-'A';
 		else
 			goto bad;
-		nn = n*16 + c;
+		nn = (uvlong)n*16 + c;
 		if(n < 0 && nn >= 0)
 			goto bad;
 		n = nn;
@@ -1093,7 +1093,7 @@ getnsc(void)
 	} else
 		c = GETC();
 	for(;;) {
-		if(!isspace(c))
+		if(c >= Runeself || !isspace(c))
 			return c;
 		if(c == '\n') {
 			lineno++;
@@ -1137,7 +1137,7 @@ loop:
 		 */
 		i = 2;
 		if(longflg)
-			i = 4;
+			i = 6;
 		l = 0;
 		for(; i>0; i--) {
 			c = getc();
@@ -1167,7 +1167,7 @@ loop:
 		 */
 		i = 2;
 		if(longflg)
-			i = 5;
+			i = 8;
 		l = c - '0';
 		for(; i>0; i--) {
 			c = getc();

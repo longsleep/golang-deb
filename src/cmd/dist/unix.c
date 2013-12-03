@@ -466,9 +466,12 @@ xworkdir(void)
 	xgetenv(&b, "TMPDIR");
 	if(b.len == 0)
 		bwritestr(&b, "/var/tmp");
-	bwritestr(&b, "/go-cbuild-XXXXXX");
-	if(mkdtemp(bstr(&b)) == nil)
-		fatal("mkdtemp: %s", strerror(errno));
+	if(b.p[b.len-1] != '/')
+		bwrite(&b, "/", 1);
+	bwritestr(&b, "go-cbuild-XXXXXX");
+	p = bstr(&b);
+	if(mkdtemp(p) == nil)
+		fatal("mkdtemp(%s): %s", p, strerror(errno));
 	p = btake(&b);
 
 	bfree(&b);
@@ -548,7 +551,7 @@ hassuffix(char *p, char *suffix)
 	return np >= ns && strcmp(p+np-ns, suffix) == 0;
 }
 
-// hasprefix reports whether p begins wtih prefix.
+// hasprefix reports whether p begins with prefix.
 bool
 hasprefix(char *p, char *prefix)
 {
@@ -651,10 +654,13 @@ int
 main(int argc, char **argv)
 {
 	Buf b;
+	int osx;
 	struct utsname u;
 
 	setvbuf(stdout, nil, _IOLBF, 0);
 	setvbuf(stderr, nil, _IOLBF, 0);
+
+	setenv("TERM", "dumb", 1); // disable escape codes in clang errors
 
 	binit(&b);
 	
@@ -668,6 +674,8 @@ main(int argc, char **argv)
 		gohostarch = "amd64";
 #elif defined(__linux__)
 	gohostos = "linux";
+#elif defined(__DragonFly__)
+	gohostos = "dragonfly";
 #elif defined(__FreeBSD__)
 	gohostos = "freebsd";
 #elif defined(__FreeBSD_kernel__)
@@ -698,17 +706,23 @@ main(int argc, char **argv)
 	if(strcmp(gohostarch, "arm") == 0)
 		maxnbg = 1;
 
-	// The OS X 10.6 linker does not support external
-	// linking mode; see
-	// https://code.google.com/p/go/issues/detail?id=5130 .
-	// The mapping from the uname release field to the OS X
-	// version number is complicated, but basically 10 or under is
-	// OS X 10.6 or earlier.
+	// The OS X 10.6 linker does not support external linking mode.
+	// See golang.org/issue/5130.
+	//
+	// OS X 10.6 does not work with clang either, but OS X 10.9 requires it.
+	// It seems to work with OS X 10.8, so we default to clang for 10.8 and later.
+	// See golang.org/issue/5822.
+	//
+	// Roughly, OS X 10.N shows up as uname release (N+4),
+	// so OS X 10.6 is uname version 10 and OS X 10.8 is uname version 12.
 	if(strcmp(gohostos, "darwin") == 0) {
 		if(uname(&u) < 0)
 			fatal("uname: %s", strerror(errno));
-		if(u.release[1] == '.' || hasprefix(u.release, "10"))
+		osx = atoi(u.release) - 4;
+		if(osx <= 6)
 			goextlinkenabled = "0";
+		if(osx >= 8)
+			defaultclang = 1;
 	}
 
 	init();
@@ -745,7 +759,7 @@ xstrrchr(char *p, int c)
 	return strrchr(p, c);
 }
 
-// xsamefile returns whether f1 and f2 are the same file (or dir)
+// xsamefile reports whether f1 and f2 are the same file (or dir)
 int
 xsamefile(char *f1, char *f2)
 {

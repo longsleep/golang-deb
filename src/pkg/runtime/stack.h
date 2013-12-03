@@ -71,21 +71,19 @@ enum {
 
 	// The amount of extra stack to allocate beyond the size
 	// needed for the single frame that triggered the split.
-	StackExtra = 1024,
+	StackExtra = 2048,
 
 	// The minimum stack segment size to allocate.
 	// If the amount needed for the splitting frame + StackExtra
 	// is less than this number, the stack will have this size instead.
-	StackMin = 4096,
+	StackMin = 8192,
 	FixedStack = StackMin + StackSystem,
 
-	// Functions that need frames bigger than this call morestack
-	// unconditionally.  That is, on entry to a function it is assumed
-	// that the amount of space available in the current stack segment
-	// couldn't possibly be bigger than StackBig.  If stack segments
-	// do run with more space than StackBig, the space may not be
-	// used efficiently.  As a result, StackBig should not be significantly
-	// smaller than StackMin or StackExtra.
+	// Functions that need frames bigger than this use an extra
+	// instruction to do the stack split check, to avoid overflow
+	// in case SP - framesize wraps below zero.
+	// This value can be no bigger than the size of the unmapped
+	// space at zero.
 	StackBig = 4096,
 
 	// The stack guard is a pointer this many bytes above the
@@ -104,5 +102,11 @@ enum {
 	// The assumed size of the top-of-stack data block.
 	// The actual size can be smaller than this but cannot be larger.
 	// Checked in proc.c's runtime.malg.
-	StackTop = 72,
+	StackTop = 96,
 };
+
+// Goroutine preemption request.
+// Stored into g->stackguard0 to cause split stack check failure.
+// Must be greater than any real sp.
+// 0xfffffade in hex.
+#define StackPreempt ((uint64)-1314)

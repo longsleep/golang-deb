@@ -20,6 +20,11 @@ ulimit -c 0
 [ "$(ulimit -H -n)" == "unlimited" ] || ulimit -S -n $(ulimit -H -n)
 [ "$(ulimit -H -d)" == "unlimited" ] || ulimit -S -d $(ulimit -H -d)
 
+# Thread count limit on NetBSD 7.
+if ulimit -T &> /dev/null; then
+	[ "$(ulimit -H -T)" == "unlimited" ] || ulimit -S -T $(ulimit -H -T)
+fi
+
 # allow all.bash to avoid double-build of everything
 rebuild=true
 if [ "$1" = "--no-rebuild" ]; then
@@ -44,7 +49,7 @@ time go test std -short -timeout=$(expr 120 \* $timeout_scale)s
 echo
 
 echo '# GOMAXPROCS=2 runtime -cpu=1,2,4'
-GOMAXPROCS=2 go test runtime -short -timeout=$(expr 240 \* $timeout_scale)s -cpu=1,2,4
+GOMAXPROCS=2 go test runtime -short -timeout=$(expr 300 \* $timeout_scale)s -cpu=1,2,4
 echo
 
 echo '# sync -cpu=10'
@@ -56,101 +61,136 @@ case "$GOHOSTOS-$GOOS-$GOARCH-$CGO_ENABLED" in
 linux-linux-amd64-1 | darwin-darwin-amd64-1)
 	echo
 	echo '# Testing race detector.'
-	go test -race -i flag
+	go test -race -i runtime/race flag
+	go test -race -run=Output runtime/race
 	go test -race -short flag
 esac
 
 xcd() {
 	echo
 	echo '#' $1
-	builtin cd "$GOROOT"/src/$1
+	builtin cd "$GOROOT"/src/$1 || exit 1
 }
+
+# NOTE: "set -e" cannot help us in subshells. It works until you test it with ||.
+#
+#	$ bash --version
+#	GNU bash, version 3.2.48(1)-release (x86_64-apple-darwin12)
+#	Copyright (C) 2007 Free Software Foundation, Inc.
+#
+#	$ set -e; (set -e; false; echo still here); echo subshell exit status $?
+#	subshell exit status 1
+#	# subshell stopped early, set exit status, but outer set -e didn't stop.
+#
+#	$ set -e; (set -e; false; echo still here) || echo stopped
+#	still here
+#	# somehow the '|| echo stopped' broke the inner set -e.
+#	
+# To avoid this bug, every command in a subshell should have '|| exit 1' on it.
+# Strictly speaking, the test may be unnecessary on the final command of
+# the subshell, but it aids later editing and may avoid future bash bugs.
 
 [ "$CGO_ENABLED" != 1 ] ||
 [ "$GOHOSTOS" == windows ] ||
 (xcd ../misc/cgo/stdio
-go run $GOROOT/test/run.go - .
+go run $GOROOT/test/run.go - . || exit 1
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
 (xcd ../misc/cgo/life
-go run $GOROOT/test/run.go - .
+go run $GOROOT/test/run.go - . || exit 1
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
 (xcd ../misc/cgo/test
-set -e
-go test -ldflags '-linkmode=auto'
-go test -ldflags '-linkmode=internal'
+go test -ldflags '-linkmode=auto' || exit 1
+# linkmode=internal fails on dragonfly since errno is a TLS relocation.
+[ "$GOHOSTOS" == dragonfly ] || go test -ldflags '-linkmode=internal' || exit 1
 case "$GOHOSTOS-$GOARCH" in
 openbsd-386 | openbsd-amd64)
 	# test linkmode=external, but __thread not supported, so skip testtls.
-	go test -ldflags '-linkmode=external'
+	go test -ldflags '-linkmode=external' || exit 1
 	;;
 darwin-386 | darwin-amd64)
 	# linkmode=external fails on OS X 10.6 and earlier == Darwin
 	# 10.8 and earlier.
 	case $(uname -r) in
 	[0-9].* | 10.*) ;;
-	*) go test -ldflags '-linkmode=external' ;;
+	*) go test -ldflags '-linkmode=external'  || exit 1;;
 	esac
 	;;
-freebsd-386 | freebsd-amd64 | linux-386 | linux-amd64 | netbsd-386 | netbsd-amd64)
-	go test -ldflags '-linkmode=external'
-	go test -ldflags '-linkmode=auto' ../testtls
-	go test -ldflags '-linkmode=external' ../testtls
+dragonfly-386 | dragonfly-amd64 | freebsd-386 | freebsd-amd64 | linux-386 | linux-amd64 | linux-arm | netbsd-386 | netbsd-amd64)
+	go test -ldflags '-linkmode=external' || exit 1
+	go test -ldflags '-linkmode=auto' ../testtls || exit 1
+	go test -ldflags '-linkmode=external' ../testtls || exit 1
 esac
+) || exit $?
+
+# This tests cgo -godefs. That mode is not supported,
+# so it's okay if it doesn't work on some systems.
+# In particular, it works badly with clang on OS X.
+[ "$CGO_ENABLED" != 1 ] || [ "$GOOS" == darwin ] ||
+(xcd ../misc/cgo/testcdefs
+./test.bash || exit 1
 ) || exit $?
 
 [ "$CGO_ENABLED" != 1 ] ||
 [ "$GOHOSTOS" == windows ] ||
-[ "$GOHOSTOS" == darwin ] ||
 (xcd ../misc/cgo/testso
-./test.bash
+./test.bash || exit 1
+) || exit $?
+
+[ "$CGO_ENABLED" != 1 ] ||
+[ "$GOHOSTOS-$GOARCH" != linux-amd64 ] ||
+(xcd ../misc/cgo/testasan
+go run main.go || exit 1
+) || exit $?
+
+[ "$CGO_ENABLED" != 1 ] ||
+[ "$GOHOSTOS" == windows ] ||
+(xcd ../misc/cgo/errors
+./test.bash || exit 1
 ) || exit $?
 
 (xcd ../doc/progs
-time ./run
+time ./run || exit 1
 ) || exit $?
 
 [ "$GOARCH" == arm ] ||  # uses network, fails under QEMU
 (xcd ../doc/articles/wiki
-make clean
-./test.bash
+make clean || exit 1
+./test.bash || exit 1
 ) || exit $?
 
 (xcd ../doc/codewalk
-# TODO: test these too.
-set -e
-go build pig.go
-go build urlpoll.go
-rm -f pig urlpoll
+time ./run || exit 1
 ) || exit $?
 
 echo
-echo '#' ../misc/dashboard/builder ../misc/goplay
-go build ../misc/dashboard/builder ../misc/goplay
+echo '#' ../misc/goplay
+go build ../misc/goplay
+rm -f goplay
 
 [ "$GOARCH" == arm ] ||
 (xcd ../test/bench/shootout
-./timing.sh -test
+./timing.sh -test || exit 1
 ) || exit $?
 
 [ "$GOOS" == openbsd ] || # golang.org/issue/5057
 (
 echo
 echo '#' ../test/bench/go1
-go test ../test/bench/go1
+go test ../test/bench/go1 || exit 1
 ) || exit $?
 
 (xcd ../test
 unset GOMAXPROCS
-time go run run.go
+time go run run.go || exit 1
 ) || exit $?
 
 echo
 echo '# Checking API compatibility.'
-go tool api -c $GOROOT/api/go1.txt,$GOROOT/api/go1.1.txt -next $GOROOT/api/next.txt -except $GOROOT/api/except.txt
+time go run $GOROOT/src/cmd/api/run.go
 
 echo
 echo ALL TESTS PASSED

@@ -49,7 +49,7 @@ loop:
 	 * buffer to allow that many ungets.
 	 */
 	memmove(bp->bbuf-Bungetsize, bp->ebuf-Bungetsize, Bungetsize);
-	i = read(bp->fid, bp->bbuf, bp->bsize);
+	i = (int)read(bp->fid, bp->bbuf, (size_t)bp->bsize);
 	bp->gbuf = bp->bbuf;
 	if(i <= 0) {
 		bp->state = Bracteof;
@@ -58,12 +58,32 @@ loop:
 		return Beof;
 	}
 	if(i < bp->bsize) {
-		memmove(bp->ebuf-i-Bungetsize, bp->bbuf-Bungetsize, i+Bungetsize);
+		memmove(bp->ebuf-i-Bungetsize, bp->bbuf-Bungetsize, (size_t)(i+Bungetsize));
 		bp->gbuf = bp->ebuf-i;
 	}
 	bp->icount = -i;
 	bp->offset += i;
 	goto loop;
+}
+
+int
+Bgetle2(Biobuf *bp)
+{
+	int l, h;
+
+	l = Bgetc(bp);
+	h = Bgetc(bp);
+	return l|(h<<8);
+}
+
+int
+Bgetle4(Biobuf *bp)
+{
+	int l, h;
+
+	l = Bgetle2(bp);
+	h = Bgetle2(bp);
+	return l|((uint32)h<<16);
 }
 
 int

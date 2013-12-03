@@ -3,43 +3,44 @@
 // license that can be found in the LICENSE file.
 
 #include "runtime.h"
+#include "../../cmd/ld/textflag.h"
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 uint32
 runtime·atomicload(uint32 volatile* addr)
 {
 	return *addr;
 }
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void*
 runtime·atomicloadp(void* volatile* addr)
 {
 	return *addr;
 }
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 uint64
 runtime·xadd64(uint64 volatile* addr, int64 v)
 {
 	uint64 old;
 
-	old = *addr;
-	while(!runtime·cas64(addr, &old, old+v)) {
-		// nothing
-	}
+	do
+		old = *addr;
+	while(!runtime·cas64(addr, old, old+v));
+
 	return old+v;
 }
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 uint64
 runtime·xchg64(uint64 volatile* addr, uint64 v)
 {
 	uint64 old;
 
-	old = *addr;
-	while(!runtime·cas64(addr, &old, v)) {
-		// nothing
-	}
+	do
+		old = *addr;
+	while(!runtime·cas64(addr, old, v));
+
 	return old;
 }

@@ -25,29 +25,33 @@ type Package struct {
 	// Note: These fields are part of the go command's public API.
 	// See list.go.  It is okay to add fields, but not to change or
 	// remove existing ones.  Keep in sync with list.go
-	Dir        string `json:",omitempty"` // directory containing package sources
-	ImportPath string `json:",omitempty"` // import path of package in dir
-	Name       string `json:",omitempty"` // package name
-	Doc        string `json:",omitempty"` // package documentation string
-	Target     string `json:",omitempty"` // install path
-	Goroot     bool   `json:",omitempty"` // is this package found in the Go root?
-	Standard   bool   `json:",omitempty"` // is this package part of the standard Go library?
-	Stale      bool   `json:",omitempty"` // would 'go install' do anything for this package?
-	Root       string `json:",omitempty"` // Go root or Go path dir containing this package
+	Dir         string `json:",omitempty"` // directory containing package sources
+	ImportPath  string `json:",omitempty"` // import path of package in dir
+	Name        string `json:",omitempty"` // package name
+	Doc         string `json:",omitempty"` // package documentation string
+	Target      string `json:",omitempty"` // install path
+	Goroot      bool   `json:",omitempty"` // is this package found in the Go root?
+	Standard    bool   `json:",omitempty"` // is this package part of the standard Go library?
+	Stale       bool   `json:",omitempty"` // would 'go install' do anything for this package?
+	Root        string `json:",omitempty"` // Go root or Go path dir containing this package
+	ConflictDir string `json:",omitempty"` // Dir is hidden by this other directory
 
 	// Source files
 	GoFiles        []string `json:",omitempty"` // .go source files (excluding CgoFiles, TestGoFiles, XTestGoFiles)
 	CgoFiles       []string `json:",omitempty"` // .go sources files that import "C"
 	IgnoredGoFiles []string `json:",omitempty"` // .go sources ignored due to build constraints
 	CFiles         []string `json:",omitempty"` // .c source files
-	HFiles         []string `json:",omitempty"` // .h source files
+	CXXFiles       []string `json:",omitempty"` // .cc, .cpp and .cxx source files
+	HFiles         []string `json:",omitempty"` // .h, .hh, .hpp and .hxx source files
 	SFiles         []string `json:",omitempty"` // .s source files
-	SysoFiles      []string `json:",omitempty"` // .syso system object files added to package
 	SwigFiles      []string `json:",omitempty"` // .swig files
 	SwigCXXFiles   []string `json:",omitempty"` // .swigcxx files
+	SysoFiles      []string `json:",omitempty"` // .syso system object files added to package
 
 	// Cgo directives
 	CgoCFLAGS    []string `json:",omitempty"` // cgo: flags for C compiler
+	CgoCPPFLAGS  []string `json:",omitempty"` // cgo: flags for C preprocessor
+	CgoCXXFLAGS  []string `json:",omitempty"` // cgo: flags for C++ compiler
 	CgoLDFLAGS   []string `json:",omitempty"` // cgo: flags for linker
 	CgoPkgConfig []string `json:",omitempty"` // cgo: pkg-config names
 
@@ -73,14 +77,23 @@ type Package struct {
 	deps         []*Package
 	gofiles      []string // GoFiles+CgoFiles+TestGoFiles+XTestGoFiles files, absolute paths
 	sfiles       []string
-	allgofiles   []string // gofiles + IgnoredGoFiles, absolute paths
-	target       string   // installed file for this package (may be executable)
-	fake         bool     // synthesized package
-	forceBuild   bool     // this package must be rebuilt
-	forceLibrary bool     // this package is a library (even if named "main")
-	local        bool     // imported via local path (./ or ../)
-	localPrefix  string   // interpret ./ and ../ imports relative to this prefix
-	exeName      string   // desired name for temporary executable
+	allgofiles   []string             // gofiles + IgnoredGoFiles, absolute paths
+	target       string               // installed file for this package (may be executable)
+	fake         bool                 // synthesized package
+	forceBuild   bool                 // this package must be rebuilt
+	forceLibrary bool                 // this package is a library (even if named "main")
+	cmdline      bool                 // defined by files listed on command line
+	local        bool                 // imported via local path (./ or ../)
+	localPrefix  string               // interpret ./ and ../ imports relative to this prefix
+	exeName      string               // desired name for temporary executable
+	coverMode    string               // preprocess Go source files with the coverage tool in this mode
+	coverVars    map[string]*CoverVar // variables created by coverage analysis
+}
+
+// CoverVar holds the name of the generated coverage variables targeting the named file.
+type CoverVar struct {
+	File string // local file name
+	Var  string // name of count struct
 }
 
 func (p *Package) copyBuild(pp *build.Package) {
@@ -91,6 +104,7 @@ func (p *Package) copyBuild(pp *build.Package) {
 	p.Name = pp.Name
 	p.Doc = pp.Doc
 	p.Root = pp.Root
+	p.ConflictDir = pp.ConflictDir
 	// TODO? Target
 	p.Goroot = pp.Goroot
 	p.Standard = p.Goroot && p.ImportPath != "" && !strings.Contains(p.ImportPath, ".")
@@ -98,12 +112,15 @@ func (p *Package) copyBuild(pp *build.Package) {
 	p.CgoFiles = pp.CgoFiles
 	p.IgnoredGoFiles = pp.IgnoredGoFiles
 	p.CFiles = pp.CFiles
+	p.CXXFiles = pp.CXXFiles
 	p.HFiles = pp.HFiles
 	p.SFiles = pp.SFiles
-	p.SysoFiles = pp.SysoFiles
 	p.SwigFiles = pp.SwigFiles
 	p.SwigCXXFiles = pp.SwigCXXFiles
+	p.SysoFiles = pp.SysoFiles
 	p.CgoCFLAGS = pp.CgoCFLAGS
+	p.CgoCPPFLAGS = pp.CgoCPPFLAGS
+	p.CgoCXXFLAGS = pp.CgoCXXFLAGS
 	p.CgoLDFLAGS = pp.CgoLDFLAGS
 	p.CgoPkgConfig = pp.CgoPkgConfig
 	p.Imports = pp.Imports
@@ -115,12 +132,17 @@ func (p *Package) copyBuild(pp *build.Package) {
 
 // A PackageError describes an error loading information about a package.
 type PackageError struct {
-	ImportStack []string // shortest path from package named on command line to this one
-	Pos         string   // position of error
-	Err         string   // the error itself
+	ImportStack   []string // shortest path from package named on command line to this one
+	Pos           string   // position of error
+	Err           string   // the error itself
+	isImportCycle bool     // the error is an import cycle
 }
 
 func (p *PackageError) Error() string {
+	// Import cycles deserve special treatment.
+	if p.isImportCycle {
+		return fmt.Sprintf("%s: %s\npackage %s\n", p.Pos, p.Err, strings.Join(p.ImportStack, "\n\timports "))
+	}
 	if p.Pos != "" {
 		// Omit import stack.  The full path to the file where the error
 		// is the most important thing.
@@ -257,26 +279,38 @@ func reusePackage(p *Package, stk *importStack) *Package {
 	if p.imports == nil {
 		if p.Error == nil {
 			p.Error = &PackageError{
-				ImportStack: stk.copy(),
-				Err:         "import cycle not allowed",
+				ImportStack:   stk.copy(),
+				Err:           "import cycle not allowed",
+				isImportCycle: true,
 			}
 		}
 		p.Incomplete = true
 	}
-	if p.Error != nil && stk.shorterThan(p.Error.ImportStack) {
+	// Don't rewrite the import stack in the error if we have an import cycle.
+	// If we do, we'll lose the path that describes the cycle.
+	if p.Error != nil && !p.Error.isImportCycle && stk.shorterThan(p.Error.ImportStack) {
 		p.Error.ImportStack = stk.copy()
 	}
 	return p
 }
 
-// isGoTool is the list of directories for Go programs that are installed in
-// $GOROOT/pkg/tool.
-var isGoTool = map[string]bool{
-	"cmd/api":  true,
-	"cmd/cgo":  true,
-	"cmd/fix":  true,
-	"cmd/vet":  true,
-	"cmd/yacc": true,
+type targetDir int
+
+const (
+	toRoot targetDir = iota // to bin dir inside package root (default)
+	toTool                  // GOROOT/pkg/tool
+	toBin                   // GOROOT/bin
+)
+
+// goTools is a map of Go program import path to install target directory.
+var goTools = map[string]targetDir{
+	"cmd/api":                              toTool,
+	"cmd/cgo":                              toTool,
+	"cmd/fix":                              toTool,
+	"cmd/yacc":                             toTool,
+	"code.google.com/p/go.tools/cmd/cover": toTool,
+	"code.google.com/p/go.tools/cmd/godoc": toBin,
+	"code.google.com/p/go.tools/cmd/vet":   toTool,
 }
 
 // expandScanner expands a scanner.List error into all the errors in the list.
@@ -298,6 +332,23 @@ func expandScanner(err error) error {
 		return errors.New(buf.String())
 	}
 	return err
+}
+
+var raceExclude = map[string]bool{
+	"runtime/race": true,
+	"runtime/cgo":  true,
+	"cmd/cgo":      true,
+	"syscall":      true,
+	"errors":       true,
+}
+
+var cgoExclude = map[string]bool{
+	"runtime/cgo": true,
+}
+
+var cgoSyscallExclude = map[string]bool{
+	"runtime/cgo":  true,
+	"runtime/race": true,
 }
 
 // load populates p using information from bp, err, which should
@@ -326,10 +377,18 @@ func (p *Package) load(stk *importStack, bp *build.Package, err error) *Package 
 			// Install cross-compiled binaries to subdirectories of bin.
 			elem = full
 		}
-		if p.build.BinDir != "" {
+		if p.build.BinDir != gobin && goTools[p.ImportPath] == toBin {
+			// Override BinDir.
+			// This is from a subrepo but installs to $GOROOT/bin
+			// by default anyway (like godoc).
+			p.target = filepath.Join(gorootBin, elem)
+		} else if p.build.BinDir != "" {
+			// Install to GOBIN or bin of GOPATH entry.
 			p.target = filepath.Join(p.build.BinDir, elem)
 		}
-		if p.Goroot && (isGoTool[p.ImportPath] || strings.HasPrefix(p.ImportPath, "exp/")) {
+		if goTools[p.ImportPath] == toTool {
+			// This is for 'go tool'.
+			// Override all the usual logic and force it into the tool directory.
 			p.target = filepath.Join(gorootPkg, "tool", full)
 		}
 		if p.target != "" && buildContext.GOOS == "windows" {
@@ -344,17 +403,22 @@ func (p *Package) load(stk *importStack, bp *build.Package, err error) *Package 
 	}
 
 	importPaths := p.Imports
-	// Packages that use cgo import runtime/cgo implicitly,
-	// except runtime/cgo itself.
-	if len(p.CgoFiles) > 0 && (!p.Standard || p.ImportPath != "runtime/cgo") {
+	// Packages that use cgo import runtime/cgo implicitly.
+	// Packages that use cgo also import syscall implicitly,
+	// to wrap errno.
+	// Exclude certain packages to avoid circular dependencies.
+	if len(p.CgoFiles) > 0 && (!p.Standard || !cgoExclude[p.ImportPath]) {
 		importPaths = append(importPaths, "runtime/cgo")
+	}
+	if len(p.CgoFiles) > 0 && (!p.Standard || !cgoSyscallExclude[p.ImportPath]) {
+		importPaths = append(importPaths, "syscall")
 	}
 	// Everything depends on runtime, except runtime and unsafe.
 	if !p.Standard || (p.ImportPath != "runtime" && p.ImportPath != "unsafe") {
 		importPaths = append(importPaths, "runtime")
 		// When race detection enabled everything depends on runtime/race.
-		// Exclude runtime/cgo and cmd/cgo to avoid circular dependencies.
-		if buildRace && (!p.Standard || (p.ImportPath != "runtime/race" && p.ImportPath != "runtime/cgo" && p.ImportPath != "cmd/cgo")) {
+		// Exclude certain packages to avoid circular dependencies.
+		if buildRace && (!p.Standard || !raceExclude[p.ImportPath]) {
 			importPaths = append(importPaths, "runtime/race")
 		}
 	}
@@ -389,6 +453,7 @@ func (p *Package) load(stk *importStack, bp *build.Package, err error) *Package 
 		p.CgoFiles,
 		p.IgnoredGoFiles,
 		p.CFiles,
+		p.CXXFiles,
 		p.HFiles,
 		p.SFiles,
 		p.SysoFiles,
@@ -476,9 +541,14 @@ func (p *Package) load(stk *importStack, bp *build.Package, err error) *Package 
 	return p
 }
 
-// usesSwig returns whether the package needs to run SWIG.
+// usesSwig reports whether the package needs to run SWIG.
 func (p *Package) usesSwig() bool {
 	return len(p.SwigFiles) > 0 || len(p.SwigCXXFiles) > 0
+}
+
+// usesCgo reports whether the package needs to run cgo
+func (p *Package) usesCgo() bool {
+	return len(p.CgoFiles) > 0
 }
 
 // swigSoname returns the name of the shared library we create for a
@@ -611,24 +681,9 @@ func isStale(p *Package, topRoot map[string]bool) bool {
 		return false
 	}
 
-	srcs := stringList(p.GoFiles, p.CFiles, p.HFiles, p.SFiles, p.CgoFiles, p.SysoFiles)
+	srcs := stringList(p.GoFiles, p.CFiles, p.CXXFiles, p.HFiles, p.SFiles, p.CgoFiles, p.SysoFiles, p.SwigFiles, p.SwigCXXFiles)
 	for _, src := range srcs {
 		if olderThan(filepath.Join(p.Dir, src)) {
-			return true
-		}
-	}
-
-	for _, src := range stringList(p.SwigFiles, p.SwigCXXFiles) {
-		if olderThan(filepath.Join(p.Dir, src)) {
-			return true
-		}
-		soname := p.swigSoname(src)
-		fi, err := os.Stat(soname)
-		if err != nil {
-			return true
-		}
-		fiSrc, err := os.Stat(src)
-		if err != nil || fiSrc.ModTime().After(fi.ModTime()) {
 			return true
 		}
 	}

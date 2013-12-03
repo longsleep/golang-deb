@@ -1025,6 +1025,38 @@ func TestWriterReadFromWhileFull(t *testing.T) {
 	}
 }
 
+func TestReaderReset(t *testing.T) {
+	r := NewReader(strings.NewReader("foo foo"))
+	buf := make([]byte, 3)
+	r.Read(buf)
+	if string(buf) != "foo" {
+		t.Errorf("buf = %q; want foo", buf)
+	}
+	r.Reset(strings.NewReader("bar bar"))
+	all, err := ioutil.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(all) != "bar bar" {
+		t.Errorf("ReadAll = %q; want bar bar", all)
+	}
+}
+
+func TestWriterReset(t *testing.T) {
+	var buf1, buf2 bytes.Buffer
+	w := NewWriter(&buf1)
+	w.WriteString("foo")
+	w.Reset(&buf2) // and not flushed
+	w.WriteString("bar")
+	w.Flush()
+	if buf1.String() != "" {
+		t.Errorf("buf1 = %q; want empty", buf1.String())
+	}
+	if buf2.String() != "bar" {
+		t.Errorf("buf2 = %q; want bar", buf2.String())
+	}
+}
+
 // An onlyReader only implements io.Reader, no matter what other methods the underlying implementation may have.
 type onlyReader struct {
 	r io.Reader
@@ -1103,5 +1135,48 @@ func BenchmarkWriterCopyNoReadFrom(b *testing.B) {
 		dst := onlyWriter{NewWriter(new(bytes.Buffer))}
 		b.StartTimer()
 		io.Copy(dst, src)
+	}
+}
+
+func BenchmarkReaderEmpty(b *testing.B) {
+	b.ReportAllocs()
+	str := strings.Repeat("x", 16<<10)
+	for i := 0; i < b.N; i++ {
+		br := NewReader(strings.NewReader(str))
+		n, err := io.Copy(ioutil.Discard, br)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if n != int64(len(str)) {
+			b.Fatal("wrong length")
+		}
+	}
+}
+
+func BenchmarkWriterEmpty(b *testing.B) {
+	b.ReportAllocs()
+	str := strings.Repeat("x", 1<<10)
+	bs := []byte(str)
+	for i := 0; i < b.N; i++ {
+		bw := NewWriter(ioutil.Discard)
+		bw.Flush()
+		bw.WriteByte('a')
+		bw.Flush()
+		bw.WriteRune('B')
+		bw.Flush()
+		bw.Write(bs)
+		bw.Flush()
+		bw.WriteString(str)
+		bw.Flush()
+	}
+}
+
+func BenchmarkWriterFlush(b *testing.B) {
+	b.ReportAllocs()
+	bw := NewWriter(ioutil.Discard)
+	str := strings.Repeat("x", 50)
+	for i := 0; i < b.N; i++ {
+		bw.WriteString(str)
+		bw.Flush()
 	}
 }

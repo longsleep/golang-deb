@@ -87,7 +87,7 @@ void
 Bputname(Biobuf *b, Sym *s)
 {
 	Bprint(b, "%s", s->pkg->prefix);
-	Bputc(b, '.');
+	BPUTC(b, '.');
 	Bwrite(b, s->name, strlen(s->name)+1);
 }
 
@@ -124,7 +124,7 @@ outwinname(Biobuf *b, Hist *h, char *ds, char *p)
 		outzfile(b, p+1);
 	} else {
 		// relative name
-		if(h->offset == 0 && pathname && pathname[1] == ':') {
+		if(h->offset >= 0 && pathname && pathname[1] == ':') {
 			if(tolowerrune(ds[0]) == tolowerrune(pathname[0])) {
 				// using current drive
 				zfile(b, pathname, 3);	// leading "c:/"
@@ -235,7 +235,7 @@ ieeedtod(uint64 *ieee, double native)
 		return;
 	}
 	fr = frexp(native, &exp);
-	f = 2097152L;		/* shouldnt use fp constants here */
+	f = 2097152L;		/* shouldn't use fp constants here */
 	fr = modf(fr*f, &ho);
 	h = ho;
 	h &= 0xfffffL;

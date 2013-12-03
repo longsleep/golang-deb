@@ -41,6 +41,19 @@ static struct {
 } exper[] = {
 //	{"rune32", &rune32},
 	{"fieldtrack", &fieldtrack_enabled},
+	{"precisestack", &precisestack_enabled},
+	{nil, nil},
+};
+
+// Debug arguments.
+// These can be specified with the -d flag, as in "-d checknil"
+// to set the debug_checknil variable. In general the list passed
+// to -d can be comma-separated.
+static struct {
+	char *name;
+	int *val;
+} debugtab[] = {
+	{"nil", &debug_checknil},
 	{nil, nil},
 };
 
@@ -238,12 +251,13 @@ main(int argc, char *argv[])
 	flagfn0("V", "print compiler version", doversion);
 	flagcount("W", "debug parse tree after type checking", &debug['W']);
 	flagcount("complete", "compiling complete package (no C or assembly)", &pure_go);
-	flagcount("d", "debug declarations", &debug['d']);
+	flagstr("d", "list: print debug information about items in list", &debugstr);
 	flagcount("e", "no limit on number of errors reported", &debug['e']);
 	flagcount("f", "debug stack frames", &debug['f']);
 	flagcount("g", "debug code generation", &debug['g']);
 	flagcount("h", "halt on error", &debug['h']);
 	flagcount("i", "debug line number stack", &debug['i']);
+	flagstr("installsuffix", "pkg directory suffix", &flag_installsuffix);
 	flagcount("j", "debug runtime-initialized variables", &debug['j']);
 	flagcount("l", "disable inlining", &debug['l']);
 	flagcount("m", "print optimization decisions", &debug['m']);
@@ -268,6 +282,24 @@ main(int argc, char *argv[])
 	if(flag_race) {
 		racepkg = mkpkg(strlit("runtime/race"));
 		racepkg->name = "race";
+	}
+	
+	// parse -d argument
+	if(debugstr) {
+		char *f[100];
+		int i, j, nf;
+		
+		nf = getfields(debugstr, f, nelem(f), 1, ",");
+		for(i=0; i<nf; i++) {
+			for(j=0; debugtab[j].name != nil; j++) {
+				if(strcmp(debugtab[j].name, f[i]) == 0) {
+					*debugtab[j].val = 1;
+					break;
+				}
+			}
+			if(j == nelem(debugtab))
+				fatal("unknown debug information -d '%s'\n", f[i]);
+		}
 	}
 
 	// enable inlining.  for now:
@@ -329,6 +361,8 @@ main(int argc, char *argv[])
 		curio.peekc = 0;
 		curio.peekc1 = 0;
 		curio.nlsemi = 0;
+		curio.eofnl = 0;
+		curio.last = 0;
 
 		// Skip initial BOM if present.
 		if(Bgetrune(curio.bin) != BOM)
@@ -416,6 +450,10 @@ main(int argc, char *argv[])
 	// Phase 5: Escape analysis.
 	if(!debug['N'])
 		escapes(xtop);
+	
+	// Escape analysis moved escaped values off stack.
+	// Move large values off stack too.
+	movelarge(xtop);
 
 	// Phase 6: Compile top level functions.
 	for(l=xtop; l; l=l->next)
@@ -540,7 +578,7 @@ static int
 findpkg(Strlit *name)
 {
 	Idir *p;
-	char *q, *race;
+	char *q, *suffix, *suffixsep;
 
 	if(islocalname(name)) {
 		if(safemode)
@@ -578,13 +616,19 @@ findpkg(Strlit *name)
 			return 1;
 	}
 	if(goroot != nil) {
-		race = "";
-		if(flag_race)
-			race = "_race";
-		snprint(namebuf, sizeof(namebuf), "%s/pkg/%s_%s%s/%Z.a", goroot, goos, goarch, race, name);
+		suffix = "";
+		suffixsep = "";
+		if(flag_installsuffix != nil) {
+			suffixsep = "_";
+			suffix = flag_installsuffix;
+		} else if(flag_race) {
+			suffixsep = "_";
+			suffix = "race";
+		}
+		snprint(namebuf, sizeof(namebuf), "%s/pkg/%s_%s%s%s/%Z.a", goroot, goos, goarch, suffixsep, suffix, name);
 		if(access(namebuf, 0) >= 0)
 			return 1;
-		snprint(namebuf, sizeof(namebuf), "%s/pkg/%s_%s%s/%Z.%c", goroot, goos, goarch, race, name, thechar);
+		snprint(namebuf, sizeof(namebuf), "%s/pkg/%s_%s%s%s/%Z.%c", goroot, goos, goarch, suffixsep, suffix, name, thechar);
 		if(access(namebuf, 0) >= 0)
 			return 1;
 	}
@@ -1580,10 +1624,10 @@ getc(void)
 			curio.cp++;
 	} else {
 	loop:
-		c = Bgetc(curio.bin);
+		c = BGETC(curio.bin);
 		if(c == 0xef) {
-			c1 = Bgetc(curio.bin);
-			c2 = Bgetc(curio.bin);
+			c1 = BGETC(curio.bin);
+			c2 = BGETC(curio.bin);
 			if(c1 == 0xbb && c2 == 0xbf) {
 				yyerrorl(lexlineno, "Unicode (UTF-8) BOM in middle of file");
 				goto loop;
@@ -1602,7 +1646,7 @@ check:
 		}
 	case EOF:
 		// insert \n at EOF
-		if(curio.eofnl)
+		if(curio.eofnl || curio.last == '\n')
 			return EOF;
 		curio.eofnl = 1;
 		c = '\n';
@@ -1611,6 +1655,7 @@ check:
 			lexlineno++;
 		break;
 	}
+	curio.last = c;
 	return c;
 }
 
@@ -1971,27 +2016,27 @@ lexinit1(void)
 	// error type
 	s = lookup("error");
 	s->lexical = LNAME;
-	errortype = t;
-	errortype->sym = s;
 	s1 = pkglookup("error", builtinpkg);
+	errortype = t;
+	errortype->sym = s1;
 	s1->lexical = LNAME;
 	s1->def = typenod(errortype);
 
 	// byte alias
 	s = lookup("byte");
 	s->lexical = LNAME;
-	bytetype = typ(TUINT8);
-	bytetype->sym = s;
 	s1 = pkglookup("byte", builtinpkg);
+	bytetype = typ(TUINT8);
+	bytetype->sym = s1;
 	s1->lexical = LNAME;
 	s1->def = typenod(bytetype);
 
 	// rune alias
 	s = lookup("rune");
 	s->lexical = LNAME;
-	runetype = typ(TINT32);
-	runetype->sym = s;
 	s1 = pkglookup("rune", builtinpkg);
+	runetype = typ(TINT32);
+	runetype->sym = s1;
 	s1->lexical = LNAME;
 	s1->def = typenod(runetype);
 }
@@ -2242,6 +2287,28 @@ yytinit(void)
 	}		
 }
 
+static void
+pkgnotused(int lineno, Strlit *path, char *name)
+{
+	char *elem;
+	
+	// If the package was imported with a name other than the final
+	// import path element, show it explicitly in the error message.
+	// Note that this handles both renamed imports and imports of
+	// packages containing unconventional package declarations.
+	// Note that this uses / always, even on Windows, because Go import
+	// paths always use forward slashes.
+	elem = strrchr(path->s, '/');
+	if(elem != nil)
+		elem++;
+	else
+		elem = path->s;
+	if(name == nil || strcmp(elem, name) == 0)
+		yyerrorl(lineno, "imported and not used: \"%Z\"", path);
+	else
+		yyerrorl(lineno, "imported and not used: \"%Z\" as %s", path, name);
+}
+
 void
 mkpackage(char* pkgname)
 {
@@ -2267,7 +2334,7 @@ mkpackage(char* pkgname)
 					// errors if a conflicting top-level name is
 					// introduced by a different file.
 					if(!s->def->used && !nsyntaxerrors)
-						yyerrorl(s->def->lineno, "imported and not used: \"%Z\"", s->def->pkg->path);
+						pkgnotused(s->def->lineno, s->def->pkg->path, s->name);
 					s->def = N;
 					continue;
 				}
@@ -2275,7 +2342,7 @@ mkpackage(char* pkgname)
 					// throw away top-level name left over
 					// from previous import . "x"
 					if(s->def->pack != N && !s->def->pack->used && !nsyntaxerrors) {
-						yyerrorl(s->def->pack->lineno, "imported and not used: \"%Z\"", s->def->pack->pkg->path);
+						pkgnotused(s->def->pack->lineno, s->def->pack->pkg->path, nil);
 						s->def->pack->used = 1;
 					}
 					s->def = N;

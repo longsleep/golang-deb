@@ -49,6 +49,16 @@ uchar	ynop[] =
 	Yrf,	Ynone,	Zpseudo,1,
 	0
 };
+uchar	yfuncdata[] =
+{
+	Yi32,	Ym,	Zpseudo,	0,
+	0
+};
+uchar	ypcdata[] =
+{
+	Yi32,	Yi32,	Zpseudo,	0,
+	0,
+};
 uchar	yxorb[] =
 {
 	Yi32,	Yal,	Zib_,	1,
@@ -142,6 +152,17 @@ uchar	ymovb[] =
 	Yi32,	Ymb,	Zibo_m,	2,
 	0
 };
+uchar	ymovw[] =
+{
+	Yrl,	Yml,	Zr_m,	1,
+	Yml,	Yrl,	Zm_r,	1,
+	Yi0,	Yrl,	Zclr,	1+2,
+//	Yi0,	Yml,	Zibo_m,	2,	// shorter but slower AND $0,dst
+	Yi32,	Yrl,	Zil_rp,	1,
+	Yi32,	Yml,	Zilo_m,	2,
+	Yiauto,	Yrl,	Zaut_r,	1,
+	0
+};
 uchar	ymovl[] =
 {
 	Yrl,	Yml,	Zr_m,	1,
@@ -152,7 +173,7 @@ uchar	ymovl[] =
 	Yi32,	Yml,	Zilo_m,	2,
 	Yml,	Yxr,	Zm_r_xm,	2,	// XMM MOVD (32 bit)
 	Yxr,	Yml,	Zr_m_xm,	2,	// XMM MOVD (32 bit)
-	Yiauto,	Yrl,	Zaut_r,	2,
+	Yiauto,	Yrl,	Zaut_r,	1,
 	0
 };
 uchar	ymovq[] =
@@ -196,8 +217,10 @@ uchar	yml_mb[] =
 	Ymb,	Yrb,	Zm_r,	1,
 	0
 };
-uchar	yml_ml[] =
+uchar	yxchg[] =
 {
+	Yax,	Yrl,	Z_rp,	1,
+	Yrl,	Yax,	Zrp_,	1,
 	Yrl,	Yml,	Zr_m,	1,
 	Yml,	Yrl,	Zm_r,	1,
 	0
@@ -580,8 +603,8 @@ Optab optab[] =
 	{ ALSLL,	yml_rl,	Pm, 0x03  },
 	{ ALSLW,	yml_rl,	Pq, 0x03  },
 	{ AMOVB,	ymovb,	Pb, 0x88,0x8a,0xb0,0xc6,(00) },
-	{ AMOVL,	ymovl,	Px, 0x89,0x8b,0x31,0x83,(04),0xb8,0xc7,(00),Pe,0x6e,Pe,0x7e },
-	{ AMOVW,	ymovl,	Pe, 0x89,0x8b,0x31,0x83,(04),0xb8,0xc7,(00) },
+	{ AMOVL,	ymovl,	Px, 0x89,0x8b,0x31,0x83,(04),0xb8,0xc7,(00),Pe,0x6e,Pe,0x7e,0 },
+	{ AMOVW,	ymovw,	Pe, 0x89,0x8b,0x31,0x83,(04),0xb8,0xc7,(00),0 },
 	{ AMOVQ,	ymovq,	Pf3, 0x7e },
 	{ AMOVBLSX,	ymb_rl,	Pm, 0xbe },
 	{ AMOVBLZX,	ymb_rl,	Pm, 0xb6 },
@@ -696,8 +719,8 @@ Optab optab[] =
 	{ AWAIT,	ynone,	Px, 0x9b },
 	{ AWORD,	ybyte,	Px, 2 },
 	{ AXCHGB,	yml_mb,	Pb, 0x86,0x86 },
-	{ AXCHGL,	yml_ml,	Px, 0x87,0x87 },
-	{ AXCHGW,	yml_ml,	Pe, 0x87,0x87 },
+	{ AXCHGL,	yxchg,	Px, 0x90,0x90,0x87,0x87 },
+	{ AXCHGW,	yxchg,	Pe, 0x90,0x90,0x87,0x87 },
 	{ AXLAT,	ynone,	Px, 0xd7 },
 	{ AXORB,	yxorb,	Pb, 0x34,0x80,(06),0x30,0x32 },
 	{ AXORL,	yxorl,	Px, 0x83,(06),0x35,0x81,(06),0x31,0x33 },
@@ -999,8 +1022,9 @@ Optab optab[] =
 	{ APSHUFB,	ymshufb,Pq, 0x38, 0x00 },
 
 	{ AUSEFIELD,	ynop,	Px, 0,0 },
-	{ ALOCALS },
 	{ ATYPE },
+	{ AFUNCDATA,	yfuncdata,	Px, 0,0 },
+	{ APCDATA,	ypcdata,	Px, 0,0 },
 
 	0
 };

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin freebsd linux netbsd openbsd
+// +build darwin dragonfly freebsd linux netbsd openbsd
 
 package syscall
 
@@ -18,7 +18,10 @@ var (
 	Stderr = 2
 )
 
-const darwinAMD64 = runtime.GOOS == "darwin" && runtime.GOARCH == "amd64"
+const (
+	darwin64Bit = runtime.GOOS == "darwin" && sizeofPtr == 8
+	netbsd32Bit = runtime.GOOS == "netbsd" && sizeofPtr == 4
+)
 
 func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
 func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
@@ -130,8 +133,13 @@ func (s Signal) String() string {
 
 func Read(fd int, p []byte) (n int, err error) {
 	n, err = read(fd, p)
-	if raceenabled && err == nil {
-		raceAcquire(unsafe.Pointer(&ioSync))
+	if raceenabled {
+		if n > 0 {
+			raceWriteRange(unsafe.Pointer(&p[0]), n)
+		}
+		if err == nil {
+			raceAcquire(unsafe.Pointer(&ioSync))
+		}
 	}
 	return
 }
@@ -140,7 +148,144 @@ func Write(fd int, p []byte) (n int, err error) {
 	if raceenabled {
 		raceReleaseMerge(unsafe.Pointer(&ioSync))
 	}
-	return write(fd, p)
+	n, err = write(fd, p)
+	if raceenabled && n > 0 {
+		raceReadRange(unsafe.Pointer(&p[0]), n)
+	}
+	return
+}
+
+// For testing: clients can set this flag to force
+// creation of IPv6 sockets to return EAFNOSUPPORT.
+var SocketDisableIPv6 bool
+
+type Sockaddr interface {
+	sockaddr() (ptr uintptr, len _Socklen, err error) // lowercase; only we can define Sockaddrs
+}
+
+type SockaddrInet4 struct {
+	Port int
+	Addr [4]byte
+	raw  RawSockaddrInet4
+}
+
+type SockaddrInet6 struct {
+	Port   int
+	ZoneId uint32
+	Addr   [16]byte
+	raw    RawSockaddrInet6
+}
+
+type SockaddrUnix struct {
+	Name string
+	raw  RawSockaddrUnix
+}
+
+func Bind(fd int, sa Sockaddr) (err error) {
+	ptr, n, err := sa.sockaddr()
+	if err != nil {
+		return err
+	}
+	return bind(fd, ptr, n)
+}
+
+func Connect(fd int, sa Sockaddr) (err error) {
+	ptr, n, err := sa.sockaddr()
+	if err != nil {
+		return err
+	}
+	return connect(fd, ptr, n)
+}
+
+func Getpeername(fd int) (sa Sockaddr, err error) {
+	var rsa RawSockaddrAny
+	var len _Socklen = SizeofSockaddrAny
+	if err = getpeername(fd, &rsa, &len); err != nil {
+		return
+	}
+	return anyToSockaddr(&rsa)
+}
+
+func GetsockoptInt(fd, level, opt int) (value int, err error) {
+	var n int32
+	vallen := _Socklen(4)
+	err = getsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), &vallen)
+	return int(n), err
+}
+
+func Recvfrom(fd int, p []byte, flags int) (n int, from Sockaddr, err error) {
+	var rsa RawSockaddrAny
+	var len _Socklen = SizeofSockaddrAny
+	if n, err = recvfrom(fd, p, flags, &rsa, &len); err != nil {
+		return
+	}
+	if rsa.Addr.Family != AF_UNSPEC {
+		from, err = anyToSockaddr(&rsa)
+	}
+	return
+}
+
+func Sendto(fd int, p []byte, flags int, to Sockaddr) (err error) {
+	ptr, n, err := to.sockaddr()
+	if err != nil {
+		return err
+	}
+	return sendto(fd, p, flags, ptr, n)
+}
+
+func SetsockoptByte(fd, level, opt int, value byte) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&value)), 1)
+}
+
+func SetsockoptInt(fd, level, opt int, value int) (err error) {
+	var n = int32(value)
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), 4)
+}
+
+func SetsockoptInet4Addr(fd, level, opt int, value [4]byte) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&value[0])), 4)
+}
+
+func SetsockoptIPMreq(fd, level, opt int, mreq *IPMreq) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(mreq)), SizeofIPMreq)
+}
+
+func SetsockoptIPv6Mreq(fd, level, opt int, mreq *IPv6Mreq) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(mreq)), SizeofIPv6Mreq)
+}
+
+func SetsockoptICMPv6Filter(fd, level, opt int, filter *ICMPv6Filter) error {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(filter)), SizeofICMPv6Filter)
+}
+
+func SetsockoptLinger(fd, level, opt int, l *Linger) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(l)), SizeofLinger)
+}
+
+func SetsockoptString(fd, level, opt int, s string) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&[]byte(s)[0])), uintptr(len(s)))
+}
+
+func SetsockoptTimeval(fd, level, opt int, tv *Timeval) (err error) {
+	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(tv)), unsafe.Sizeof(*tv))
+}
+
+func Socket(domain, typ, proto int) (fd int, err error) {
+	if domain == AF_INET6 && SocketDisableIPv6 {
+		return -1, EAFNOSUPPORT
+	}
+	fd, err = socket(domain, typ, proto)
+	return
+}
+
+func Socketpair(domain, typ, proto int) (fd [2]int, err error) {
+	var fdx [2]int32
+	err = socketpair(domain, typ, proto, &fdx)
+	if err == nil {
+		fd[0] = int(fdx[0])
+		fd[1] = int(fdx[1])
+	}
+	return
 }
 
 func Sendfile(outfd int, infd int, offset *int64, count int) (written int, err error) {
