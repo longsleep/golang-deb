@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin freebsd linux netbsd openbsd
+// +build darwin dragonfly freebsd linux netbsd openbsd
 
 #include "runtime.h"
 #include "defs_GOOS_GOARCH.h"
@@ -39,8 +39,7 @@ runtime·sighandler(int32 sig, Siginfo *info, void *ctxt, G *gp)
 	bool crash;
 
 	if(sig == SIGPROF) {
-		if(gp != m->g0 && gp != m->gsignal)
-			runtime·sigprof((byte*)SIG_EIP(info, ctxt), (byte*)SIG_ESP(info, ctxt), nil, gp);
+		runtime·sigprof((byte*)SIG_EIP(info, ctxt), (byte*)SIG_ESP(info, ctxt), nil, gp);
 		return;
 	}
 
@@ -96,6 +95,8 @@ runtime·sighandler(int32 sig, Siginfo *info, void *ctxt, G *gp)
 		return;
 
 Throw:
+	m->throwing = 1;
+	m->caughtsig = gp;
 	runtime·startpanic();
 
 	if(sig < 0 || sig >= NSIG)
@@ -111,8 +112,9 @@ Throw:
 	runtime·printf("\n");
 
 	if(runtime·gotraceback(&crash)){
-		runtime·traceback((void*)SIG_EIP(info, ctxt), (void*)SIG_ESP(info, ctxt), 0, gp);
+		runtime·traceback(SIG_EIP(info, ctxt), SIG_ESP(info, ctxt), 0, gp);
 		runtime·tracebackothers(gp);
+		runtime·printf("\n");
 		runtime·dumpregs(info, ctxt);
 	}
 	

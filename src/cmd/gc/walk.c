@@ -21,6 +21,7 @@ static	NodeList*	reorder3(NodeList*);
 static	Node*	addstr(Node*, NodeList**);
 static	Node*	appendslice(Node*, NodeList**);
 static	Node*	append(Node*, NodeList**);
+static	Node*	copyany(Node*, NodeList**);
 static	Node*	sliceany(Node*, NodeList**);
 static	void	walkcompare(Node**, NodeList**);
 static	void	walkrotate(Node**);
@@ -174,6 +175,8 @@ walkstmt(Node **np)
 		n->ninit = nil;
 		walkexpr(&n, &init);
 		addinit(&n, init);
+		if((*np)->op == OCOPY && n->op == OCONVNOP)
+			n->op = OEMPTY; // don't leave plain values as statements.
 		break;
 
 	case OBREAK:
@@ -184,7 +187,7 @@ walkstmt(Node **np)
 	case OLABEL:
 	case ODCLCONST:
 	case ODCLTYPE:
-	case OCHECKNOTNIL:
+	case OCHECKNIL:
 		break;
 
 	case OBLOCK:
@@ -282,6 +285,9 @@ walkstmt(Node **np)
 		n->list = ll;
 		break;
 
+	case ORETJMP:
+		break;
+
 	case OSELECT:
 		walkselect(n);
 		break;
@@ -337,7 +343,7 @@ walkexpr(Node **np, NodeList **init)
 	Node *r, *l, *var, *a;
 	NodeList *ll, *lr, *lpost;
 	Type *t;
-	int et;
+	int et, old_safemode;
 	int64 v;
 	int32 lno;
 	Node *n, *fn, *n1, *n2;
@@ -401,10 +407,6 @@ walkexpr(Node **np, NodeList **init)
 		goto ret;
 
 	case OIND:
-		if(n->left->type->type->width == 0) {
-			n->left = cheapexpr(n->left, init);
-			checknotnil(n->left, init);
-		}
 		walkexpr(&n->left, init);
 		goto ret;
 
@@ -416,8 +418,9 @@ walkexpr(Node **np, NodeList **init)
 	case ODOTPTR:
 		usefield(n);
 		if(n->op == ODOTPTR && n->left->type->type->width == 0) {
+			// No actual copy will be generated, so emit an explicit nil check.
 			n->left = cheapexpr(n->left, init);
-			checknotnil(n->left, init);
+			checknil(n->left, init);
 		}
 		walkexpr(&n->left, init);
 		goto ret;
@@ -427,6 +430,7 @@ walkexpr(Node **np, NodeList **init)
 		walkexpr(&n->right, init);
 		goto ret;
 
+	case OSPTR:
 	case OITAB:
 		walkexpr(&n->left, init);
 		goto ret;
@@ -483,7 +487,15 @@ walkexpr(Node **np, NodeList **init)
 	case ONE:
 		walkexpr(&n->left, init);
 		walkexpr(&n->right, init);
+		// Disable safemode while compiling this code: the code we
+		// generate internally can refer to unsafe.Pointer.
+		// In this case it can happen if we need to generate an ==
+		// for a struct containing a reflect.Value, which itself has
+		// an unexported field of type unsafe.Pointer.
+		old_safemode = safemode;
+		safemode = 0;
 		walkcompare(&n, init);
+		safemode = old_safemode;
 		goto ret;
 
 	case OANDAND:
@@ -1032,8 +1044,8 @@ walkexpr(Node **np, NodeList **init)
 				if(!n->bounded)
 					yyerror("index out of bounds");
 				else {
-					// replace "abc"[2] with 'b'.
-					// delayed until now because "abc"[2] is not
+					// replace "abc"[1] with 'b'.
+					// delayed until now because "abc"[1] is not
 					// an ideal constant.
 					v = mpgetfix(n->right->val.u.xval);
 					nodconst(n, n->type, n->left->val.u.sval->s[v]);
@@ -1111,6 +1123,27 @@ walkexpr(Node **np, NodeList **init)
 		n->right->left = safeexpr(n->right->left, init);
 		walkexpr(&n->right->right, init);
 		n->right->right = safeexpr(n->right->right, init);
+		n = sliceany(n, init);  // chops n->right, sets n->list
+		goto ret;
+	
+	case OSLICE3:
+	case OSLICE3ARR:
+		if(n->right == N) // already processed
+			goto ret;
+
+		walkexpr(&n->left, init);
+		// TODO the OINDEX case is a bug elsewhere that needs to be traced.  it causes a crash on ([2][]int{ ... })[1][lo:hi]
+		// TODO the comment on the previous line was copied from case OSLICE. it might not even be true.
+		if(n->left->op == OINDEX)
+			n->left = copyexpr(n->left, n->left->type, init);
+		else
+			n->left = safeexpr(n->left, init);
+		walkexpr(&n->right->left, init);
+		n->right->left = safeexpr(n->right->left, init);
+		walkexpr(&n->right->right->left, init);
+		n->right->right->left = safeexpr(n->right->right->left, init);
+		walkexpr(&n->right->right->right, init);
+		n->right->right->right = safeexpr(n->right->right->right, init);
 		n = sliceany(n, init);  // chops n->right, sets n->list
 		goto ret;
 
@@ -1198,26 +1231,26 @@ walkexpr(Node **np, NodeList **init)
 		goto ret;
 	
 	case OAPPEND:
-		if(n->isddd) {
-			if(istype(n->type->type, TUINT8) && istype(n->list->next->n->type, TSTRING))
-				n = mkcall("appendstr", n->type, init, typename(n->type), n->list->n, n->list->next->n);
-			else
-				n = appendslice(n, init);
-		}
+		if(n->isddd)
+			n = appendslice(n, init); // also works for append(slice, string).
 		else
 			n = append(n, init);
 		goto ret;
 
 	case OCOPY:
-		if(n->right->type->etype == TSTRING)
-			fn = syslook("slicestringcopy", 1);
-		else
-			fn = syslook("copy", 1);
-		argtype(fn, n->left->type);
-		argtype(fn, n->right->type);
-		n = mkcall1(fn, n->type, init,
-			n->left, n->right,
-			nodintconst(n->left->type->type->width));
+		if(flag_race) {
+			if(n->right->type->etype == TSTRING)
+				fn = syslook("slicestringcopy", 1);
+			else
+				fn = syslook("copy", 1);
+			argtype(fn, n->left->type);
+			argtype(fn, n->right->type);
+			n = mkcall1(fn, n->type, init,
+					n->left, n->right,
+					nodintconst(n->left->type->type->width));
+			goto ret;
+		}
+		n = copyany(n, init);
 		goto ret;
 
 	case OCLOSE:
@@ -1246,18 +1279,35 @@ walkexpr(Node **np, NodeList **init)
 		goto ret;
 
 	case OMAKESLICE:
-		// makeslice(t *Type, nel int64, max int64) (ary []any)
 		l = n->left;
 		r = n->right;
 		if(r == nil)
 			l = r = safeexpr(l, init);
 		t = n->type;
-		fn = syslook("makeslice", 1);
-		argtype(fn, t->type);			// any-1
-		n = mkcall1(fn, n->type, init,
-			typename(n->type),
-			conv(l, types[TINT64]),
-			conv(r, types[TINT64]));
+		if(n->esc == EscNone
+			&& smallintconst(l) && smallintconst(r)
+			&& (t->type->width == 0 || mpgetfix(r->val.u.xval) < (1ULL<<16) / t->type->width)) {
+			// var arr [r]T
+			// n = arr[:l]
+			t = aindex(r, t->type); // [r]T
+			var = temp(t);
+			a = nod(OAS, var, N); // zero temp
+			typecheck(&a, Etop);
+			*init = list(*init, a);
+			r = nod(OSLICE, var, nod(OKEY, N, l)); // arr[:l]
+			r = conv(r, n->type); // in case n->type is named.
+			typecheck(&r, Erv);
+			walkexpr(&r, init);
+			n = r;
+		} else {
+			// makeslice(t *Type, nel int64, max int64) (ary []any)
+			fn = syslook("makeslice", 1);
+			argtype(fn, t->type);			// any-1
+			n = mkcall1(fn, n->type, init,
+				typename(n->type),
+				conv(l, types[TINT64]),
+				conv(r, types[TINT64]));
+		}
 		goto ret;
 
 	case ORUNESTR:
@@ -1343,7 +1393,11 @@ ret:
 	// constants until walk. For example, if n is y%1 == 0, the
 	// walk of y%1 may have replaced it by 0.
 	// Check whether n with its updated args is itself now a constant.
+	t = n->type;
 	evconst(n);
+	n->type = t;
+	if(n->op == OLITERAL)
+		typecheck(&n, Erv);
 
 	ullmancalc(n);
 
@@ -2268,7 +2322,9 @@ paramstoheap(Type **argin, int out)
 		v = t->nname;
 		if(v && v->sym && v->sym->name[0] == '~')
 			v = N;
-		if(v == N && out && hasdefer) {
+		// In precisestack mode, the garbage collector assumes results
+		// are always live, so zero them always.
+		if(out && (precisestack_enabled || (v == N && hasdefer))) {
 			// Defer might stop a panic and show the
 			// return values as they exist at the time of panic.
 			// Make sure to zero them on entry to the function.
@@ -2473,16 +2529,104 @@ addstr(Node *n, NodeList **init)
 	return r;
 }
 
+// expand append(l1, l2...) to
+//   init {
+//     s := l1
+//     if n := len(l1) + len(l2) - cap(s); n > 0 {
+//       s = growslice(s, n)
+//     }
+//     s = s[:len(l1)+len(l2)]
+//     memmove(&s[len(l1)], &l2[0], len(l2)*sizeof(T))
+//   }
+//   s
+//
+// l2 is allowed to be a string.
 static Node*
 appendslice(Node *n, NodeList **init)
 {
-	Node *f;
+	NodeList *l;
+	Node *l1, *l2, *nt, *nif, *fn;
+	Node *nptr1, *nptr2, *nwid;
+	Node *s;
 
-	f = syslook("appendslice", 1);
-	argtype(f, n->type);
-	argtype(f, n->type->type);
-	argtype(f, n->type);
-	return mkcall1(f, n->type, init, typename(n->type), n->list->n, n->list->next->n);
+	walkexprlistsafe(n->list, init);
+
+	// walkexprlistsafe will leave OINDEX (s[n]) alone if both s
+	// and n are name or literal, but those may index the slice we're
+	// modifying here.  Fix explicitly.
+	for(l=n->list; l; l=l->next)
+		l->n = cheapexpr(l->n, init);
+
+	l1 = n->list->n;
+	l2 = n->list->next->n;
+
+	s = temp(l1->type); // var s []T
+	l = nil;
+	l = list(l, nod(OAS, s, l1)); // s = l1
+
+	nt = temp(types[TINT]);
+	nif = nod(OIF, N, N);
+	// n := len(s) + len(l2) - cap(s)
+	nif->ninit = list1(nod(OAS, nt,
+		nod(OSUB, nod(OADD, nod(OLEN, s, N), nod(OLEN, l2, N)), nod(OCAP, s, N))));
+	nif->ntest = nod(OGT, nt, nodintconst(0));
+	// instantiate growslice(Type*, []any, int64) []any
+	fn = syslook("growslice", 1);
+	argtype(fn, s->type->type);
+	argtype(fn, s->type->type);
+
+	// s = growslice(T, s, n)
+	nif->nbody = list1(nod(OAS, s, mkcall1(fn, s->type, &nif->ninit,
+					       typename(s->type),
+					       s,
+					       conv(nt, types[TINT64]))));
+
+	l = list(l, nif);
+
+	if(flag_race) {
+		// rely on runtime to instrument copy.
+		// copy(s[len(l1):len(l1)+len(l2)], l2)
+		nptr1 = nod(OSLICE, s, nod(OKEY,
+			nod(OLEN, l1, N),
+			nod(OADD, nod(OLEN, l1, N), nod(OLEN, l2, N))));
+		nptr1->etype = 1;
+		nptr2 = l2;
+		if(l2->type->etype == TSTRING)
+			fn = syslook("slicestringcopy", 1);
+		else
+			fn = syslook("copy", 1);
+		argtype(fn, l1->type);
+		argtype(fn, l2->type);
+		l = list(l, mkcall1(fn, types[TINT], init,
+				nptr1, nptr2,
+				nodintconst(s->type->type->width)));
+	} else {
+		// memmove(&s[len(l1)], &l2[0], len(l2)*sizeof(T))
+		nptr1 = nod(OINDEX, s, nod(OLEN, l1, N));
+		nptr1->bounded = 1;
+		nptr1 = nod(OADDR, nptr1, N);
+
+		nptr2 = nod(OSPTR, l2, N);
+
+		fn = syslook("memmove", 1);
+		argtype(fn, s->type->type);	// 1 old []any
+		argtype(fn, s->type->type);	// 2 ret []any
+
+		nwid = cheapexpr(conv(nod(OLEN, l2, N), types[TUINTPTR]), &l);
+		nwid = nod(OMUL, nwid, nodintconst(s->type->type->width));
+		l = list(l, mkcall1(fn, T, init, nptr1, nptr2, nwid));
+	}
+
+	// s = s[:len(l1)+len(l2)]
+	nt = nod(OADD, nod(OLEN, l1, N), nod(OLEN, l2, N));
+	nt = nod(OSLICE, s, nod(OKEY, N, nt));
+	nt->etype = 1;
+	l = list(l, nod(OAS, s, nt));
+
+	typechecklist(l, Etop);
+	walkstmtlist(l);
+	*init = concat(*init, l);
+	return s;
 }
 
 // expand append(src, a [, b]* ) to
@@ -2544,7 +2688,7 @@ append(Node *n, NodeList **init)
 	l = list(l, nod(OAS, nn, nod(OLEN, ns, N)));	 // n = len(s)
 
 	nx = nod(OSLICE, ns, nod(OKEY, N, nod(OADD, nn, na)));	 // ...s[:n+argc]
-	nx->bounded = 1;
+	nx->etype = 1;
 	l = list(l, nod(OAS, ns, nx));			// s = s[:n+argc]
 
 	for (a = n->list->next;	 a != nil; a = a->next) {
@@ -2561,22 +2705,81 @@ append(Node *n, NodeList **init)
 	return ns;
 }
 
+// Lower copy(a, b) to a memmove call.
+//
+// init {
+//   n := len(a)
+//   if n > len(b) { n = len(b) }
+//   memmove(a.ptr, b.ptr, n*sizeof(elem(a)))
+// }
+// n;
+//
+// Also works if b is a string.
+//
+static Node*
+copyany(Node *n, NodeList **init)
+{
+	Node *nl, *nr, *nfrm, *nto, *nif, *nlen, *nwid, *fn;
+	NodeList *l;
 
-// Generate frontend part for OSLICE[ARR|STR]
+	walkexpr(&n->left, init);
+	walkexpr(&n->right, init);
+	nl = temp(n->left->type);
+	nr = temp(n->right->type);
+	l = nil;
+	l = list(l, nod(OAS, nl, n->left));
+	l = list(l, nod(OAS, nr, n->right));
+
+	nfrm = nod(OSPTR, nr, N);
+	nto = nod(OSPTR, nl, N);
+
+	nlen = temp(types[TINT]);
+	// n = len(to)
+	l = list(l, nod(OAS, nlen, nod(OLEN, nl, N)));
+	// if n > len(frm) { n = len(frm) }
+	nif = nod(OIF, N, N);
+	nif->ntest = nod(OGT, nlen, nod(OLEN, nr, N));
+	nif->nbody = list(nif->nbody,
+		nod(OAS, nlen, nod(OLEN, nr, N)));
+	l = list(l, nif);
+
+	// Call memmove.
+	fn = syslook("memmove", 1);
+	argtype(fn, nl->type->type);
+	argtype(fn, nl->type->type);
+	nwid = temp(types[TUINTPTR]);
+	l = list(l, nod(OAS, nwid, conv(nlen, types[TUINTPTR])));
+	nwid = nod(OMUL, nwid, nodintconst(nl->type->type->width));
+	l = list(l, mkcall1(fn, T, init, nto, nfrm, nwid));
+
+	typechecklist(l, Etop);
+	walkstmtlist(l);
+	*init = concat(*init, l);
+	return nlen;
+}
+
+// Generate frontend part for OSLICE[3][ARR|STR]
 // 
 static	Node*
 sliceany(Node* n, NodeList **init)
 {
-	int bounded;
-	Node *src, *lb, *hb, *bound, *chk, *chk1, *chk2;
-	int64 lbv, hbv, bv, w;
+	int bounded, slice3;
+	Node *src, *lb, *hb, *cb, *bound, *chk, *chk0, *chk1, *chk2;
+	int64 lbv, hbv, cbv, bv, w;
 	Type *bt;
 
 //	print("before sliceany: %+N\n", n);
 
 	src = n->left;
 	lb = n->right->left;
-	hb = n->right->right;
+	slice3 = n->op == OSLICE3 || n->op == OSLICE3ARR;
+	if(slice3) {
+		hb = n->right->right->left;
+		cb = n->right->right->right;
+	} else {
+		hb = n->right->right;
+		cb = N;
+	}
 
 	bounded = n->etype;
 	
@@ -2597,6 +2800,13 @@ sliceany(Node* n, NodeList **init)
 			bv = mpgetfix(bound->val.u.xval);
 	}
 
+	if(isconst(cb, CTINT)) {
+		cbv = mpgetfix(cb->val.u.xval);
+		if(cbv < 0 || cbv > bv) {
+			yyerror("slice index out of bounds");
+			cbv = -1;
+		}
+	}
 	if(isconst(hb, CTINT)) {
 		hbv = mpgetfix(hb->val.u.xval);
 		if(hbv < 0 || hbv > bv) {
@@ -2618,10 +2828,13 @@ sliceany(Node* n, NodeList **init)
 	// generate
 	//     if hb > bound || lb > hb { panicslice() }
 	chk = N;
+	chk0 = N;
 	chk1 = N;
 	chk2 = N;
 
 	bt = types[simtype[TUINT]];
+	if(cb != N && cb->type->width > 4)
+		bt = types[TUINT64];
 	if(hb != N && hb->type->width > 4)
 		bt = types[TUINT64];
 	if(lb != N && lb->type->width > 4)
@@ -2629,10 +2842,26 @@ sliceany(Node* n, NodeList **init)
 
 	bound = cheapexpr(conv(bound, bt), init);
 
+	if(cb != N) {
+		cb = cheapexpr(conv(cb, bt), init);
+		if(!bounded)
+			chk0 = nod(OLT, bound, cb);
+	} else if(slice3) {
+		// When we figure out what this means, implement it.
+		fatal("slice3 with cb == N"); // rejected by parser
+	}
+		
 	if(hb != N) {
 		hb = cheapexpr(conv(hb, bt), init);
-		if(!bounded)
-			chk1 = nod(OLT, bound, hb);  
+		if(!bounded) {
+			if(cb != N)
+				chk1 = nod(OLT, cb, hb);
+			else
+				chk1 = nod(OLT, bound, hb);
+		}
+	} else if(slice3) {
+		// When we figure out what this means, implement it.
+		fatal("slice3 with hb == N"); // rejected by parser
 	} else if(n->op == OSLICEARR) {
 		hb = bound;
 	} else {
@@ -2648,11 +2877,18 @@ sliceany(Node* n, NodeList **init)
 			chk2 = nod(OLT, hb, lb);  
 	}
 
-	if(chk1 != N || chk2 != N) {
+	if(chk0 != N || chk1 != N || chk2 != N) {
 		chk = nod(OIF, N, N);
 		chk->nbody = list1(mkcall("panicslice", T, init));
-		if(chk1 != N)
-			chk->ntest = chk1;
+		chk->likely = -1;
+		if(chk0 != N)
+			chk->ntest = chk0;
+		if(chk1 != N) {
+			if(chk->ntest == N)
+				chk->ntest = chk1;
+			else
+				chk->ntest = nod(OOROR, chk->ntest, chk1);
+		}
 		if(chk2 != N) {
 			if(chk->ntest == N)
 				chk->ntest = chk2;
@@ -2670,10 +2906,12 @@ sliceany(Node* n, NodeList **init)
 	// cap = bound [ - lo ]
 	n->right = N;
 	n->list = nil;
+	if(!slice3)
+		cb = bound;
 	if(lb == N)
-		bound = conv(bound, types[simtype[TUINT]]);
+		bound = conv(cb, types[simtype[TUINT]]);
 	else
-		bound = nod(OSUB, conv(bound, types[simtype[TUINT]]), conv(lb, types[simtype[TUINT]]));
+		bound = nod(OSUB, conv(cb, types[simtype[TUINT]]), conv(lb, types[simtype[TUINT]]));
 	typecheck(&bound, Erv);
 	walkexpr(&bound, init);
 	n->list = list(n->list, bound);

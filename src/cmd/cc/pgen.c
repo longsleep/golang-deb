@@ -29,6 +29,22 @@
 // THE SOFTWARE.
 
 #include "gc.h"
+#include "../../pkg/runtime/funcdata.h"
+
+enum { BitsPerPointer = 2 };
+
+static void dumpgcargs(Type *fn, Sym *sym);
+
+int
+hasdotdotdot(void)
+{
+	Type *t;
+
+	for(t=thisfn->down; t!=T; t=t->down)
+		if(t->etype == TDOT)
+			return 1;
+	return 0;
+}
 
 vlong
 argsize(void)
@@ -43,9 +59,9 @@ argsize(void)
 		case TVOID:
 			break;
 		case TDOT:
-			yyerror("function takes ... without textflag NOSPLIT");
-			s += 64;
-			break;
+			if((textflag & NOSPLIT) == 0)
+				yyerror("function takes ... without textflag NOSPLIT");
+			return ArgsSizeUnknown;
 		default:
 			s = align(s, t, Aarg1, nil);
 			s = align(s, t, Aarg2, nil);
@@ -64,7 +80,10 @@ void
 codgen(Node *n, Node *nn)
 {
 	Prog *sp;
-	Node *n1, nod, nod1;
+	Node *n1, nod, nod1, nod2;
+	Sym *gcsym, *gclocalssym;
+	static int ngcsym, ngclocalssym;
+	static char namebuf[40];
 
 	cursafe = 0;
 	curarg = 0;
@@ -75,7 +94,7 @@ codgen(Node *n, Node *nn)
 	 */
 	for(n1 = nn;; n1 = n1->left) {
 		if(n1 == Z) {
-			diag(nn, "cant find function name");
+			diag(nn, "can't find function name");
 			return;
 		}
 		if(n1->op == ONAME)
@@ -85,6 +104,30 @@ codgen(Node *n, Node *nn)
 
 	p = gtext(n1->sym, stkoff);
 	sp = p;
+
+	/*
+	 * generate funcdata symbol for this function.
+	 * data is filled in at the end of codgen().
+	 */
+	snprint(namebuf, sizeof namebuf, "gc·%d", ngcsym++);
+	gcsym = slookup(namebuf);
+	gcsym->class = CSTATIC;
+
+	memset(&nod, 0, sizeof nod);
+	nod.op = ONAME;
+	nod.sym = gcsym;
+	nod.class = CSTATIC;
+	gins(AFUNCDATA, nodconst(FUNCDATA_GCArgs), &nod);
+
+	snprint(namebuf, sizeof(namebuf), "gclocalssym·%d", ngclocalssym++);
+	gclocalssym = slookup(namebuf);
+	gclocalssym->class = CSTATIC;
+
+	memset(&nod2, 0, sizeof(nod2));
+	nod2.op = ONAME;
+	nod2.sym = gclocalssym;
+	nod2.class = CSTATIC;
+	gins(AFUNCDATA, nodconst(FUNCDATA_GCLocals), &nod2);
 
 	/*
 	 * isolate first argument
@@ -122,6 +165,21 @@ codgen(Node *n, Node *nn)
 	if(thechar=='6' || thechar=='7')	/* [sic] */
 		maxargsafe = xround(maxargsafe, 8);
 	sp->to.offset += maxargsafe;
+
+	dumpgcargs(thisfn, gcsym);
+
+	// TODO(rsc): "stkoff" is not right. It does not account for
+	// the possibility of data stored in .safe variables.
+	// Unfortunately those move up and down just like
+	// the argument frame (and in fact dovetail with it)
+	// so the number we need is not available or even
+	// well-defined. Probably we need to make the safe
+	// area its own section.
+	// That said, we've been using stkoff for months
+	// and nothing too terrible has happened.
+	gextern(gclocalssym, nodconst(-stkoff), 0, 4); // locals
+	gclocalssym->type = typ(0, T);
+	gclocalssym->type->width = 4;
 }
 
 void
@@ -588,4 +646,108 @@ bcomplex(Node *n, Node *c)
 	bool64(n);
 	boolgen(n, 1, Z);
 	return 0;
+}
+
+// Updates the bitvector with a set bit for each pointer containing
+// value in the type description starting at offset.
+static void
+walktype1(Type *t, int32 offset, Bvec *bv, int param)
+{
+	Type *t1;
+	int32 o;
+
+	switch(t->etype) {
+	case TCHAR:
+	case TUCHAR:
+	case TSHORT:
+	case TUSHORT:
+	case TINT:
+	case TUINT:
+	case TLONG:
+	case TULONG:
+	case TVLONG:
+	case TUVLONG:
+	case TFLOAT:
+	case TDOUBLE:
+		// non-pointer types
+		break;
+
+	case TIND:
+	pointer:
+		// pointer types
+		if((offset + t->offset) % ewidth[TIND] != 0)
+			yyerror("unaligned pointer");
+		bvset(bv, ((offset + t->offset) / ewidth[TIND])*BitsPerPointer);
+		break;
+
+	case TARRAY:
+		if(param)	// unlike Go, C passes arrays by reference
+			goto pointer;
+		// array in struct or union is an actual array
+		for(o = 0; o < t->width; o += t->link->width)
+			walktype1(t->link, offset+o, bv, 0);
+		break;
+
+	case TSTRUCT:
+		// build map recursively
+		for(t1 = t->link; t1 != T; t1 = t1->down)
+			walktype1(t1, offset, bv, 0);
+		break;
+
+	case TUNION:
+		walktype1(t->link, offset, bv, 0);
+		break;
+
+	default:
+		yyerror("can't handle arg type %s\n", tnames[t->etype]);
+	}
+}
+
+// Compute a bit vector to describe the pointer containing locations
+// in the argument list.  Adds the data to gcsym and returns the offset
+// of end of the bit vector.
+static void
+dumpgcargs(Type *fn, Sym *sym)
+{
+	Bvec *bv;
+	Type *t;
+	int32 i;
+	int32 argbytes;
+	int32 symoffset, argoffset;
+
+	if(hasdotdotdot()) {
+		// give up for C vararg functions.
+		// TODO: maybe make a map just for the args we do know?
+		gextern(sym, nodconst(0), 0, 4); // nptrs=0
+		symoffset = 4;
+	} else {
+		argbytes = (argsize() + ewidth[TIND] - 1);
+		bv = bvalloc((argbytes  / ewidth[TIND]) * BitsPerPointer);
+		argoffset = align(0, fn->link, Aarg0, nil);
+		if(argoffset > 0) {
+			// The C calling convention returns structs by
+			// copying them to a location pointed to by a
+			// hidden first argument.  This first argument
+			// is a pointer.
+			if(argoffset != ewidth[TIND])
+				yyerror("passbyptr arg not the right size");
+			bvset(bv, 0);
+		}
+		for(t = fn->down; t != T; t = t->down) {
+			if(t->etype == TVOID)
+				continue;
+			argoffset = align(argoffset, t, Aarg1, nil);
+			walktype1(t, argoffset, bv, 1);
+			argoffset = align(argoffset, t, Aarg2, nil);
+		}
+		gextern(sym, nodconst(bv->n), 0, 4);
+		symoffset = 4;
+		for(i = 0; i < bv->n; i += 32) {
+			gextern(sym, nodconst(bv->b[i/32]), symoffset, 4);
+			symoffset += 4;
+		}
+		free(bv);
+	}
+	sym->type = typ(0, T);
+	sym->type->width = symoffset;
 }

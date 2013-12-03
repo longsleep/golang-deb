@@ -48,6 +48,8 @@ futimes(int fd, struct timeval *tv)
 static int
 futimes(int fd, struct timeval *tv)
 {
+	USED(fd);
+	USED(tv);
 	werrstr("futimes not available");
 	return -1;
 }
@@ -63,14 +65,14 @@ dirfwstat(int fd, Dir *dir)
 	ret = 0;
 #ifndef _WIN32
 	if(~dir->mode != 0){
-		if(fchmod(fd, dir->mode) < 0)
+		if(fchmod(fd, (mode_t)dir->mode) < 0)
 			ret = -1;
 	}
 #endif
 	if(~dir->mtime != 0){
-		tv[0].tv_sec = dir->mtime;
+		tv[0].tv_sec = (time_t)dir->mtime;
 		tv[0].tv_usec = 0;
-		tv[1].tv_sec = dir->mtime;
+		tv[1].tv_sec = (time_t)dir->mtime;
 		tv[1].tv_usec = 0;
 		if(futimes(fd, tv) < 0)
 			ret = -1;

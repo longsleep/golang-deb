@@ -272,7 +272,6 @@ func _() int {
 } // ERROR "missing return"
 
 func _() int {
-L:
 	print(1)
 	if x == nil {
 		panic(2)
@@ -666,17 +665,6 @@ func _() int {
 	}
 }
 
-func _() int {
-	print(1)
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	default:
-		return 4
-	}
-}
-
 // if no default or some case doesn't terminate, switch is no longer okay
 
 func _() int {
@@ -705,17 +693,6 @@ func _() int {
 	case int:
 		print(2)
 		panic(3)
-	}
-} // ERROR "missing return"
-
-func _() int {
-	print(1)
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	case float64:
-		return 4
 	}
 } // ERROR "missing return"
 
@@ -994,7 +971,6 @@ func _() int {
 } // ERROR "missing return"
 
 func _() int {
-L:
 	if x == nil {
 		panic(2)
 	} else if x == 1 {
@@ -1356,16 +1332,6 @@ func _() int {
 	}
 }
 
-func _() int {
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	default:
-		return 4
-	}
-}
-
 // if no default or some case doesn't terminate, switch is no longer okay
 
 func _() int {
@@ -1391,16 +1357,6 @@ func _() int {
 	case int:
 		print(2)
 		panic(3)
-	}
-} // ERROR "missing return"
-
-func _() int {
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	case float64:
-		return 4
 	}
 } // ERROR "missing return"
 
@@ -1449,6 +1405,16 @@ L:
 		return 4
 	}
 } // ERROR "missing return"
+
+func _() int {
+	switch x.(type) {
+	default:
+		return 4
+	case int, float64:
+		print(2)
+		panic(3)
+	}
+}
 
 // again, with func literals
 
@@ -1708,7 +1674,6 @@ var _ = func() int {
 } // ERROR "missing return"
 
 var _ = func() int {
-L:
 	print(1)
 	if x == nil {
 		panic(2)
@@ -2102,17 +2067,6 @@ var _ = func() int {
 	}
 }
 
-var _ = func() int {
-	print(1)
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	default:
-		return 4
-	}
-}
-
 // if no default or some case doesn't terminate, switch is no longer okay
 
 var _ = func() int {
@@ -2141,17 +2095,6 @@ var _ = func() int {
 	case int:
 		print(2)
 		panic(3)
-	}
-} // ERROR "missing return"
-
-var _ = func() int {
-	print(1)
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	case float64:
-		return 4
 	}
 } // ERROR "missing return"
 
@@ -2430,7 +2373,6 @@ var _ = func() int {
 } // ERROR "missing return"
 
 var _ = func() int {
-L:
 	if x == nil {
 		panic(2)
 	} else if x == 1 {
@@ -2792,16 +2734,6 @@ var _ = func() int {
 	}
 }
 
-var _ = func() int {
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	default:
-		return 4
-	}
-}
-
 // if no default or some case doesn't terminate, switch is no longer okay
 
 var _ = func() int {
@@ -2827,16 +2759,6 @@ var _ = func() int {
 	case int:
 		print(2)
 		panic(3)
-	}
-} // ERROR "missing return"
-
-var _ = func() int {
-	switch x.(type) {
-	case int:
-		print(2)
-		fallthrough
-	case float64:
-		return 4
 	}
 } // ERROR "missing return"
 
@@ -2885,5 +2807,15 @@ L:
 		return 4
 	}
 } // ERROR "missing return"
+
+var _ = func() int {
+	switch x.(type) {
+	default:
+		return 4
+	case int, float64:
+		print(2)
+		panic(3)
+	}
+}
 
 /**/

@@ -415,6 +415,8 @@ Zconv(Fmt *fp)
 
 	s = sp->s;
 	se = s + sp->len;
+
+	// NOTE: Keep in sync with ../ld/go.c:/^Zconv.
 	while(s < se) {
 		n = chartorune(&r, s);
 		s += n;
@@ -575,7 +577,7 @@ basicnames[] =
 	[TANY]		= "any",
 	[TSTRING]	= "string",
 	[TNIL]		= "nil",
-	[TIDEAL]	= "ideal",
+	[TIDEAL]	= "untyped number",
 	[TBLANK]	= "blank",
 };
 
@@ -602,8 +604,11 @@ typefmt(Fmt *fp, Type *t)
 	if(!(fp->flags&FmtLong) && t->sym && t->etype != TFIELD && t != types[t->etype]) {
 		switch(fmtmode) {
 		case FTypeId:
-			if(fp->flags&FmtShort)
+			if(fp->flags&FmtShort) {
+				if(t->vargen)
+					return fmtprint(fp, "%hS·%d", t->sym, t->vargen);
 				return fmtprint(fp, "%hS", t->sym);
+			}
 			if(fp->flags&FmtUnsigned)
 				return fmtprint(fp, "%uS", t->sym);
 			// fallthrough
@@ -617,7 +622,7 @@ typefmt(Fmt *fp, Type *t)
 
 	if(t->etype < nelem(basicnames) && basicnames[t->etype] != nil) {
 		if(fmtmode == FErr && (t == idealbool || t == idealstring))
-			fmtstrcpy(fp, "ideal ");
+			fmtstrcpy(fp, "untyped ");
 		return fmtstrcpy(fp, basicnames[t->etype]);
 	}
 
@@ -695,6 +700,13 @@ typefmt(Fmt *fp, Type *t)
 		return 0;
 
 	case TSTRUCT:
+		// Format the bucket struct for map[x]y as map.bucket[x]y.
+		// This avoids a recursive print that generates very long names.
+		if(t->hmap != T) {
+			t = t->hmap;
+			return fmtprint(fp, "map.bucket[%T]%T", t->down, t->type);
+		}
+
 		if(t->funarg) {
 			fmtstrcpy(fp, "(");
 			if(fmtmode == FTypeId || fmtmode == FErr) {	// no argument names on function signature, and no "noescape" tags
@@ -749,6 +761,9 @@ typefmt(Fmt *fp, Type *t)
 				//if(t->funarg)
 				//	fmtstrcpy(fp, "_ ");
 				//else
+				if(t->embedded && s->pkg != nil && s->pkg->path->len > 0)
+					fmtprint(fp, "@\"%Z\".? ", s->pkg->path);
+				else
 					fmtstrcpy(fp, "? ");
 			}
 		}
@@ -870,6 +885,10 @@ stmtfmt(Fmt *f, Node *n)
 		fmtprint(f, "return %,H", n->list);
 		break;
 
+	case ORETJMP:
+		fmtprint(f, "retjmp %S", n->sym);
+		break;
+	
 	case OPROC:
 		fmtprint(f, "go %N", n->left);
 		break;
@@ -1018,6 +1037,8 @@ static int opprec[] = {
 	[OSLICE] = 8,
 	[OSLICESTR] = 8,
 	[OSLICEARR] = 8,
+	[OSLICE3] = 8,
+	[OSLICE3ARR] = 8,
 	[ODOTINTER] = 8,
 	[ODOTMETH] = 8,
 	[ODOTPTR] = 8,
@@ -1291,6 +1312,8 @@ exprfmt(Fmt *f, Node *n, int prec)
 	case OSLICE:
 	case OSLICESTR:
 	case OSLICEARR:
+	case OSLICE3:
+	case OSLICE3ARR:
 		exprfmt(f, n->left, nprec);
 		return fmtprint(f, "[%N]", n->right);
 

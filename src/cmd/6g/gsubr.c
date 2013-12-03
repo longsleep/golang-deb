@@ -31,9 +31,11 @@
 #include <u.h>
 #include <libc.h>
 #include "gg.h"
+#include "../../pkg/runtime/funcdata.h"
 
 // TODO(rsc): Can make this bigger if we move
 // the text segment up higher in 6l for all GOOS.
+// At the same time, can raise StackBig in ../../pkg/runtime/stack.h.
 vlong unmappedzero = 4096;
 
 void
@@ -215,6 +217,16 @@ gtrack(Sym *s)
 	p->from.type = D_EXTERN;
 	p->from.index = D_NONE;
 	p->from.sym = s;
+}
+
+void
+gargsize(vlong size)
+{
+	Node n1, n2;
+	
+	nodconst(&n1, types[TINT32], PCDATA_ArgSize);
+	nodconst(&n2, types[TINT32], size);
+	gins(APCDATA, &n1, &n2);
 }
 
 void
@@ -494,7 +506,7 @@ fp:
 		break;
 
 	case 2:		// offset output arg
-fatal("shouldnt be used");
+fatal("shouldn't be used");
 		n->op = OINDREG;
 		n->val.u.reg = D_SP;
 		n->xoffset += types[tptr]->width;
@@ -528,7 +540,7 @@ ginscon(int as, vlong c, Node *n2)
 
 	nodconst(&n1, types[TINT64], c);
 
-	if(as != AMOVQ && (c < -1LL<<31 || c >= 1LL<<31)) {
+	if(as != AMOVQ && (c < -(1LL<<31) || c >= 1LL<<31)) {
 		// cannot have 64-bit immediokate in ADD, etc.
 		// instead, MOV into register first.
 		regalloc(&ntmp, types[TINT64], N);
@@ -550,6 +562,7 @@ ismem(Node *n)
 {
 	switch(n->op) {
 	case OITAB:
+	case OSPTR:
 	case OLEN:
 	case OCAP:
 	case OINDREG:
@@ -1055,41 +1068,27 @@ gins(int as, Node *f, Node *t)
 	return p;
 }
 
-// Generate an instruction referencing *n
-// to force segv on nil pointer dereference.
 void
-checkref(Node *n, int force)
+fixlargeoffset(Node *n)
 {
-	Node m;
+	Node a;
 
-	if(!force && isptr[n->type->etype] && n->type->type->width < unmappedzero)
+	if(n == N)
 		return;
-
-	regalloc(&m, types[TUINTPTR], n);
-	cgen(n, &m);
-	m.xoffset = 0;
-	m.op = OINDREG;
-	m.type = types[TUINT8];
-	gins(ATESTB, nodintconst(0), &m);
-	regfree(&m);
-}
-
-static void
-checkoffset(Addr *a, int canemitcode)
-{
-	Prog *p;
-
-	if(a->offset < unmappedzero)
+	if(n->op != OINDREG)
 		return;
-	if(!canemitcode)
-		fatal("checkoffset %#llx, cannot emit code", a->offset);
-
-	// cannot rely on unmapped nil page at 0 to catch
-	// reference with large offset. instead, emit explicit
-	// test of 0(reg).
-	p = gins(ATESTB, nodintconst(0), N);
-	p->to = *a;
-	p->to.offset = 0;
+	if(n->val.u.reg == D_SP) // stack offset cannot be large
+		return;
+	if(n->xoffset != (int32)n->xoffset) {
+		// offset too large, add to register instead.
+		a = *n;
+		a.op = OREGISTER;
+		a.type = types[tptr];
+		a.xoffset = 0;
+		cgen_checknil(&a);
+		ginscon(optoas(OADD, types[tptr]), n->xoffset, &a);
+		n->xoffset = 0;
+	}
 }
 
 /*
@@ -1149,7 +1148,6 @@ naddr(Node *n, Addr *a, int canemitcode)
 		a->offset = n->xoffset;
 		if(a->offset != (int32)a->offset)
 			yyerror("offset %lld too large for OINDREG", a->offset);
-		checkoffset(a, canemitcode);
 		break;
 
 	case OPARAM:
@@ -1268,8 +1266,16 @@ naddr(Node *n, Addr *a, int canemitcode)
 			break;  // itab(nil)
 		a->etype = tptr;
 		a->width = widthptr;
-		if(a->offset >= unmappedzero && a->offset-Array_nel < unmappedzero)
-			checkoffset(a, canemitcode);
+		break;
+
+	case OSPTR:
+		// pointer in a string or slice
+		naddr(n->left, a, canemitcode);
+		if(a->type == D_CONST && a->offset == 0)
+			break;	// ptr(nil)
+		a->etype = simtype[TUINTPTR];
+		a->offset += Array_array;
+		a->width = widthptr;
 		break;
 
 	case OLEN:
@@ -1280,8 +1286,6 @@ naddr(Node *n, Addr *a, int canemitcode)
 		a->etype = simtype[TUINT];
 		a->offset += Array_nel;
 		a->width = widthint;
-		if(a->offset >= unmappedzero && a->offset-Array_nel < unmappedzero)
-			checkoffset(a, canemitcode);
 		break;
 
 	case OCAP:
@@ -1292,8 +1296,6 @@ naddr(Node *n, Addr *a, int canemitcode)
 		a->etype = simtype[TUINT];
 		a->offset += Array_cap;
 		a->width = widthint;
-		if(a->offset >= unmappedzero && a->offset-Array_cap < unmappedzero)
-			checkoffset(a, canemitcode);
 		break;
 
 //	case OADD:
@@ -2033,18 +2035,21 @@ odot:
 		n1.xoffset = oary[0];
 	} else {
 		cgen(nn, reg);
+		cgen_checknil(reg);
 		n1.xoffset = -(oary[0]+1);
 	}
 
 	for(i=1; i<o; i++) {
 		if(oary[i] >= 0)
-			fatal("cant happen");
+			fatal("can't happen");
 		gins(AMOVQ, &n1, reg);
+		cgen_checknil(reg);
 		n1.xoffset = -(oary[i]+1);
 	}
 
 	a->type = D_NONE;
 	a->index = D_NONE;
+	fixlargeoffset(&n1);
 	naddr(&n1, a, 1);
 	goto yes;
 
@@ -2103,16 +2108,6 @@ oindex:
 	if(l->ullman <= r->ullman) {
 		if(xgen(l, reg, o))
 			o |= OAddable;
-	}
-
-	if(!(o & ODynam) && l->type->width >= unmappedzero && l->op == OIND) {
-		// cannot rely on page protections to
-		// catch array ptr == 0, so dereference.
-		n2 = *reg;
-		n2.xoffset = 0;
-		n2.op = OINDREG;
-		n2.type = types[TUINT8];
-		gins(ATESTB, nodintconst(0), &n2);
 	}
 
 	// check bounds
@@ -2216,6 +2211,7 @@ oindex_const:
 		n2 = *reg;
 		n2.op = OINDREG;
 		n2.xoffset = v*w;
+		fixlargeoffset(&n2);
 		a->type = D_NONE;
 		a->index = D_NONE;
 		naddr(&n2, a, 1);
@@ -2228,6 +2224,7 @@ oindex_const:
 		reg->op = OREGISTER;
 	}
 	n1.xoffset += v*w;
+	fixlargeoffset(&n1);
 	a->type = D_NONE;
 	a->index= D_NONE;
 	naddr(&n1, a, 1);
@@ -2263,6 +2260,7 @@ oindex_const_sudo:
 	n2 = *reg;
 	n2.op = OINDREG;
 	n2.xoffset = v*w;
+	fixlargeoffset(&n2);
 	a->type = D_NONE;
 	a->index = D_NONE;
 	naddr(&n2, a, 1);

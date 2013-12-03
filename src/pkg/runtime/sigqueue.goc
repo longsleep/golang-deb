@@ -28,6 +28,8 @@ package runtime
 #include "runtime.h"
 #include "defs_GOOS_GOARCH.h"
 #include "os_GOOS.h"
+#include "cgocall.h"
+#include "../../cmd/ld/textflag.h"
 
 static struct {
 	Note;
@@ -105,9 +107,7 @@ func signal_recv() (m uint32) {
 				new = HASWAITER;
 			if(runtime·cas(&sig.state, old, new)) {
 				if (new == HASWAITER) {
-					runtime·entersyscallblock();
-					runtime·notesleep(&sig);
-					runtime·exitsyscall();
+					runtime·notetsleepg(&sig, -1);
 					runtime·noteclear(&sig);
 				}
 				break;
@@ -154,4 +154,12 @@ func signal_disable(s uint32) {
 		return;
 	sig.wanted[s/32] &= ~(1U<<(s&31));
 	runtime·sigdisable(s);
+}
+
+// This runs on a foreign stack, without an m or a g.  No stack split.
+#pragma textflag NOSPLIT
+void
+runtime·badsignal(uintptr sig)
+{
+	runtime·cgocallback((void (*)(void))runtime·sigsend, &sig, sizeof(sig));
 }

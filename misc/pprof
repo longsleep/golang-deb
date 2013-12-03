@@ -78,6 +78,8 @@
 use strict;
 use warnings;
 use Getopt::Long;
+use File::Temp;
+use File::Copy;
 
 my $PPROF_VERSION = "1.5";
 
@@ -103,12 +105,12 @@ my $GV = "gv";
 my $KCACHEGRIND = "kcachegrind";
 my $PS2PDF = "ps2pdf";
 # These are used for dynamic profiles
-my $CURL = "curl";
 
 # These are the web pages that servers need to support for dynamic profiles
 my $HEAP_PAGE = "/pprof/heap";
 my $THREAD_PAGE = "/pprof/thread";
 my $PROFILE_PAGE = "/pprof/profile";   # must support cgi-param "?seconds=#"
+my $BLOCK_PAGE = "/pprof/block";
 my $PMUPROFILE_PAGE = "/pprof/pmuprofile(?:\\?.*)?"; # must support cgi-param
                                                 # ?seconds=#&event=x&period=n
 my $GROWTH_PAGE = "/pprof/growth";
@@ -134,6 +136,13 @@ my @prefix_list = ();
 my $sep_symbol = '_fini';
 my $sep_address = undef;
 
+my $OS = $^O;
+my $DEVNULL = "/dev/null";
+if ($^O =~ /MSWin32|cygwin|msys/) {
+  $OS = "windows";
+  $DEVNULL = "NUL";
+}
+
 ##### Argument parsing #####
 
 sub usage_string {
@@ -154,7 +163,7 @@ pprof [options] <profile>
 
    The /<service> can be $HEAP_PAGE, $PROFILE_PAGE, /pprof/pmuprofile,
                          $GROWTH_PAGE, $CONTENTION_PAGE, /pprof/wall,
-                         $THREAD_PAGE, or /pprof/filteredprofile.
+                         $THREAD_PAGE, $BLOCK_PAGE or /pprof/filteredprofile.
    For instance:
      pprof http://myserver.com:80$HEAP_PAGE
    If /<service> is omitted, the service defaults to $PROFILE_PAGE (cpu profiling).
@@ -286,8 +295,9 @@ sub Init() {
   # Setup tmp-file name and handler to clean it up.
   # We do this in the very beginning so that we can use
   # error() and cleanup() function anytime here after.
-  $main::tmpfile_sym = "/tmp/pprof$$.sym";
-  $main::tmpfile_ps = "/tmp/pprof$$";
+  $main::tmpfile_sym = File::Temp->new()->filename;
+  $main::tmpfile_ps = File::Temp->new()->filename;
+  
   $main::next_tmpfile = 0;
   $SIG{'INT'} = \&sighandler;
 
@@ -492,7 +502,7 @@ sub Init() {
   # Remote profiling without a binary (using $SYMBOL_PAGE instead)
   if (IsProfileURL($ARGV[0])) {
     $main::use_symbol_page = 1;
-  } elsif (IsSymbolizedProfileFile($ARGV[0])) {
+  } elsif ($ARGV[0] && IsSymbolizedProfileFile($ARGV[0])) {
     $main::use_symbolized_profile = 1;
     $main::prog = $UNKNOWN_BINARY;  # will be set later from the profile file
   }
@@ -696,7 +706,7 @@ sub ReadlineMightFail {
 sub RunGV {
   my $fname = shift;
   my $bg = shift;       # "" or " &" if we should run in background
-  if (!system("$GV --version >/dev/null 2>&1")) {
+  if (!system("$GV --version >$DEVNULL 2>&1")) {
     # Options using double dash are supported by this gv version.
     # Also, turn on noantialias to better handle bug in gv for
     # postscript files with large dimensions.
@@ -1246,7 +1256,7 @@ sub Disassemble {
                     "--start-address=0x$start_addr " .
                     "--stop-address=0x$end_addr $prog");
 
-  if (system("$objdump --help >/dev/null 2>&1") != 0) {
+  if (system("$objdump --help >$DEVNULL 2>&1") != 0) {
     # objdump must not exist.  Fall back to go tool objdump.
     $objdump = "go tool objdump";
     $cmd = "$objdump $prog 0x$start_addr 0x$end_addr";
@@ -1381,7 +1391,7 @@ sub PrintListing {
 
 sub HtmlListingHeader {
   return <<'EOF';
-<DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
 <title>Pprof listing</title>
@@ -2616,6 +2626,7 @@ sub RemoveUninterestingFrames {
                       'operator new[]',
                       # Go
                       'catstring',
+                      'cnew',
                       'copyin',
                       'gostring',
                       'gostringsize',
@@ -2640,6 +2651,8 @@ sub RemoveUninterestingFrames {
                       'unsafe.New',
                       'runtime.mallocgc',
                       'runtime.catstring',
+                      'runtime.cnew',
+                      'runtime.cnewarray',
                       'runtime.growslice',
                       'runtime.ifaceT2E',
                       'runtime.ifaceT2I',
@@ -2965,10 +2978,9 @@ sub IsSymbolizedProfileFile {
 sub CheckSymbolPage {
   my $url = SymbolPageURL();
 print STDERR "Read $url\n";
-  open(SYMBOL, "$CURL -s '$url' |");
-  my $line = <SYMBOL>;
+
+  my $line = FetchHTTP($url);
   $line =~ s/\r//g;         # turn windows-looking lines into unix-looking lines
-  close(SYMBOL);
   unless (defined($line)) {
     error("$url doesn't exist\n");
   }
@@ -2991,7 +3003,7 @@ sub IsProfileURL {
 sub ParseProfileURL {
   my $profile_name = shift;
   if (defined($profile_name) &&
-      $profile_name =~ m,^(?:(https?)://|)([^/:]+):(\d+)(|\@\d+)(|/|(.*?)($PROFILE_PAGE|$PMUPROFILE_PAGE|$HEAP_PAGE|$GROWTH_PAGE|$THREAD_PAGE|$CONTENTION_PAGE|$WALL_PAGE|$FILTEREDPROFILE_PAGE))$,o) {
+      $profile_name =~ m,^(?:(https?)://|)([^/:]+):(\d+)(|\@\d+)(|/|(.*?)($PROFILE_PAGE|$PMUPROFILE_PAGE|$HEAP_PAGE|$GROWTH_PAGE|$THREAD_PAGE|$BLOCK_PAGE|$CONTENTION_PAGE|$WALL_PAGE|$FILTEREDPROFILE_PAGE))$,o) {
     # $7 is $PROFILE_PAGE/$HEAP_PAGE/etc.  $5 is *everything* after
     # the hostname, as long as that everything is the empty string,
     # a slash, or something ending in $PROFILE_PAGE/$HEAP_PAGE/etc.
@@ -3010,33 +3022,14 @@ sub SymbolPageURL {
 sub FetchProgramName() {
   my ($scheme, $host, $port, $prefix, $path) = ParseProfileURL($main::pfile_args[0]);
   my $url = "$scheme://$host:$port$prefix$PROGRAM_NAME_PAGE";
-  my $command_line = "$CURL -s '$url'";
-  open(CMDLINE, "$command_line |") or error($command_line);
-  my $cmdline = <CMDLINE>;
+  
+  my $cmdline = FetchHTTP($url);
+  $cmdline =~ s/\n.*//s; # first line only
   $cmdline =~ s/\r//g;   # turn windows-looking lines into unix-looking lines
-  close(CMDLINE);
   error("Failed to get program name from $url\n") unless defined($cmdline);
   $cmdline =~ s/\x00.+//;  # Remove argv[1] and latters.
   $cmdline =~ s!\n!!g;  # Remove LFs.
   return $cmdline;
-}
-
-# Gee, curl's -L (--location) option isn't reliable at least
-# with its 7.12.3 version.  Curl will forget to post data if
-# there is a redirection.  This function is a workaround for
-# curl.  Redirection happens on borg hosts.
-sub ResolveRedirectionForCurl {
-  my $url = shift;
-  my $command_line = "$CURL -s --head '$url'";
-  open(CMDLINE, "$command_line |") or error($command_line);
-  while (<CMDLINE>) {
-    s/\r//g;         # turn windows-looking lines into unix-looking lines
-    if (/^Location: (.*)/) {
-      $url = $1;
-    }
-  }
-  close(CMDLINE);
-  return $url;
 }
 
 # Reads a symbol map from the file handle name given as $1, returning
@@ -3090,14 +3083,15 @@ sub FetchSymbols {
     $symbol_map = {};
 
     my $post_data = join("+", sort((map {"0x" . "$_"} @pcs)));
-    open(POSTFILE, ">$main::tmpfile_sym");
-    print POSTFILE $post_data;
-    close(POSTFILE);
-
     my $url = SymbolPageURL();
-    $url = ResolveRedirectionForCurl($url);
-    my $command_line = "$CURL -sd '\@$main::tmpfile_sym' '$url'";
-    open(SYMBOL, "$command_line |") or error($command_line);
+    my $content = PostHTTP($url, $post_data);
+    
+    my $tmp_symbol = File::Temp->new()->filename;
+    open(SYMBOL, ">$tmp_symbol");
+    print SYMBOL $content;
+    close(SYMBOL);
+    
+    open(SYMBOL, "<$tmp_symbol") || error("$tmp_symbol");
     ReadSymbols(*SYMBOL{IO}, $symbol_map);
     close(SYMBOL);
   }
@@ -3163,7 +3157,7 @@ sub FetchDynamicProfile {
     my $profile_file = MakeProfileBaseName($binary_name, $profile_name);
 
     my $url;
-    my $curl_timeout;
+    my $timeout;
     if (($path =~ m/$PROFILE_PAGE/) || ($path =~ m/$PMUPROFILE_PAGE/)) {
       if ($path =~ m/$PROFILE_PAGE/) {
         $url = sprintf("$scheme://$host:$port$prefix$path?seconds=%d",
@@ -3177,8 +3171,7 @@ sub FetchDynamicProfile {
         $url = sprintf("$scheme://$profile_name" . "seconds=%d",
             $main::opt_seconds);
       }
-      $curl_timeout = sprintf("--max-time %d",
-                              int($main::opt_seconds * 1.01 + 60));
+      $timeout = int($main::opt_seconds * 1.01 + 60);
     } else {
       # For non-CPU profiles, we add a type-extension to
       # the target profile file name.
@@ -3186,22 +3179,15 @@ sub FetchDynamicProfile {
       $suffix =~ s,/,.,g;
       $profile_file .= "$suffix";
       $url = "$scheme://$host:$port$prefix$path";
-      $curl_timeout = "";
     }
 
-    my $profile_dir = $ENV{"PPROF_TMPDIR"} || ($ENV{HOME} . "/pprof");
-    if (!(-d $profile_dir)) {
-      mkdir($profile_dir)
-          || die("Unable to create profile directory $profile_dir: $!\n");
-    }
-    my $tmp_profile = "$profile_dir/.tmp.$profile_file";
-    my $real_profile = "$profile_dir/$profile_file";
+    my $tmp_profile = File::Temp->new()->filename;
+    my $real_profile = File::Temp->new()->filename;
 
     if ($fetch_name_only > 0) {
       return $real_profile;
     }
 
-    my $cmd = "$CURL $curl_timeout -s -o $tmp_profile '$url'";
     if (($path =~ m/$PROFILE_PAGE/) || ($path =~ m/$PMUPROFILE_PAGE/)){
       print STDERR "Gathering CPU profile from $url for $main::opt_seconds seconds to\n  ${real_profile}\n";
       if ($encourage_patience) {
@@ -3211,12 +3197,17 @@ sub FetchDynamicProfile {
       print STDERR "Fetching $path profile from $host:$port to\n  ${real_profile}\n";
     }
 
-    (system($cmd) == 0) || error("Failed to get profile: $cmd: $!\n");
-    open(TMPPROF, "$tmp_profile") || error("Cannot open $tmp_profile: $!\n");
-    my $line = <TMPPROF>;
-    close(TMPPROF);
+    my $content = FetchHTTP($url, $timeout);
+    
+    open(OUTFILE, ">$tmp_profile");
+    binmode(OUTFILE);
+    print OUTFILE $content;
+    close(OUTFILE);
+    
+    my $line = $content;
     $line !~ /^Could not enable CPU profiling/ || error($line);
-    (system("mv $tmp_profile $real_profile") == 0) || error("Unable to rename profile\n");
+    
+    copy($tmp_profile, $real_profile) || error("Unable to copy profile\n");
     print STDERR "Wrote profile to $real_profile\n";
     $main::collected_profile = $real_profile;
     return $main::collected_profile;
@@ -4423,7 +4414,7 @@ sub MapToSymbols {
 
   # If "addr2line" isn't installed on the system at all, just use
   # nm to get what info we can (function names, but not line numbers).
-  if (system("$addr2line --help >/dev/null 2>&1") != 0) {
+  if (system("$addr2line --help >$DEVNULL 2>&1") != 0) {
     MapSymbolsWithNM($image, $offset, $pclist, $symbols);
     return;
   }
@@ -4441,7 +4432,7 @@ sub MapToSymbols {
   if (defined($sep_address)) {
     # Only add " -i" to addr2line if the binary supports it.
     # addr2line --help returns 0, but not if it sees an unknown flag first.
-    if (system("$cmd -i --help >/dev/null 2>&1") == 0) {
+    if (system("$cmd -i --help >$DEVNULL 2>&1") == 0) {
       $cmd .= " -i";
     } else {
       $sep_address = undef;   # no need for sep_address if we don't support -i
@@ -4596,7 +4587,12 @@ sub ConfigureObjTools {
   (-e $prog_file)  || error("$prog_file does not exist.\n");
 
   # Follow symlinks (at least for systems where "file" supports that)
-  my $file_type = `/usr/bin/file -L $prog_file 2>/dev/null || /usr/bin/file $prog_file`;
+  my $file_cmd = "/usr/bin/file -L $prog_file 2>$DEVNULL || /usr/bin/file $prog_file 2>$DEVNULL";
+  if ($^O eq "MSWin32") {
+    $file_cmd = "file -L $prog_file 2>NUL || file $prog_file 2>NUL";
+  }
+  my $file_type = `$file_cmd`;
+
   if ($file_type =~ /64-bit/) {
     # Change $address_length to 16 if the program file is ELF 64-bit.
     # We can't detect this from many (most?) heap or lock contention
@@ -4605,14 +4601,13 @@ sub ConfigureObjTools {
     $address_length = 16;
   }
 
-  if ($file_type =~ /MS Windows/) {
+  if (($file_type =~ /MS Windows/) || ($OS eq "windows")) {
     # For windows, we provide a version of nm and addr2line as part of
     # the opensource release, which is capable of parsing
     # Windows-style PDB executables.  It should live in the path, or
     # in the same directory as pprof.
     $obj_tool_map{"nm_pdb"} = "nm-pdb";
     $obj_tool_map{"addr2line_pdb"} = "addr2line-pdb";
-    $obj_tool_map{"is_windows"} = "true";
   }
 
   if ($file_type =~ /Mach-O/) {
@@ -4664,9 +4659,59 @@ sub ConfigureTool {
   return $path;
 }
 
+# FetchHTTP retrieves a URL using either curl or LWP::UserAgent.
+# It returns the entire body of the page on success, or exits the program
+# with an error message on any failure.
+sub FetchHTTP {
+  my $url = shift;
+  my $timeout = shift;  # optional, in seconds
+  eval "use LWP::UserAgent ();";
+  if ($@) {
+    my @max;
+    push @max, "--max-time", $timeout if $timeout;
+    open(my $fh, "-|", "curl", @max, "-s", $url) or error("Neither LWP::UserAgent nor curl is installed: $!\n");
+    my $slurp = do { local $/; <$fh> };
+    close($fh);
+    if ($? != 0) {
+      error("Error fetching $url with curl: exit $?")
+    }
+    return $slurp;
+  }
+  my $ua = LWP::UserAgent->new;
+  $ua->timeout($timeout) if $timeout;
+  my $res = $ua->get($url);
+  error("Failed to fetch $url\n") unless $res->is_success();
+  return $res->content();
+}
+
+sub PostHTTP {
+  my ($url, $post_data) = @_;
+  eval "use LWP::UserAgent ();";
+  if ($@) {
+    open(POSTFILE, ">$main::tmpfile_sym");
+    print POSTFILE $post_data;
+    close(POSTFILE);
+
+    open(my $fh, "-|", "curl", "-s", "-d", "\@$main::tmpfile_sym", $url) or error("Neither LWP::UserAgent nor curl is installed: $!\n");
+    my $slurp = do { local $/; <$fh> };
+    close($fh);
+    if ($? != 0) {
+      error("Error fetching $url with curl: exit $?")
+    }
+    return $slurp;
+  }
+  my $req = HTTP::Request->new(POST => $url);
+  $req->content($post_data);
+  my $ua = LWP::UserAgent->new;
+  my $res = $ua->request($req);
+  error("Failed to POST to $url\n") unless $res->is_success();
+  return $res->content();
+}
+
 sub cleanup {
-  unlink($main::tmpfile_sym);
-  unlink(keys %main::tempnames);
+  unlink($main::tmpfile_sym) if defined $main::tmpfile_sym;
+  unlink(keys %main::tempnames) if %main::tempnames;
+  unlink($main::collected_profile) if defined $main::collected_profile;
 
   # We leave any collected profiles in $HOME/pprof in case the user wants
   # to look at them later.  We print a message informing them of this.
@@ -4798,29 +4843,23 @@ sub GetProcedureBoundaries {
   # in an incompatible way.  So first we test whether our nm supports
   # --demangle and -f.
   my $demangle_flag = "";
-  if (system("$nm --demangle $image >/dev/null 2>&1") == 0) {
+  if (system("$nm --demangle $image >$DEVNULL 2>&1") == 0) {
     # In this mode, we do "nm --demangle <foo>"
     $demangle_flag = "--demangle";
   }
   my $flatten_flag = "";
-  if (system("$nm -f $image >/dev/null 2>&1") == 0) {
+  if (system("$nm -f $image >$DEVNULL 2>&1") == 0) {
     $flatten_flag = "-f";
   }
 
   # Finally, in the case $image isn't a debug library, we try again with
   # -D to at least get *exported* symbols.  If we can't use --demangle, too bad.
   my @nm_commands = ("$nm -n $flatten_flag $demangle_flag" .
-                     " $image 2>/dev/null",
+                     " $image 2>$DEVNULL",
                      "$nm -D -n $flatten_flag $demangle_flag" .
-                     " $image 2>/dev/null",
+                     " $image 2>$DEVNULL",
                      # go tool nm is for Go binaries
-                     "go tool nm $image 2>/dev/null | sort");
-
-  # If the executable is an MS Windows Go executable, we'll
-  # have set up obj_tool_map("is_windows").
-  if (exists $obj_tool_map{"is_windows"}) {
-    @nm_commands = ("go tool nm $image 2>/dev/null | sort");
-  }
+                     "go tool nm $image 2>$DEVNULL | sort");
 
   foreach my $nm_command (@nm_commands) {
     my $symbol_table = GetProcedureBoundariesViaNm($nm_command, $regexp);

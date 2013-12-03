@@ -2,15 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#define Runemax Plan9Runemax
 #include "/sys/include/libc.h"
-#undef Runemax
 #include "/sys/include/ctype.h"
-
-enum
-{
-	Runemax = 0x10FFFF, /* maximum rune value */
-};
 
 char*	getgoos(void);
 char*	getgoarch(void);
@@ -29,3 +22,7 @@ void	flagfn0(char*, char*, void(*fn)(void));
 void	flagfn1(char*, char*, void(*fn)(char*));
 void	flagfn2(char*, char*, void(*fn)(char*, char*));
 void	flagprint(int);
+
+// The libraries use size_t to avoid -Wconversion warnings from GCC
+// when calling standard library functions like memcpy.
+typedef unsigned long size_t;

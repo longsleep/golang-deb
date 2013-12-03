@@ -465,7 +465,7 @@ xrealwd(Buf *b, char *path)
 	torune(&rnew, path);
 	if(!SetCurrentDirectoryW(rnew))
 		fatal("chdir %s: %s", path, errstr());
-	free(rnew);
+	xfree(rnew);
 	xgetwd(b);
 	if(!SetCurrentDirectoryW(old)) {
 		breset(b);
@@ -929,7 +929,7 @@ xstrrchr(char *p, int c)
 	return nil;
 }
 
-// xsamefile returns whether f1 and f2 are the same file (or dir)
+// xsamefile reports whether f1 and f2 are the same file (or dir)
 int
 xsamefile(char *f1, char *f2)
 {

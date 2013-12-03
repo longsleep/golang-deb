@@ -33,6 +33,8 @@ static void	stringtoarraylit(Node**);
 static Node*	resolve(Node*);
 static void	checkdefergo(Node*);
 static int	checkmake(Type*, char*, Node*);
+static int	checksliceindex(Node*, Type*);
+static int	checksliceconst(Node*, Node*);
 
 static	NodeList*	typecheckdefstack;
 
@@ -88,7 +90,7 @@ static char* _typekind[] = {
 	[TARRAY]	= "array",
 	[TFUNC]		= "func",
 	[TNIL]		= "nil",
-	[TIDEAL]	= "ideal number",
+	[TIDEAL]	= "untyped number",
 };
 
 static char*
@@ -303,7 +305,7 @@ static void
 typecheck1(Node **np, int top)
 {
 	int et, aop, op, ptr;
-	Node *n, *l, *r;
+	Node *n, *l, *r, *lo, *mid, *hi;
 	NodeList *args;
 	int ok, ntop;
 	Type *t, *tp, *missing, *have, *badtype;
@@ -420,11 +422,11 @@ reswitch:
 				goto error;
 			}
 			t->bound = mpgetfix(v.u.xval);
-			if(t->bound < 0) {
-				yyerror("array bound must be non-negative");
-				goto error;
-			} else if(doesoverflow(v, types[TINT])) {
+			if(doesoverflow(v, types[TINT])) {
 				yyerror("array bound is too large"); 
+				goto error;
+			} else if(t->bound < 0) {
+				yyerror("array bound must be non-negative");
 				goto error;
 			}
 		}
@@ -837,7 +839,7 @@ reswitch:
 					"\t\thave %S%hhT\n\t\twant %S%hhT", n->type, t, missing->sym,
 					have->sym, have->type, missing->sym, missing->type);
 			else if(ptr)
-				yyerror("impossible type assertion:\n\t%T does not implement %T (%S method requires pointer receiver)",
+				yyerror("impossible type assertion:\n\t%T does not implement %T (%S method has pointer receiver)",
 					n->type, t, missing->sym);
 			else if(have)
 				yyerror("impossible type assertion:\n\t%T does not implement %T (missing %S method)\n"
@@ -926,11 +928,7 @@ reswitch:
 		goto ret;
 
 	case OSEND:
-		if(top & Erv) {
-			yyerror("send statement %N used as value; use select for non-blocking send", n);
-			goto error;
-		}
-		ok |= Etop | Erv;
+		ok |= Etop;
 		l = typecheck(&n->left, Erv);
 		typecheck(&n->right, Erv);
 		defaultlit(&n->left, T);
@@ -993,54 +991,63 @@ reswitch:
 			yyerror("cannot slice %N (type %T)", l, t);
 			goto error;
 		}
-		if(n->right->left != N) {
-			if((t = n->right->left->type) == T)
-				goto error;
-			if(!isint[t->etype]) {
-				yyerror("invalid slice index %N (type %T)", n->right->left, t);
+		if((lo = n->right->left) != N && checksliceindex(lo, tp) < 0)
+			goto error;
+		if((hi = n->right->right) != N && checksliceindex(hi, tp) < 0)
+			goto error;
+		if(checksliceconst(lo, hi) < 0)
+			goto error;
+		goto ret;
+
+	case OSLICE3:
+		ok |= Erv;
+		typecheck(&n->left, top);
+		typecheck(&n->right->left, Erv);
+		typecheck(&n->right->right->left, Erv);
+		typecheck(&n->right->right->right, Erv);
+		defaultlit(&n->left, T);
+		indexlit(&n->right->left);
+		indexlit(&n->right->right->left);
+		indexlit(&n->right->right->right);
+		l = n->left;
+		if(isfixedarray(l->type)) {
+			if(!islvalue(n->left)) {
+				yyerror("invalid operation %N (slice of unaddressable value)", n);
 				goto error;
 			}
-			if(n->right->left->op == OLITERAL) {
-				if(mpgetfix(n->right->left->val.u.xval) < 0) {
-					yyerror("invalid slice index %N (index must be non-negative)", n->right->left);
-					goto error;
-				} else if(tp != nil && tp->bound > 0 && mpgetfix(n->right->left->val.u.xval) > tp->bound) {
-					yyerror("invalid slice index %N (out of bounds for %d-element array)", n->right->left, tp->bound);
-					goto error;
-				} else if(mpcmpfixfix(n->right->left->val.u.xval, maxintval[TINT]) > 0) {
-					yyerror("invalid slice index %N (index too large)", n->right->left);
-					goto error;
-				}
-			}
+			n->left = nod(OADDR, n->left, N);
+			n->left->implicit = 1;
+			typecheck(&n->left, Erv);
+			l = n->left;
 		}
-		if(n->right->right != N) {
-			if((t = n->right->right->type) == T)
-				goto error;
-			if(!isint[t->etype]) {
-				yyerror("invalid slice index %N (type %T)", n->right->right, t);
-				goto error;
-			}
-			if(n->right->right->op == OLITERAL) {
-				if(mpgetfix(n->right->right->val.u.xval) < 0) {
-					yyerror("invalid slice index %N (index must be non-negative)", n->right->right);
-					goto error;
-				} else if(tp != nil && tp->bound > 0 && mpgetfix(n->right->right->val.u.xval) > tp->bound) {
-					yyerror("invalid slice index %N (out of bounds for %d-element array)", n->right->right, tp->bound);
-					goto error;
-				} else if(mpcmpfixfix(n->right->right->val.u.xval, maxintval[TINT]) > 0) {
-					yyerror("invalid slice index %N (index too large)", n->right->right);
-					goto error;
-				}
-			}
-		}
-		if(n->right->left != N
-		   && n->right->right != N
-		   && n->right->left->op == OLITERAL
-		   && n->right->right->op == OLITERAL
-		   && mpcmpfixfix(n->right->left->val.u.xval, n->right->right->val.u.xval) > 0) {
-			yyerror("inverted slice index %N > %N", n->right->left, n->right->right);
+		if((t = l->type) == T)
+			goto error;
+		tp = nil;
+		if(istype(t, TSTRING)) {
+			yyerror("invalid operation %N (3-index slice of string)", n);
 			goto error;
 		}
+		if(isptr[t->etype] && isfixedarray(t->type)) {
+			tp = t->type;
+			n->type = typ(TARRAY);
+			n->type->type = tp->type;
+			n->type->bound = -1;
+			dowidth(n->type);
+			n->op = OSLICE3ARR;
+		} else if(isslice(t)) {
+			n->type = t;
+		} else {
+			yyerror("cannot slice %N (type %T)", l, t);
+			goto error;
+		}
+		if((lo = n->right->left) != N && checksliceindex(lo, tp) < 0)
+			goto error;
+		if((mid = n->right->right->left) != N && checksliceindex(mid, tp) < 0)
+			goto error;
+		if((hi = n->right->right->right) != N && checksliceindex(hi, tp) < 0)
+			goto error;
+		if(checksliceconst(lo, hi) < 0 || checksliceconst(lo, mid) < 0 || checksliceconst(mid, hi) < 0)
+			goto error;
 		goto ret;
 
 	/*
@@ -1565,7 +1572,20 @@ reswitch:
 			fatal("OITAB of %T", t);
 		n->type = ptrto(types[TUINTPTR]);
 		goto ret;
-	
+
+	case OSPTR:
+		ok |= Erv;
+		typecheck(&n->left, Erv);
+		if((t = n->left->type) == T)
+			goto error;
+		if(!isslice(t) && t->etype != TSTRING)
+			fatal("OSPTR of %T", t);
+		if(t->etype == TSTRING)
+			n->type = ptrto(types[TUINT8]);
+		else
+			n->type = ptrto(t->type);
+		goto ret;
+
 	case OCLOSUREVAR:
 		ok |= Erv;
 		goto ret;
@@ -1650,6 +1670,10 @@ reswitch:
 		if(curfn->type->outnamed && n->list == nil)
 			goto ret;
 		typecheckaste(ORETURN, nil, 0, getoutargx(curfn->type), n->list, "return argument");
+		goto ret;
+	
+	case ORETJMP:
+		ok |= Etop;
 		goto ret;
 
 	case OSELECT:
@@ -1753,6 +1777,43 @@ out:
 	*np = n;
 }
 
+static int
+checksliceindex(Node *r, Type *tp)
+{
+	Type *t;
+
+	if((t = r->type) == T)
+		return -1;
+	if(!isint[t->etype]) {
+		yyerror("invalid slice index %N (type %T)", r, t);
+		return -1;
+	}
+	if(r->op == OLITERAL) {
+		if(mpgetfix(r->val.u.xval) < 0) {
+			yyerror("invalid slice index %N (index must be non-negative)", r);
+			return -1;
+		} else if(tp != nil && tp->bound > 0 && mpgetfix(r->val.u.xval) > tp->bound) {
+			yyerror("invalid slice index %N (out of bounds for %d-element array)", r, tp->bound);
+			return -1;
+		} else if(mpcmpfixfix(r->val.u.xval, maxintval[TINT]) > 0) {
+			yyerror("invalid slice index %N (index too large)", r);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static int
+checksliceconst(Node *lo, Node *hi)
+{
+	if(lo != N && hi != N && lo->op == OLITERAL && hi->op == OLITERAL
+	   && mpcmpfixfix(lo->val.u.xval, hi->val.u.xval) > 0) {
+		yyerror("invalid slice index: %N > %N", lo, hi);
+		return -1;
+	}
+	return 0;
+}
+
 static void
 checkdefergo(Node *n)
 {
@@ -1793,6 +1854,11 @@ checkdefergo(Node *n)
 		break;
 	default:
 	conv:
+		// type is broken or missing, most likely a method call on a broken type
+		// we will warn about the broken type elsewhere. no need to emit a potentially confusing error
+		if(n->left->type == T || n->left->type->broke)
+			break;
+
 		if(!n->diag) {
 			// The syntax made sure it was a call, so this must be
 			// a conversion.
@@ -2074,9 +2140,9 @@ typecheckaste(int op, Node *call, int isddd, Type *tstruct, NodeList *nl, char *
 				for(; tn; tn=tn->down) {
 					if(assignop(tn->type, tl->type->type, &why) == 0) {
 						if(call != N)
-							yyerror("cannot use %T as type %T in argument to %N%s", tn->type, tl->type, call, why);
+							yyerror("cannot use %T as type %T in argument to %N%s", tn->type, tl->type->type, call, why);
 						else
-							yyerror("cannot use %T as type %T in %s%s", tn->type, tl->type, desc, why);
+							yyerror("cannot use %T as type %T in %s%s", tn->type, tl->type->type, desc, why);
 					}
 				}
 				goto out;
@@ -2993,7 +3059,7 @@ queuemethod(Node *n)
 Node*
 typecheckdef(Node *n)
 {
-	int lno;
+	int lno, nerrors0;
 	Node *e;
 	Type *t;
 	NodeList *l;
@@ -3121,7 +3187,13 @@ typecheckdef(Node *n)
 		n->walkdef = 1;
 		n->type = typ(TFORW);
 		n->type->sym = n->sym;
+		nerrors0 = nerrors;
 		typecheckdeftype(n);
+		if(n->type->etype == TFORW && nerrors > nerrors0) {
+			// Something went wrong during type-checking,
+			// but it was reported. Silence future errors.
+			n->type->broke = 1;
+		}
 		if(curfn)
 			resumecheckwidth();
 		break;
@@ -3277,6 +3349,7 @@ isterminating(NodeList *l, int top)
 
 	case OGOTO:
 	case ORETURN:
+	case ORETJMP:
 	case OPANIC:
 	case OXFALL:
 		return 1;

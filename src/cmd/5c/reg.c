@@ -112,6 +112,7 @@ regopt(Prog *p)
 		case AGLOBL:
 		case ANAME:
 		case ASIGNAME:
+		case AFUNCDATA:
 			continue;
 		}
 		r = rega();
@@ -174,8 +175,10 @@ regopt(Prog *p)
 		 */
 		case ANOP:
 		case AMOVB:
+		case AMOVBS:
 		case AMOVBU:
 		case AMOVH:
+		case AMOVHS:
 		case AMOVHU:
 		case AMOVW:
 		case AMOVF:
@@ -460,6 +463,7 @@ brk:
 			case AGLOBL:
 			case ANAME:
 			case ASIGNAME:
+			case AFUNCDATA:
 				break;
 			}
 		}
@@ -555,9 +559,9 @@ addmove(Reg *r, int bn, int rn, int f)
 
 	p1->as = AMOVW;
 	if(v->etype == TCHAR || v->etype == TUCHAR)
-		p1->as = AMOVB;
+		p1->as = AMOVBS;
 	if(v->etype == TSHORT || v->etype == TUSHORT)
-		p1->as = AMOVH;
+		p1->as = AMOVHS;
 	if(v->etype == TFLOAT)
 		p1->as = AMOVF;
 	if(v->etype == TDOUBLE)

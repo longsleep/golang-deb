@@ -700,7 +700,7 @@ scanobj(Biobuf *b, Arfile *ap, long size)
 	// the ! comes immediately.  Catch that so we can avoid
 	// the call to scanpkg below, since scanpkg assumes that the
 	// Go metadata is present.
-	if(Bgetc(b) == '!')
+	if(BGETC(b) == '!')
 		goobject = 0;
 
 	Bseek(b, offset1, 0);
@@ -807,13 +807,13 @@ scanpkg(Biobuf *b, long size)
 	 * scan until $$
 	 */
 	for (n=0; n<size; ) {
-		c = Bgetc(b);
+		c = BGETC(b);
 		if(c == Beof)
 			break;
 		n++;
 		if(c != '$')
 			continue;
-		c = Bgetc(b);
+		c = BGETC(b);
 		if(c == Beof)
 			break;
 		n++;
@@ -828,7 +828,7 @@ scanpkg(Biobuf *b, long size)
 
 foundstart:
 	/* found $$; skip rest of line */
-	while((c = Bgetc(b)) != '\n')
+	while((c = BGETC(b)) != '\n')
 		if(c == Beof)
 			goto bad;
 
@@ -937,21 +937,12 @@ objsym(Sym *s, void *p)
 int
 hashstr(char *name)
 {
-	int h;
+	uint32 h;
 	char *cp;
 
 	h = 0;
 	for(cp = name; *cp; h += *cp++)
 		h *= 1119;
-	
-	// the code used to say
-	//	if(h < 0)
-	//		h = ~h;
-	// but on gcc 4.3 with -O2 on some systems,
-	// the if(h < 0) gets compiled away as not possible.
-	// use a mask instead, leaving plenty of bits but
-	// definitely not the sign bit.
-
 	return h & 0xfffffff;
 }
 
@@ -1263,7 +1254,7 @@ rl(int fd)
 		wrsym(&b, len, aend->sym);
 
 	if(symdefsize&0x01)
-		Bputc(&b, 0);
+		BPUTC(&b, 0);
 
 	if (gflag) {
 		len = pkgdefsize;
@@ -1283,7 +1274,7 @@ rl(int fd)
 		if (Bwrite(&b, pkgdefdata, pkgdefsize) != pkgdefsize)
 			wrerr();
 		if(len&0x01)
-			Bputc(&b, 0);
+			BPUTC(&b, 0);
 	}
 	Bterm(&b);
 }
@@ -1297,12 +1288,9 @@ wrsym(Biobuf *bp, long offset, Arsymref *as)
 	int off;
 
 	while(as) {
-		Bputc(bp, as->type);
+		BPUTC(bp, as->type);
 		off = as->offset+offset;
-		Bputc(bp, off);
-		Bputc(bp, off>>8);
-		Bputc(bp, off>>16);
-		Bputc(bp, off>>24);
+		BPUTLE4(bp, off);
 		if (Bwrite(bp, as->name, as->len+1) != as->len+1)
 			wrerr();
 		as = as->next;
@@ -1454,7 +1442,7 @@ select(int *ap, long mode)
 	n = *ap++;
 	while(--n>=0 && (mode&*ap++)==0)
 		ap++;
-	Bputc(&bout, *ap);
+	BPUTC(&bout, *ap);
 }
 
 /*
@@ -1506,7 +1494,7 @@ arread(Biobuf *b, Armember *bp)	/* read an image into a member buffer */
 		rderr();
 	}
 	if(bp->size&1)
-		Bgetc(b);
+		BGETC(b);
 }
 
 /*
@@ -1618,6 +1606,25 @@ int (*reader[256])(Biobuf*, Prog*) = {
 	[Obj386] = _read8,
 };
 
+#define isdelim(c) ((c) == '/' || (c) == '\\')
+
+/*
+ *	check if p is start of windows full path, like C:\ or c:/.
+ *	return 1 if so. also set drive parameter to its
+ *	upper-case drive letter.
+ */
+int
+iswinpathstart(char *p, char *drive)
+{
+	if('A' <= p[0] || p[0] <= 'Z')
+		*drive = p[0];
+	else if('a' <= p[0] || p[0] <= 'z')
+		*drive = p[0] - ('a' - 'A');
+	else
+		return 0;
+	return p[1] == ':' && isdelim(p[2]);
+}
+
 /*
  *	copy b into bp->member but rewrite object
  *	during copy to drop prefix from all file names.
@@ -1630,7 +1637,7 @@ arread_cutprefix(Biobuf *b, Armember *bp)
 	vlong offset, o, end;
 	int n, t;
 	int (*rd)(Biobuf*, Prog*);
-	char *w, *inprefix;
+	char *w, *inprefix, d1, d2;
 	Prog p;
 	
 	offset = Boffset(b);
@@ -1666,12 +1673,15 @@ arread_cutprefix(Biobuf *b, Armember *bp)
 			if(inprefix == nil && prefix[0] == '/' && p.id[1] == '/' && p.id[2] == '\0') {
 				// leading /
 				inprefix = prefix+1;
+			} else if(inprefix == nil && iswinpathstart(prefix, &d1) && iswinpathstart(p.id + 1, &d2) && d1 == d2 && p.id[4] == '\0') {
+				// leading c:\ ...
+				inprefix = prefix+3;
 			} else if(inprefix != nil) {
 				// handle subsequent elements
 				n = strlen(p.id+1);
-				if(strncmp(p.id+1, inprefix, n) == 0 && (inprefix[n] == '/' || inprefix[n] == '\0')) {
+				if(strncmp(p.id+1, inprefix, n) == 0 && (isdelim(inprefix[n]) || inprefix[n] == '\0')) {
 					inprefix += n;
-					if(inprefix[0] == '/')
+					if(isdelim(inprefix[0]))
 						inprefix++;
 				}
 			}
@@ -1712,6 +1722,6 @@ arread_cutprefix(Biobuf *b, Armember *bp)
 	strncpy(bp->hdr.fmag, ARFMAG, 2);
 	Bseek(b, end, 0);
 	if(Boffset(b)&1)
-		Bgetc(b);
+		BGETC(b);
 	return 1;
 }

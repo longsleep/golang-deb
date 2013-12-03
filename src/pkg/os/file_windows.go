@@ -153,6 +153,9 @@ func OpenFile(name string, flag int, perm FileMode) (file *File, err error) {
 // Close closes the File, rendering it unusable for I/O.
 // It returns an error, if any.
 func (file *File) Close() error {
+	if file == nil {
+		return ErrInvalid
+	}
 	return file.file.close()
 }
 
@@ -251,8 +254,14 @@ func (f *File) readConsole(b []byte) (n int, err error) {
 		return 0, nil
 	}
 	if len(f.readbuf) == 0 {
+		// syscall.ReadConsole seems to fail, if given large buffer.
+		// So limit the buffer to 16000 characters.
+		numBytes := len(b)
+		if numBytes > 16000 {
+			numBytes = 16000
+		}
 		// get more input data from os
-		wchars := make([]uint16, len(b))
+		wchars := make([]uint16, numBytes)
 		var p *uint16
 		if len(b) > 0 {
 			p = &wchars[0]
@@ -306,6 +315,10 @@ func (f *File) pread(b []byte, off int64) (n int, err error) {
 	var done uint32
 	e = syscall.ReadFile(syscall.Handle(f.fd), b, &done, &o)
 	if e != nil {
+		if e == syscall.ERROR_HANDLE_EOF {
+			// end of file
+			return 0, nil
+		}
 		return 0, e
 	}
 	return int(done), nil

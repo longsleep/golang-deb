@@ -33,6 +33,8 @@ Options new in this version:
 		linker. This flag cannot be used when $GOOS is windows.
 	-H darwin     (only in 6l/8l)
 		Write Apple Mach-O binaries (default when $GOOS is darwin)
+	-H dragonfly  (only in 6l/8l)
+		Write DragonFly ELF binaries (default when $GOOS is dragonfly)
 	-H linux
 		Write Linux ELF binaries (default when $GOOS is linux)
 	-H freebsd
@@ -52,6 +54,8 @@ Options new in this version:
 		The default is the single location $GOROOT/pkg/$GOOS_$GOARCH.
 	-r dir1:dir2:...
 		Set the dynamic linker search path when using ELF.
+	-s
+		Omit the symbol table and debug information.
 	-V
 		Print the linker version.
 	-X symbol value

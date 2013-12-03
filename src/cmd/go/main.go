@@ -76,7 +76,6 @@ func (c *Command) Runnable() bool {
 var commands = []*Command{
 	cmdBuild,
 	cmdClean,
-	cmdDoc,
 	cmdEnv,
 	cmdFix,
 	cmdFmt,
@@ -89,9 +88,10 @@ var commands = []*Command{
 	cmdVersion,
 	cmdVet,
 
+	helpC,
 	helpGopath,
+	helpImportPath,
 	helpPackages,
-	helpRemote,
 	helpTestflag,
 	helpTestfunc,
 }
@@ -142,6 +142,11 @@ func main() {
 				os.Exit(2)
 			}
 		}
+	}
+
+	if fi, err := os.Stat(goroot); err != nil || !fi.IsDir() {
+		fmt.Fprintf(os.Stderr, "go: cannot find GOROOT directory: %v\n", goroot)
+		os.Exit(2)
 	}
 
 	for _, cmd := range commands {
@@ -208,8 +213,6 @@ var documentationTemplate = `// Copyright 2011 The Go Authors.  All rights reser
 
 {{end}}*/
 package main
-
-// NOTE: cmdDoc is in fmt.go.
 `
 
 // tmpl executes the given template text on data, writing the result to w.
@@ -358,7 +361,7 @@ func exitIfErrors() {
 
 func run(cmdargs ...interface{}) {
 	cmdline := stringList(cmdargs...)
-	if buildN || buildV {
+	if buildN || buildX {
 		fmt.Printf("%s\n", strings.Join(cmdline, " "))
 		if buildN {
 			return
@@ -432,6 +435,37 @@ func matchPattern(pattern string) func(name string) bool {
 	}
 }
 
+// hasPathPrefix reports whether the path s begins with the
+// elements in prefix.
+func hasPathPrefix(s, prefix string) bool {
+	switch {
+	default:
+		return false
+	case len(s) == len(prefix):
+		return s == prefix
+	case len(s) > len(prefix):
+		if prefix != "" && prefix[len(prefix)-1] == '/' {
+			return strings.HasPrefix(s, prefix)
+		}
+		return s[len(prefix)] == '/' && s[:len(prefix)] == prefix
+	}
+}
+
+// treeCanMatchPattern(pattern)(name) reports whether
+// name or children of name can possibly match pattern.
+// Pattern is the same limited glob accepted by matchPattern.
+func treeCanMatchPattern(pattern string) func(name string) bool {
+	wildCard := false
+	if i := strings.Index(pattern, "..."); i >= 0 {
+		wildCard = true
+		pattern = pattern[:i]
+	}
+	return func(name string) bool {
+		return len(name) <= len(pattern) && hasPathPrefix(pattern, name) ||
+			wildCard && strings.HasPrefix(name, pattern)
+	}
+}
+
 // allPackages returns all the packages that can be found
 // under the $GOPATH directories and $GOROOT matching pattern.
 // The pattern is either "all" (all packages), "std" (standard packages)
@@ -446,8 +480,10 @@ func allPackages(pattern string) []string {
 
 func matchPackages(pattern string) []string {
 	match := func(string) bool { return true }
+	treeCanMatch := func(string) bool { return true }
 	if pattern != "all" && pattern != "std" {
 		match = matchPattern(pattern)
+		treeCanMatch = treeCanMatchPattern(pattern)
 	}
 
 	have := map[string]bool{
@@ -465,6 +501,9 @@ func matchPackages(pattern string) []string {
 			return nil
 		}
 		name := path[len(cmd):]
+		if !treeCanMatch(name) {
+			return filepath.SkipDir
+		}
 		// Commands are all in cmd/, not in subdirectories.
 		if strings.Contains(name, string(filepath.Separator)) {
 			return filepath.SkipDir
@@ -481,6 +520,9 @@ func matchPackages(pattern string) []string {
 		}
 		_, err = buildContext.ImportDir(path, 0)
 		if err != nil {
+			if _, noGo := err.(*build.NoGoError); !noGo {
+				log.Print(err)
+			}
 			return nil
 		}
 		pkgs = append(pkgs, name)
@@ -507,6 +549,9 @@ func matchPackages(pattern string) []string {
 			if pattern == "std" && strings.Contains(name, ".") {
 				return filepath.SkipDir
 			}
+			if !treeCanMatch(name) {
+				return filepath.SkipDir
+			}
 			if have[name] {
 				return nil
 			}
@@ -515,8 +560,10 @@ func matchPackages(pattern string) []string {
 				return nil
 			}
 			_, err = buildContext.ImportDir(path, 0)
-			if err != nil && strings.Contains(err.Error(), "no Go source files") {
-				return nil
+			if err != nil {
+				if _, noGo := err.(*build.NoGoError); noGo {
+					return nil
+				}
 			}
 			pkgs = append(pkgs, name)
 			return nil
@@ -583,6 +630,9 @@ func matchPackagesInFS(pattern string) []string {
 			return nil
 		}
 		if _, err = build.ImportDir(path, 0); err != nil {
+			if _, noGo := err.(*build.NoGoError); !noGo {
+				log.Print(err)
+			}
 			return nil
 		}
 		pkgs = append(pkgs, name)

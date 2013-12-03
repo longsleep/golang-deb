@@ -80,11 +80,16 @@ type Name struct {
 	Mangle   string // name used in generated Go
 	C        string // name used in C
 	Define   string // #define expansion
-	Kind     string // "const", "type", "var", "func", "not-type"
+	Kind     string // "const", "type", "var", "fpvar", "func", "not-type"
 	Type     *Type  // the type of xxx
 	FuncType *FuncType
 	AddError bool
 	Const    string // constant definition
+}
+
+// IsVar returns true if Kind is either "var" or "fpvar"
+func (n *Name) IsVar() bool {
+	return n.Kind == "var" || n.Kind == "fpvar"
 }
 
 // A ExpFunc is an exported function, callable from C.
@@ -336,7 +341,7 @@ func (p *Package) Record(f *File) {
 			if p.Name[k] == nil {
 				p.Name[k] = v
 			} else if !reflect.DeepEqual(p.Name[k], v) {
-				error_(token.NoPos, "inconsistent definitions for C.%s", k)
+				error_(token.NoPos, "inconsistent definitions for C.%s", fixGo(k))
 			}
 		}
 	}

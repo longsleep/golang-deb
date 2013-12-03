@@ -20,7 +20,12 @@ type SysProcAttr struct {
 	Noctty     bool        // Detach fd 0 from controlling terminal
 	Ctty       int         // Controlling TTY fd (Linux only)
 	Pdeathsig  Signal      // Signal that the process will get when its parent dies (Linux only)
+	Cloneflags uintptr     // Flags for clone calls (Linux only)
 }
+
+// Implemented in runtime package.
+func runtime_BeforeFork()
+func runtime_AfterFork()
 
 // Fork, dup fd onto 0..len(fd), and exec(argv0, argvv, envv) in child.
 // If a dup or exec fails, write the errno error to pipe.
@@ -28,6 +33,7 @@ type SysProcAttr struct {
 // In the child, this function must not acquire any locks, because
 // they might have been locked at the time of the fork.  This means
 // no rescheduling, no malloc calls, and no new stack segments.
+// For the same reason compiler does not race instrument it.
 // The calls to RawSyscall are okay because they are assembly
 // functions that do not grow the stack.
 func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr *ProcAttr, sys *SysProcAttr, pipe int) (pid int, err Errno) {
@@ -55,13 +61,16 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 
 	// About to call fork.
 	// No more allocation or calls of non-assembly functions.
-	r1, _, err1 = RawSyscall(SYS_FORK, 0, 0, 0)
+	runtime_BeforeFork()
+	r1, _, err1 = RawSyscall6(SYS_CLONE, uintptr(SIGCHLD)|sys.Cloneflags, 0, 0, 0, 0, 0)
 	if err1 != 0 {
+		runtime_AfterFork()
 		return 0, err1
 	}
 
 	if r1 != 0 {
 		// parent; return PID
+		runtime_AfterFork()
 		return int(r1), 0
 	}
 
@@ -233,11 +242,6 @@ childerror:
 	for {
 		RawSyscall(SYS_EXIT, 253, 0, 0)
 	}
-
-	// Calling panic is not actually safe,
-	// but the for loop above won't break
-	// and this shuts up the compiler.
-	panic("unreached")
 }
 
 // Try to open a pipe with O_CLOEXEC set on both file descriptors.

@@ -53,6 +53,7 @@ Header headers[] = {
 	"msdoscom", Hmsdoscom,
 	"msdosexe", Hmsdosexe,
 	"darwin", Hdarwin,
+	"dragonfly", Hdragonfly,
 	"linux", Hlinux,
 	"freebsd", Hfreebsd,
 	"netbsd", Hnetbsd,
@@ -69,6 +70,7 @@ Header headers[] = {
  *	-Hmsdoscom -Tx -Rx			is MS-DOS .COM
  *	-Hmsdosexe -Tx -Rx			is fake MS-DOS .EXE
  *	-Hdarwin -Tx -Rx			is Apple Mach-O
+ *	-Hdragonfly -Tx -Rx			is DragonFly ELF32
  *	-Hlinux -Tx -Rx				is Linux ELF32
  *	-Hfreebsd -Tx -Rx			is FreeBSD ELF32
  *	-Hnetbsd -Tx -Rx			is NetBSD ELF32
@@ -89,7 +91,6 @@ main(int argc, char *argv[])
 	INITDAT = -1;
 	INITRND = -1;
 	INITENTRY = 0;
-	LIBINITENTRY = 0;
 	linkmode = LinkAuto;
 	nuxiinit();
 
@@ -117,6 +118,7 @@ main(int argc, char *argv[])
 	flagstr("extldflags", "flags for external linker", &extldflags);
 	flagcount("f", "ignore version mismatch", &debug['f']);
 	flagcount("g", "disable go package data checks", &debug['g']);
+	flagstr("installsuffix", "pkg directory suffix", &flag_installsuffix);
 	flagfn1("linkmode", "mode: set link mode (internal, external, auto)", setlinkmode);
 	flagstr("k", "sym: set field tracking symbol", &tracksym);
 	flagstr("o", "outfile: set output file", &outfile);
@@ -154,6 +156,7 @@ main(int argc, char *argv[])
 			sysfatal("cannot use -linkmode=external with -H %s", headstr(HEADTYPE));
 		break;
 	case Hdarwin:
+	case Hdragonfly:
 	case Hfreebsd:
 	case Hlinux:
 	case Hnetbsd:
@@ -243,6 +246,7 @@ main(int argc, char *argv[])
 	case Hfreebsd:
 	case Hnetbsd:
 	case Hopenbsd:
+	case Hdragonfly:
 		/*
 		 * ELF uses TLS offsets negative from %gs.
 		 * Translate 0(GS) and 4(GS) into -8(GS) and -4(GS).
@@ -366,18 +370,18 @@ zaddr(char *pn, Biobuf *f, Adr *a, Sym *h[])
 	a->type = D_NONE;
 	a->offset = 0;
 	if(t & T_OFFSET)
-		a->offset = Bget4(f);
+		a->offset = BGETLE4(f);
 	a->offset2 = 0;
 	if(t & T_OFFSET2) {
-		a->offset2 = Bget4(f);
+		a->offset2 = BGETLE4(f);
 		a->type = D_CONST2;
 	}
 	a->sym = S;
 	if(t & T_SYM)
 		a->sym = zsym(pn, f, h);
 	if(t & T_FCONST) {
-		a->ieee.l = Bget4(f);
-		a->ieee.h = Bget4(f);
+		a->ieee.l = BGETLE4(f);
+		a->ieee.h = BGETLE4(f);
 		a->type = D_FCONST;
 	} else
 	if(t & T_SCONST) {
@@ -476,7 +480,7 @@ loop:
 	if(o == ANAME || o == ASIGNAME) {
 		sig = 0;
 		if(o == ASIGNAME)
-			sig = Bget4(f);
+			sig = BGETLE4(f);
 		v = BGETC(f);	/* type */
 		o = BGETC(f);	/* sym */
 		r = 0;
@@ -531,7 +535,7 @@ loop:
 
 	p = mal(sizeof(*p));
 	p->as = o;
-	p->line = Bget4(f);
+	p->line = BGETLE4(f);
 	p->back = 2;
 	zaddr(pn, f, &p->from, h);
 	fromgotype = adrgotype;
@@ -552,6 +556,7 @@ loop:
 		addhist(p->line, D_FILE);		/* 'z' */
 		if(p->to.offset)
 			addhist(p->to.offset, D_FILE1);	/* 'Z' */
+		savehist(p->line, p->to.offset);
 		histfrogp = 0;
 		goto loop;
 
@@ -613,13 +618,6 @@ loop:
 		pc++;
 		goto loop;
 
-	case ALOCALS:
-		if(skip)
-			goto casdef;
-		cursym->locals = p->to.offset;
-		pc++;
-		goto loop;
-
 	case ATYPE:
 		if(skip)
 			goto casdef;
@@ -663,6 +661,7 @@ loop:
 			diag("%s: redefinition: %s\n%P", pn, s->name, p);
 		}
 		s->type = STEXT;
+		s->hist = gethist();
 		s->value = pc;
 		s->args = p->to.offset2;
 		lastp = p;

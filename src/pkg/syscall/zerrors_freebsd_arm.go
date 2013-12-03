@@ -466,6 +466,7 @@ const (
 	F_WRLCK                           = 0x3
 	HUPCL                             = 0x4000
 	ICANON                            = 0x100
+	ICMP6_FILTER                      = 0x12
 	ICRNL                             = 0x100
 	IEXTEN                            = 0x400
 	IFAN_ARRIVAL                      = 0x0
@@ -1093,6 +1094,9 @@ const (
 	PARMRK                            = 0x8
 	PARODD                            = 0x2000
 	PENDIN                            = 0x20000000
+	PRIO_PGRP                         = 0x1
+	PRIO_PROCESS                      = 0x0
+	PRIO_USER                         = 0x2
 	PROT_EXEC                         = 0x4
 	PROT_NONE                         = 0x0
 	PROT_READ                         = 0x1

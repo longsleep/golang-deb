@@ -52,8 +52,11 @@ typedef	struct	Hist	Hist;
 typedef	struct	Term	Term;
 typedef	struct	Init	Init;
 typedef	struct	Bits	Bits;
+typedef	struct	Bvec	Bvec;
 typedef	struct	Dynimp	Dynimp;
 typedef	struct	Dynexp	Dynexp;
+
+typedef	Rune	TRune;	/* target system type */
 
 #define	BUFSIZ		8192
 #define	NSYMB		500
@@ -74,6 +77,12 @@ struct	Bits
 	uint32	b[BITS];
 };
 
+struct Bvec
+{
+	int32	n;	// number of bits
+	uint32	b[];
+};
+
 struct	Node
 {
 	Node*	left;
@@ -85,7 +94,7 @@ struct	Node
 	double	fconst;		/* fp constant */
 	vlong	vconst;		/* non fp const */
 	char*	cstring;	/* character string */
-	ushort*	rstring;	/* rune string */
+	TRune*	rstring;	/* rune string */
 
 	Sym*	sym;
 	Type*	type;
@@ -367,6 +376,9 @@ enum
 	TFILE,
 	TOLD,
 	NALLTYPES,
+
+	/* adapt size of Rune to target system's size */
+	TRUNE = sizeof(TRune)==4? TUINT: TUSHORT,
 };
 enum
 {
@@ -746,6 +758,12 @@ int	beq(Bits, Bits);
 int	bset(Bits, uint);
 
 /*
+ *	bv.c
+ */
+Bvec*	bvalloc(int32 n);
+void	bvset(Bvec *bv, int32 i);
+
+/*
  * dpchk.c
  */
 void	dpcheck(Node*);
@@ -766,12 +784,13 @@ void	gclean(void);
 void	gextern(Sym*, Node*, int32, int32);
 void	ginit(void);
 int32	outstring(char*, int32);
-int32	outlstring(ushort*, int32);
+int32	outlstring(TRune*, int32);
 void	sextern(Sym*, Node*, int32, int32);
 void	xcom(Node*);
 int32	exreg(Type*);
 int32	align(int32, Type*, int, int32*);
 int32	maxround(int32, int32);
+int	hasdotdotdot(void);
 
 extern	schar	ewidth[];
 
@@ -800,7 +819,6 @@ int	machcap(Node*);
 #pragma	varargck	type	"Q"	int32
 #pragma	varargck	type	"O"	int
 #pragma	varargck	type	"O"	uint
-#pragma	varargck	type	"S"	ushort*
 #pragma	varargck	type	"T"	Type*
 #pragma	varargck	type	"U"	char*
 #pragma	varargck	type	"|"	int

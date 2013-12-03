@@ -35,7 +35,7 @@ Bputc(Biobuf *bp, int c)
 	for(;;) {
 		i = bp->ocount;
 		if(i) {
-			bp->ebuf[i++] = c;
+			bp->ebuf[i++] = (unsigned char)c;
 			bp->ocount = i;
 			return 0;
 		}
@@ -43,4 +43,18 @@ Bputc(Biobuf *bp, int c)
 			break;
 	}
 	return Beof;
+}
+
+int
+Bputle2(Biobuf *bp, int c)
+{
+	Bputc(bp, c);
+	return Bputc(bp, c>>8);
+}
+
+int
+Bputle4(Biobuf *bp, int c)
+{
+	Bputle2(bp, c);
+	return Bputle2(bp, c>>16);
 }

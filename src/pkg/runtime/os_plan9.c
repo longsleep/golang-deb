@@ -5,6 +5,7 @@
 #include "runtime.h"
 #include "os_GOOS.h"
 #include "arch_GOARCH.h"
+#include "../../cmd/ld/textflag.h"
 
 int8 *goos = "plan9";
 extern SigTab runtime·sigtab[];
@@ -115,13 +116,14 @@ runtime·initsig(void)
 {
 }
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
 runtime·osyield(void)
 {
 	runtime·sleep(0);
 }
 
+#pragma textflag NOSPLIT
 void
 runtime·usleep(uint32 µs)
 {
@@ -193,7 +195,8 @@ runtime·goexitsall(int8 *status)
 int32
 runtime·postnote(int32 pid, int8* msg)
 {
-	int32 fd, len;
+	int32 fd;
+	intgo len;
 	uint8 buf[128];
 	uint8 tmp[16];
 	uint8 *p, *q;
@@ -259,6 +262,7 @@ runtime·semacreate(void)
 	return 1;
 }
 
+#pragma textflag NOSPLIT
 int32
 runtime·semasleep(int64 ns)
 {
@@ -266,10 +270,7 @@ runtime·semasleep(int64 ns)
 	int32 ms;
 
 	if(ns >= 0) {
-		if(ns/1000000 > 0x7fffffffll)
-			ms = 0x7fffffff;
-		else
-			ms = ns/1000000;
+		ms = runtime·timediv(ns, 1000000, nil);
 		ret = runtime·plan9_tsemacquire(&m->waitsemacount, ms);
 		if(ret == 1)
 			return 0;  // success
@@ -323,28 +324,13 @@ runtime·memlimit(void)
 	return 0;
 }
 
-void
-runtime·setprof(bool on)
-{
-	USED(on);
-}
-
-static int8 badcallback[] = "runtime: cgo callback on thread not created by Go.\n";
-
-// This runs on a foreign stack, without an m or a g.  No stack split.
-#pragma textflag 7
-void
-runtime·badcallback(void)
-{
-	runtime·pwrite(2, badcallback, sizeof badcallback - 1, -1LL);
-}
-
+#pragma dataflag NOPTR
 static int8 badsignal[] = "runtime: signal received on thread not created by Go.\n";
 
 // This runs on a foreign stack, without an m or a g.  No stack split.
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
-runtime·badsignal(void)
+runtime·badsignal2(void)
 {
 	runtime·pwrite(2, badsignal, sizeof badsignal - 1, -1LL);
 	runtime·exits(badsignal);

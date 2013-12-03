@@ -7,6 +7,7 @@
 #include "os_GOOS.h"
 #include "signal_unix.h"
 #include "stack.h"
+#include "../../cmd/ld/textflag.h"
 
 extern SigTab runtime·sigtab[];
 extern int32 runtime·sys_umtx_op(uint32*, int32, uint32, void*, void*);
@@ -41,30 +42,34 @@ getncpu(void)
 // FreeBSD's umtx_op syscall is effectively the same as Linux's futex, and
 // thus the code is largely similar. See linux/thread.c and lock_futex.c for comments.
 
+#pragma textflag NOSPLIT
 void
 runtime·futexsleep(uint32 *addr, uint32 val, int64 ns)
 {
 	int32 ret;
-	Timespec ts, *tsp;
-	int64 secs;
+	Timespec ts;
 
-	if(ns < 0)
-		tsp = nil;
-	else {
-		secs = ns / 1000000000LL;
-		// Avoid overflow
-		if(secs > 1LL<<30)
-			secs = 1LL<<30;
-		ts.tv_sec = secs;
-		ts.tv_nsec = ns % 1000000000LL;
-		tsp = &ts;
+	if(ns < 0) {
+		ret = runtime·sys_umtx_op(addr, UMTX_OP_WAIT_UINT, val, nil, nil);
+		if(ret >= 0 || ret == -EINTR)
+			return;
+		goto fail;
 	}
-
-	ret = runtime·sys_umtx_op(addr, UMTX_OP_WAIT_UINT, val, nil, tsp);
+	// NOTE: tv_nsec is int64 on amd64, so this assumes a little-endian system.
+	ts.tv_nsec = 0;
+	ts.tv_sec = runtime·timediv(ns, 1000000000, (int32*)&ts.tv_nsec);
+	ret = runtime·sys_umtx_op(addr, UMTX_OP_WAIT_UINT, val, nil, &ts);
 	if(ret >= 0 || ret == -EINTR)
 		return;
 
-	runtime·printf("umtx_wait addr=%p val=%d ret=%d\n", addr, val, ret);
+fail:
+	runtime·prints("umtx_wait addr=");
+	runtime·printpointer(addr);
+	runtime·prints(" val=");
+	runtime·printint(val);
+	runtime·prints(" ret=");
+	runtime·printint(ret);
+	runtime·prints("\n");
 	*(int32*)0x1005 = 0x1005;
 }
 
@@ -227,45 +232,6 @@ runtime·memlimit(void)
 		return 0;
 
 	return rl.rlim_cur - used;
-}
-
-void
-runtime·setprof(bool on)
-{
-	USED(on);
-}
-
-static int8 badcallback[] = "runtime: cgo callback on thread not created by Go.\n";
-
-// This runs on a foreign stack, without an m or a g.  No stack split.
-#pragma textflag 7
-void
-runtime·badcallback(void)
-{
-	runtime·write(2, badcallback, sizeof badcallback - 1);
-}
-
-static int8 badsignal[] = "runtime: signal received on thread not created by Go: ";
-
-// This runs on a foreign stack, without an m or a g.  No stack split.
-#pragma textflag 7
-void
-runtime·badsignal(int32 sig)
-{
-	int32 len;
-
-	if (sig == SIGPROF) {
-		return;  // Ignore SIGPROFs intended for a non-Go thread.
-	}
-	runtime·write(2, badsignal, sizeof badsignal - 1);
-	if (0 <= sig && sig < NSIG) {
-		// Can't call findnull() because it will split stack.
-		for(len = 0; runtime·sigtab[sig].name[len]; len++)
-			;
-		runtime·write(2, runtime·sigtab[sig].name, len);
-	}
-	runtime·write(2, "\n", 1);
-	runtime·exit(1);
 }
 
 extern void runtime·sigtramp(void);

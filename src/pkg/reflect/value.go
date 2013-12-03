@@ -446,11 +446,11 @@ func (v Value) call(op string, in []Value) []Value {
 	// For now make everything look like a pointer by allocating
 	// a []unsafe.Pointer.
 	args := make([]unsafe.Pointer, size/ptrSize)
-	ptr := uintptr(unsafe.Pointer(&args[0]))
+	ptr := unsafe.Pointer(&args[0])
 	off := uintptr(0)
 	if v.flag&flagMethod != 0 {
 		// Hard-wired first argument.
-		*(*iword)(unsafe.Pointer(ptr)) = rcvr
+		*(*iword)(ptr) = rcvr
 		off = ptrSize
 	}
 	for i, v := range in {
@@ -459,7 +459,7 @@ func (v Value) call(op string, in []Value) []Value {
 		a := uintptr(targ.align)
 		off = (off + a - 1) &^ (a - 1)
 		n := targ.size
-		addr := unsafe.Pointer(ptr + off)
+		addr := unsafe.Pointer(uintptr(ptr) + off)
 		v = v.assignTo("reflect.Value.Call", targ, (*interface{})(addr))
 		if v.flag&flagIndir == 0 {
 			storeIword(addr, iword(v.val), n)
@@ -471,7 +471,7 @@ func (v Value) call(op string, in []Value) []Value {
 	off = (off + ptrSize - 1) &^ (ptrSize - 1)
 
 	// Call.
-	call(fn, unsafe.Pointer(ptr), uint32(size))
+	call(fn, ptr, uint32(size))
 
 	// Copy return values out of args.
 	//
@@ -482,7 +482,7 @@ func (v Value) call(op string, in []Value) []Value {
 		a := uintptr(tv.Align())
 		off = (off + a - 1) &^ (a - 1)
 		fl := flagIndir | flag(tv.Kind())<<flagKindShift
-		ret[i] = Value{tv.common(), unsafe.Pointer(ptr + off), fl}
+		ret[i] = Value{tv.common(), unsafe.Pointer(uintptr(ptr) + off), fl}
 		off += tv.Size()
 	}
 
@@ -497,6 +497,10 @@ func (v Value) call(op string, in []Value) []Value {
 // frame into a call using Values.
 // It is in this file so that it can be next to the call method above.
 // The remainder of the MakeFunc implementation is in makefunc.go.
+//
+// NOTE: This function must be marked as a "wrapper" in the generated code,
+// so that the linker can make it work correctly for panic and recover.
+// The gc compilers know to do that for the name "reflect.callReflect".
 func callReflect(ctxt *makeFuncImpl, frame unsafe.Pointer) {
 	ftyp := ctxt.typ
 	f := ctxt.fn
@@ -650,6 +654,10 @@ func frameSize(t *rtype, rcvr bool) (total, in, outOffset, out uintptr) {
 // to deal with individual Values for each argument.
 // It is in this file so that it can be next to the two similar functions above.
 // The remainder of the makeMethodValue implementation is in makefunc.go.
+//
+// NOTE: This function must be marked as a "wrapper" in the generated code,
+// so that the linker can make it work correctly for panic and recover.
+// The gc compilers know to do that for the name "reflect.callMethod".
 func callMethod(ctxt *methodValue, frame unsafe.Pointer) {
 	t, fn, rcvr := methodReceiver("call", ctxt.rcvr, ctxt.method)
 	total, in, outOffset, out := frameSize(t, true)
@@ -963,10 +971,7 @@ func (v Value) CanInterface() bool {
 // Interface returns v's current value as an interface{}.
 // It is equivalent to:
 //	var i interface{} = (v's underlying value)
-// If v is a method obtained by invoking Value.Method
-// (as opposed to Type.Method), Interface cannot return an
-// interface value, so it panics.
-// It also panics if the Value was obtained by accessing
+// It panics if the Value was obtained by accessing
 // unexported struct fields.
 func (v Value) Interface() (i interface{}) {
 	return valueInterface(v, true)
@@ -1004,7 +1009,8 @@ func valueInterface(v Value, safe bool) interface{} {
 	eface.typ = v.typ
 	eface.word = v.iword()
 
-	if v.flag&flagIndir != 0 && v.typ.size > ptrSize {
+	// Don't need to allocate if v is not addressable or fits in one word.
+	if v.flag&flagAddr != 0 && v.typ.size > ptrSize {
 		// eface.word is a pointer to the actual data,
 		// which might be changed.  We need to return
 		// a pointer to unchanging data, so make a copy.
@@ -1475,6 +1481,19 @@ func (v Value) SetLen(n int) {
 	s.Len = n
 }
 
+// SetCap sets v's capacity to n.
+// It panics if v's Kind is not Slice or if n is smaller than the length or
+// greater than the capacity of the slice.
+func (v Value) SetCap(n int) {
+	v.mustBeAssignable()
+	v.mustBe(Slice)
+	s := (*SliceHeader)(v.val)
+	if n < int(s.Len) || n > int(s.Cap) {
+		panic("reflect: slice capacity out of range in SetCap")
+	}
+	s.Cap = n
+}
+
 // SetMapIndex sets the value associated with key in the map v to val.
 // It panics if v's Kind is not Map.
 // If val is the zero Value, SetMapIndex deletes the key from the map.
@@ -1531,17 +1550,18 @@ func (v Value) SetString(x string) {
 	*(*string)(v.val) = x
 }
 
-// Slice returns a slice of v.
-// It panics if v's Kind is not Array, Slice or String, or if v is an unaddressable array.
-func (v Value) Slice(beg, end int) Value {
+// Slice returns v[i:j].
+// It panics if v's Kind is not Array, Slice or String, or if v is an unaddressable array,
+// or if the indexes are out of bounds.
+func (v Value) Slice(i, j int) Value {
 	var (
 		cap  int
 		typ  *sliceType
 		base unsafe.Pointer
 	)
-	switch k := v.kind(); k {
+	switch kind := v.kind(); kind {
 	default:
-		panic(&ValueError{"reflect.Value.Slice", k})
+		panic(&ValueError{"reflect.Value.Slice", kind})
 
 	case Array:
 		if v.flag&flagAddr == 0 {
@@ -1560,17 +1580,17 @@ func (v Value) Slice(beg, end int) Value {
 
 	case String:
 		s := (*StringHeader)(v.val)
-		if beg < 0 || end < beg || end > s.Len {
+		if i < 0 || j < i || j > s.Len {
 			panic("reflect.Value.Slice: string slice index out of bounds")
 		}
 		var x string
 		val := (*StringHeader)(unsafe.Pointer(&x))
-		val.Data = s.Data + uintptr(beg)
-		val.Len = end - beg
+		val.Data = s.Data + uintptr(i)
+		val.Len = j - i
 		return Value{v.typ, unsafe.Pointer(&x), v.flag}
 	}
 
-	if beg < 0 || end < beg || end > cap {
+	if i < 0 || j < i || j > cap {
 		panic("reflect.Value.Slice: slice index out of bounds")
 	}
 
@@ -1579,9 +1599,56 @@ func (v Value) Slice(beg, end int) Value {
 
 	// Reinterpret as *SliceHeader to edit.
 	s := (*SliceHeader)(unsafe.Pointer(&x))
-	s.Data = uintptr(base) + uintptr(beg)*typ.elem.Size()
-	s.Len = end - beg
-	s.Cap = cap - beg
+	s.Data = uintptr(base) + uintptr(i)*typ.elem.Size()
+	s.Len = j - i
+	s.Cap = cap - i
+
+	fl := v.flag&flagRO | flagIndir | flag(Slice)<<flagKindShift
+	return Value{typ.common(), unsafe.Pointer(&x), fl}
+}
+
+// Slice3 is the 3-index form of the slice operation: it returns v[i:j:k].
+// It panics if v's Kind is not Array or Slice, or if v is an unaddressable array,
+// or if the indexes are out of bounds.
+func (v Value) Slice3(i, j, k int) Value {
+	var (
+		cap  int
+		typ  *sliceType
+		base unsafe.Pointer
+	)
+	switch kind := v.kind(); kind {
+	default:
+		panic(&ValueError{"reflect.Value.Slice3", kind})
+
+	case Array:
+		if v.flag&flagAddr == 0 {
+			panic("reflect.Value.Slice: slice of unaddressable array")
+		}
+		tt := (*arrayType)(unsafe.Pointer(v.typ))
+		cap = int(tt.len)
+		typ = (*sliceType)(unsafe.Pointer(tt.slice))
+		base = v.val
+
+	case Slice:
+		typ = (*sliceType)(unsafe.Pointer(v.typ))
+		s := (*SliceHeader)(v.val)
+		base = unsafe.Pointer(s.Data)
+		cap = s.Cap
+	}
+
+	if i < 0 || j < i || k < j || k > cap {
+		panic("reflect.Value.Slice3: slice index out of bounds")
+	}
+
+	// Declare slice so that the garbage collector
+	// can see the base pointer in it.
+	var x []unsafe.Pointer
+
+	// Reinterpret as *SliceHeader to edit.
+	s := (*SliceHeader)(unsafe.Pointer(&x))
+	s.Data = uintptr(base) + uintptr(i)*typ.elem.Size()
+	s.Len = j - i
+	s.Cap = k - i
 
 	fl := v.flag&flagRO | flagIndir | flag(Slice)<<flagKindShift
 	return Value{typ.common(), unsafe.Pointer(&x), fl}
@@ -2236,7 +2303,7 @@ func makeInt(f flag, bits uint64, t Type) Value {
 		// Assume ptrSize >= 4, so this must be uint64.
 		ptr := unsafe_New(typ)
 		*(*uint64)(unsafe.Pointer(ptr)) = bits
-		return Value{typ, ptr, f | flag(typ.Kind())<<flagKindShift}
+		return Value{typ, ptr, f | flagIndir | flag(typ.Kind())<<flagKindShift}
 	}
 	var w iword
 	switch typ.size {
@@ -2260,7 +2327,7 @@ func makeFloat(f flag, v float64, t Type) Value {
 		// Assume ptrSize >= 4, so this must be float64.
 		ptr := unsafe_New(typ)
 		*(*float64)(unsafe.Pointer(ptr)) = v
-		return Value{typ, ptr, f | flag(typ.Kind())<<flagKindShift}
+		return Value{typ, ptr, f | flagIndir | flag(typ.Kind())<<flagKindShift}
 	}
 
 	var w iword
@@ -2285,7 +2352,7 @@ func makeComplex(f flag, v complex128, t Type) Value {
 		case 16:
 			*(*complex128)(unsafe.Pointer(ptr)) = v
 		}
-		return Value{typ, ptr, f | flag(typ.Kind())<<flagKindShift}
+		return Value{typ, ptr, f | flagIndir | flag(typ.Kind())<<flagKindShift}
 	}
 
 	// Assume ptrSize <= 8 so this must be complex64.

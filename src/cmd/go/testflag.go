@@ -27,12 +27,17 @@ var usageMessage = `Usage of go test:
   -bench="": passes -test.bench to test
   -benchmem=false: print memory allocation statistics for benchmarks
   -benchtime=1s: passes -test.benchtime to test
+  -cover=false: enable coverage analysis
+  -covermode="set": specifies mode for coverage analysis
+  -coverpkg="": comma-separated list of packages for coverage analysis
+  -coverprofile="": passes -test.coverprofile to test if -cover
   -cpu="": passes -test.cpu to test
   -cpuprofile="": passes -test.cpuprofile to test
   -memprofile="": passes -test.memprofile to test
   -memprofilerate=0: passes -test.memprofilerate to test
   -blockprofile="": pases -test.blockprofile to test
   -blockprofilerate=0: passes -test.blockprofilerate to test
+  -outputdir=$PWD: passes -test.outputdir to test
   -parallel=0: passes -test.parallel to test
   -run="": passes -test.run to test
   -short=false: passes -test.short to test
@@ -62,6 +67,8 @@ var testFlagDefn = []*testFlagSpec{
 	{name: "c", boolVar: &testC},
 	{name: "file", multiOK: true},
 	{name: "i", boolVar: &testI},
+	{name: "cover", boolVar: &testCover},
+	{name: "coverpkg"},
 
 	// build flags.
 	{name: "a", boolVar: &buildA},
@@ -75,17 +82,21 @@ var testFlagDefn = []*testFlagSpec{
 	{name: "tags"},
 	{name: "compiler"},
 	{name: "race", boolVar: &buildRace},
+	{name: "installsuffix"},
 
 	// passed to 6.out, adding a "test." prefix to the name if necessary: -v becomes -test.v.
 	{name: "bench", passToTest: true},
 	{name: "benchmem", boolVar: new(bool), passToTest: true},
 	{name: "benchtime", passToTest: true},
+	{name: "covermode"},
+	{name: "coverprofile", passToTest: true},
 	{name: "cpu", passToTest: true},
 	{name: "cpuprofile", passToTest: true},
 	{name: "memprofile", passToTest: true},
 	{name: "memprofilerate", passToTest: true},
 	{name: "blockprofile", passToTest: true},
 	{name: "blockprofilerate", passToTest: true},
+	{name: "outputdir", passToTest: true},
 	{name: "parallel", passToTest: true},
 	{name: "run", passToTest: true},
 	{name: "short", boolVar: new(bool), passToTest: true},
@@ -104,6 +115,8 @@ var testFlagDefn = []*testFlagSpec{
 //	go test -x math
 func testFlags(args []string) (packageNames, passToTest []string) {
 	inPkg := false
+	outputDir := ""
+	testCoverMode = "set"
 	for i := 0; i < len(args); i++ {
 		if !strings.HasPrefix(args[i], "-") {
 			if !inPkg && packageNames == nil {
@@ -137,7 +150,7 @@ func testFlags(args []string) (packageNames, passToTest []string) {
 		var err error
 		switch f.name {
 		// bool flags.
-		case "a", "c", "i", "n", "x", "v", "work", "race":
+		case "a", "c", "i", "n", "x", "v", "race", "cover", "work":
 			setBoolFlag(f.boolVar, value)
 		case "p":
 			setIntFlag(&buildP, value)
@@ -169,6 +182,27 @@ func testFlags(args []string) (packageNames, passToTest []string) {
 			testTimeout = value
 		case "blockprofile", "cpuprofile", "memprofile":
 			testProfile = true
+			testNeedBinary = true
+		case "coverpkg":
+			testCover = true
+			if value == "" {
+				testCoverPaths = nil
+			} else {
+				testCoverPaths = strings.Split(value, ",")
+			}
+		case "coverprofile":
+			testCover = true
+			testProfile = true
+		case "covermode":
+			switch value {
+			case "set", "count", "atomic":
+				testCoverMode = value
+			default:
+				fatalf("invalid flag argument for -cover: %q", value)
+			}
+			testCover = true
+		case "outputdir":
+			outputDir = value
 		}
 		if extraWord {
 			i++
@@ -176,6 +210,15 @@ func testFlags(args []string) (packageNames, passToTest []string) {
 		if f.passToTest {
 			passToTest = append(passToTest, "-test."+f.name+"="+value)
 		}
+	}
+
+	// Tell the test what directory we're running in, so it can write the profiles there.
+	if testProfile && outputDir == "" {
+		dir, err := os.Getwd()
+		if err != nil {
+			fatalf("error from os.Getwd: %s", err)
+		}
+		passToTest = append(passToTest, "-test.outputdir", dir)
 	}
 	return
 }
@@ -215,13 +258,13 @@ func testFlag(args []string, i int) (f *testFlagSpec, value string, extra bool) 
 				extra = equals < 0
 				if extra {
 					if i+1 >= len(args) {
-						usage()
+						testSyntaxError("missing argument for flag " + f.name)
 					}
 					value = args[i+1]
 				}
 			}
 			if f.present && !f.multiOK {
-				usage()
+				testSyntaxError(f.name + " flag may be set only once")
 			}
 			f.present = true
 			return
@@ -235,8 +278,7 @@ func testFlag(args []string, i int) (f *testFlagSpec, value string, extra bool) 
 func setBoolFlag(flag *bool, value string) {
 	x, err := strconv.ParseBool(value)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go test: illegal bool flag value %s\n", value)
-		usage()
+		testSyntaxError("illegal bool flag value " + value)
 	}
 	*flag = x
 }
@@ -245,8 +287,13 @@ func setBoolFlag(flag *bool, value string) {
 func setIntFlag(flag *int, value string) {
 	x, err := strconv.Atoi(value)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "go test: illegal int flag value %s\n", value)
-		usage()
+		testSyntaxError("illegal int flag value " + value)
 	}
 	*flag = x
+}
+
+func testSyntaxError(msg string) {
+	fmt.Fprintf(os.Stderr, "go test: %s\n", msg)
+	fmt.Fprintf(os.Stderr, `run "go help test" or "go help testflag" for more information`+"\n")
+	os.Exit(2)
 }

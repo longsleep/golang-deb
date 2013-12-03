@@ -11,8 +11,6 @@
  * REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
-#include <stdarg.h>
-#include <string.h>
 #include "utf.h"
 #include "utfdef.h"
 
@@ -20,7 +18,7 @@ int
 utflen(const char *s)
 {
 	int c;
-	long n;
+	int n;
 	Rune rune;
 
 	n = 0;

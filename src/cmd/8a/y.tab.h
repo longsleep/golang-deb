@@ -1,24 +1,21 @@
-/* A Bison parser, made by GNU Bison 2.3.  */
+/* A Bison parser, made by GNU Bison 2.5.  */
 
-/* Skeleton interface for Bison's Yacc-like parsers in C
-
-   Copyright (C) 1984, 1989, 1990, 2000, 2001, 2002, 2003, 2004, 2005, 2006
-   Free Software Foundation, Inc.
-
-   This program is free software; you can redistribute it and/or modify
+/* Bison interface for Yacc-like parsers in C
+   
+      Copyright (C) 1984, 1989-1990, 2000-2011 Free Software Foundation, Inc.
+   
+   This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 2, or (at your option)
-   any later version.
-
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+   
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-
+   
    You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor,
-   Boston, MA 02110-1301, USA.  */
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
 /* As a special exception, you may create a larger work that contains
    part or all of the Bison parser skeleton and distribute that work
@@ -29,9 +26,10 @@
    special exception, which will cause the skeleton and the resulting
    Bison output files to be licensed under the GNU General Public
    License without this special exception.
-
+   
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
+
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
@@ -55,21 +53,23 @@
      LTYPEG = 271,
      LTYPEXC = 272,
      LTYPEX = 273,
-     LCONST = 274,
-     LFP = 275,
-     LPC = 276,
-     LSB = 277,
-     LBREG = 278,
-     LLREG = 279,
-     LSREG = 280,
-     LFREG = 281,
-     LXREG = 282,
-     LFCONST = 283,
-     LSCONST = 284,
-     LSP = 285,
-     LNAME = 286,
-     LLAB = 287,
-     LVAR = 288
+     LTYPEPC = 274,
+     LTYPEF = 275,
+     LCONST = 276,
+     LFP = 277,
+     LPC = 278,
+     LSB = 279,
+     LBREG = 280,
+     LLREG = 281,
+     LSREG = 282,
+     LFREG = 283,
+     LXREG = 284,
+     LFCONST = 285,
+     LSCONST = 286,
+     LSP = 287,
+     LNAME = 288,
+     LLAB = 289,
+     LVAR = 290
    };
 #endif
 /* Tokens.  */
@@ -89,29 +89,34 @@
 #define LTYPEG 271
 #define LTYPEXC 272
 #define LTYPEX 273
-#define LCONST 274
-#define LFP 275
-#define LPC 276
-#define LSB 277
-#define LBREG 278
-#define LLREG 279
-#define LSREG 280
-#define LFREG 281
-#define LXREG 282
-#define LFCONST 283
-#define LSCONST 284
-#define LSP 285
-#define LNAME 286
-#define LLAB 287
-#define LVAR 288
+#define LTYPEPC 274
+#define LTYPEF 275
+#define LCONST 276
+#define LFP 277
+#define LPC 278
+#define LSB 279
+#define LBREG 280
+#define LLREG 281
+#define LSREG 282
+#define LFREG 283
+#define LXREG 284
+#define LFCONST 285
+#define LSCONST 286
+#define LSP 287
+#define LNAME 288
+#define LLAB 289
+#define LVAR 290
 
 
 
 
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 typedef union YYSTYPE
-#line 37 "a.y"
 {
+
+/* Line 2068 of yacc.c  */
+#line 38 "a.y"
+
 	Sym	*sym;
 	int32	lval;
 	struct {
@@ -122,14 +127,17 @@ typedef union YYSTYPE
 	char	sval[8];
 	Gen	gen;
 	Gen2	gen2;
-}
-/* Line 1529 of yacc.c.  */
-#line 128 "y.tab.h"
-	YYSTYPE;
+
+
+
+/* Line 2068 of yacc.c  */
+#line 135 "y.tab.h"
+} YYSTYPE;
+# define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
 # define YYSTYPE_IS_DECLARED 1
-# define YYSTYPE_IS_TRIVIAL 1
 #endif
 
 extern YYSTYPE yylval;
+
 

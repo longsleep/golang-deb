@@ -35,11 +35,9 @@ Prog*
 gtext(Sym *s, int32 stkoff)
 {
 	int32 a;
-	
-	a = 0;
-	if(!(textflag & NOSPLIT))
-		a = argsize();
-	else if(stkoff >= 128)
+
+	a = argsize();
+	if((textflag & NOSPLIT) != 0 && stkoff >= 128)
 		yyerror("stack frame too large for NOSPLIT function");
 
 	gpseudo(ATEXT, s, nodconst(stkoff));

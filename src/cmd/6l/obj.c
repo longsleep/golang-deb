@@ -48,6 +48,7 @@ Header headers[] = {
 	"plan9", Hplan9x64,
 	"elf", Helf,
 	"darwin", Hdarwin,
+	"dragonfly", Hdragonfly,
 	"linux", Hlinux,
 	"freebsd", Hfreebsd,
 	"netbsd", Hnetbsd,
@@ -62,6 +63,7 @@ Header headers[] = {
  *	-Hplan9 -T0x200028 -R0x200000	is plan9 64-bit format
  *	-Helf -T0x80110000 -R4096	is ELF32
  *	-Hdarwin -Tx -Rx		is apple MH-exec
+ *	-Hdragonfly -Tx -Rx		is DragonFly elf-exec
  *	-Hlinux -Tx -Rx			is linux elf-exec
  *	-Hfreebsd -Tx -Rx		is FreeBSD elf-exec
  *	-Hnetbsd -Tx -Rx		is NetBSD elf-exec
@@ -82,7 +84,6 @@ main(int argc, char *argv[])
 	INITDAT = -1;
 	INITRND = -1;
 	INITENTRY = 0;
-	LIBINITENTRY = 0;
 	linkmode = LinkAuto;
 	nuxiinit();
 
@@ -111,6 +112,7 @@ main(int argc, char *argv[])
 	flagstr("extldflags", "flags for external linker", &extldflags);
 	flagcount("f", "ignore version mismatch", &debug['f']);
 	flagcount("g", "disable go package data checks", &debug['g']);
+	flagstr("installsuffix", "pkg directory suffix", &flag_installsuffix);
 	flagfn1("linkmode", "mode: set link mode (internal, external, auto)", setlinkmode);
 	flagstr("k", "sym: set field tracking symbol", &tracksym);
 	flagcount("n", "dump symbol table", &debug['n']);
@@ -119,7 +121,7 @@ main(int argc, char *argv[])
 	flagstr("r", "dir1:dir2:...: set ELF dynamic linker search path", &rpath);
 	flagcount("race", "enable race detector", &flag_race);
 	flagcount("s", "disable symbol table", &debug['s']);
-	flagcount("shared", "generate shared object", &flag_shared);
+	flagcount("shared", "generate shared object (implies -linkmode external)", &flag_shared);
 	flagstr("tmpdir", "leave temporary files in this directory", &tmpdir);
 	flagcount("u", "reject unsafe packages", &debug['u']);
 	flagcount("v", "print link trace", &debug['v']);
@@ -140,6 +142,9 @@ main(int argc, char *argv[])
 	if(linkmode == LinkAuto && strcmp(getgoextlinkenabled(), "0") == 0)
 		linkmode = LinkInternal;
 
+	if(flag_shared)
+		linkmode = LinkExternal;
+
 	switch(HEADTYPE) {
 	default:
 		if(linkmode == LinkAuto)
@@ -148,6 +153,7 @@ main(int argc, char *argv[])
 			sysfatal("cannot use -linkmode=external with -H %s", headstr(HEADTYPE));
 		break;
 	case Hdarwin:
+	case Hdragonfly:
 	case Hfreebsd:
 	case Hlinux:
 	case Hnetbsd:
@@ -168,7 +174,7 @@ main(int argc, char *argv[])
 	default:
 		diag("unknown -H option");
 		errorexit();
-	case Hplan9x32:	/* plan 9 */
+	case Hplan9x32:		/* plan 9 */
 		HEADR = 32L;
 		if(INITTEXT == -1)
 			INITTEXT = 4096+HEADR;
@@ -177,7 +183,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case Hplan9x64:	/* plan 9 */
+	case Hplan9x64:		/* plan 9 */
 		HEADR = 32L + 8L;
 		if(INITTEXT == -1)
 			INITTEXT = 0x200000+HEADR;
@@ -186,7 +192,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 0x200000;
 		break;
-	case Helf:	/* elf32 executable */
+	case Helf:		/* elf32 executable */
 		HEADR = rnd(52L+3*32L, 16);
 		if(INITTEXT == -1)
 			INITTEXT = 0x80110000L;
@@ -195,7 +201,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case Hdarwin:	/* apple MACH */
+	case Hdarwin:		/* apple MACH */
 		/*
 		 * OS X system constant - offset from 0(GS) to our TLS.
 		 * Explained in ../../pkg/runtime/cgo/gcc_darwin_amd64.c.
@@ -210,10 +216,11 @@ main(int argc, char *argv[])
 		if(INITDAT == -1)
 			INITDAT = 0;
 		break;
-	case Hlinux:	/* elf64 executable */
-	case Hfreebsd:	/* freebsd */
-	case Hnetbsd:	/* netbsd */
-	case Hopenbsd:	/* openbsd */
+	case Hlinux:		/* elf64 executable */
+	case Hfreebsd:		/* freebsd */
+	case Hnetbsd:		/* netbsd */
+	case Hopenbsd:		/* openbsd */
+	case Hdragonfly:	/* dragonfly */
 		/*
 		 * ELF uses TLS offset negative from FS.
 		 * Translate 0(FS) and 8(FS) into -16(FS) and -8(FS).
@@ -230,7 +237,7 @@ main(int argc, char *argv[])
 		if(INITRND == -1)
 			INITRND = 4096;
 		break;
-	case Hwindows: /* PE executable */
+	case Hwindows:		/* PE executable */
 		peinit();
 		HEADR = PEFILEHEADR;
 		if(INITTEXT == -1)
@@ -337,10 +344,10 @@ zaddr(char *pn, Biobuf *f, Adr *a, Sym *h[])
 	}
 	a->offset = 0;
 	if(t & T_OFFSET) {
-		a->offset = Bget4(f);
+		a->offset = BGETLE4(f);
 		if(t & T_64) {
 			a->offset &= 0xFFFFFFFFULL;
-			a->offset |= (vlong)Bget4(f) << 32;
+			a->offset |= (uvlong)BGETLE4(f) << 32;
 		}
 	}
 	a->sym = S;
@@ -348,8 +355,8 @@ zaddr(char *pn, Biobuf *f, Adr *a, Sym *h[])
 		a->sym = zsym(pn, f, h);
 	a->type = D_NONE;
 	if(t & T_FCONST) {
-		a->ieee.l = Bget4(f);
-		a->ieee.h = Bget4(f);
+		a->ieee.l = BGETLE4(f);
+		a->ieee.h = BGETLE4(f);
 		a->type = D_FCONST;
 	} else
 	if(t & T_SCONST) {
@@ -365,7 +372,7 @@ zaddr(char *pn, Biobuf *f, Adr *a, Sym *h[])
 		adrgotype = zsym(pn, f, h);
 	s = a->sym;
 	t = a->type;
-	if(t == D_INDIR+D_GS)
+	if(t == D_INDIR+D_GS || a->index == D_GS)
 		a->offset += tlsoffset;
 	if(t != D_AUTO && t != D_PARAM) {
 		if(s && adrgotype)
@@ -456,7 +463,7 @@ loop:
 	if(o == ANAME || o == ASIGNAME) {
 		sig = 0;
 		if(o == ASIGNAME)
-			sig = Bget4(f);
+			sig = BGETLE4(f);
 		v = BGETC(f);	/* type */
 		o = BGETC(f);	/* sym */
 		r = 0;
@@ -511,7 +518,7 @@ loop:
 
 	p = mal(sizeof(*p));
 	p->as = o;
-	p->line = Bget4(f);
+	p->line = BGETLE4(f);
 	p->back = 2;
 	p->mode = mode;
 	zaddr(pn, f, &p->from, h);
@@ -542,6 +549,7 @@ loop:
 		addhist(p->line, D_FILE);		/* 'z' */
 		if(p->to.offset)
 			addhist(p->to.offset, D_FILE1);	/* 'Z' */
+		savehist(p->line, p->to.offset);
 		histfrogp = 0;
 		goto loop;
 
@@ -603,13 +611,6 @@ loop:
 		pc++;
 		goto loop;
 
-	case ALOCALS:
-		if(skip)
-			goto casdef;
-		cursym->locals = p->to.offset;
-		pc++;
-		goto loop;
-	
 	case ATYPE:
 		if(skip)
 			goto casdef;
@@ -658,6 +659,7 @@ loop:
 			s->gotype = fromgotype;
 		}
 		s->type = STEXT;
+		s->hist = gethist();
 		s->value = pc;
 		s->args = p->to.offset >> 32;
 		lastp = p;

@@ -67,6 +67,8 @@ cgen(Node *n, Node *res)
 	case OSLICE:
 	case OSLICEARR:
 	case OSLICESTR:
+	case OSLICE3:
+	case OSLICE3ARR:
 		if (res->op != ONAME || !res->addable) {
 			tempname(&n1, n->type);
 			cgen_slice(n, &n1);
@@ -107,6 +109,7 @@ cgen(Node *n, Node *res)
 	// can't do in walk because n->left->addable
 	// changes if n->left is an escaping local variable.
 	switch(n->op) {
+	case OSPTR:
 	case OLEN:
 		if(isslice(n->left->type) || istype(n->left->type, TSTRING))
 			n->addable = n->left->addable;
@@ -282,6 +285,22 @@ cgen(Node *n, Node *res)
 	case OITAB:
 		igen(nl, &n1, res);
 		n1.type = ptrto(types[TUINTPTR]);
+		gmove(&n1, res);
+		regfree(&n1);
+		break;
+
+	case OSPTR:
+		// pointer is the first word of string or slice.
+		if(isconst(nl, CTSTR)) {
+			regalloc(&n1, types[tptr], res);
+			p1 = gins(ALEAL, N, &n1);
+			datastring(nl->val.u.sval->s, nl->val.u.sval->len, &p1->from);
+			gmove(&n1, res);
+			regfree(&n1);
+			break;
+		}
+		igen(nl, &n1, res);
+		n1.type = n->type;
 		gmove(&n1, res);
 		regfree(&n1);
 		break;
@@ -474,12 +493,13 @@ igenindex(Node *n, Node *res, int bounded)
 /*
  * address gen
  *	res = &n;
+ * The generated code checks that the result is not nil.
  */
 void
 agen(Node *n, Node *res)
 {
 	Node *nl, *nr;
-	Node n1, n2, n3, n4, tmp, nlen;
+	Node n1, n2, n3, tmp, nlen;
 	Type *t;
 	uint32 w;
 	uint64 v;
@@ -547,6 +567,8 @@ agen(Node *n, Node *res)
 	case OSLICE:
 	case OSLICEARR:
 	case OSLICESTR:
+	case OSLICE3:
+	case OSLICE3ARR:
 		tempname(&n1, n->type);
 		cgen_slice(n, &n1);
 		agen(&n1, res);
@@ -601,16 +623,6 @@ agen(Node *n, Node *res)
 		// i is in n1 (if not constant)
 		// len(a) is in nlen (if needed)
 		// w is width
-
-		// explicit check for nil if array is large enough
-		// that we might derive too big a pointer.
-		if(isfixedarray(nl->type) && nl->type->width >= unmappedzero) {
-			n4 = n3;
-			n4.op = OINDREG;
-			n4.type = types[TUINT8];
-			n4.xoffset = 0;
-			gins(ATESTB, nodintconst(0), &n4);
-		}
 
 		// constant index
 		if(isconst(nr, CTINT)) {
@@ -735,23 +747,11 @@ agen(Node *n, Node *res)
 
 	case OIND:
 		cgen(nl, res);
+		cgen_checknil(res);
 		break;
 
 	case ODOT:
 		agen(nl, res);
-		// explicit check for nil if struct is large enough
-		// that we might derive too big a pointer.  If the left node
-		// was ODOT we have already done the nil check.
-		if(nl->op != ODOT)
-		if(nl->type->width >= unmappedzero) {
-			regalloc(&n1, types[tptr], res);
-			gmove(res, &n1);
-			n1.op = OINDREG;
-			n1.type = types[TUINT8];
-			n1.xoffset = 0;
-			gins(ATESTB, nodintconst(0), &n1);
-			regfree(&n1);
-		}
 		if(n->xoffset != 0) {
 			nodconst(&n1, types[tptr], n->xoffset);
 			gins(optoas(OADD, types[tptr]), &n1, res);
@@ -763,17 +763,7 @@ agen(Node *n, Node *res)
 		if(!isptr[t->etype])
 			fatal("agen: not ptr %N", n);
 		cgen(nl, res);
-		// explicit check for nil if struct is large enough
-		// that we might derive too big a pointer.
-		if(nl->type->type->width >= unmappedzero) {
-			regalloc(&n1, types[tptr], res);
-			gmove(res, &n1);
-			n1.op = OINDREG;
-			n1.type = types[TUINT8];
-			n1.xoffset = 0;
-			gins(ATESTB, nodintconst(0), &n1);
-			regfree(&n1);
-		}
+		cgen_checknil(res);
 		if(n->xoffset != 0) {
 			nodconst(&n1, types[tptr], n->xoffset);
 			gins(optoas(OADD, types[tptr]), &n1, res);
@@ -789,6 +779,7 @@ agen(Node *n, Node *res)
  *
  * on exit, a has been changed to be *newreg.
  * caller must regfree(a).
+ * The generated code checks that the result is not *nil.
  */
 void
 igen(Node *n, Node *a, Node *res)
@@ -838,15 +829,7 @@ igen(Node *n, Node *a, Node *res)
 			regalloc(a, types[tptr], res);
 			cgen(n->left, a);
 		}
-		// explicit check for nil if struct is large enough
-		// that we might derive too big a pointer.
-		if(n->left->type->type->width >= unmappedzero) {
-			n1 = *a;
-			n1.op = OINDREG;
-			n1.type = types[TUINT8];
-			n1.xoffset = 0;
-			gins(ATESTB, nodintconst(0), &n1);
-		}
+		cgen_checknil(a);
 		a->op = OINDREG;
 		a->xoffset += n->xoffset;
 		a->type = n->type;
@@ -874,7 +857,35 @@ igen(Node *n, Node *a, Node *res)
 		a->xoffset = fp->width;
 		a->type = n->type;
 		return;
+
+	case OINDEX:
+		// Index of fixed-size array by constant can
+		// put the offset in the addressing.
+		// Could do the same for slice except that we need
+		// to use the real index for the bounds checking.
+		if(isfixedarray(n->left->type) ||
+		   (isptr[n->left->type->etype] && isfixedarray(n->left->left->type)))
+		if(isconst(n->right, CTINT)) {
+			// Compute &a.
+			if(!isptr[n->left->type->etype])
+				igen(n->left, a, res);
+			else {
+				igen(n->left, &n1, res);
+				cgen_checknil(&n1);
+				regalloc(a, types[tptr], res);
+				gmove(&n1, a);
+				regfree(&n1);
+				a->op = OINDREG;
+			}
+
+			// Compute &a[i] as &a + i*width.
+			a->type = n->type;
+			a->xoffset += mpgetfix(n->right->val.u.xval)*n->type->width;
+			return;
+		}
+		break;
 	}
+
 	// release register for now, to avoid
 	// confusing tempname.
 	if(res != N && res->op == OREGISTER)
@@ -1319,7 +1330,7 @@ cadable(Node *n)
  * copy a composite value by moving its individual components.
  * Slices, strings and interfaces are supported.
  * nr is N when assigning a zero value.
- * return 1 if can do, 0 if cant.
+ * return 1 if can do, 0 if can't.
  */
 int
 componentgen(Node *nr, Node *nl)

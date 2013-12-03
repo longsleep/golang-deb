@@ -7,6 +7,11 @@
 #include "malloc.h"
 #include "stack.h"
 
+enum
+{
+	StackDebug = 0,
+};
+
 typedef struct StackCacheNode StackCacheNode;
 struct StackCacheNode
 {
@@ -31,10 +36,9 @@ stackcacherefill(void)
 		stackcache = n->next;
 	runtime·unlock(&stackcachemu);
 	if(n == nil) {
-		n = (StackCacheNode*)runtime·SysAlloc(FixedStack*StackCacheBatch);
+		n = (StackCacheNode*)runtime·SysAlloc(FixedStack*StackCacheBatch, &mstats.stacks_sys);
 		if(n == nil)
 			runtime·throw("out of memory (stackcacherefill)");
-		runtime·xadd64(&mstats.stacks_sys, FixedStack*StackCacheBatch);
 		for(i = 0; i < StackCacheBatch-1; i++)
 			n->batch[i] = (byte*)n + (i+1)*FixedStack;
 	}
@@ -81,13 +85,10 @@ runtime·stackalloc(uint32 n)
 	if(g != m->g0)
 		runtime·throw("stackalloc not on scheduler stack");
 
-	// Stack allocator uses malloc/free most of the time,
-	// but if we're in the middle of malloc and need stack,
-	// we have to do something else to avoid deadlock.
-	// In that case, we fall back on a fixed-size free-list
-	// allocator, assuming that inside malloc all the stack
-	// frames are small, so that all the stack allocations
-	// will be a single size, the minimum (right now, 5k).
+	// Stacks are usually allocated with a fixed-size free-list allocator,
+	// but if we need a stack of non-standard size, we fall back on malloc
+	// (assuming that inside malloc and GC all the stack frames are small,
+	// so that we do not deadlock).
 	if(n == FixedStack || m->mallocing || m->gcing) {
 		if(n != FixedStack) {
 			runtime·printf("stackalloc: in malloc, size=%d want %d\n", FixedStack, n);
@@ -103,7 +104,7 @@ runtime·stackalloc(uint32 n)
 		m->stackinuse++;
 		return v;
 	}
-	return runtime·mallocgc(n, FlagNoProfiling|FlagNoGC, 0, 0);
+	return runtime·mallocgc(n, 0, FlagNoProfiling|FlagNoGC|FlagNoZero|FlagNoInvokeGC);
 }
 
 void
@@ -131,21 +132,34 @@ void
 runtime·oldstack(void)
 {
 	Stktop *top;
-	Gobuf label;
 	uint32 argsize;
-	uintptr cret;
 	byte *sp, *old;
 	uintptr *src, *dst, *dstend;
 	G *gp;
 	int64 goid;
-
-//printf("oldstack m->cret=%p\n", m->cret);
+	int32 oldstatus;
 
 	gp = m->curg;
 	top = (Stktop*)gp->stackbase;
 	old = (byte*)gp->stackguard - StackGuard;
 	sp = (byte*)top;
 	argsize = top->argsize;
+
+	if(StackDebug) {
+		runtime·printf("runtime: oldstack gobuf={pc:%p sp:%p lr:%p} cret=%p argsize=%p\n",
+			top->gobuf.pc, top->gobuf.sp, top->gobuf.lr, m->cret, (uintptr)argsize);
+	}
+
+	// gp->status is usually Grunning, but it could be Gsyscall if a stack split
+	// happens during a function call inside entersyscall.
+	oldstatus = gp->status;
+	
+	gp->sched = top->gobuf;
+	gp->sched.ret = m->cret;
+	m->cret = 0; // drop reference
+	gp->status = Gwaiting;
+	gp->waitreason = "stack unsplit";
+
 	if(argsize > 0) {
 		sp -= argsize;
 		dst = (uintptr*)top->argp;
@@ -157,18 +171,23 @@ runtime·oldstack(void)
 	goid = top->gobuf.g->goid;	// fault if g is bad, before gogo
 	USED(goid);
 
-	label = top->gobuf;
-	gp->stackbase = (uintptr)top->stackbase;
-	gp->stackguard = (uintptr)top->stackguard;
-	if(top->free != 0)
-		runtime·stackfree(old, top->free);
+	gp->stackbase = top->stackbase;
+	gp->stackguard = top->stackguard;
+	gp->stackguard0 = gp->stackguard;
+	gp->panicwrap = top->panicwrap;
 
-	cret = m->cret;
-	m->cret = 0;  // drop reference
-	runtime·gogo(&label, cret);
+	if(top->free != 0) {
+		gp->stacksize -= top->free;
+		runtime·stackfree(old, top->free);
+	}
+
+	gp->status = oldstatus;
+	runtime·gogo(&gp->sched);
 }
 
-// Called from reflect·call or from runtime·morestack when a new
+uintptr runtime·maxstacksize = 1<<20; // enough until runtime.main sets it for real
+
+// Called from runtime·newstackcall or from runtime·morestack when a new
 // stack segment is needed.  Allocate a new stack big enough for
 // m->moreframesize bytes, copy m->moreargsize bytes to the new frame,
 // and then act as though runtime·lessstack called the function at
@@ -176,42 +195,86 @@ runtime·oldstack(void)
 void
 runtime·newstack(void)
 {
-	int32 framesize, minalloc, argsize;
-	Stktop *top;
-	byte *stk, *sp;
+	int32 framesize, argsize, oldstatus;
+	Stktop *top, *oldtop;
+	byte *stk;
+	uintptr sp;
 	uintptr *src, *dst, *dstend;
 	G *gp;
 	Gobuf label;
-	bool reflectcall;
+	bool newstackcall;
 	uintptr free;
+
+	if(m->morebuf.g != m->curg) {
+		runtime·printf("runtime: newstack called from g=%p\n"
+			"\tm=%p m->curg=%p m->g0=%p m->gsignal=%p\n",
+			m->morebuf.g, m, m->curg, m->g0, m->gsignal);
+		runtime·throw("runtime: wrong goroutine in newstack");
+	}
+
+	// gp->status is usually Grunning, but it could be Gsyscall if a stack split
+	// happens during a function call inside entersyscall.
+	gp = m->curg;
+	oldstatus = gp->status;
 
 	framesize = m->moreframesize;
 	argsize = m->moreargsize;
-	gp = m->curg;
+	gp->status = Gwaiting;
+	gp->waitreason = "stack split";
+	newstackcall = framesize==1;
+	if(newstackcall)
+		framesize = 0;
 
-	if(m->morebuf.sp < gp->stackguard - StackGuard) {
-		runtime·printf("runtime: split stack overflow: %p < %p\n", m->morebuf.sp, gp->stackguard - StackGuard);
+	// For newstackcall the context already points to beginning of runtime·newstackcall.
+	if(!newstackcall)
+		runtime·rewindmorestack(&gp->sched);
+
+	sp = gp->sched.sp;
+	if(thechar == '6' || thechar == '8') {
+		// The call to morestack cost a word.
+		sp -= sizeof(uintptr);
+	}
+	if(StackDebug || sp < gp->stackguard - StackGuard) {
+		runtime·printf("runtime: newstack framesize=%p argsize=%p sp=%p stack=[%p, %p]\n"
+			"\tmorebuf={pc:%p sp:%p lr:%p}\n"
+			"\tsched={pc:%p sp:%p lr:%p ctxt:%p}\n",
+			(uintptr)framesize, (uintptr)argsize, sp, gp->stackguard - StackGuard, gp->stackbase,
+			m->morebuf.pc, m->morebuf.sp, m->morebuf.lr,
+			gp->sched.pc, gp->sched.sp, gp->sched.lr, gp->sched.ctxt);
+	}
+	if(sp < gp->stackguard - StackGuard) {
+		runtime·printf("runtime: split stack overflow: %p < %p\n", sp, gp->stackguard - StackGuard);
 		runtime·throw("runtime: split stack overflow");
 	}
+
 	if(argsize % sizeof(uintptr) != 0) {
 		runtime·printf("runtime: stack split with misaligned argsize %d\n", argsize);
 		runtime·throw("runtime: stack split argsize");
 	}
 
-	minalloc = 0;
-	reflectcall = framesize==1;
-	if(reflectcall) {
-		framesize = 0;
-		// moreframesize_minalloc is only set in runtime·gc(),
-		// that calls newstack via reflect·call().
-		minalloc = m->moreframesize_minalloc;
-		m->moreframesize_minalloc = 0;
-		if(framesize < minalloc)
-			framesize = minalloc;
+	if(gp->stackguard0 == (uintptr)StackPreempt) {
+		if(gp == m->g0)
+			runtime·throw("runtime: preempt g0");
+		if(oldstatus == Grunning && m->p == nil && m->locks == 0)
+			runtime·throw("runtime: g is running but p is not");
+		if(oldstatus == Gsyscall && m->locks == 0)
+			runtime·throw("runtime: stack split during syscall");
+		// Be conservative about where we preempt.
+		// We are interested in preempting user Go code, not runtime code.
+		if(oldstatus != Grunning || m->locks || m->mallocing || m->gcing || m->p->status != Prunning) {
+			// Let the goroutine keep running for now.
+			// gp->preempt is set, so it will be preempted next time.
+			gp->stackguard0 = gp->stackguard;
+			gp->status = oldstatus;
+			runtime·gogo(&gp->sched);	// never return
+		}
+		// Act like goroutine called runtime.Gosched.
+		gp->status = oldstatus;
+		runtime·gosched0(gp);	// never return
 	}
 
-	if(reflectcall && minalloc == 0 && m->morebuf.sp - sizeof(Stktop) - argsize - 32 > gp->stackguard) {
-		// special case: called from reflect.call (framesize==1)
+	if(newstackcall && m->morebuf.sp - sizeof(Stktop) - argsize - 32 > gp->stackguard) {
+		// special case: called from runtime.newstackcall (framesize==1)
 		// to call code with an arbitrary argument size,
 		// and we have enough space on the current stack.
 		// the new Stktop* is necessary to unwind, but
@@ -226,34 +289,50 @@ runtime·newstack(void)
 		if(framesize < StackMin)
 			framesize = StackMin;
 		framesize += StackSystem;
+		gp->stacksize += framesize;
+		if(gp->stacksize > runtime·maxstacksize) {
+			runtime·printf("runtime: goroutine stack exceeds %D-byte limit\n", (uint64)runtime·maxstacksize);
+			runtime·throw("stack overflow");
+		}
 		stk = runtime·stackalloc(framesize);
 		top = (Stktop*)(stk+framesize-sizeof(*top));
 		free = framesize;
 	}
 
-	if(0) {
-		runtime·printf("newstack framesize=%d argsize=%d morepc=%p moreargp=%p gobuf=%p, %p top=%p old=%p\n",
-			framesize, argsize, m->morepc, m->moreargp, m->morebuf.pc, m->morebuf.sp, top, gp->stackbase);
+	if(StackDebug) {
+		runtime·printf("\t-> new stack [%p, %p]\n", stk, top);
 	}
 
-	top->stackbase = (byte*)gp->stackbase;
-	top->stackguard = (byte*)gp->stackguard;
+	top->stackbase = gp->stackbase;
+	top->stackguard = gp->stackguard;
 	top->gobuf = m->morebuf;
 	top->argp = m->moreargp;
 	top->argsize = argsize;
 	top->free = free;
 	m->moreargp = nil;
-	m->morebuf.pc = nil;
+	m->morebuf.pc = (uintptr)nil;
+	m->morebuf.lr = (uintptr)nil;
 	m->morebuf.sp = (uintptr)nil;
 
 	// copy flag from panic
 	top->panic = gp->ispanic;
 	gp->ispanic = false;
+	
+	// if this isn't a panic, maybe we're splitting the stack for a panic.
+	// if we're splitting in the top frame, propagate the panic flag
+	// forward so that recover will know we're in a panic.
+	oldtop = (Stktop*)top->stackbase;
+	if(oldtop != nil && oldtop->panic && top->argp == (byte*)oldtop - oldtop->argsize - gp->panicwrap)
+		top->panic = true;
+
+	top->panicwrap = gp->panicwrap;
+	gp->panicwrap = 0;
 
 	gp->stackbase = (uintptr)top;
 	gp->stackguard = (uintptr)stk + StackGuard;
+	gp->stackguard0 = gp->stackguard;
 
-	sp = (byte*)top;
+	sp = (uintptr)top;
 	if(argsize > 0) {
 		sp -= argsize;
 		dst = (uintptr*)sp;
@@ -270,13 +349,34 @@ runtime·newstack(void)
 
 	// Continue as if lessstack had just called m->morepc
 	// (the PC that decided to grow the stack).
-	label.sp = (uintptr)sp;
-	label.pc = (byte*)runtime·lessstack;
+	runtime·memclr((byte*)&label, sizeof label);
+	label.sp = sp;
+	label.pc = (uintptr)runtime·lessstack;
 	label.g = m->curg;
-	if(reflectcall)
-		runtime·gogocallfn(&label, (FuncVal*)m->morepc);
-	else
-		runtime·gogocall(&label, m->morepc, m->cret);
+	if(newstackcall)
+		runtime·gostartcallfn(&label, (FuncVal*)m->cret);
+	else {
+		runtime·gostartcall(&label, (void(*)(void))gp->sched.pc, gp->sched.ctxt);
+		gp->sched.ctxt = nil;
+	}
+	gp->status = oldstatus;
+	runtime·gogo(&label);
 
 	*(int32*)345 = 123;	// never return
+}
+
+// adjust Gobuf as if it executed a call to fn
+// and then did an immediate gosave.
+void
+runtime·gostartcallfn(Gobuf *gobuf, FuncVal *fv)
+{
+	runtime·gostartcall(gobuf, fv->fn, fv);
+}
+
+void
+runtime∕debug·setMaxStack(intgo in, intgo out)
+{
+	out = runtime·maxstacksize;
+	runtime·maxstacksize = in;
+	FLUSH(&out);
 }

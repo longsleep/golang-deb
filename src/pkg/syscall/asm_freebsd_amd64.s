@@ -2,16 +2,23 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include "../../cmd/ld/textflag.h"
+
 //
 // System call support for AMD64, FreeBSD
 //
+
+// The SYSCALL variant for invoking system calls is broken in FreeBSD.
+// See comment at top of ../runtime/sys_freebsd_amd64.c and
+// golang.org/issue/6372.
+#define SYSCALL MOVQ R10, CX; INT $0x80
 
 // func Syscall(trap int64, a1, a2, a3 int64) (r1, r2, err int64);
 // func Syscall6(trap int64, a1, a2, a3, a4, a5, a6 int64) (r1, r2, err int64);
 // func Syscall9(trap int64, a1, a2, a3, a4, a5, a6, a7, a8, a9 int64) (r1, r2, err int64)
 // Trap # in AX, args in DI SI DX, return in AX DX
 
-TEXT	·Syscall(SB),7,$0
+TEXT	·Syscall(SB),NOSPLIT,$0-64
 	CALL	runtime·entersyscall(SB)
 	MOVQ	16(SP), DI
 	MOVQ	24(SP), SI
@@ -34,7 +41,7 @@ ok:
 	CALL	runtime·exitsyscall(SB)
 	RET
 
-TEXT	·Syscall6(SB),7,$0
+TEXT	·Syscall6(SB),NOSPLIT,$0-88
 	CALL	runtime·entersyscall(SB)
 	MOVQ	16(SP), DI
 	MOVQ	24(SP), SI
@@ -57,7 +64,7 @@ ok6:
 	CALL	runtime·exitsyscall(SB)
 	RET
 
-TEXT	·Syscall9(SB),7,$0
+TEXT	·Syscall9(SB),NOSPLIT,$0-112
 	CALL	runtime·entersyscall(SB)
 	MOVQ	8(SP), AX
 	MOVQ	16(SP), DI
@@ -90,7 +97,7 @@ ok9:
 	CALL	runtime·exitsyscall(SB)
 	RET
 
-TEXT ·RawSyscall(SB),7,$0
+TEXT ·RawSyscall(SB),NOSPLIT,$0-64
 	MOVQ	16(SP), DI
 	MOVQ	24(SP), SI
 	MOVQ	32(SP), DX
@@ -110,7 +117,7 @@ ok1:
 	MOVQ	$0, 56(SP)	// errno
 	RET
 
-TEXT	·RawSyscall6(SB),7,$0
+TEXT	·RawSyscall6(SB),NOSPLIT,$0-88
 	MOVQ	16(SP), DI
 	MOVQ	24(SP), SI
 	MOVQ	32(SP), DX

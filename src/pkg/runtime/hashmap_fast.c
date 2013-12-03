@@ -12,19 +12,16 @@
 
 // +build ignore
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
 HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, byte *value)
 {
-	uintptr hash;
-	uintptr bucket, oldbucket;
+	uintptr bucket, i;
 	Bucket *b;
-	uintptr i;
 	KEYTYPE *k;
 	byte *v;
 	uint8 top;
 	int8 keymaybe;
-	bool quickkey;
 
 	if(debug) {
 		runtime·prints("runtime.mapaccess1_fastXXX: map=");
@@ -45,59 +42,76 @@ HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, byte *value)
 
 	if(h->B == 0) {
 		// One-bucket table. Don't hash, just check each bucket entry.
-		if(HASMAYBE) {
-			keymaybe = -1;
-		}
-		quickkey = QUICKEQ(key);
 		b = (Bucket*)h->buckets;
-		for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-			if(b->tophash[i] != 0) {
-				if(quickkey && EQFUNC(key, *k)) {
+		if(FASTKEY(key)) {
+			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
+				if(b->tophash[i] == 0)
+					continue;
+				if(QUICK_NE(key, *k))
+					continue;
+				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
 					value = v;
 					FLUSH(&value);
 					return;
 				}
-				if(HASMAYBE && EQMAYBE(key, *k)) {
-					// TODO: check if key.str matches. Add EQFUNCFAST?
+			}
+		} else {
+			keymaybe = -1;
+			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
+				if(b->tophash[i] == 0)
+					continue;
+				if(QUICK_NE(key, *k))
+					continue;
+				if(QUICK_EQ(key, *k)) {
+					value = v;
+					FLUSH(&value);
+					return;
+				}
+				if(MAYBE_EQ(key, *k)) {
 					if(keymaybe >= 0) {
 						// Two same-length strings in this bucket.
 						// use slow path.
-						// TODO: keep track of more than just 1. Especially
-						// if doing the TODO above.
+						// TODO: keep track of more than just 1.  We could
+						// afford about 3 equals calls before it would be more
+						// expensive than 1 hash + 1 equals.
 						goto dohash;
 					}
 					keymaybe = i;
 				}
 			}
-		}
-		if(HASMAYBE && keymaybe >= 0) {
-			k = (KEYTYPE*)b->data + keymaybe;
-			if(EQFUNC(key, *k)) {
-				value = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
-				FLUSH(&value);
-				return;
+			if(keymaybe >= 0) {
+				k = (KEYTYPE*)b->data + keymaybe;
+				if(SLOW_EQ(key, *k)) {
+					value = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
+					FLUSH(&value);
+					return;
+				}
 			}
 		}
 	} else {
 dohash:
-		hash = h->hash0;
-		HASHFUNC(&hash, sizeof(KEYTYPE), &key);
-		bucket = hash & (((uintptr)1 << h->B) - 1);
+		bucket = h->hash0;
+		HASHFUNC(&bucket, sizeof(KEYTYPE), &key);
+		top = bucket >> (sizeof(uintptr)*8 - 8);
+		if(top == 0)
+			top = 1;
+		bucket &= (((uintptr)1 << h->B) - 1);
 		if(h->oldbuckets != nil) {
-			oldbucket = bucket & (((uintptr)1 << (h->B - 1)) - 1);
-			b = (Bucket*)(h->oldbuckets + oldbucket * h->bucketsize);
+			i = bucket & (((uintptr)1 << (h->B - 1)) - 1);
+			b = (Bucket*)(h->oldbuckets + i * h->bucketsize);
 			if(evacuated(b)) {
 				b = (Bucket*)(h->buckets + bucket * h->bucketsize);
 			}
 		} else {
 			b = (Bucket*)(h->buckets + bucket * h->bucketsize);
 		}
-		top = hash >> (sizeof(uintptr)*8 - 8);
-		if(top == 0)
-			top = 1;
 		do {
 			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-				if(b->tophash[i] == top && EQFUNC(key, *k)) {
+				if(b->tophash[i] != top)
+					continue;
+				if(QUICK_NE(key, *k))
+					continue;
+				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
 					value = v;
 					FLUSH(&value);
 					return;
@@ -110,19 +124,16 @@ dohash:
 	FLUSH(&value);
 }
 
-#pragma textflag 7
+#pragma textflag NOSPLIT
 void
 HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, byte *value, bool res)
 {
-	uintptr hash;
-	uintptr bucket, oldbucket;
+	uintptr bucket, i;
 	Bucket *b;
-	uintptr i;
 	KEYTYPE *k;
 	byte *v;
 	uint8 top;
 	int8 keymaybe;
-	bool quickkey;
 
 	if(debug) {
 		runtime·prints("runtime.mapaccess2_fastXXX: map=");
@@ -144,64 +155,83 @@ HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, byte *value, bool res)
 		check(t, h);
 
 	if(h->B == 0) {
-		// One-bucket table.  Don't hash, just check each bucket entry.
-		if(HASMAYBE) {
-			keymaybe = -1;
-		}
-		quickkey = QUICKEQ(key);
+		// One-bucket table. Don't hash, just check each bucket entry.
 		b = (Bucket*)h->buckets;
-		for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-			if(b->tophash[i] != 0) {
-				if(quickkey && EQFUNC(key, *k)) {
+		if(FASTKEY(key)) {
+			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
+				if(b->tophash[i] == 0)
+					continue;
+				if(QUICK_NE(key, *k))
+					continue;
+				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
 					value = v;
 					res = true;
 					FLUSH(&value);
 					FLUSH(&res);
 					return;
 				}
-				if(HASMAYBE && EQMAYBE(key, *k)) {
-					// TODO: check if key.str matches. Add EQFUNCFAST?
+			}
+		} else {
+			keymaybe = -1;
+			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
+				if(b->tophash[i] == 0)
+					continue;
+				if(QUICK_NE(key, *k))
+					continue;
+				if(QUICK_EQ(key, *k)) {
+					value = v;
+					res = true;
+					FLUSH(&value);
+					FLUSH(&res);
+					return;
+				}
+				if(MAYBE_EQ(key, *k)) {
 					if(keymaybe >= 0) {
 						// Two same-length strings in this bucket.
 						// use slow path.
-						// TODO: keep track of more than just 1. Especially
-						// if doing the TODO above.
+						// TODO: keep track of more than just 1.  We could
+						// afford about 3 equals calls before it would be more
+						// expensive than 1 hash + 1 equals.
 						goto dohash;
 					}
 					keymaybe = i;
 				}
 			}
-		}
-		if(HASMAYBE && keymaybe >= 0) {
-			k = (KEYTYPE*)b->data + keymaybe;
-			if(EQFUNC(key, *k)) {
-				value = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
-				res = true;
-				FLUSH(&value);
-				FLUSH(&res);
-				return;
+			if(keymaybe >= 0) {
+				k = (KEYTYPE*)b->data + keymaybe;
+				if(SLOW_EQ(key, *k)) {
+					value = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
+					res = true;
+					FLUSH(&value);
+					FLUSH(&res);
+					return;
+				}
 			}
 		}
 	} else {
 dohash:
-		hash = h->hash0;
-		HASHFUNC(&hash, sizeof(KEYTYPE), &key);
-		bucket = hash & (((uintptr)1 << h->B) - 1);
+		bucket = h->hash0;
+		HASHFUNC(&bucket, sizeof(KEYTYPE), &key);
+		top = bucket >> (sizeof(uintptr)*8 - 8);
+		if(top == 0)
+			top = 1;
+		bucket &= (((uintptr)1 << h->B) - 1);
 		if(h->oldbuckets != nil) {
-			oldbucket = bucket & (((uintptr)1 << (h->B - 1)) - 1);
-			b = (Bucket*)(h->oldbuckets + oldbucket * h->bucketsize);
+			i = bucket & (((uintptr)1 << (h->B - 1)) - 1);
+			b = (Bucket*)(h->oldbuckets + i * h->bucketsize);
 			if(evacuated(b)) {
 				b = (Bucket*)(h->buckets + bucket * h->bucketsize);
 			}
 		} else {
 			b = (Bucket*)(h->buckets + bucket * h->bucketsize);
 		}
-		top = hash >> (sizeof(uintptr)*8 - 8);
-		if(top == 0)
-			top = 1;
 		do {
 			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-				if(b->tophash[i] == top && EQFUNC(key, *k)) {
+				if(b->tophash[i] != top)
+					continue;
+				if(QUICK_NE(key, *k))
+					continue;
+				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
 					value = v;
 					res = true;
 					FLUSH(&value);

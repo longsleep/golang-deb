@@ -272,6 +272,9 @@ func Read(fd Handle, p []byte) (n int, err error) {
 		return 0, e
 	}
 	if raceenabled {
+		if done > 0 {
+			raceWriteRange(unsafe.Pointer(&p[0]), int(done))
+		}
 		raceAcquire(unsafe.Pointer(&ioSync))
 	}
 	return int(done), nil
@@ -285,6 +288,9 @@ func Write(fd Handle, p []byte) (n int, err error) {
 	e := WriteFile(fd, p, &done, nil)
 	if e != nil {
 		return 0, e
+	}
+	if raceenabled && done > 0 {
+		raceReadRange(unsafe.Pointer(&p[0]), int(done))
 	}
 	return int(done), nil
 }
@@ -502,6 +508,10 @@ func LoadCancelIoEx() error {
 	return procCancelIoEx.Find()
 }
 
+func LoadSetFileCompletionNotificationModes() error {
+	return procSetFileCompletionNotificationModes.Find()
+}
+
 // net api calls
 
 const socket_error = uintptr(^uint32(0))
@@ -535,6 +545,8 @@ const socket_error = uintptr(^uint32(0))
 //sys	FreeAddrInfoW(addrinfo *AddrinfoW) = ws2_32.FreeAddrInfoW
 //sys	GetIfEntry(pIfRow *MibIfRow) (errcode error) = iphlpapi.GetIfEntry
 //sys	GetAdaptersInfo(ai *IpAdapterInfo, ol *uint32) (errcode error) = iphlpapi.GetAdaptersInfo
+//sys	SetFileCompletionNotificationModes(handle Handle, flags uint8) (err error) = kernel32.SetFileCompletionNotificationModes
+//sys	WSAEnumProtocols(protocols *int32, protocolBuffer *WSAProtocolInfo, bufferLength *uint32) (n int32, err error) [failretval==-1] = ws2_32.WSAEnumProtocolsW
 
 // For testing: clients can set this flag to force
 // creation of IPv6 sockets to return EAFNOSUPPORT.

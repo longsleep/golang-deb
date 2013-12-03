@@ -10,7 +10,10 @@
 
 package dwarf
 
-import "errors"
+import (
+	"errors"
+	"strconv"
+)
 
 // a single entry's description: a sequence of attributes
 type abbrev struct {
@@ -152,7 +155,7 @@ func (b *buf) entry(atab abbrevTable, ubase Offset) *Entry {
 		var val interface{}
 		switch fmt {
 		default:
-			b.error("unknown entry attr format")
+			b.error("unknown entry attr format 0x" + strconv.FormatInt(int64(fmt), 16))
 
 		// address
 		case formAddr:
@@ -185,6 +188,7 @@ func (b *buf) entry(atab abbrevTable, ubase Offset) *Entry {
 		// flag
 		case formFlag:
 			val = b.uint8() == 1
+		// New in DWARF 4.
 		case formFlagPresent:
 			// The attribute is implicitly indicated as present, and no value is
 			// encoded in the debugging information entry itself.
@@ -233,6 +237,30 @@ func (b *buf) entry(atab abbrevTable, ubase Offset) *Entry {
 				b.err = b1.err
 				return nil
 			}
+
+		// lineptr, loclistptr, macptr, rangelistptr
+		// New in DWARF 4, but clang can generate them with -gdwarf-2.
+		// Section reference, replacing use of formData4 and formData8.
+		case formSecOffset:
+			is64, known := b.format.dwarf64()
+			if !known {
+				b.error("unknown size for DW_FORM_sec_offset")
+			} else if is64 {
+				val = int64(b.uint64())
+			} else {
+				val = int64(b.uint32())
+			}
+
+		// exprloc
+		// New in DWARF 4.
+		case formExprloc:
+			val = b.bytes(int(b.uint()))
+
+		// reference
+		// New in DWARF 4.
+		case formRefSig8:
+			// 64-bit type signature.
+			val = b.uint64()
 		}
 		e.Field[i].Val = val
 	}

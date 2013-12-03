@@ -295,9 +295,9 @@ package newmath
 
 // Sqrt returns an approximation to the square root of x.
 func Sqrt(x float64) float64 {
-	z := 0.0
-	for i := 0; i < 1000; i++ {
-		z -= (z*z - x) / (2 * x)
+	z := 1.0
+	for i := 0; i &lt; 1000; i++ {
+		z -= (z*z - x) / (2 * z)
 	}
 	return z
 }
@@ -576,11 +576,17 @@ provide lists of external Go projects.
 
 <p>
 For more information on using remote repositories with the <code>go</code> tool, see
-<code><a href="/cmd/go/#hdr-Remote_import_path_syntax">go help remote</a></code>.
+<code><a href="/cmd/go/#hdr-Remote_import_paths">go help importpath</a></code>.
 </p>
 
 
-<h2 id="more">Further reading</h2>
+<h2 id="next">What's next</h2>
+
+<p>
+Subscribe to the
+<a href="http://groups.google.com/group/golang-announce">golang-announce</a>
+mailing list to be notified when a new stable version of Go is released.
+</p>
 
 <p>
 See <a href="/doc/effective_go.html">Effective Go</a> for tips on writing
@@ -595,4 +601,22 @@ proper.
 <p>
 Visit the <a href="/doc/#articles">documentation page</a> for a set of in-depth
 articles about the Go language and its libraries and tools.
+</p>
+
+
+<h2 id="help">Getting help</h2>
+
+<p>
+For real-time help, ask the helpful gophers in <code>#go-nuts</code> on the
+<a href="http://freenode.net/">Freenode</a> IRC server.
+</p>
+
+<p>
+The official mailing list for discussion of the Go language is
+<a href="http://groups.google.com/group/golang-nuts">Go Nuts</a>.
+</p>
+
+<p>
+Report bugs using the
+<a href="http://code.google.com/p/go/issues/list">Go issue tracker</a>.
 </p>

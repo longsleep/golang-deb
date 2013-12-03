@@ -864,6 +864,8 @@ elfemitreloc(void)
 	elfrelocsect(segtext.sect, textp);
 	for(sect=segtext.sect->next; sect!=nil; sect=sect->next)
 		elfrelocsect(sect, datap);	
+	for(sect=segrodata.sect; sect!=nil; sect=sect->next)
+		elfrelocsect(sect, datap);	
 	for(sect=segdata.sect; sect!=nil; sect=sect->next)
 		elfrelocsect(sect, datap);	
 }
@@ -887,7 +889,12 @@ doelf(void)
 	addstring(shstrtab, ".data");
 	addstring(shstrtab, ".bss");
 	addstring(shstrtab, ".noptrbss");
-	if(linkmode == LinkExternal && HEADTYPE != Hopenbsd)
+	// generate .tbss section (except for OpenBSD where it's not supported)
+	// for dynamic internal linker or external linking, so that various
+	// binutils could correctly calculate PT_TLS size.
+	// see http://golang.org/issue/5200.
+	if(HEADTYPE != Hopenbsd)
+	if(!debug['d'] || linkmode == LinkExternal)
 		addstring(shstrtab, ".tbss");
 	if(HEADTYPE == Hnetbsd)
 		addstring(shstrtab, ".note.netbsd.ident");
@@ -898,14 +905,11 @@ doelf(void)
 	addstring(shstrtab, ".elfdata");
 	addstring(shstrtab, ".rodata");
 	addstring(shstrtab, ".typelink");
-	if(flag_shared)
-		addstring(shstrtab, ".data.rel.ro");
-	addstring(shstrtab, ".gcdata");
-	addstring(shstrtab, ".gcbss");
 	addstring(shstrtab, ".gosymtab");
 	addstring(shstrtab, ".gopclntab");
 	
 	if(linkmode == LinkExternal) {
+		debug_s = debug['s'];
 		debug['s'] = 0;
 		debug['d'] = 1;
 
@@ -913,8 +917,6 @@ doelf(void)
 			addstring(shstrtab, ".rela.text");
 			addstring(shstrtab, ".rela.rodata");
 			addstring(shstrtab, ".rela.typelink");
-			addstring(shstrtab, ".rela.gcdata");
-			addstring(shstrtab, ".rela.gcbss");
 			addstring(shstrtab, ".rela.gosymtab");
 			addstring(shstrtab, ".rela.gopclntab");
 			addstring(shstrtab, ".rela.noptrdata");
@@ -923,8 +925,6 @@ doelf(void)
 			addstring(shstrtab, ".rel.text");
 			addstring(shstrtab, ".rel.rodata");
 			addstring(shstrtab, ".rel.typelink");
-			addstring(shstrtab, ".rel.gcdata");
-			addstring(shstrtab, ".rel.gcbss");
 			addstring(shstrtab, ".rel.gosymtab");
 			addstring(shstrtab, ".rel.gopclntab");
 			addstring(shstrtab, ".rel.noptrdata");
@@ -932,6 +932,14 @@ doelf(void)
 		}
 		// add a .note.GNU-stack section to mark the stack as non-executable
 		addstring(shstrtab, ".note.GNU-stack");
+	}
+
+	if(flag_shared) {
+		addstring(shstrtab, ".init_array");
+		if(thechar == '6')
+			addstring(shstrtab, ".rela.init_array");
+		else
+			addstring(shstrtab, ".rel.init_array");
 	}
 
 	if(!debug['s']) {
@@ -1001,7 +1009,7 @@ doelf(void)
 
 		s = lookup(".plt", 0);
 		s->reachable = 1;
-		s->type = SELFROSECT;
+		s->type = SELFRXSECT;
 		
 		elfsetupplt();
 		
@@ -1062,13 +1070,6 @@ doelf(void)
 		
 		elfwritedynent(s, DT_DEBUG, 0);
 
-		if(flag_shared) {
-			Sym *init_sym = lookup(LIBINITENTRY, 0);
-			if(init_sym->type != STEXT)
-				diag("entry not text: %s", init_sym->name);
-			elfwritedynentsym(s, DT_INIT, init_sym);
-		}
-
 		// Do not write DT_NULL.  elfdynhash will finish it.
 	}
 }
@@ -1104,6 +1105,8 @@ asmbelfsetup(void)
 	elfshname("");
 	
 	for(sect=segtext.sect; sect!=nil; sect=sect->next)
+		elfshalloc(sect);
+	for(sect=segrodata.sect; sect!=nil; sect=sect->next)
 		elfshalloc(sect);
 	for(sect=segdata.sect; sect!=nil; sect=sect->next)
 		elfshalloc(sect);
@@ -1186,6 +1189,9 @@ asmbelf(vlong symo)
 			case Hopenbsd:
 				interpreter = openbsddynld;
 				break;
+			case Hdragonfly:
+				interpreter = dragonflydynld;
+				break;
 			}
 		}
 		resoff -= elfinterp(sh, startva, resoff, interpreter);
@@ -1232,6 +1238,8 @@ asmbelf(vlong symo)
 	USED(resoff);
 
 	elfphload(&segtext);
+	if(segrodata.sect != nil)
+		elfphload(&segrodata);
 	elfphload(&segdata);
 
 	/* Dynamic linking sections */
@@ -1397,11 +1405,15 @@ elfobj:
 
 	for(sect=segtext.sect; sect!=nil; sect=sect->next)
 		elfshbits(sect);
+	for(sect=segrodata.sect; sect!=nil; sect=sect->next)
+		elfshbits(sect);
 	for(sect=segdata.sect; sect!=nil; sect=sect->next)
 		elfshbits(sect);
 
 	if(linkmode == LinkExternal) {
 		for(sect=segtext.sect; sect!=nil; sect=sect->next)
+			elfshreloc(sect);
+		for(sect=segrodata.sect; sect!=nil; sect=sect->next)
 			elfshreloc(sect);
 		for(sect=segdata.sect; sect!=nil; sect=sect->next)
 			elfshreloc(sect);
@@ -1410,6 +1422,16 @@ elfobj:
 		sh->type = SHT_PROGBITS;
 		sh->addralign = 1;
 		sh->flags = 0;
+	}
+
+	// generate .tbss section for dynamic internal linking (except for OpenBSD)
+	// external linking generates .tbss in data.c
+	if(linkmode == LinkInternal && !debug['d'] && HEADTYPE != Hopenbsd) {
+		sh = elfshname(".tbss");
+		sh->type = SHT_NOBITS;
+		sh->addralign = PtrSize;
+		sh->size = -tlsoffset;
+		sh->flags = SHF_ALLOC | SHF_TLS | SHF_WRITE;
 	}
 
 	if(!debug['s']) {
@@ -1442,6 +1464,8 @@ elfobj:
 		eh->ident[EI_OSABI] = ELFOSABI_NETBSD;
 	else if(HEADTYPE == Hopenbsd)
 		eh->ident[EI_OSABI] = ELFOSABI_OPENBSD;
+	else if(HEADTYPE == Hdragonfly)
+		eh->ident[EI_OSABI] = ELFOSABI_NONE;
 	if(PtrSize == 8)
 		eh->ident[EI_CLASS] = ELFCLASS64;
 	else
@@ -1449,9 +1473,7 @@ elfobj:
 	eh->ident[EI_DATA] = ELFDATA2LSB;
 	eh->ident[EI_VERSION] = EV_CURRENT;
 
-	if(flag_shared)
-		eh->type = ET_DYN;
-	else if(linkmode == LinkExternal)
+	if(linkmode == LinkExternal)
 		eh->type = ET_REL;
 	else
 		eh->type = ET_EXEC;

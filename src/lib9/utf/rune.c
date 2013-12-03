@@ -12,8 +12,6 @@
  * REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
-#include <stdarg.h>
-#include <string.h>
 #include "utf.h"
 #include "utfdef.h"
 
@@ -82,7 +80,7 @@ charntorune(Rune *rune, const char *str, int length)
 	 */
 	c = *(uchar*)str;
 	if(c < Tx) {
-		*rune = c;
+		*rune = (Rune)c;
 		return 1;
 	}
 
@@ -104,7 +102,7 @@ charntorune(Rune *rune, const char *str, int length)
 		l = ((c << Bitx) | c1) & Rune2;
 		if(l <= Rune1)
 			goto bad;
-		*rune = l;
+		*rune = (Rune)l;
 		return 2;
 	}
 
@@ -126,7 +124,7 @@ charntorune(Rune *rune, const char *str, int length)
 			goto bad;
 		if (SurrogateMin <= l && l <= SurrogateMax)
 			goto bad;
-		*rune = l;
+		*rune = (Rune)l;
 		return 3;
 	}
 
@@ -144,7 +142,7 @@ charntorune(Rune *rune, const char *str, int length)
 		l = ((((((c << Bitx) | c1) << Bitx) | c2) << Bitx) | c3) & Rune4;
 		if (l <= Rune3 || l > Runemax)
 			goto bad;
-		*rune = l;
+		*rune = (Rune)l;
 		return 4;
 	}
 
@@ -180,7 +178,7 @@ chartorune(Rune *rune, const char *str)
 	 */
 	c = *(uchar*)str;
 	if(c < Tx) {
-		*rune = c;
+		*rune = (Rune)c;
 		return 1;
 	}
 
@@ -197,7 +195,7 @@ chartorune(Rune *rune, const char *str)
 		l = ((c << Bitx) | c1) & Rune2;
 		if(l <= Rune1)
 			goto bad;
-		*rune = l;
+		*rune = (Rune)l;
 		return 2;
 	}
 
@@ -214,7 +212,7 @@ chartorune(Rune *rune, const char *str)
 			goto bad;
 		if (SurrogateMin <= l && l <= SurrogateMax)
 			goto bad;
-		*rune = l;
+		*rune = (Rune)l;
 		return 3;
 	}
 
@@ -229,7 +227,7 @@ chartorune(Rune *rune, const char *str)
 		l = ((((((c << Bitx) | c1) << Bitx) | c2) << Bitx) | c3) & Rune4;
 		if (l <= Rune3 || l > Runemax)
 			goto bad;
-		*rune = l;
+		*rune = (Rune)l;
 		return 4;
 	}
 
@@ -265,7 +263,7 @@ runetochar(char *str, const Rune *rune)
 	 */
 	c = *rune;
 	if(c <= Rune1) {
-		str[0] = c;
+		str[0] = (char)c;
 		return 1;
 	}
 
@@ -274,8 +272,8 @@ runetochar(char *str, const Rune *rune)
 	 *	0080-07FF => T2 Tx
 	 */
 	if(c <= Rune2) {
-		str[0] = T2 | (c >> 1*Bitx);
-		str[1] = Tx | (c & Maskx);
+		str[0] = (char)(T2 | (c >> 1*Bitx));
+		str[1] = (char)(Tx | (c & Maskx));
 		return 2;
 	}
 
@@ -295,9 +293,9 @@ runetochar(char *str, const Rune *rune)
 	 *	0800-FFFF => T3 Tx Tx
 	 */
 	if (c <= Rune3) {
-		str[0] = T3 |  (c >> 2*Bitx);
-		str[1] = Tx | ((c >> 1*Bitx) & Maskx);
-		str[2] = Tx |  (c & Maskx);
+		str[0] = (char)(T3 |  (c >> 2*Bitx));
+		str[1] = (char)(Tx | ((c >> 1*Bitx) & Maskx));
+		str[2] = (char)(Tx |  (c & Maskx));
 		return 3;
 	}
 
@@ -305,10 +303,10 @@ runetochar(char *str, const Rune *rune)
 	 * four character sequence (21-bit value)
 	 *     10000-1FFFFF => T4 Tx Tx Tx
 	 */
-	str[0] = T4 | (c >> 3*Bitx);
-	str[1] = Tx | ((c >> 2*Bitx) & Maskx);
-	str[2] = Tx | ((c >> 1*Bitx) & Maskx);
-	str[3] = Tx | (c & Maskx);
+	str[0] = (char)(T4 | (c >> 3*Bitx));
+	str[1] = (char)(Tx | ((c >> 2*Bitx) & Maskx));
+	str[2] = (char)(Tx | ((c >> 1*Bitx) & Maskx));
+	str[3] = (char)(Tx | (c & Maskx));
 	return 4;
 }
 
@@ -327,7 +325,7 @@ runenlen(const Rune *r, int nrune)
 
 	nb = 0;
 	while(nrune--) {
-		c = *r++;
+		c = (int)*r++;
 		if (c <= Rune1)
 			nb++;
 		else if (c <= Rune2)
