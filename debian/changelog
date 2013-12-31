@@ -1,3 +1,10 @@
+golang (2:1.2-2) unstable; urgency=low
+
+  * add patches/add-src-pkg-debug-elf-testdata-hello.patch to provide source
+    for the testdata/ ELF binaries (Closes: #716853)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Tue, 31 Dec 2013 18:28:29 +0100
+
 golang (2:1.2-1) unstable; urgency=low
 
   * New upstream release.
