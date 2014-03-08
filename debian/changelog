@@ -1,8 +1,22 @@
+golang (2:1.2.1-2) unstable; urgency=low
+
+  * Re-apply debian/patches/add-tar-xattr-support.patch which got lost when
+    uploading 1.2.1-1; sorry about that.
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Sat, 08 Mar 2014 20:01:12 +0100
+
 golang (2:1.2.1-1) unstable; urgency=low
 
   * New upstream release.
 
  -- Michael Stapelberg <stapelberg@debian.org>  Mon, 03 Mar 2014 17:40:57 +0100
+
+golang (2:1.2-3) unstable; urgency=low
+
+  * add debian/patches/add-tar-xattr-support.patch to have xattr support in
+    tar (cherry-picked from upstream) (Thanks proppy) (Closes: #739586)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 24 Feb 2014 19:34:16 +0100
 
 golang (2:1.2-2) unstable; urgency=low
 

@@ -1,0 +1,175 @@
+--- a/src/pkg/archive/tar/common.go
++++ b/src/pkg/archive/tar/common.go
+@@ -57,6 +57,7 @@
+ 	Devminor   int64     // minor number of character or block device
+ 	AccessTime time.Time // access time
+ 	ChangeTime time.Time // status change time
++	Xattrs     map[string]string
+ }
+ 
+ // File name constants from the tar spec.
+@@ -189,6 +190,7 @@
+ 	paxSize     = "size"
+ 	paxUid      = "uid"
+ 	paxUname    = "uname"
++	paxXattr    = "SCHILY.xattr."
+ 	paxNone     = ""
+ )
+ 
+--- a/src/pkg/archive/tar/reader.go
++++ b/src/pkg/archive/tar/reader.go
+@@ -139,8 +139,14 @@
+ 				return err
+ 			}
+ 			hdr.Size = int64(size)
++		default:
++			if strings.HasPrefix(k, paxXattr) {
++				if hdr.Xattrs == nil {
++					hdr.Xattrs = make(map[string]string)
++				}
++				hdr.Xattrs[k[len(paxXattr):]] = v
++			}
+ 		}
+-
+ 	}
+ 	return nil
+ }
+--- a/src/pkg/archive/tar/reader_test.go
++++ b/src/pkg/archive/tar/reader_test.go
+@@ -161,6 +161,46 @@
+ 			},
+ 		},
+ 	},
++	{
++		file: "testdata/xattrs.tar",
++		headers: []*Header{
++			{
++				Name:       "small.txt",
++				Mode:       0644,
++				Uid:        1000,
++				Gid:        10,
++				Size:       5,
++				ModTime:    time.Unix(1386065770, 448252320),
++				Typeflag:   '0',
++				Uname:      "alex",
++				Gname:      "wheel",
++				AccessTime: time.Unix(1389782991, 419875220),
++				ChangeTime: time.Unix(1389782956, 794414986),
++				Xattrs: map[string]string{
++					"user.key":  "value",
++					"user.key2": "value2",
++					// Interestingly, selinux encodes the terminating null inside the xattr
++					"security.selinux": "unconfined_u:object_r:default_t:s0\x00",
++				},
++			},
++			{
++				Name:       "small2.txt",
++				Mode:       0644,
++				Uid:        1000,
++				Gid:        10,
++				Size:       11,
++				ModTime:    time.Unix(1386065770, 449252304),
++				Typeflag:   '0',
++				Uname:      "alex",
++				Gname:      "wheel",
++				AccessTime: time.Unix(1389782991, 419875220),
++				ChangeTime: time.Unix(1386065770, 449252304),
++				Xattrs: map[string]string{
++					"security.selinux": "unconfined_u:object_r:default_t:s0\x00",
++				},
++			},
++		},
++	},
+ }
+ 
+ func TestReader(t *testing.T) {
+@@ -180,7 +220,7 @@
+ 				f.Close()
+ 				continue testLoop
+ 			}
+-			if *hdr != *header {
++			if !reflect.DeepEqual(*hdr, *header) {
+ 				t.Errorf("test %d, entry %d: Incorrect header:\nhave %+v\nwant %+v",
+ 					i, j, *hdr, *header)
+ 			}
+@@ -253,7 +293,7 @@
+ 		}
+ 
+ 		// check the header
+-		if *hdr != *headers[nread] {
++		if !reflect.DeepEqual(*hdr, *headers[nread]) {
+ 			t.Errorf("Incorrect header:\nhave %+v\nwant %+v",
+ 				*hdr, headers[nread])
+ 		}
+Binary files /dev/null and b/src/pkg/archive/tar/testdata/xattrs.tar differ
+--- a/src/pkg/archive/tar/writer.go
++++ b/src/pkg/archive/tar/writer.go
+@@ -236,6 +236,12 @@
+ 		return tw.err
+ 	}
+ 
++	if allowPax {
++		for k, v := range hdr.Xattrs {
++			paxHeaders[paxXattr+k] = v
++		}
++	}
++
+ 	if len(paxHeaders) > 0 {
+ 		if !allowPax {
+ 			return errInvalidHeader
+--- a/src/pkg/archive/tar/writer_test.go
++++ b/src/pkg/archive/tar/writer_test.go
+@@ -10,6 +10,7 @@
+ 	"io"
+ 	"io/ioutil"
+ 	"os"
++	"reflect"
+ 	"strings"
+ 	"testing"
+ 	"testing/iotest"
+@@ -338,6 +339,45 @@
+ 	}
+ }
+ 
++func TestPaxXattrs(t *testing.T) {
++	xattrs := map[string]string{
++		"user.key": "value",
++	}
++
++	// Create an archive with an xattr
++	fileinfo, err := os.Stat("testdata/small.txt")
++	if err != nil {
++		t.Fatal(err)
++	}
++	hdr, err := FileInfoHeader(fileinfo, "")
++	if err != nil {
++		t.Fatalf("os.Stat: %v", err)
++	}
++	contents := "Kilts"
++	hdr.Xattrs = xattrs
++	var buf bytes.Buffer
++	writer := NewWriter(&buf)
++	if err := writer.WriteHeader(hdr); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = writer.Write([]byte(contents)); err != nil {
++		t.Fatal(err)
++	}
++	if err := writer.Close(); err != nil {
++		t.Fatal(err)
++	}
++	// Test that we can get the xattrs back out of the archive.
++	reader := NewReader(&buf)
++	hdr, err = reader.Next()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !reflect.DeepEqual(hdr.Xattrs, xattrs) {
++		t.Fatalf("xattrs did not survive round trip: got %+v, want %+v",
++			hdr.Xattrs, xattrs)
++	}
++}
++
+ func TestPAXHeader(t *testing.T) {
+ 	medName := strings.Repeat("CD", 50)
+ 	longName := strings.Repeat("AB", 100)
