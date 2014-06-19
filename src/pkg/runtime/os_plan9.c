@@ -102,8 +102,18 @@ runtime·crash(void)
 void
 runtime·get_random_data(byte **rnd, int32 *rnd_len)
 {
-	*rnd = nil;
-	*rnd_len = 0;
+	static byte random_data[HashRandomBytes];
+	int32 fd;
+
+	fd = runtime·open("/dev/random", 0 /* O_RDONLY */, 0);
+	if(runtime·read(fd, random_data, HashRandomBytes) == HashRandomBytes) {
+		*rnd = random_data;
+		*rnd_len = HashRandomBytes;
+	} else {
+		*rnd = nil;
+		*rnd_len = 0;
+	}
+	runtime·close(fd);
 }
 
 void
@@ -183,13 +193,15 @@ runtime·itoa(int32 n, byte *p, uint32 len)
 void
 runtime·goexitsall(int8 *status)
 {
+	int8 buf[ERRMAX];
 	M *mp;
 	int32 pid;
 
+	runtime·snprintf((byte*)buf, sizeof buf, "go: exit %s", status);
 	pid = getpid();
 	for(mp=runtime·atomicloadp(&runtime·allm); mp; mp=mp->alllink)
 		if(mp->procid != pid)
-			runtime·postnote(mp->procid, status);
+			runtime·postnote(mp->procid, buf);
 }
 
 int32
@@ -271,6 +283,8 @@ runtime·semasleep(int64 ns)
 
 	if(ns >= 0) {
 		ms = runtime·timediv(ns, 1000000, nil);
+		if(ms == 0)
+			ms = 1;
 		ret = runtime·plan9_tsemacquire(&m->waitsemacount, ms);
 		if(ret == 1)
 			return 0;  // success
@@ -295,15 +309,82 @@ os·sigpipe(void)
 	runtime·throw("too many writes on closed pipe");
 }
 
+static int64
+atolwhex(byte *p)
+{
+	int64 n;
+	int32 f;
+
+	n = 0;
+	f = 0;
+	while(*p == ' ' || *p == '\t')
+		p++;
+	if(*p == '-' || *p == '+') {
+		if(*p++ == '-')
+			f = 1;
+		while(*p == ' ' || *p == '\t')
+			p++;
+	}
+	if(p[0] == '0' && p[1]) {
+		if(p[1] == 'x' || p[1] == 'X') {
+			p += 2;
+			for(;;) {
+				if('0' <= *p && *p <= '9')
+					n = n*16 + *p++ - '0';
+				else if('a' <= *p && *p <= 'f')
+					n = n*16 + *p++ - 'a' + 10;
+				else if('A' <= *p && *p <= 'F')
+					n = n*16 + *p++ - 'A' + 10;
+				else
+					break;
+			}
+		} else
+			while('0' <= *p && *p <= '7')
+				n = n*8 + *p++ - '0';
+	} else
+		while('0' <= *p && *p <= '9')
+			n = n*10 + *p++ - '0';
+	if(f)
+		n = -n;
+	return n;
+}
+
 void
 runtime·sigpanic(void)
 {
-	if(g->sigpc == 0)
-		runtime·panicstring("call of nil func value");
-	runtime·panicstring(m->notesig);
+	byte *p;
 
-	if(g->sig == 1 || g->sig == 2)
+	if(!runtime·canpanic(g))
+		runtime·throw("unexpected signal during runtime execution");
+
+	switch(g->sig) {
+	case SIGRFAULT:
+	case SIGWFAULT:
+		p = runtime·strstr((byte*)m->notesig, (byte*)"addr=")+5;
+		g->sigcode1 = atolwhex(p);
+		if(g->sigcode1 < 0x1000 || g->paniconfault) {
+			if(g->sigpc == 0)
+				runtime·panicstring("call of nil func value");
+			runtime·panicstring("invalid memory address or nil pointer dereference");
+		}
+		runtime·printf("unexpected fault address %p\n", g->sigcode1);
 		runtime·throw("fault");
+		break;
+	case SIGTRAP:
+		if(g->paniconfault)
+			runtime·panicstring("invalid memory address or nil pointer dereference");
+		runtime·throw(m->notesig);
+		break;
+	case SIGINTDIV:
+		runtime·panicstring("integer divide by zero");
+		break;
+	case SIGFLOAT:
+		runtime·panicstring("floating point error");
+		break;
+	default:
+		runtime·panicstring(m->notesig);
+		break;
+	}
 }
 
 int32
@@ -313,9 +394,9 @@ runtime·read(int32 fd, void *buf, int32 nbytes)
 }
 
 int32
-runtime·write(int32 fd, void *buf, int32 nbytes)
+runtime·write(uintptr fd, void *buf, int32 nbytes)
 {
-	return runtime·pwrite(fd, buf, nbytes, -1LL);
+	return runtime·pwrite((int32)fd, buf, nbytes, -1LL);
 }
 
 uintptr

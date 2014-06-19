@@ -485,7 +485,7 @@ func (p *Package) writeOutput(f *File, srcfile string) {
 	fgcc.Close()
 }
 
-// fixGo convers the internal Name.Go field into the name we should show
+// fixGo converts the internal Name.Go field into the name we should show
 // to users in error messages. There's only one for now: on input we rewrite
 // C.malloc into C._CMalloc, so change it back here.
 func fixGo(name string) string {
@@ -529,15 +529,8 @@ func (p *Package) writeOutputFunc(fgcc *os.File, n *Name) {
 	}
 	// We're trying to write a gcc struct that matches 6c/8c/5c's layout.
 	// Use packed attribute to force no padding in this struct in case
-	// gcc has different packing requirements.  For example,
-	// on 386 Windows, gcc wants to 8-align int64s, but 8c does not.
-	// Use __gcc_struct__ to work around http://gcc.gnu.org/PR52991 on x86,
-	// and http://golang.org/issue/5603.
-	extraAttr := ""
-	if !strings.Contains(p.gccBaseCmd()[0], "clang") && (goarch == "amd64" || goarch == "386") {
-		extraAttr = ", __gcc_struct__"
-	}
-	fmt.Fprintf(fgcc, "\t%s __attribute__((__packed__%v)) *a = v;\n", ctype, extraAttr)
+	// gcc has different packing requirements.
+	fmt.Fprintf(fgcc, "\t%s %v *a = v;\n", ctype, p.packedAttribute())
 	fmt.Fprintf(fgcc, "\t")
 	if t := n.FuncType.Result; t != nil {
 		fmt.Fprintf(fgcc, "a->r = ")
@@ -616,6 +609,19 @@ func (p *Package) writeGccgoOutputFunc(fgcc *os.File, n *Name) {
 	fmt.Fprintf(fgcc, ");\n")
 	fmt.Fprintf(fgcc, "}\n")
 	fmt.Fprintf(fgcc, "\n")
+}
+
+// packedAttribute returns host compiler struct attribute that will be
+// used to match 6c/8c/5c's struct layout. For example, on 386 Windows,
+// gcc wants to 8-align int64s, but 8c does not.
+// Use __gcc_struct__ to work around http://gcc.gnu.org/PR52991 on x86,
+// and http://golang.org/issue/5603.
+func (p *Package) packedAttribute() string {
+	s := "__attribute__((__packed__"
+	if !strings.Contains(p.gccBaseCmd()[0], "clang") && (goarch == "amd64" || goarch == "386") {
+		s += ", __gcc_struct__"
+	}
+	return s + "))"
 }
 
 // Write out the various stubs we need to support functions exported
@@ -727,7 +733,7 @@ func (p *Package) writeExports(fgo2, fc, fm *os.File) {
 		fmt.Fprintf(fgcc, "extern void _cgoexp%s_%s(void *, int);\n", cPrefix, exp.ExpName)
 		fmt.Fprintf(fgcc, "\n%s\n", s)
 		fmt.Fprintf(fgcc, "{\n")
-		fmt.Fprintf(fgcc, "\t%s __attribute__((packed)) a;\n", ctype)
+		fmt.Fprintf(fgcc, "\t%s %v a;\n", ctype, p.packedAttribute())
 		if gccResult != "void" && (len(fntype.Results.List) > 1 || len(fntype.Results.List[0].Names) > 1) {
 			fmt.Fprintf(fgcc, "\t%s r;\n", gccResult)
 		}
@@ -874,9 +880,23 @@ func (p *Package) writeGccgoExports(fgo2, fc, fm *os.File) {
 		fmt.Fprintf(cdeclBuf, ")")
 		cParams := cdeclBuf.String()
 
+		// We need to use a name that will be exported by the
+		// Go code; otherwise gccgo will make it static and we
+		// will not be able to link against it from the C
+		// code.
 		goName := "Cgoexp_" + exp.ExpName
 		fmt.Fprintf(fgcch, `extern %s %s %s __asm__("%s.%s");`, cRet, goName, cParams, gccgoSymbolPrefix, goName)
 		fmt.Fprint(fgcch, "\n")
+
+		// Use a #define so that the C code that includes
+		// cgo_export.h will be able to refer to the Go
+		// function using the expected name.
+		fmt.Fprintf(fgcch, "#define %s %s\n", exp.ExpName, goName)
+
+		// Use a #undef in _cgo_export.c so that we ignore the
+		// #define from cgo_export.h, since here we are
+		// defining the real function.
+		fmt.Fprintf(fgcc, "#undef %s\n", exp.ExpName)
 
 		fmt.Fprint(fgcc, "\n")
 		fmt.Fprintf(fgcc, "%s %s %s {\n", cRet, exp.ExpName, cParams)
@@ -1219,7 +1239,10 @@ struct __go_string __go_byte_array_to_string(const void* p, intgo len);
 struct __go_open_array __go_string_to_byte_array (struct __go_string str);
 
 const char *_cgoPREFIX_Cfunc_CString(struct __go_string s) {
-	return strndup((const char*)s.__data, s.__length);
+	char *p = malloc(s.__length+1);
+	memmove(p, s.__data, s.__length);
+	p[s.__length] = 0;
+	return p;
 }
 
 struct __go_string _cgoPREFIX_Cfunc_GoString(char *p) {

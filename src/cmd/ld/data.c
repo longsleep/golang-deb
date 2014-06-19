@@ -38,15 +38,14 @@
 #include	"../../pkg/runtime/mgc0.h"
 
 void	dynreloc(void);
-static vlong addaddrplus4(Sym *s, Sym *t, vlong add);
 
 /*
  * divide-and-conquer list-link
- * sort of Sym* structures.
+ * sort of LSym* structures.
  * Used for the data block.
  */
 int
-datcmp(Sym *s1, Sym *s2)
+datcmp(LSym *s1, LSym *s2)
 {
 	if(s1->type != s2->type)
 		return (int)s1->type - (int)s2->type;
@@ -58,11 +57,11 @@ datcmp(Sym *s1, Sym *s2)
 	return strcmp(s1->name, s2->name);
 }
 
-Sym*
-listsort(Sym *l, int (*cmp)(Sym*, Sym*), int off)
+LSym*
+listsort(LSym *l, int (*cmp)(LSym*, LSym*), int off)
 {
-	Sym *l1, *l2, *le;
-	#define NEXT(l) (*(Sym**)((char*)(l)+off))
+	LSym *l1, *l2, *le;
+	#define NEXT(l) (*(LSym**)((char*)(l)+off))
 
 	if(l == 0 || NEXT(l) == 0)
 		return l;
@@ -128,32 +127,16 @@ listsort(Sym *l, int (*cmp)(Sym*, Sym*), int off)
 	#undef NEXT
 }
 
-Reloc*
-addrel(Sym *s)
-{
-	if(s->nr >= s->maxr) {
-		if(s->maxr == 0)
-			s->maxr = 4;
-		else
-			s->maxr <<= 1;
-		s->r = erealloc(s->r, s->maxr*sizeof s->r[0]);
-		memset(s->r+s->nr, 0, (s->maxr-s->nr)*sizeof s->r[0]);
-	}
-	return &s->r[s->nr++];
-}
-
 void
-relocsym(Sym *s)
+relocsym(LSym *s)
 {
 	Reloc *r;
-	Sym *rs;
-	Prog p;
+	LSym *rs;
 	int32 i, off, siz, fl;
 	vlong o;
 	uchar *cast;
 
-	cursym = s;
-	memset(&p, 0, sizeof p);
+	ctxt->cursym = s;
 	for(r=s->r; r<s->r+s->nr; r++) {
 		r->done = 1;
 		off = r->off;
@@ -168,10 +151,12 @@ relocsym(Sym *s)
 		}
 		if(r->type >= 256)
 			continue;
+		if(r->siz == 0) // informational relocation - no work to do
+			continue;
 
-		if(r->sym != S && r->sym->type == SDYNIMPORT)
+		// Solaris needs the ability to reference dynimport symbols.
+		if(HEADTYPE != Hsolaris && r->sym != S && r->sym->type == SDYNIMPORT)
 			diag("unhandled relocation for %s (type %d rtype %d)", r->sym->name, r->sym->type, r->type);
-
 		if(r->sym != S && r->sym->type != STLSBSS && !r->sym->reachable)
 			diag("unreachable sym in relocation: %s %s", s->name, r->sym->name);
 
@@ -181,13 +166,56 @@ relocsym(Sym *s)
 			if(archreloc(r, s, &o) < 0)
 				diag("unknown reloc %d", r->type);
 			break;
-		case D_TLS:
+		case R_TLS:
+			if(linkmode == LinkInternal && iself && thechar == '5') {
+				// On ELF ARM, the thread pointer is 8 bytes before
+				// the start of the thread-local data block, so add 8
+				// to the actual TLS offset (r->sym->value).
+				// This 8 seems to be a fundamental constant of
+				// ELF on ARM (or maybe Glibc on ARM); it is not
+				// related to the fact that our own TLS storage happens
+				// to take up 8 bytes.
+				o = 8 + r->sym->value;
+				break;
+			}
 			r->done = 0;
 			o = 0;
 			if(thechar != '6')
 				o = r->add;
 			break;
-		case D_ADDR:
+		case R_TLS_LE:
+			if(linkmode == LinkExternal && iself && HEADTYPE != Hopenbsd) {
+				r->done = 0;
+				r->sym = ctxt->gmsym;
+				r->xsym = ctxt->gmsym;
+				r->xadd = r->add;
+				o = 0;
+				if(thechar != '6')
+					o = r->add;
+				break;
+			}
+			o = ctxt->tlsoffset + r->add;
+			break;
+
+		case R_TLS_IE:
+			if(linkmode == LinkExternal && iself && HEADTYPE != Hopenbsd) {
+				r->done = 0;
+				r->sym = ctxt->gmsym;
+				r->xsym = ctxt->gmsym;
+				r->xadd = r->add;
+				o = 0;
+				if(thechar != '6')
+					o = r->add;
+				break;
+			}
+			if(iself || ctxt->headtype == Hplan9)
+				o = ctxt->tlsoffset + r->add;
+			else if(ctxt->headtype == Hwindows)
+				o = r->add;
+			else
+				sysfatal("unexpected R_TLS_IE relocation for %s", headstr(ctxt->headtype));
+			break;
+		case R_ADDR:
 			if(linkmode == LinkExternal && r->sym->type != SCONST) {
 				r->done = 0;
 
@@ -198,7 +226,7 @@ relocsym(Sym *s)
 					r->xadd += symaddr(rs) - symaddr(rs->outer);
 					rs = rs->outer;
 				}
-				if(rs->type != SHOSTOBJ && rs->sect == nil)
+				if(rs->type != SHOSTOBJ && rs->type != SDYNIMPORT && rs->sect == nil)
 					diag("missing section for %s", rs->name);
 				r->xsym = rs;
 
@@ -210,15 +238,26 @@ relocsym(Sym *s)
 					if(rs->type != SHOSTOBJ)
 						o += symaddr(rs);
 				} else {
-					diag("unhandled pcrel relocation for %s", headtype);
+					diag("unhandled pcrel relocation for %s", headstring);
 				}
 				break;
 			}
 			o = symaddr(r->sym) + r->add;
+
+			// On amd64, 4-byte offsets will be sign-extended, so it is impossible to
+			// access more than 2GB of static data; fail at link time is better than
+			// fail at runtime. See http://golang.org/issue/7980.
+			// Instead of special casing only amd64, we treat this as an error on all
+			// 64-bit architectures so as to be future-proof.
+			if((int32)o < 0 && PtrSize > 4 && siz == 4) {
+				diag("non-pc-relative relocation address is too big: %#llux", o);
+				errorexit();
+			}
 			break;
-		case D_PCREL:
+		case R_CALL:
+		case R_PCREL:
 			// r->sym can be null when CALL $(constant) is transformed from absolute PC to relative PC call.
-			if(linkmode == LinkExternal && r->sym && r->sym->type != SCONST && r->sym->sect != cursym->sect) {
+			if(linkmode == LinkExternal && r->sym && r->sym->type != SCONST && r->sym->sect != ctxt->cursym->sect) {
 				r->done = 0;
 
 				// set up addend for eventual relocation via outer symbol.
@@ -229,7 +268,7 @@ relocsym(Sym *s)
 					rs = rs->outer;
 				}
 				r->xadd -= r->siz; // relative to address after the relocated chunk
-				if(rs->type != SHOSTOBJ && rs->sect == nil)
+				if(rs->type != SHOSTOBJ && rs->type != SDYNIMPORT && rs->sect == nil)
 					diag("missing section for %s", rs->name);
 				r->xsym = rs;
 
@@ -242,7 +281,7 @@ relocsym(Sym *s)
 						o += symaddr(rs) - rs->sect->vaddr;
 					o -= r->off; // WTF?
 				} else {
-					diag("unhandled pcrel relocation for %s", headtype);
+					diag("unhandled pcrel relocation for %s", headstring);
 				}
 				break;
 			}
@@ -257,17 +296,21 @@ relocsym(Sym *s)
 			// the standard host compiler (gcc on most other systems).
 			o += r->add - (s->value + r->off + (int32)r->siz);
 			break;
-		case D_SIZE:
+		case R_SIZE:
 			o = r->sym->size + r->add;
 			break;
 		}
-//print("relocate %s %p %s => %p %p %p %p [%p]\n", s->name, s->value+off, r->sym ? r->sym->name : "<nil>", (void*)symaddr(r->sym), (void*)s->value, (void*)r->off, (void*)r->siz, (void*)o);
+//print("relocate %s %#llux (%#llux+%#llux, size %d) => %s %#llux +%#llx [%llx]\n", s->name, (uvlong)(s->value+off), (uvlong)s->value, (uvlong)r->off, r->siz, r->sym ? r->sym->name : "<nil>", (uvlong)symaddr(r->sym), (vlong)r->add, (vlong)o);
 		switch(siz) {
 		default:
-			cursym = s;
+			ctxt->cursym = s;
 			diag("bad reloc size %#ux for %s", siz, r->sym->name);
+		case 1:
+			// TODO(rsc): Remove.
+			s->p[off] = (int8)o;
+			break;
 		case 4:
-			if(r->type == D_PCREL) {
+			if(r->type == R_PCREL || r->type == R_CALL) {
 				if(o != (int32)o)
 					diag("pc-relative relocation address is too big: %#llx", o);
 			} else {
@@ -291,31 +334,35 @@ relocsym(Sym *s)
 void
 reloc(void)
 {
-	Sym *s;
+	LSym *s;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f reloc\n", cputime());
 	Bflush(&bso);
 
-	for(s=textp; s!=S; s=s->next)
+	for(s=ctxt->textp; s!=S; s=s->next)
 		relocsym(s);
 	for(s=datap; s!=S; s=s->next)
 		relocsym(s);
 }
 
 void
-dynrelocsym(Sym *s)
+dynrelocsym(LSym *s)
 {
 	Reloc *r;
-	
-	if(HEADTYPE == Hwindows) {
-		Sym *rel, *targ;
 
-		rel = lookup(".rel", 0);
+	if(HEADTYPE == Hwindows) {
+		LSym *rel, *targ;
+
+		rel = linklookup(ctxt, ".rel", 0);
 		if(s == rel)
 			return;
 		for(r=s->r; r<s->r+s->nr; r++) {
 			targ = r->sym;
+			if(targ == nil)
+				continue;
+			if(!targ->reachable)
+				diag("internal inconsistency: dynamic symbol %s is not reachable.", targ->name);
 			if(r->sym->plt == -2 && r->sym->got != -2) { // make dynimport JMP table for PE object files.
 				targ->plt = rel->size;
 				r->sym = rel;
@@ -323,17 +370,17 @@ dynrelocsym(Sym *s)
 
 				// jmp *addr
 				if(thechar == '8') {
-					adduint8(rel, 0xff);
-					adduint8(rel, 0x25);
-					addaddr(rel, targ);
-					adduint8(rel, 0x90);
-					adduint8(rel, 0x90);
+					adduint8(ctxt, rel, 0xff);
+					adduint8(ctxt, rel, 0x25);
+					addaddr(ctxt, rel, targ);
+					adduint8(ctxt, rel, 0x90);
+					adduint8(ctxt, rel, 0x90);
 				} else {
-					adduint8(rel, 0xff);
-					adduint8(rel, 0x24);
-					adduint8(rel, 0x25);
-					addaddrplus4(rel, targ, 0);
-					adduint8(rel, 0x90);
+					adduint8(ctxt, rel, 0xff);
+					adduint8(ctxt, rel, 0x24);
+					adduint8(ctxt, rel, 0x25);
+					addaddrplus4(ctxt, rel, targ, 0);
+					adduint8(ctxt, rel, 0x90);
 				}
 			} else if(r->sym->plt >= 0) {
 				r->sym = rel;
@@ -344,15 +391,18 @@ dynrelocsym(Sym *s)
 	}
 
 	for(r=s->r; r<s->r+s->nr; r++) {
-		if(r->sym != S && r->sym->type == SDYNIMPORT || r->type >= 256)
+		if(r->sym != S && r->sym->type == SDYNIMPORT || r->type >= 256) {
+			if(r->sym != S && !r->sym->reachable)
+				diag("internal inconsistency: dynamic symbol %s is not reachable.", r->sym->name);
 			adddynrel(s, r);
+		}
 	}
 }
 
 void
 dynreloc(void)
 {
-	Sym *s;
+	LSym *s;
 
 	// -d suppresses dynamic loader format, so we may as well not
 	// compute these sections or mark their symbols as reachable.
@@ -362,7 +412,7 @@ dynreloc(void)
 		Bprint(&bso, "%5.2f reloc\n", cputime());
 	Bflush(&bso);
 
-	for(s=textp; s!=S; s=s->next)
+	for(s=ctxt->textp; s!=S; s=s->next)
 		dynrelocsym(s);
 	for(s=datap; s!=S; s=s->next)
 		dynrelocsym(s);
@@ -370,118 +420,10 @@ dynreloc(void)
 		elfdynhash();
 }
 
-void
-symgrow(Sym *s, int32 siz)
-{
-	if(s->np >= siz)
-		return;
-
-	if(s->np > s->maxp) {
-		cursym = s;
-		diag("corrupt symbol data: np=%lld > maxp=%lld", (vlong)s->np, (vlong)s->maxp);
-		errorexit();
-	}
-
-	if(s->maxp < siz) {
-		if(s->maxp == 0)
-			s->maxp = 8;
-		while(s->maxp < siz)
-			s->maxp <<= 1;
-		s->p = erealloc(s->p, s->maxp);
-		memset(s->p+s->np, 0, s->maxp-s->np);
-	}
-	s->np = siz;
-}
-
-void
-savedata(Sym *s, Prog *p, char *pn)
-{
-	int32 off, siz, i, fl;
-	uchar *cast;
-	vlong o;
-	Reloc *r;
-
-	off = p->from.offset;
-	siz = p->datasize;
-	if(off < 0 || siz < 0 || off >= 1<<30 || siz >= 100)
-		mangle(pn);
-	symgrow(s, off+siz);
-
-	switch(p->to.type) {
-	default:
-		diag("bad data: %P", p);
-		break;
-
-	case D_FCONST:
-		switch(siz) {
-		default:
-		case 4:
-			fl = ieeedtof(&p->to.ieee);
-			cast = (uchar*)&fl;
-			for(i=0; i<4; i++)
-				s->p[off+i] = cast[fnuxi4[i]];
-			break;
-		case 8:
-			cast = (uchar*)&p->to.ieee;
-			for(i=0; i<8; i++)
-				s->p[off+i] = cast[fnuxi8[i]];
-			break;
-		}
-		break;
-
-	case D_SCONST:
-		for(i=0; i<siz; i++)
-			s->p[off+i] = p->to.scon[i];
-		break;
-
-	case D_CONST:
-		if(p->to.sym)
-			goto Addr;
-		o = p->to.offset;
-		fl = o;
-		cast = (uchar*)&fl;
-		switch(siz) {
-		default:
-			diag("bad nuxi %d\n%P", siz, p);
-			break;
-		case 1:
-			s->p[off] = cast[inuxi1[0]];
-			break;
-		case 2:
-			for(i=0; i<2; i++)
-				s->p[off+i] = cast[inuxi2[i]];
-			break;
-		case 4:
-			for(i=0; i<4; i++)
-				s->p[off+i] = cast[inuxi4[i]];
-			break;
-		case 8:
-			cast = (uchar*)&o;
-			for(i=0; i<8; i++)
-				s->p[off+i] = cast[inuxi8[i]];
-			break;
-		}
-		break;
-
-	case D_ADDR:
-	case D_SIZE:
-	Addr:
-		r = addrel(s);
-		r->off = off;
-		r->siz = siz;
-		r->sym = p->to.sym;
-		r->type = p->to.type;
-		if(r->type != D_SIZE)
-			r->type = D_ADDR;
-		r->add = p->to.offset;
-		break;
-	}
-}
-
 static void
-blk(Sym *start, int32 addr, int32 size)
+blk(LSym *start, int32 addr, int32 size)
 {
-	Sym *sym;
+	LSym *sym;
 	int32 eaddr;
 	uchar *p, *ep;
 
@@ -499,7 +441,7 @@ blk(Sym *start, int32 addr, int32 size)
 			diag("phase error: addr=%#llx but sym=%#llx type=%d", (vlong)addr, (vlong)sym->value, sym->type);
 			errorexit();
 		}
-		cursym = sym;
+		ctxt->cursym = sym;
 		for(; addr < sym->value; addr++)
 			cput(0);
 		p = sym->p;
@@ -523,21 +465,20 @@ blk(Sym *start, int32 addr, int32 size)
 void
 codeblk(int32 addr, int32 size)
 {
-	Sym *sym;
-	int32 eaddr, n, epc;
-	Prog *p;
+	LSym *sym;
+	int32 eaddr, n;
 	uchar *q;
 
 	if(debug['a'])
 		Bprint(&bso, "codeblk [%#x,%#x) at offset %#llx\n", addr, addr+size, cpos());
 
-	blk(textp, addr, size);
+	blk(ctxt->textp, addr, size);
 
 	/* again for printing */
 	if(!debug['a'])
 		return;
 
-	for(sym = textp; sym != nil; sym = sym->next) {
+	for(sym = ctxt->textp; sym != nil; sym = sym->next) {
 		if(!sym->reachable)
 			continue;
 		if(sym->value >= addr)
@@ -557,36 +498,20 @@ codeblk(int32 addr, int32 size)
 				Bprint(&bso, " %.2ux", 0);
 			Bprint(&bso, "\n");
 		}
-		p = sym->text;
-		if(p == nil) {
-			Bprint(&bso, "%.6llux\t%-20s | foreign text\n", (vlong)addr, sym->name);
-			n = sym->size;
-			q = sym->p;
 
-			while(n >= 16) {
-				Bprint(&bso, "%.6ux\t%-20.16I\n", addr, q);
-				addr += 16;
-				q += 16;
-				n -= 16;
-			}
-			if(n > 0)
-				Bprint(&bso, "%.6ux\t%-20.*I\n", addr, (int)n, q);
-			addr += n;
-			continue;
-		}
+		Bprint(&bso, "%.6llux\t%-20s\n", (vlong)addr, sym->name);
+		n = sym->size;
+		q = sym->p;
 
-		Bprint(&bso, "%.6llux\t%-20s | %P\n", (vlong)sym->value, sym->name, p);
-		for(p = p->link; p != P; p = p->link) {
-			if(p->link != P)
-				epc = p->link->pc;
-			else
-				epc = sym->value + sym->size;
-			Bprint(&bso, "%.6llux\t", (uvlong)p->pc);
-			q = sym->p + p->pc - sym->value;
-			n = epc - p->pc;
-			Bprint(&bso, "%-20.*I | %P\n", (int)n, q, p);
-			addr += n;
+		while(n >= 16) {
+			Bprint(&bso, "%.6ux\t%-20.16I\n", addr, q);
+			addr += 16;
+			q += 16;
+			n -= 16;
 		}
+		if(n > 0)
+			Bprint(&bso, "%.6ux\t%-20.*I\n", addr, (int)n, q);
+		addr += n;
 	}
 
 	if(addr < eaddr) {
@@ -600,7 +525,7 @@ codeblk(int32 addr, int32 size)
 void
 datblk(int32 addr, int32 size)
 {
-	Sym *sym;
+	LSym *sym;
 	int32 i, eaddr;
 	uchar *p, *ep;
 	char *typ, *rsname;
@@ -648,11 +573,14 @@ datblk(int32 addr, int32 size)
 					rsname = r->sym->name;
 				typ = "?";
 				switch(r->type) {
-				case D_ADDR:
+				case R_ADDR:
 					typ = "addr";
 					break;
-				case D_PCREL:
+				case R_PCREL:
 					typ = "pcrel";
+					break;
+				case R_CALL:
+					typ = "call";
 					break;
 				}
 				Bprint(&bso, "\treloc %.8ux/%d %s %s+%#llx [%#llx]\n",
@@ -682,28 +610,28 @@ strnput(char *s, int n)
 void
 addstrdata(char *name, char *value)
 {
-	Sym *s, *sp;
+	LSym *s, *sp;
 	char *p;
 
 	p = smprint("%s.str", name);
-	sp = lookup(p, 0);
+	sp = linklookup(ctxt, p, 0);
 	free(p);
 	addstring(sp, value);
 
-	s = lookup(name, 0);
+	s = linklookup(ctxt, name, 0);
 	s->size = 0;
 	s->dupok = 1;
-	addaddr(s, sp);
-	adduint32(s, strlen(value));
+	addaddr(ctxt, s, sp);
+	adduint32(ctxt, s, strlen(value));
 	if(PtrSize == 8)
-		adduint32(s, 0);  // round struct to pointer width
+		adduint32(ctxt, s, 0);  // round struct to pointer width
 
 	// in case reachability has already been computed
 	sp->reachable = s->reachable;
 }
 
 vlong
-addstring(Sym *s, char *str)
+addstring(LSym *s, char *str)
 {
 	int n;
 	int32 r;
@@ -715,230 +643,18 @@ addstring(Sym *s, char *str)
 	n = strlen(str)+1;
 	if(strcmp(s->name, ".shstrtab") == 0)
 		elfsetstring(str, r);
-	symgrow(s, r+n);
+	symgrow(ctxt, s, r+n);
 	memmove(s->p+r, str, n);
 	s->size += n;
 	return r;
 }
 
-vlong
-setuintxx(Sym *s, vlong off, uint64 v, vlong wid)
-{
-	int32 i, fl;
-	vlong o;
-	uchar *cast;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	if(s->size < off+wid) {
-		s->size = off+wid;
-		symgrow(s, s->size);
-	}
-	fl = v;
-	cast = (uchar*)&fl;
-	switch(wid) {
-	case 1:
-		s->p[off] = cast[inuxi1[0]];
-		break;
-	case 2:
-		for(i=0; i<2; i++)
-			s->p[off+i] = cast[inuxi2[i]];
-		break;
-	case 4:
-		for(i=0; i<4; i++)
-			s->p[off+i] = cast[inuxi4[i]];
-		break;
-	case 8:
-		o = v;
-		cast = (uchar*)&o;
-		for(i=0; i<8; i++)
-			s->p[off+i] = cast[inuxi8[i]];
-		break;
-	}
-	return off+wid;
-}
-
-vlong
-adduintxx(Sym *s, uint64 v, int wid)
-{
-	vlong off;
-
-	off = s->size;
-	setuintxx(s, off, v, wid);
-	return off;
-}
-
-vlong
-adduint8(Sym *s, uint8 v)
-{
-	return adduintxx(s, v, 1);
-}
-
-vlong
-adduint16(Sym *s, uint16 v)
-{
-	return adduintxx(s, v, 2);
-}
-
-vlong
-adduint32(Sym *s, uint32 v)
-{
-	return adduintxx(s, v, 4);
-}
-
-vlong
-adduint64(Sym *s, uint64 v)
-{
-	return adduintxx(s, v, 8);
-}
-
-vlong
-setuint8(Sym *s, vlong r, uint8 v)
-{
-	return setuintxx(s, r, v, 1);
-}
-
-vlong
-setuint16(Sym *s, vlong r, uint16 v)
-{
-	return setuintxx(s, r, v, 2);
-}
-
-vlong
-setuint32(Sym *s, vlong r, uint32 v)
-{
-	return setuintxx(s, r, v, 4);
-}
-
-vlong
-setuint64(Sym *s, vlong r, uint64 v)
-{
-	return setuintxx(s, r, v, 8);
-}
-
-vlong
-addaddrplus(Sym *s, Sym *t, vlong add)
-{
-	vlong i;
-	Reloc *r;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	i = s->size;
-	s->size += PtrSize;
-	symgrow(s, s->size);
-	r = addrel(s);
-	r->sym = t;
-	r->off = i;
-	r->siz = PtrSize;
-	r->type = D_ADDR;
-	r->add = add;
-	return i + r->siz;
-}
-
-static vlong
-addaddrplus4(Sym *s, Sym *t, vlong add)
-{
-	vlong i;
-	Reloc *r;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	i = s->size;
-	s->size += 4;
-	symgrow(s, s->size);
-	r = addrel(s);
-	r->sym = t;
-	r->off = i;
-	r->siz = 4;
-	r->type = D_ADDR;
-	r->add = add;
-	return i + r->siz;
-}
-
-vlong
-addpcrelplus(Sym *s, Sym *t, vlong add)
-{
-	vlong i;
-	Reloc *r;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	i = s->size;
-	s->size += 4;
-	symgrow(s, s->size);
-	r = addrel(s);
-	r->sym = t;
-	r->off = i;
-	r->add = add;
-	r->type = D_PCREL;
-	r->siz = 4;
-	return i + r->siz;
-}
-
-vlong
-addaddr(Sym *s, Sym *t)
-{
-	return addaddrplus(s, t, 0);
-}
-
-vlong
-setaddrplus(Sym *s, vlong off, Sym *t, vlong add)
-{
-	Reloc *r;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	if(off+PtrSize > s->size) {
-		s->size = off + PtrSize;
-		symgrow(s, s->size);
-	}
-	r = addrel(s);
-	r->sym = t;
-	r->off = off;
-	r->siz = PtrSize;
-	r->type = D_ADDR;
-	r->add = add;
-	return off + r->siz;
-}
-
-vlong
-setaddr(Sym *s, vlong off, Sym *t)
-{
-	return setaddrplus(s, off, t, 0);
-}
-
-vlong
-addsize(Sym *s, Sym *t)
-{
-	vlong i;
-	Reloc *r;
-
-	if(s->type == 0)
-		s->type = SDATA;
-	s->reachable = 1;
-	i = s->size;
-	s->size += PtrSize;
-	symgrow(s, s->size);
-	r = addrel(s);
-	r->sym = t;
-	r->off = i;
-	r->siz = PtrSize;
-	r->type = D_SIZE;
-	return i + r->siz;
-}
-
 void
 dosymtype(void)
 {
-	Sym *s;
+	LSym *s;
 
-	for(s = allsym; s != nil; s = s->allsym) {
+	for(s = ctxt->allsym; s != nil; s = s->allsym) {
 		if(s->np > 0) {
 			if(s->type == SBSS)
 				s->type = SDATA;
@@ -949,7 +665,7 @@ dosymtype(void)
 }
 
 static int32
-symalign(Sym *s)
+symalign(LSym *s)
 {
 	int32 align;
 
@@ -965,7 +681,7 @@ symalign(Sym *s)
 }
 	
 static vlong
-aligndatsize(vlong datsize, Sym *s)
+aligndatsize(vlong datsize, LSym *s)
 {
 	return rnd(datsize, symalign(s));
 }
@@ -973,7 +689,7 @@ aligndatsize(vlong datsize, Sym *s)
 // maxalign returns the maximum required alignment for
 // the list of symbols s; the list stops when s->type exceeds type.
 static int32
-maxalign(Sym *s, int type)
+maxalign(LSym *s, int type)
 {
 	int32 align, max;
 	
@@ -987,10 +703,10 @@ maxalign(Sym *s, int type)
 }
 
 static void
-gcaddsym(Sym *gc, Sym *s, vlong off)
+gcaddsym(LSym *gc, LSym *s, vlong off)
 {
 	vlong a;
-	Sym *gotype;
+	LSym *gotype;
 
 	if(s->size < PtrSize)
 		return;
@@ -1000,22 +716,22 @@ gcaddsym(Sym *gc, Sym *s, vlong off)
 	gotype = s->gotype;
 	if(gotype != nil) {
 		//print("gcaddsym:    %s    %d    %s\n", s->name, s->size, gotype->name);
-		adduintxx(gc, GC_CALL, PtrSize);
-		adduintxx(gc, off, PtrSize);
-		addpcrelplus(gc, decodetype_gc(gotype), 3*PtrSize+4);
+		adduintxx(ctxt, gc, GC_CALL, PtrSize);
+		adduintxx(ctxt, gc, off, PtrSize);
+		addpcrelplus(ctxt, gc, decodetype_gc(gotype), 3*PtrSize+4);
 		if(PtrSize == 8)
-			adduintxx(gc, 0, 4);
+			adduintxx(ctxt, gc, 0, 4);
 	} else {
 		//print("gcaddsym:    %s    %d    <unknown type>\n", s->name, s->size);
 		for(a = -off&(PtrSize-1); a+PtrSize<=s->size; a+=PtrSize) {
-			adduintxx(gc, GC_APTR, PtrSize);
-			adduintxx(gc, off+a, PtrSize);
+			adduintxx(ctxt, gc, GC_APTR, PtrSize);
+			adduintxx(ctxt, gc, off+a, PtrSize);
 		}
 	}
 }
 
 void
-growdatsize(vlong *datsizep, Sym *s)
+growdatsize(vlong *datsizep, LSym *s)
 {
 	vlong datsize;
 	
@@ -1034,27 +750,30 @@ dodata(void)
 	vlong datsize;
 	Section *sect;
 	Segment *segro;
-	Sym *s, *last, **l;
-	Sym *gcdata1, *gcbss1;
+	LSym *s, *last, **l;
+	LSym *gcdata1, *gcbss1;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f dodata\n", cputime());
 	Bflush(&bso);
 
-	gcdata1 = lookup("gcdata", 0);
-	gcbss1 = lookup("gcbss", 0);
+	gcdata1 = linklookup(ctxt, "gcdata", 0);
+	gcbss1 = linklookup(ctxt, "gcbss", 0);
 
 	// size of .data and .bss section. the zero value is later replaced by the actual size of the section.
-	adduintxx(gcdata1, 0, PtrSize);
-	adduintxx(gcbss1, 0, PtrSize);
+	adduintxx(ctxt, gcdata1, 0, PtrSize);
+	adduintxx(ctxt, gcbss1, 0, PtrSize);
 
 	last = nil;
 	datap = nil;
 
-	for(s=allsym; s!=S; s=s->allsym) {
+	for(s=ctxt->allsym; s!=S; s=s->allsym) {
 		if(!s->reachable || s->special)
 			continue;
 		if(STEXT < s->type && s->type < SXREF) {
+			if(s->onlist)
+				sysfatal("symbol %s listed multiple times", s->name);
+			s->onlist = 1;
 			if(last == nil)
 				datap = s;
 			else
@@ -1092,7 +811,7 @@ dodata(void)
 	}
 	*l = nil;
 
-	datap = listsort(datap, datcmp, offsetof(Sym, next));
+	datap = listsort(datap, datcmp, offsetof(LSym, next));
 
 	/*
 	 * allocate sections.  list is sorted by type,
@@ -1128,8 +847,8 @@ dodata(void)
 	sect->align = maxalign(s, SINITARR-1);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("noptrdata", 0)->sect = sect;
-	lookup("enoptrdata", 0)->sect = sect;
+	linklookup(ctxt, "noptrdata", 0)->sect = sect;
+	linklookup(ctxt, "enoptrdata", 0)->sect = sect;
 	for(; s != nil && s->type < SINITARR; s = s->next) {
 		datsize = aligndatsize(datsize, s);
 		s->sect = sect;
@@ -1159,11 +878,11 @@ dodata(void)
 	sect->align = maxalign(s, SBSS-1);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("data", 0)->sect = sect;
-	lookup("edata", 0)->sect = sect;
+	linklookup(ctxt, "data", 0)->sect = sect;
+	linklookup(ctxt, "edata", 0)->sect = sect;
 	for(; s != nil && s->type < SBSS; s = s->next) {
 		if(s->type == SINITARR) {
-			cursym = s;
+			ctxt->cursym = s;
 			diag("unexpected symbol type %d", s->type);
 		}
 		s->sect = sect;
@@ -1175,16 +894,16 @@ dodata(void)
 	}
 	sect->len = datsize - sect->vaddr;
 
-	adduintxx(gcdata1, GC_END, PtrSize);
-	setuintxx(gcdata1, 0, sect->len, PtrSize);
+	adduintxx(ctxt, gcdata1, GC_END, PtrSize);
+	setuintxx(ctxt, gcdata1, 0, sect->len, PtrSize);
 
 	/* bss */
 	sect = addsection(&segdata, ".bss", 06);
 	sect->align = maxalign(s, SNOPTRBSS-1);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("bss", 0)->sect = sect;
-	lookup("ebss", 0)->sect = sect;
+	linklookup(ctxt, "bss", 0)->sect = sect;
+	linklookup(ctxt, "ebss", 0)->sect = sect;
 	for(; s != nil && s->type < SNOPTRBSS; s = s->next) {
 		s->sect = sect;
 		datsize = aligndatsize(datsize, s);
@@ -1194,16 +913,16 @@ dodata(void)
 	}
 	sect->len = datsize - sect->vaddr;
 
-	adduintxx(gcbss1, GC_END, PtrSize);
-	setuintxx(gcbss1, 0, sect->len, PtrSize);
+	adduintxx(ctxt, gcbss1, GC_END, PtrSize);
+	setuintxx(ctxt, gcbss1, 0, sect->len, PtrSize);
 
 	/* pointer-free bss */
 	sect = addsection(&segdata, ".noptrbss", 06);
 	sect->align = maxalign(s, SNOPTRBSS);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("noptrbss", 0)->sect = sect;
-	lookup("enoptrbss", 0)->sect = sect;
+	linklookup(ctxt, "noptrbss", 0)->sect = sect;
+	linklookup(ctxt, "enoptrbss", 0)->sect = sect;
 	for(; s != nil && s->type == SNOPTRBSS; s = s->next) {
 		datsize = aligndatsize(datsize, s);
 		s->sect = sect;
@@ -1211,7 +930,7 @@ dodata(void)
 		growdatsize(&datsize, s);
 	}
 	sect->len = datsize - sect->vaddr;
-	lookup("end", 0)->sect = sect;
+	linklookup(ctxt, "end", 0)->sect = sect;
 
 	// 6g uses 4-byte relocation offsets, so the entire segment must fit in 32 bits.
 	if(datsize != (uint32)datsize) {
@@ -1230,10 +949,18 @@ dodata(void)
 			growdatsize(&datsize, s);
 		}
 		sect->len = datsize;
+	} else {
+		// Might be internal linking but still using cgo.
+		// In that case, the only possible STLSBSS symbol is tlsgm.
+		// Give it offset 0, because it's the only thing here.
+		if(s != nil && s->type == STLSBSS && strcmp(s->name, "runtime.tlsgm") == 0) {
+			s->value = 0;
+			s = s->next;
+		}
 	}
 	
 	if(s != nil) {
-		cursym = nil;
+		ctxt->cursym = nil;
 		diag("unexpected symbol type %d for %s", s->type, s->name);
 	}
 
@@ -1274,8 +1001,8 @@ dodata(void)
 	sect->align = maxalign(s, STYPELINK-1);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = 0;
-	lookup("rodata", 0)->sect = sect;
-	lookup("erodata", 0)->sect = sect;
+	linklookup(ctxt, "rodata", 0)->sect = sect;
+	linklookup(ctxt, "erodata", 0)->sect = sect;
 	for(; s != nil && s->type < STYPELINK; s = s->next) {
 		datsize = aligndatsize(datsize, s);
 		s->sect = sect;
@@ -1290,8 +1017,8 @@ dodata(void)
 	sect->align = maxalign(s, STYPELINK);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("typelink", 0)->sect = sect;
-	lookup("etypelink", 0)->sect = sect;
+	linklookup(ctxt, "typelink", 0)->sect = sect;
+	linklookup(ctxt, "etypelink", 0)->sect = sect;
 	for(; s != nil && s->type == STYPELINK; s = s->next) {
 		datsize = aligndatsize(datsize, s);
 		s->sect = sect;
@@ -1306,8 +1033,8 @@ dodata(void)
 	sect->align = maxalign(s, SPCLNTAB-1);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("symtab", 0)->sect = sect;
-	lookup("esymtab", 0)->sect = sect;
+	linklookup(ctxt, "symtab", 0)->sect = sect;
+	linklookup(ctxt, "esymtab", 0)->sect = sect;
 	for(; s != nil && s->type < SPCLNTAB; s = s->next) {
 		datsize = aligndatsize(datsize, s);
 		s->sect = sect;
@@ -1322,8 +1049,8 @@ dodata(void)
 	sect->align = maxalign(s, SELFROSECT-1);
 	datsize = rnd(datsize, sect->align);
 	sect->vaddr = datsize;
-	lookup("pclntab", 0)->sect = sect;
-	lookup("epclntab", 0)->sect = sect;
+	linklookup(ctxt, "pclntab", 0)->sect = sect;
+	linklookup(ctxt, "epclntab", 0)->sect = sect;
 	for(; s != nil && s->type < SELFROSECT; s = s->next) {
 		datsize = aligndatsize(datsize, s);
 		s->sect = sect;
@@ -1366,9 +1093,8 @@ void
 textaddress(void)
 {
 	uvlong va;
-	Prog *p;
 	Section *sect;
-	Sym *sym, *sub;
+	LSym *sym, *sub;
 
 	addsection(&segtext, ".text", 05);
 
@@ -1376,28 +1102,24 @@ textaddress(void)
 	// Could parallelize, by assigning to text
 	// and then letting threads copy down, but probably not worth it.
 	sect = segtext.sect;
-	sect->align = FuncAlign;
-	lookup("text", 0)->sect = sect;
-	lookup("etext", 0)->sect = sect;
+	sect->align = funcalign;
+	linklookup(ctxt, "text", 0)->sect = sect;
+	linklookup(ctxt, "etext", 0)->sect = sect;
 	va = INITTEXT;
 	sect->vaddr = va;
-	for(sym = textp; sym != nil; sym = sym->next) {
+	for(sym = ctxt->textp; sym != nil; sym = sym->next) {
 		sym->sect = sect;
 		if(sym->type & SSUB)
 			continue;
 		if(sym->align != 0)
 			va = rnd(va, sym->align);
-		else if(sym->text != P)
-			va = rnd(va, FuncAlign);
+		else
+			va = rnd(va, funcalign);
 		sym->value = 0;
-		for(sub = sym; sub != S; sub = sub->sub) {
+		for(sub = sym; sub != S; sub = sub->sub)
 			sub->value += va;
-			for(p = sub->text; p != P; p = p->link)
-				p->pc += sub->value;
-		}
-		if(sym->size == 0 && sym->sub != S) {
-			cursym = sym;
-		}
+		if(sym->size == 0 && sym->sub != S)
+			ctxt->cursym = sym;
 		va += sym->size;
 	}
 	sect->len = va - sect->vaddr;
@@ -1409,7 +1131,7 @@ address(void)
 {
 	Section *s, *text, *data, *rodata, *symtab, *pclntab, *noptr, *bss, *noptrbss;
 	Section *typelink;
-	Sym *sym, *sub;
+	LSym *sym, *sub;
 	uvlong va;
 	vlong vlen;
 
@@ -1418,13 +1140,14 @@ address(void)
 	segtext.vaddr = va;
 	segtext.fileoff = HEADR;
 	for(s=segtext.sect; s != nil; s=s->next) {
-//print("%s at %#llux + %#llux\n", s->name, va, (vlong)s->len);
 		va = rnd(va, s->align);
 		s->vaddr = va;
 		va += s->len;
 	}
 	segtext.len = va - INITTEXT;
 	segtext.filelen = segtext.len;
+	if(HEADTYPE == Hnacl)
+		va += 32; // room for the "halt sled"
 
 	if(segrodata.sect != nil) {
 		// align to page boundary so as not to mix
@@ -1451,7 +1174,7 @@ address(void)
 	segdata.filelen = 0;
 	if(HEADTYPE == Hwindows)
 		segdata.fileoff = segtext.fileoff + rnd(segtext.len, PEFILEALIGN);
-	if(HEADTYPE == Hplan9x64 || HEADTYPE == Hplan9x32)
+	if(HEADTYPE == Hplan9)
 		segdata.fileoff = segtext.fileoff + segtext.filelen;
 	data = nil;
 	noptr = nil;
@@ -1485,8 +1208,9 @@ address(void)
 	pclntab = symtab->next;
 
 	for(sym = datap; sym != nil; sym = sym->next) {
-		cursym = sym;
-		sym->value += sym->sect->vaddr;
+		ctxt->cursym = sym;
+		if(sym->sect != nil)
+			sym->value += sym->sect->vaddr;
 		for(sub = sym->sub; sub != nil; sub = sub->sub)
 			sub->value += sym->value;
 	}
@@ -1498,13 +1222,13 @@ address(void)
 	xdefine("typelink", SRODATA, typelink->vaddr);
 	xdefine("etypelink", SRODATA, typelink->vaddr + typelink->len);
 
-	sym = lookup("gcdata", 0);
+	sym = linklookup(ctxt, "gcdata", 0);
 	xdefine("egcdata", SRODATA, symaddr(sym) + sym->size);
-	lookup("egcdata", 0)->sect = sym->sect;
+	linklookup(ctxt, "egcdata", 0)->sect = sym->sect;
 
-	sym = lookup("gcbss", 0);
+	sym = linklookup(ctxt, "gcbss", 0);
 	xdefine("egcbss", SRODATA, symaddr(sym) + sym->size);
-	lookup("egcbss", 0)->sect = sym->sect;
+	linklookup(ctxt, "egcbss", 0)->sect = sym->sect;
 
 	xdefine("symtab", SRODATA, symtab->vaddr);
 	xdefine("esymtab", SRODATA, symtab->vaddr + symtab->len);

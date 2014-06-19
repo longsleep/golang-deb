@@ -159,3 +159,82 @@ func TestRaceMapVariable3(t *testing.T) {
 	m = make(map[int]int)
 	<-ch
 }
+
+type Big struct {
+	x [17]int32
+}
+
+func TestRaceMapLookupPartKey(t *testing.T) {
+	k := &Big{}
+	m := make(map[Big]bool)
+	ch := make(chan bool, 1)
+	go func() {
+		k.x[8] = 1
+		ch <- true
+	}()
+	_ = m[*k]
+	<-ch
+}
+
+func TestRaceMapLookupPartKey2(t *testing.T) {
+	k := &Big{}
+	m := make(map[Big]bool)
+	ch := make(chan bool, 1)
+	go func() {
+		k.x[8] = 1
+		ch <- true
+	}()
+	_, _ = m[*k]
+	<-ch
+}
+func TestRaceMapDeletePartKey(t *testing.T) {
+	k := &Big{}
+	m := make(map[Big]bool)
+	ch := make(chan bool, 1)
+	go func() {
+		k.x[8] = 1
+		ch <- true
+	}()
+	delete(m, *k)
+	<-ch
+}
+
+func TestRaceMapInsertPartKey(t *testing.T) {
+	k := &Big{}
+	m := make(map[Big]bool)
+	ch := make(chan bool, 1)
+	go func() {
+		k.x[8] = 1
+		ch <- true
+	}()
+	m[*k] = true
+	<-ch
+}
+
+func TestRaceMapInsertPartVal(t *testing.T) {
+	v := &Big{}
+	m := make(map[int]Big)
+	ch := make(chan bool, 1)
+	go func() {
+		v.x[8] = 1
+		ch <- true
+	}()
+	m[1] = *v
+	<-ch
+}
+
+// Test for issue 7561.
+func TestRaceMapAssignMultipleReturn(t *testing.T) {
+	connect := func() (int, error) { return 42, nil }
+	conns := make(map[int][]int)
+	conns[1] = []int{0}
+	ch := make(chan bool, 1)
+	var err error
+	go func() {
+		conns[1][0], err = connect()
+		ch <- true
+	}()
+	x := conns[1][0]
+	_ = x
+	<-ch
+}

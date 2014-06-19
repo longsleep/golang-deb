@@ -21,10 +21,18 @@ static Timers timers;
 static void addtimer(Timer*);
 static void dumptimers(int8*);
 
+// nacl fake time support. 
+int64 runtime·timens;
+
 // Package time APIs.
 // Godoc uses the comments in package time, not these.
 
 // time.now is implemented in assembly.
+
+// runtimeNano returns the current value of the runtime clock in nanoseconds.
+func runtimeNano() (ns int64) {
+	ns = runtime·nanotime();
+}
 
 // Sleep puts the current goroutine to sleep for at least ns nanoseconds.
 func Sleep(ns int64) {
@@ -45,6 +53,16 @@ func stopTimer(t *Timer) (stopped bool) {
 }
 
 // C runtime.
+
+void runtime·gc_unixnanotime(int64 *now);
+
+int64 runtime·unixnanotime(void)
+{
+	int64 now;
+
+	runtime·gc_unixnanotime(&now);
+	return now;
+}
 
 static void timerproc(void);
 static void siftup(int32);
@@ -76,7 +94,7 @@ runtime·tsleep(int64 ns, int8 *reason)
 	t.arg.data = g;
 	runtime·lock(&timers);
 	addtimer(&t);
-	runtime·park(runtime·unlock, &timers, reason);
+	runtime·parkunlock(&timers, reason);
 }
 
 static FuncVal timerprocv = {timerproc};
@@ -217,12 +235,22 @@ timerproc(void)
 			if(raceenabled)
 				runtime·raceacquire(t);
 			f(now, arg);
+
+			// clear f and arg to avoid leak while sleeping for next timer
+			f = nil;
+			USED(f);
+			arg.type = nil;
+			arg.data = nil;
+			USED(&arg);
+
 			runtime·lock(&timers);
 		}
 		if(delta < 0) {
 			// No timers left - put goroutine to sleep.
 			timers.rescheduling = true;
-			runtime·park(runtime·unlock, &timers, "timer goroutine (idle)");
+			g->isbackground = true;
+			runtime·parkunlock(&timers, "timer goroutine (idle)");
+			g->isbackground = false;
 			continue;
 		}
 		// At least one timer pending.  Sleep until then.

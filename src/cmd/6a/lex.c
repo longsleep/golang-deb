@@ -57,56 +57,80 @@ pathchar(void)
 	return '/';
 }
 
+int
+Lconv(Fmt *fp)
+{
+	return linklinefmt(ctxt, fp);
+}
+
+void
+dodef(char *p)
+{
+	if(nDlist%8 == 0)
+		Dlist = allocn(Dlist, nDlist*sizeof(char *),
+			8*sizeof(char *));
+	Dlist[nDlist++] = p;
+}
+
+LinkArch*       thelinkarch = &linkamd64;
+
+void
+usage(void)
+{
+	print("usage: %ca [options] file.c...\n", thechar);
+	flagprint(1);
+	errorexit();
+}
+
 void
 main(int argc, char *argv[])
 {
 	char *p;
-	int c;
 
 	thechar = '6';
 	thestring = "amd64";
+
+	// Allow GOARCH=thestring or GOARCH=thestringsuffix,
+	// but not other values.	
+	p = getgoarch();
+	if(strncmp(p, thestring, strlen(thestring)) != 0)
+		sysfatal("cannot use %cc with GOARCH=%s", thechar, p);
+	if(strcmp(p, "amd64p32") == 0)
+		thelinkarch = &linkamd64p32;
+
+	ctxt = linknew(thelinkarch);
+	ctxt->diag = yyerror;
+	ctxt->bso = &bstdout;
+	Binit(&bstdout, 1, OWRITE);
+	listinit6();
+	fmtinstall('L', Lconv);
 
 	ensuresymb(NSYMB);
 	memset(debug, 0, sizeof(debug));
 	cinit();
 	outfile = 0;
 	setinclude(".");
-	ARGBEGIN {
-	default:
-		c = ARGC();
-		if(c >= 0 && c < sizeof(debug))
-			debug[c] = 1;
-		break;
+	
+	flagfn1("D", "name[=value]: add #define", dodef);
+	flagfn1("I", "dir: add dir to include path", setinclude);
+	flagcount("S", "print assembly and machine code", &debug['S']);
+	flagcount("m", "debug preprocessor macros", &debug['m']);
+	flagstr("o", "file: set output file", &outfile);
+	flagstr("trimpath", "prefix: remove prefix from recorded source file paths", &ctxt->trimpath);
 
-	case 'o':
-		outfile = ARGF();
-		break;
+	flagparse(&argc, &argv, usage);
+	ctxt->debugasm = debug['S'];
 
-	case 'D':
-		p = ARGF();
-		if(p) {
-			if (nDlist%8 == 0)
-				Dlist = allocn(Dlist, nDlist*sizeof(char *), 
-					8*sizeof(char *));
-			Dlist[nDlist++] = p;
-		}
-		break;
-
-	case 'I':
-		p = ARGF();
-		setinclude(p);
-		break;
-	} ARGEND
-	if(*argv == 0) {
-		print("usage: %ca [-options] file.s\n", thechar);
-		errorexit();
-	}
+	if(argc < 1)
+		usage();
 	if(argc > 1){
 		print("can't assemble multiple files\n");
 		errorexit();
 	}
+
 	if(assemble(argv[0]))
 		errorexit();
+	Bflush(&bstdout);
 	exits(0);
 }
 
@@ -145,30 +169,22 @@ assemble(char *file)
 		errorexit();
 	}
 	Binit(&obuf, of, OWRITE);
+	Bprint(&obuf, "go object %s %s %s\n", getgoos(), getgoarch(), getgoversion());
+	Bprint(&obuf, "!\n");
 
-	pass = 1;
-	pinit(file);
-
-	Bprint(&obuf, "go object %s %s %s\n", getgoos(), thestring, getgoversion());
-
-	for(i=0; i<nDlist; i++)
-		dodefine(Dlist[i]);
-	yyparse();
-	if(nerrors) {
+	for(pass = 1; pass <= 2; pass++) {
+		pinit(file);
+		for(i=0; i<nDlist; i++)
+			dodefine(Dlist[i]);
+		yyparse();
 		cclean();
-		return nerrors;
+		if(nerrors)
+			return nerrors;
 	}
 
-	Bprint(&obuf, "\n!\n");
-
-	pass = 2;
-	outhist();
-	pinit(file);
-	for(i=0; i<nDlist; i++)
-		dodefine(Dlist[i]);
-	yyparse();
-	cclean();
-	return nerrors;
+	writeobj(ctxt, &obuf);
+	Bflush(&obuf);
+	return 0;
 }
 
 struct
@@ -313,6 +329,7 @@ struct
 	"TR5",		LBREG,	D_TR+5,
 	"TR6",		LBREG,	D_TR+6,
 	"TR7",		LBREG,	D_TR+7,
+	"TLS",		LSREG,	D_TLS,
 
 	"AAA",		LTYPE0,	AAAA,
 	"AAD",		LTYPE0,	AAAD,
@@ -503,6 +520,7 @@ struct
 	"MOVLQZX",	LTYPE3, AMOVLQZX,
 	"MOVNTIL",	LTYPE3,	AMOVNTIL,
 	"MOVNTIQ",	LTYPE3,	AMOVNTIQ,
+	"MOVQL",	LTYPE3, AMOVQL,
 	"MOVWLSX",	LTYPE3, AMOVWLSX,
 	"MOVWLZX",	LTYPE3, AMOVWLZX,
 	"MOVWQSX",	LTYPE3,	AMOVWQSX,
@@ -1031,15 +1049,8 @@ cinit(void)
 	Sym *s;
 	int i;
 
-	nullgen.sym = S;
-	nullgen.offset = 0;
-	if(FPCHIP)
-		nullgen.dval = 0;
-	for(i=0; i<sizeof(nullgen.sval); i++)
-		nullgen.sval[i] = 0;
 	nullgen.type = D_NONE;
 	nullgen.index = D_NONE;
-	nullgen.scale = 0;
 
 	nerrors = 0;
 	iostack = I;
@@ -1054,13 +1065,6 @@ cinit(void)
 			yyerror("double initialization %s", itab[i].name);
 		s->type = itab[i].type;
 		s->value = itab[i].value;
-	}
-
-	pathname = allocn(pathname, 0, 100);
-	if(getwd(pathname, 99) == 0) {
-		pathname = allocn(pathname, 100, 900);
-		if(getwd(pathname, 999) == 0)
-			strcpy(pathname, "/???");
 	}
 }
 
@@ -1089,254 +1093,42 @@ syminit(Sym *s)
 void
 cclean(void)
 {
-	Gen2 g2;
+	Addr2 g2;
 
 	g2.from = nullgen;
 	g2.to = nullgen;
 	outcode(AEND, &g2);
-	Bflush(&obuf);
 }
 
-void
-zname(char *n, int t, int s)
-{
-
-	BPUTLE2(&obuf, ANAME);		/* as(2) */
-	BPUTC(&obuf, t);		/* type */
-	BPUTC(&obuf, s);		/* sym */
-	while(*n) {
-		BPUTC(&obuf, *n);
-		n++;
-	}
-	BPUTC(&obuf, 0);
-}
+static Prog *lastpc;
 
 void
-zaddr(Gen *a, int s)
+outcode(int a, Addr2 *g2)
 {
-	int32 l;
-	int i, t;
-	char *n;
-	Ieee e;
-
-	t = 0;
-	if(a->index != D_NONE || a->scale != 0)
-		t |= T_INDEX;
-	if(a->offset != 0) {
-		t |= T_OFFSET;
-		l = a->offset;
-		if((vlong)l != a->offset)
-			t |= T_64;
-	}
-	if(s != 0)
-		t |= T_SYM;
-
-	switch(a->type) {
-	default:
-		t |= T_TYPE;
-		break;
-	case D_FCONST:
-		t |= T_FCONST;
-		break;
-	case D_SCONST:
-		t |= T_SCONST;
-		break;
-	case D_NONE:
-		break;
-	}
-	BPUTC(&obuf, t);
-
-	if(t & T_INDEX) {	/* implies index, scale */
-		BPUTC(&obuf, a->index);
-		BPUTC(&obuf, a->scale);
-	}
-	if(t & T_OFFSET) {	/* implies offset */
-		l = a->offset;
-		BPUTLE4(&obuf, l);
-		if(t & T_64) {
-			l = a->offset>>32;
-			BPUTLE4(&obuf, l);
-		}
-	}
-	if(t & T_SYM)		/* implies sym */
-		BPUTC(&obuf, s);
-	if(t & T_FCONST) {
-		ieeedtod(&e, a->dval);
-		l = e.l;
-		BPUTLE4(&obuf, l);
-		l = e.h;
-		BPUTLE4(&obuf, l);
-		return;
-	}
-	if(t & T_SCONST) {
-		n = a->sval;
-		for(i=0; i<NSNAME; i++) {
-			BPUTC(&obuf, *n);
-			n++;
-		}
-		return;
-	}
-	if(t & T_TYPE)
-		BPUTC(&obuf, a->type);
-}
-
-void
-outcode(int a, Gen2 *g2)
-{
-	int sf, st, t;
-	Sym *s;
-
+	Prog *p;
+	Plist *pl;
+	
 	if(pass == 1)
 		goto out;
 
-jackpot:
-	sf = 0;
-	s = g2->from.sym;
-	while(s != S) {
-		sf = s->sym;
-		if(sf < 0 || sf >= NSYM)
-			sf = 0;
-		t = g2->from.type;
-		if(t == D_ADDR)
-			t = g2->from.index;
-		if(h[sf].type == t)
-		if(h[sf].sym == s)
-			break;
-		zname(s->name, t, sym);
-		s->sym = sym;
-		h[sym].sym = s;
-		h[sym].type = t;
-		sf = sym;
-		sym++;
-		if(sym >= NSYM)
-			sym = 1;
-		break;
-	}
-	st = 0;
-	s = g2->to.sym;
-	while(s != S) {
-		st = s->sym;
-		if(st < 0 || st >= NSYM)
-			st = 0;
-		t = g2->to.type;
-		if(t == D_ADDR)
-			t = g2->to.index;
-		if(h[st].type == t)
-		if(h[st].sym == s)
-			break;
-		zname(s->name, t, sym);
-		s->sym = sym;
-		h[sym].sym = s;
-		h[sym].type = t;
-		st = sym;
-		sym++;
-		if(sym >= NSYM)
-			sym = 1;
-		if(st == sf)
-			goto jackpot;
-		break;
-	}
-	BPUTLE2(&obuf, a);
-	BPUTLE4(&obuf, stmtline);
-	zaddr(&g2->from, sf);
-	zaddr(&g2->to, st);
+	p = malloc(sizeof *p);
+	memset(p, 0, sizeof *p);
+	p->as = a;
+	p->lineno = stmtline;
+	p->from = g2->from;
+	p->to = g2->to;
+	p->pc = pc;
+
+	if(lastpc == nil) {
+		pl = linknewplist(ctxt);
+		pl->firstpc = p;
+	} else
+		lastpc->link = p;
+	lastpc = p;	
 
 out:
 	if(a != AGLOBL && a != ADATA)
 		pc++;
-}
-
-void
-outhist(void)
-{
-	Gen g;
-	Hist *h;
-	char *p, *q, *op, c;
-	int n;
-	char *tofree;
-	static int first = 1;
-	static char *goroot, *goroot_final;
-
-	if(first) {
-		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
-		first = 0;
-		goroot = getenv("GOROOT");
-		goroot_final = getenv("GOROOT_FINAL");
-		if(goroot == nil)
-			goroot = "";
-		if(goroot_final == nil)
-			goroot_final = goroot;
-		if(strcmp(goroot, goroot_final) == 0) {
-			goroot = nil;
-			goroot_final = nil;
-		}
-	}
-
-	tofree = nil;
-
-	g = nullgen;
-	c = pathchar();
-	for(h = hist; h != H; h = h->link) {
-		p = h->name;
-		if(p != nil && goroot != nil) {
-			n = strlen(goroot);
-			if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
-				tofree = smprint("%s%s", goroot_final, p+n);
-				p = tofree;
-			}
-		}
-		op = 0;
-		if(systemtype(Windows) && p && p[1] == ':'){
-			c = p[2];
-		} else if(p && p[0] != c && h->offset == 0 && pathname){
-			if(systemtype(Windows) && pathname[1] == ':') {
-				op = p;
-				p = pathname;
-				c = p[2];
-			} else if(pathname[0] == c){
-				op = p;
-				p = pathname;
-			}
-		}
-		while(p) {
-			q = strchr(p, c);
-			if(q) {
-				n = q-p;
-				if(n == 0){
-					n = 1;	/* leading "/" */
-					*p = '/';	/* don't emit "\" on windows */
-				}
-				q++;
-			} else {
-				n = strlen(p);
-				q = 0;
-			}
-			if(n) {
-				BPUTLE2(&obuf, ANAME);
-				BPUTC(&obuf, D_FILE);	/* type */
-				BPUTC(&obuf, 1);	/* sym */
-				BPUTC(&obuf, '<');
-				Bwrite(&obuf, p, n);
-				BPUTC(&obuf, 0);
-			}
-			p = q;
-			if(p == 0 && op) {
-				p = op;
-				op = 0;
-			}
-		}
-		g.offset = h->offset;
-
-		BPUTLE2(&obuf, AHISTORY);
-		BPUTLE4(&obuf, h->line);
-		zaddr(&nullgen, 0);
-		zaddr(&g, 0);
-
-		if(tofree) {
-			free(tofree);
-			tofree = nil;
-		}
-	}
 }
 
 #include "../cc/lexbody"

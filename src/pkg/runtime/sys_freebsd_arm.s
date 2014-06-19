@@ -162,7 +162,9 @@ TEXT time·now(SB), NOSPLIT, $32
 // int64 nanotime(void) so really
 // void nanotime(int64 *nsec)
 TEXT runtime·nanotime(SB), NOSPLIT, $32
-	MOVW $0, R0 // CLOCK_REALTIME
+	// We can use CLOCK_MONOTONIC_FAST here when we drop
+	// support for FreeBSD 8-STABLE.
+	MOVW $4, R0 // CLOCK_MONOTONIC
 	MOVW $8(R13), R1
 	MOVW $SYS_clock_gettime, R7
 	SWI $0
@@ -365,6 +367,7 @@ TEXT runtime·casp(SB),NOSPLIT,$0
 TEXT runtime·cas(SB),NOSPLIT,$0
 	B runtime·armcas(SB)
 
+// TODO(minux): this only supports ARMv6K+.
 TEXT runtime·read_tls_fallback(SB),NOSPLIT,$-4
-	MOVW $0xffff1000, R0
-	MOVW (R0), R0
+	WORD $0xee1d0f70 // mrc p15, 0, r0, c13, c0, 3
+	RET

@@ -547,6 +547,7 @@ enum	as
 	APSUBW,
 	APUNPCKHQDQ,
 	APUNPCKLQDQ,
+	APXOR,
 	ARCPPS,
 	ARCPSS,
 	ARSQRTPS,
@@ -578,6 +579,10 @@ enum	as
 	AFUNCDATA,
 	APCDATA,
 	ACHECKNIL,
+	AVARDEF,
+	AVARKILL,
+	ADUFFCOPY,
+	ADUFFZERO,
 	
 	ALAST
 };
@@ -631,30 +636,23 @@ enum
 	D_X5,
 	D_X6,
 	D_X7,
+	
+	D_TLS		= 67,
+	D_NONE		= 68,
 
-	D_NONE		= 67,
-
-	D_BRANCH	= 68,
-	D_EXTERN	= 69,
-	D_STATIC	= 70,
-	D_AUTO		= 71,
-	D_PARAM		= 72,
-	D_CONST		= 73,
-	D_FCONST	= 74,
-	D_SCONST	= 75,
-	D_ADDR		= 76,
-
-	D_FILE,
-	D_FILE1,
+	D_BRANCH	= 69,
+	D_EXTERN	= 70,
+	D_STATIC	= 71,
+	D_AUTO		= 72,
+	D_PARAM		= 73,
+	D_CONST		= 74,
+	D_FCONST	= 75,
+	D_SCONST	= 76,
+	D_ADDR		= 77,
 
 	D_INDIR,	/* additive */
 
 	D_CONST2 = D_INDIR+D_INDIR,
-	D_SIZE,	/* 8l internal */
-	D_PCREL,
-	D_GOTOFF,
-	D_GOTREL,
-	D_TLS,
 
 	T_TYPE		= 1<<0,
 	T_INDEX		= 1<<1,
@@ -676,15 +674,3 @@ enum
  * this is the ranlib header
  */
 #define	SYMDEF	"__.GOSYMDEF"
-
-/*
- * this is the simulated IEEE floating point
- */
-typedef	struct	ieee	Ieee;
-struct	ieee
-{
-	int32	l;	/* contains ls-man	0xffffffff */
-	int32	h;	/* contains sign	0x80000000
-				    exp		0x7ff00000
-				    ms-man	0x000fffff */
-};

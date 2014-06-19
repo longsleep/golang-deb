@@ -40,26 +40,46 @@ package syscall
 //sys	Truncate(path string, length int64) (err error)
 //sys	accept(s int, rsa *RawSockaddrAny, addrlen *_Socklen) (fd int, err error)
 //sys	accept4(s int, rsa *RawSockaddrAny, addrlen *_Socklen, flags int) (fd int, err error)
-//sys	bind(s int, addr uintptr, addrlen _Socklen) (err error)
-//sys	connect(s int, addr uintptr, addrlen _Socklen) (err error)
+//sys	bind(s int, addr unsafe.Pointer, addrlen _Socklen) (err error)
+//sys	connect(s int, addr unsafe.Pointer, addrlen _Socklen) (err error)
 //sysnb	getgroups(n int, list *_Gid_t) (nn int, err error)
 //sysnb	setgroups(n int, list *_Gid_t) (err error)
-//sys	getsockopt(s int, level int, name int, val uintptr, vallen *_Socklen) (err error)
-//sys	setsockopt(s int, level int, name int, val uintptr, vallen uintptr) (err error)
+//sys	getsockopt(s int, level int, name int, val unsafe.Pointer, vallen *_Socklen) (err error)
+//sys	setsockopt(s int, level int, name int, val unsafe.Pointer, vallen uintptr) (err error)
 //sysnb	socket(domain int, typ int, proto int) (fd int, err error)
 //sysnb	socketpair(domain int, typ int, proto int, fd *[2]int32) (err error)
 //sysnb	getpeername(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (err error)
 //sysnb	getsockname(fd int, rsa *RawSockaddrAny, addrlen *_Socklen) (err error)
 //sys	recvfrom(fd int, p []byte, flags int, from *RawSockaddrAny, fromlen *_Socklen) (n int, err error)
-//sys	sendto(s int, buf []byte, flags int, to uintptr, addrlen _Socklen) (err error)
+//sys	sendto(s int, buf []byte, flags int, to unsafe.Pointer, addrlen _Socklen) (err error)
 //sys	recvmsg(s int, msg *Msghdr, flags int) (n int, err error)
-//sys	sendmsg(s int, msg *Msghdr, flags int) (err error)
+//sys	sendmsg(s int, msg *Msghdr, flags int) (n int, err error)
 //sys	mmap(addr uintptr, length uintptr, prot int, flags int, fd int, offset int64) (xaddr uintptr, err error)
 
 func Getpagesize() int { return 4096 }
 
-func Gettimeofday(tv *Timeval) (err error)
-func Time(t *Time_t) (tt Time_t, err error)
+//go:noescape
+func gettimeofday(tv *Timeval) (err Errno)
+
+func Gettimeofday(tv *Timeval) (err error) {
+	errno := gettimeofday(tv)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func Time(t *Time_t) (tt Time_t, err error) {
+	var tv Timeval
+	errno := gettimeofday(&tv)
+	if errno != 0 {
+		return 0, errno
+	}
+	if t != nil {
+		*t = Time_t(tv.Sec)
+	}
+	return Time_t(tv.Sec), nil
+}
 
 func TimespecToNsec(ts Timespec) int64 { return int64(ts.Sec)*1e9 + int64(ts.Nsec) }
 

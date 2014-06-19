@@ -53,6 +53,9 @@ needtls:
 	// skip TLS setup on Plan 9
 	CMPL	runtime·isplan9(SB), $1
 	JEQ ok
+	// skip TLS setup on Solaris
+	CMPL	runtime·issolaris(SB), $1
+	JEQ ok
 
 	LEAQ	runtime·tls0(SB), DI
 	CALL	runtime·settls(SB)
@@ -286,7 +289,7 @@ TEXT runtime·newstackcall(SB), NOSPLIT, $0-20
 	JMP	AX
 // Note: can't just "JMP runtime·NAME(SB)" - bad inlining results.
 
-TEXT reflect·call(SB), NOSPLIT, $0-20
+TEXT reflect·call(SB), NOSPLIT, $0-24
 	MOVLQZX argsize+16(FP), CX
 	DISPATCH(call16, 16)
 	DISPATCH(call32, 32)
@@ -318,8 +321,22 @@ TEXT reflect·call(SB), NOSPLIT, $0-20
 	MOVQ	$runtime·badreflectcall(SB), AX
 	JMP	AX
 
+// Argument map for the callXX frames.  Each has one
+// stack map (for the single call) with 3 arguments.
+DATA gcargs_reflectcall<>+0x00(SB)/4, $1  // 1 stackmap
+DATA gcargs_reflectcall<>+0x04(SB)/4, $6  // 3 args
+DATA gcargs_reflectcall<>+0x08(SB)/4, $(const_BitsPointer+(const_BitsPointer<<2)+(const_BitsScalar<<4))
+GLOBL gcargs_reflectcall<>(SB),RODATA,$12
+
+// callXX frames have no locals
+DATA gclocals_reflectcall<>+0x00(SB)/4, $1  // 1 stackmap
+DATA gclocals_reflectcall<>+0x04(SB)/4, $0  // 0 locals
+GLOBL gclocals_reflectcall<>(SB),RODATA,$8
+
 #define CALLFN(NAME,MAXSIZE)			\
-TEXT runtime·NAME(SB), WRAPPER, $MAXSIZE-20;		\
+TEXT runtime·NAME(SB), WRAPPER, $MAXSIZE-24;	\
+	FUNCDATA $FUNCDATA_ArgsPointerMaps,gcargs_reflectcall<>(SB);	\
+	FUNCDATA $FUNCDATA_LocalsPointerMaps,gclocals_reflectcall<>(SB);\
 	/* copy arguments to stack */		\
 	MOVQ	argptr+8(FP), SI;		\
 	MOVLQZX argsize+16(FP), CX;		\
@@ -327,11 +344,16 @@ TEXT runtime·NAME(SB), WRAPPER, $MAXSIZE-20;		\
 	REP;MOVSB;				\
 	/* call function */			\
 	MOVQ	f+0(FP), DX;			\
+	PCDATA  $PCDATA_StackMapIndex, $0;	\
 	CALL	(DX);				\
 	/* copy return values back */		\
 	MOVQ	argptr+8(FP), DI;		\
 	MOVLQZX	argsize+16(FP), CX;		\
+	MOVLQZX retoffset+20(FP), BX;		\
 	MOVQ	SP, SI;				\
+	ADDQ	BX, DI;				\
+	ADDQ	BX, SI;				\
+	SUBQ	BX, CX;				\
 	REP;MOVSB;				\
 	RET
 
@@ -453,6 +475,46 @@ TEXT morestack<>(SB),NOSPLIT,$0
 	MOVQ	$runtime·morestack(SB), AX
 	JMP	AX
 
+TEXT runtime·morestack00_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack00(SB)
+
+TEXT runtime·morestack01_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack01(SB)
+
+TEXT runtime·morestack10_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack10(SB)
+
+TEXT runtime·morestack11_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack11(SB)
+
+TEXT runtime·morestack8_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack8(SB)
+
+TEXT runtime·morestack16_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack16(SB)
+
+TEXT runtime·morestack24_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack24(SB)
+
+TEXT runtime·morestack32_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack32(SB)
+
+TEXT runtime·morestack40_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack40(SB)
+
+TEXT runtime·morestack48_noctxt(SB),NOSPLIT,$0
+	MOVL	$0, DX
+	JMP	runtime·morestack48(SB)
+
 // bool cas(int32 *val, int32 old, int32 new)
 // Atomically:
 //	if(*val == old){
@@ -546,6 +608,12 @@ TEXT runtime·xchg64(SB), NOSPLIT, $0-16
 	XCHGQ	AX, 0(BX)
 	RET
 
+TEXT runtime·xchgp(SB), NOSPLIT, $0-16
+	MOVQ	8(SP), BX
+	MOVQ	16(SP), AX
+	XCHGQ	AX, 0(BX)
+	RET
+
 TEXT runtime·procyield(SB),NOSPLIT,$0-0
 	MOVL	8(SP), AX
 again:
@@ -614,10 +682,16 @@ TEXT runtime·asmcgocall(SB),NOSPLIT,$0-16
 	MOVQ	m_g0(BP), SI
 	MOVQ	g(CX), DI
 	CMPQ	SI, DI
-	JEQ	4(PC)
+	JEQ	nosave
+	MOVQ	m_gsignal(BP), SI
+	CMPQ	SI, DI
+	JEQ	nosave
+	
+	MOVQ	m_g0(BP), SI
 	CALL	gosave<>(SB)
 	MOVQ	SI, g(CX)
 	MOVQ	(g_sched+gobuf_sp)(SI), SP
+nosave:
 
 	// Now on a scheduling stack (a pthread-created stack).
 	// Make sure we have enough room for 4 stack-backed fast-call
@@ -777,21 +851,6 @@ TEXT runtime·stackcheck(SB), NOSPLIT, $0-0
 	CMPQ	SP, g_stackguard(AX)
 	JHI	2(PC)
 	INT	$3
-	RET
-
-TEXT runtime·memclr(SB),NOSPLIT,$0-16
-	MOVQ	8(SP), DI		// arg 1 addr
-	MOVQ	16(SP), CX		// arg 2 count
-	MOVQ	CX, BX
-	ANDQ	$7, BX
-	SHRQ	$3, CX
-	MOVQ	$0, AX
-	CLD
-	REP
-	STOSQ
-	MOVQ	BX, CX
-	REP
-	STOSB
 	RET
 
 TEXT runtime·getcallerpc(SB),NOSPLIT,$0-8
@@ -1340,3 +1399,801 @@ TEXT bytes·Equal(SB),NOSPLIT,$0-49
 eqret:
 	MOVB	AX, ret+48(FP)
 	RET
+
+// A Duff's device for zeroing memory.
+// The compiler jumps to computed addresses within
+// this routine to zero chunks of memory.  Do not
+// change this code without also changing the code
+// in ../../cmd/6g/ggen.c:clearfat.
+// AX: zero
+// DI: ptr to memory to be zeroed
+// DI is updated as a side effect.
+TEXT runtime·duffzero(SB), NOSPLIT, $0-0
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	STOSQ
+	RET
+
+// A Duff's device for copying memory.
+// The compiler jumps to computed addresses within
+// this routine to copy chunks of memory.  Source
+// and destination must not overlap.  Do not
+// change this code without also changing the code
+// in ../../cmd/6g/cgen.c:sgen.
+// SI: ptr to source memory
+// DI: ptr to destination memory
+// SI and DI are updated as a side effect.
+
+// NOTE: this is equivalent to a sequence of MOVSQ but
+// for some reason that is 3.5x slower than this code.
+// The STOSQ above seem fine, though.
+TEXT runtime·duffcopy(SB), NOSPLIT, $0-0
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	MOVQ	(SI),CX
+	ADDQ	$8,SI
+	MOVQ	CX,(DI)
+	ADDQ	$8,DI
+
+	RET
+
+TEXT runtime·timenow(SB), NOSPLIT, $0-0
+	JMP	time·now(SB)

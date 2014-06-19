@@ -35,10 +35,15 @@
 # controls the default behavior of the linker's -linkmode option.  The
 # default value depends on the system.
 #
-# CC: Command line to run to get at host C compiler.
+# CC: Command line to run to compile C code for GOHOSTARCH.
 # Default is "gcc". Also supported: "clang".
-# CXX: Command line to run to get at host C++ compiler, only recorded
-# for cgo use. Default is "g++". Also supported: "clang++".
+#
+# CC_FOR_TARGET: Command line to run to compile C code for GOARCH.
+# This is used by cgo.  Default is CC.
+#
+# CXX_FOR_TARGET: Command line to run to compile C++ code for GOARCH.
+# This is used by cgo. Default is CXX, or, if that is not set, 
+# "g++" or "clang++".
 #
 # GO_DISTFLAGS: extra flags to provide to "dist bootstrap". Use "-s"
 # to build a statically linked toolchain.
@@ -120,6 +125,10 @@ if [ "$(uname)" == "Darwin" ]; then
 	# golang.org/issue/5261
 	mflag="$mflag -mmacosx-version-min=10.6"
 fi
+# if gcc does not exist and $CC is not set, try clang if available.
+if [ -z "$CC" -a -z "$(type -t gcc)" -a -n "$(type -t clang)" ]; then
+	export CC=clang CXX=clang++
+fi
 ${CC:-gcc} $mflag -O2 -Wall -Werror -o cmd/dist/dist -Icmd/dist "$DEFGOROOT" cmd/dist/*.c
 
 # -e doesn't propagate out of eval, so check success by hand.
@@ -144,6 +153,7 @@ echo "# Building compilers and Go bootstrap tool for host, $GOHOSTOS/$GOHOSTARCH
 buildall="-a"
 if [ "$1" = "--no-clean" ]; then
 	buildall=""
+	shift
 fi
 ./cmd/dist/dist bootstrap $buildall $GO_DISTFLAGS -v # builds go_bootstrap
 # Delay move of dist tool to now, because bootstrap may clear tool directory.
@@ -153,13 +163,15 @@ echo
 
 if [ "$GOHOSTARCH" != "$GOARCH" -o "$GOHOSTOS" != "$GOOS" ]; then
 	echo "# Building packages and commands for host, $GOHOSTOS/$GOHOSTARCH."
-	GOOS=$GOHOSTOS GOARCH=$GOHOSTARCH \
+	# CC_FOR_TARGET is recorded as the default compiler for the go tool. When building for the host, however,
+	# use the host compiler, CC, from `cmd/dist/dist env` instead.
+	CC=$CC GOOS=$GOHOSTOS GOARCH=$GOHOSTARCH \
 		"$GOTOOLDIR"/go_bootstrap install -ccflags "$GO_CCFLAGS" -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
 	echo
 fi
 
 echo "# Building packages and commands for $GOOS/$GOARCH."
-"$GOTOOLDIR"/go_bootstrap install $GO_FLAGS -ccflags "$GO_CCFLAGS" -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
+CC=$CC_FOR_TARGET "$GOTOOLDIR"/go_bootstrap install $GO_FLAGS -ccflags "$GO_CCFLAGS" -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
 echo
 
 rm -f "$GOTOOLDIR"/go_bootstrap

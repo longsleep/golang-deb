@@ -34,8 +34,5 @@ enum {
 	KindUnsafePointer,
 
 	KindNoPointers = 1<<7,
-
-	// size of Type structure.
-	CommonSize = 6*PtrSize + 8,
 };
 

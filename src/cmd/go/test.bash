@@ -36,8 +36,9 @@ stop() {
 ok=true
 allok=true
 
-unset GOPATH
 unset GOBIN
+unset GOPATH
+unset GOROOT
 
 TEST 'file:line in error messages'
 # Test that error messages have file:line information at beginning of
@@ -258,6 +259,7 @@ if [ ! -x $d/gobin/godoc ]; then
 fi
 
 TEST godoc installs into GOROOT
+GOROOT=$(./testgo env GOROOT)
 rm -f $GOROOT/bin/godoc
 ./testgo install code.google.com/p/go.tools/cmd/godoc
 if [ ! -x $GOROOT/bin/godoc ]; then
@@ -425,10 +427,10 @@ d=$(TMPDIR=$tmp mktemp -d -t testgoXXX)
 mkdir -p $d/src
 (
 	ln -s $d $d/src/dir1
-	cd $d/src/dir1
-	echo package p >p.go
+	cd $d/src
+	echo package p >dir1/p.go
 	export GOPATH=$d
-	if [ "$($old/testgo list -f '{{.Root}}' .)" != "$d" ]; then
+	if [ "$($old/testgo list -f '{{.Root}}' dir1)" != "$d" ]; then
 		echo Confused by symlinks.
 		echo "Package in current directory $(pwd) should have Root $d"
 		env|grep WD
@@ -477,13 +479,19 @@ rm -rf $d
 TEST case collisions '(issue 4773)'
 d=$(TMPDIR=/var/tmp mktemp -d -t testgoXXX)
 export GOPATH=$d
-mkdir -p $d/src/example/a $d/src/example/b
+mkdir -p $d/src/example/{a/pkg,a/Pkg,b}
 cat >$d/src/example/a/a.go <<EOF
 package p
 import (
-	_ "math/rand"
-	_ "math/Rand"
+	_ "example/a/pkg"
+	_ "example/a/Pkg"
 )
+EOF
+cat >$d/src/example/a/pkg/pkg.go <<EOF
+package pkg
+EOF
+cat >$d/src/example/a/Pkg/pkg.go <<EOF
+package pkg
 EOF
 if ./testgo list example/a 2>$d/out; then
 	echo go list example/a should have failed, did not.
@@ -545,7 +553,7 @@ fi
 
 # The error for go install should mention the conflicting directory.
 err=$(! ./testgo install ./testdata/shadow/root2/src/foo 2>&1)
-if [ "$err" != "go install: no install location for directory $(pwd)/testdata/shadow/root2/src/foo hidden by $(pwd)/testdata/shadow/root1/src/foo" ]; then
+if [ "$err" != "go install: no install location for $(pwd)/testdata/shadow/root2/src/foo: hidden by $(pwd)/testdata/shadow/root1/src/foo" ]; then
 	echo wrong shadowed install error: "$err"
 	ok=false
 fi
@@ -555,10 +563,59 @@ TEST source file name order preserved
 ./testgo test testdata/example[12]_test.go || ok=false
 
 # Check that coverage analysis works at all.
-# Don't worry about the exact numbers
+# Don't worry about the exact numbers but require not 0.0%.
+checkcoverage() {
+	if grep '[^0-9]0\.0%' testdata/cover.txt >/dev/null; then
+		echo 'some coverage results are 0.0%'
+		ok=false
+	fi
+	cat testdata/cover.txt
+	rm -f testdata/cover.txt
+}
+	
 TEST coverage runs
-./testgo test -short -coverpkg=strings strings regexp || ok=false
-./testgo test -short -cover strings math regexp || ok=false
+./testgo test -short -coverpkg=strings strings regexp >testdata/cover.txt 2>&1 || ok=false
+./testgo test -short -cover strings math regexp >>testdata/cover.txt 2>&1 || ok=false
+checkcoverage
+
+# Check that coverage analysis uses set mode.
+TEST coverage uses set mode
+if ./testgo test -short -cover encoding/binary -coverprofile=testdata/cover.out >testdata/cover.txt 2>&1; then
+	if ! grep -q 'mode: set' testdata/cover.out; then
+		ok=false
+	fi
+	checkcoverage
+else
+	ok=false
+fi
+rm -f testdata/cover.out testdata/cover.txt
+
+TEST coverage uses atomic mode for -race.
+if ./testgo test -short -race -cover encoding/binary -coverprofile=testdata/cover.out >testdata/cover.txt 2>&1; then
+	if ! grep -q 'mode: atomic' testdata/cover.out; then
+		ok=false
+	fi
+	checkcoverage
+else
+	ok=false
+fi
+rm -f testdata/cover.out
+
+TEST coverage uses actual setting to override even for -race.
+if ./testgo test -short -race -cover encoding/binary -covermode=count -coverprofile=testdata/cover.out >testdata/cover.txt 2>&1; then
+	if ! grep -q 'mode: count' testdata/cover.out; then
+		ok=false
+	fi
+	checkcoverage
+else
+	ok=false
+fi
+rm -f testdata/cover.out
+
+TEST coverage with cgo
+d=$(TMPDIR=/var/tmp mktemp -d -t testgoXXX)
+./testgo test -short -cover ./testdata/cgocover >testdata/cover.txt 2>&1 || ok=false
+checkcoverage
 
 TEST cgo depends on syscall
 rm -rf $GOROOT/pkg/*_race
@@ -600,7 +657,7 @@ export GOPATH=$d
 mkdir -p $d/src/origin
 echo '
 package origin
-// #cgo LDFLAGS: -Wl,-rpath -Wl,$ORIGIN
+// #cgo !darwin LDFLAGS: -Wl,-rpath -Wl,$ORIGIN
 // void f(void) {}
 import "C"
 
@@ -619,6 +676,136 @@ if ! ./testgo test -c -test.bench=XXX fmt; then
 	ok=false
 fi
 rm -f fmt.test
+
+TEST 'Issue 7573: cmd/cgo: undefined reference when linking a C-library using gccgo'
+d=$(mktemp -d -t testgoXXX)
+export GOPATH=$d
+mkdir -p $d/src/cgoref
+ldflags="-L alibpath -lalib"
+echo "
+package main
+// #cgo LDFLAGS: $ldflags
+// void f(void) {}
+import \"C\"
+
+func main() { C.f() }
+" >$d/src/cgoref/cgoref.go
+go_cmds="$(./testgo build -n -compiler gccgo cgoref 2>&1 1>/dev/null)"
+ldflags_count="$(echo "$go_cmds" | egrep -c "^gccgo.*$(echo $ldflags | sed -e 's/-/\\-/g')" || true)"
+if [ "$ldflags_count" -lt 1 ]; then
+	echo "No Go-inline "#cgo LDFLAGS:" (\"$ldflags\") passed to gccgo linking stage."
+	ok=false
+fi
+rm -rf $d
+unset ldflags_count
+unset go_cmds
+unset ldflags
+unset GOPATH
+
+TEST list template can use context function
+if ! ./testgo list -f "GOARCH: {{context.GOARCH}}"; then 
+	echo unable to use context in list template
+	ok=false
+fi
+
+TEST 'Issue 7108: cmd/go: "go test" should fail if package does not build'
+export GOPATH=$(pwd)/testdata
+if ./testgo test notest >/dev/null 2>&1; then
+	echo 'go test notest succeeded, but should fail'
+	ok=false
+fi
+unset GOPATH
+
+TEST 'Issue 6844: cmd/go: go test -a foo does not rebuild regexp'
+if ! ./testgo test -x -a -c testdata/dep_test.go 2>deplist; then
+	echo "go test -x -a -c testdata/dep_test.go failed"
+	ok=false
+elif ! grep -q regexp deplist; then
+	echo "go test -x -a -c testdata/dep_test.go did not rebuild regexp"
+	ok=false
+fi
+rm -f deplist
+rm -f deps.test
+
+TEST list template can use context function
+if ! ./testgo list -f "GOARCH: {{context.GOARCH}}"; then 
+	echo unable to use context in list template
+	ok=false
+fi
+
+TEST build -i installs dependencies
+d=$(TMPDIR=/var/tmp mktemp -d -t testgoXXX)
+export GOPATH=$d
+mkdir -p $d/src/x/y/foo $d/src/x/y/bar
+echo '
+package foo
+func F() {}
+' >$d/src/x/y/foo/foo.go
+echo '
+package bar
+import "x/y/foo"
+func F() { foo.F() }
+' >$d/src/x/y/bar/bar.go
+if ! ./testgo build -v -i x/y/bar &> $d/err; then
+	echo build -i failed
+	cat $d/err
+	ok=false
+elif ! grep x/y/foo $d/err >/dev/null; then
+	echo first build -i did not build x/y/foo
+	cat $d/err
+	ok=false
+fi
+if ! ./testgo build -v -i x/y/bar &> $d/err; then
+	echo second build -i failed
+	cat $d/err
+	ok=false
+elif grep x/y/foo $d/err >/dev/null; then
+	echo second build -i built x/y/foo
+	cat $d/err
+	ok=false
+fi
+rm -rf $d
+unset GOPATH
+
+TEST 'go build in test-only directory fails with a good error'
+if ./testgo build ./testdata/testonly 2>testdata/err.out; then
+	echo "go build ./testdata/testonly succeeded, should have failed"
+	ok=false
+elif ! grep 'no buildable Go' testdata/err.out >/dev/null; then
+	echo "go build ./testdata/testonly produced unexpected error:"
+	cat testdata/err.out
+	ok=false
+fi
+rm -f testdata/err.out
+
+TEST 'go test detects test-only import cycles'
+export GOPATH=$(pwd)/testdata
+if ./testgo test -c testcycle/p3 2>testdata/err.out; then
+	echo "go test testcycle/p3 succeeded, should have failed"
+	ok=false
+elif ! grep 'import cycle not allowed in test' testdata/err.out >/dev/null; then
+	echo "go test testcycle/p3 produced unexpected error:"
+	cat testdata/err.out
+	ok=false
+fi
+rm -f testdata/err.out
+unset GOPATH
+
+TEST 'go test foo_test.go works'
+if ! ./testgo test testdata/standalone_test.go; then
+	echo "go test testdata/standalone_test.go failed"
+	ok=false
+fi
+
+TEST 'go test xtestonly works'
+export GOPATH=$(pwd)/testdata
+./testgo clean -i xtestonly
+if ! ./testgo test xtestonly >/dev/null; then
+	echo "go test xtestonly failed"
+	ok=false
+fi
+unset GOPATH
+
 
 # clean up
 if $started; then stop; fi

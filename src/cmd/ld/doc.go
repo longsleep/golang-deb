@@ -43,6 +43,8 @@ Options new in this version:
 		Write NetBSD ELF binaries (default when $GOOS is netbsd)
 	-H openbsd    (only in 6l/8l)
 		Write OpenBSD ELF binaries (default when $GOOS is openbsd)
+	-H solaris    (only in 6l)
+		Write Solaris ELF binaries (default when $GOOS is solaris)
 	-H windows    (only in 6l/8l)
 		Write Windows PE32+ Console binaries (default when $GOOS is windows)
 	-H windowsgui (only in 6l/8l)
@@ -58,6 +60,8 @@ Options new in this version:
 		Omit the symbol table and debug information.
 	-V
 		Print the linker version.
+	-w
+		Omit the DWARF symbol table.
 	-X symbol value
 		Set the value of an otherwise uninitialized string variable.
 		The symbol name should be of the form importpath.name,

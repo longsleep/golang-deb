@@ -21,7 +21,7 @@ static	NodeList*	reorder3(NodeList*);
 static	Node*	addstr(Node*, NodeList**);
 static	Node*	appendslice(Node*, NodeList**);
 static	Node*	append(Node*, NodeList**);
-static	Node*	copyany(Node*, NodeList**);
+static	Node*	copyany(Node*, NodeList**, int);
 static	Node*	sliceany(Node*, NodeList**);
 static	void	walkcompare(Node**, NodeList**);
 static	void	walkrotate(Node**);
@@ -163,7 +163,6 @@ walkstmt(Node **np)
 	case OCALLFUNC:
 	case ODELETE:
 	case OSEND:
-	case ORECV:
 	case OPRINT:
 	case OPRINTN:
 	case OPANIC:
@@ -179,6 +178,21 @@ walkstmt(Node **np)
 			n->op = OEMPTY; // don't leave plain values as statements.
 		break;
 
+	case ORECV:
+		// special case for a receive where we throw away
+		// the value received.
+		if(n->typecheck == 0)
+			fatal("missing typecheck: %+N", n);
+		init = n->ninit;
+		n->ninit = nil;
+
+		walkexpr(&n->left, &init);
+		n = mkcall1(chanfn("chanrecv1", 2, n->left->type), T, &init, typename(n->left->type), n->left, nodnil());
+		walkexpr(&n, &init);
+
+		addinit(&n, init);
+		break;
+
 	case OBREAK:
 	case ODCL:
 	case OCONTINUE:
@@ -188,6 +202,7 @@ walkstmt(Node **np)
 	case ODCLCONST:
 	case ODCLTYPE:
 	case OCHECKNIL:
+	case OVARKILL:
 		break;
 
 	case OBLOCK:
@@ -208,6 +223,9 @@ walkstmt(Node **np)
 		case OPRINTN:
 			walkexprlist(n->left->list, &n->ninit);
 			n->left = walkprint(n->left, &n->ninit, 1);
+			break;
+		case OCOPY:
+			n->left = copyany(n->left, &n->ninit, 1);
 			break;
 		default:
 			walkexpr(&n->left, &n->ninit);
@@ -239,6 +257,9 @@ walkstmt(Node **np)
 		case OPRINTN:
 			walkexprlist(n->left->list, &n->ninit);
 			n->left = walkprint(n->left, &n->ninit, 1);
+			break;
+		case OCOPY:
+			n->left = copyany(n->left, &n->ninit, 1);
 			break;
 		default:
 			walkexpr(&n->left, &n->ninit);
@@ -341,7 +362,8 @@ void
 walkexpr(Node **np, NodeList **init)
 {
 	Node *r, *l, *var, *a;
-	NodeList *ll, *lr, *lpost;
+	Node *map, *key;
+	NodeList *ll, *lr;
 	Type *t;
 	int et, old_safemode;
 	int64 v;
@@ -455,7 +477,6 @@ walkexpr(Node **np, NodeList **init)
 	case ORSH:
 		walkexpr(&n->left, init);
 		walkexpr(&n->right, init);
-	shiftwalked:
 		t = n->left->type;
 		n->bounded = bounded(n->right, 8*t->width);
 		if(debug['m'] && n->etype && !isconst(n->right, CTINT))
@@ -472,6 +493,11 @@ walkexpr(Node **np, NodeList **init)
 	case OADD:
 	case OCOMPLEX:
 	case OLROT:
+		// Use results from call expression as arguments for complex.
+		if(n->op == OCOMPLEX && n->left == N && n->right == N) {
+			n->left = n->list->n;
+			n->right = n->list->next->n;
+		}
 		walkexpr(&n->left, init);
 		walkexpr(&n->right, init);
 		goto ret;
@@ -576,13 +602,32 @@ walkexpr(Node **np, NodeList **init)
 	case OAS:
 		*init = concat(*init, n->ninit);
 		n->ninit = nil;
+
 		walkexpr(&n->left, init);
 		n->left = safeexpr(n->left, init);
 
 		if(oaslit(n, init))
 			goto ret;
 
-		walkexpr(&n->right, init);
+		if(n->right == N)
+			goto ret;
+
+		switch(n->right->op) {
+		default:
+			walkexpr(&n->right, init);
+			break;
+		
+		case ORECV:
+			// x = <-c; n->left is x, n->right->left is c.
+			// orderstmt made sure x is addressable.
+			walkexpr(&n->right->left, init);
+			n1 = nod(OADDR, n->left, N);
+			r = n->right->left; // the channel
+			n = mkcall1(chanfn("chanrecv1", 2, r->type), T, init, typename(r->type), r, n1);
+			walkexpr(&n, init);
+			goto ret;
+		}
+
 		if(n->left != N && n->right != N) {
 			r = convas(nod(OAS, n->left, n->right), init);
 			r->dodata = n->dodata;
@@ -602,53 +647,35 @@ walkexpr(Node **np, NodeList **init)
 		goto ret;
 
 	case OAS2FUNC:
-	as2func:
 		// a,b,... = fn()
 		*init = concat(*init, n->ninit);
 		n->ninit = nil;
 		r = n->rlist->n;
 		walkexprlistsafe(n->list, init);
 		walkexpr(&r, init);
-		l = n->list->n;
 
-		// all the really hard stuff - explicit function calls and so on -
-		// is gone, but map assignments remain.
-		// if there are map assignments here, assign via
-		// temporaries, because ascompatet assumes
-		// the targets can be addressed without function calls
-		// and map index has an implicit one.
-		lpost = nil;
-		if(l->op == OINDEXMAP) {
-			var = temp(l->type);
-			n->list->n = var;
-			a = nod(OAS, l, var);
-			typecheck(&a, Etop);
-			lpost = list(lpost, a);
-		}
-		l = n->list->next->n;
-		if(l->op == OINDEXMAP) {
-			var = temp(l->type);
-			n->list->next->n = var;
-			a = nod(OAS, l, var);
-			typecheck(&a, Etop);
-			lpost = list(lpost, a);
-		}
 		ll = ascompatet(n->op, n->list, &r->type, 0, init);
-		walkexprlist(lpost, init);
-		n = liststmt(concat(concat(list1(r), ll), lpost));
+		n = liststmt(concat(list1(r), ll));
 		goto ret;
 
 	case OAS2RECV:
+		// x, y = <-c
+		// orderstmt made sure x is addressable.
 		*init = concat(*init, n->ninit);
 		n->ninit = nil;
 		r = n->rlist->n;
 		walkexprlistsafe(n->list, init);
 		walkexpr(&r->left, init);
+		if(isblank(n->list->n))
+			n1 = nodnil();
+		else
+			n1 = nod(OADDR, n->list->n, N);
+		n1->etype = 1; // addr does not escape
 		fn = chanfn("chanrecv2", 2, r->left->type);
-		r = mkcall1(fn, getoutargx(fn->type), init, typename(r->left->type), r->left);
-		n->rlist->n = r;
-		n->op = OAS2FUNC;
-		goto as2func;
+		r = mkcall1(fn, types[TBOOL], init, typename(r->left->type), r->left, n1);
+		n = nod(OAS, n->list->next->n, r);
+		typecheck(&n, Etop);
+		goto ret;
 
 	case OAS2MAPR:
 		// a,b = m[i];
@@ -657,6 +684,7 @@ walkexpr(Node **np, NodeList **init)
 		r = n->rlist->n;
 		walkexprlistsafe(n->list, init);
 		walkexpr(&r->left, init);
+		walkexpr(&r->right, init);
 		t = r->left->type;
 		p = nil;
 		if(t->type->width <= 128) { // Check ../../pkg/runtime/hashmap.c:MAXVALUESIZE before changing.
@@ -675,41 +703,50 @@ walkexpr(Node **np, NodeList **init)
 			}
 		}
 		if(p != nil) {
-			// from:
-			//   a,b = m[i]
-			// to:
-			//   var,b = mapaccess2_fast*(t, m, i)
-			//   a = *var
-			a = n->list->n;
-			var = temp(ptrto(t->type));
-			var->typecheck = 1;
-
-			fn = mapfn(p, t);
-			r = mkcall1(fn, getoutargx(fn->type), init, typename(t), r->left, r->right);
-			n->rlist = list1(r);
-			n->op = OAS2FUNC;
-			n->list->n = var;
-			walkexpr(&n, init);
-			*init = list(*init, n);
-
-			n = nod(OAS, a, nod(OIND, var, N));
-			typecheck(&n, Etop);
-			walkexpr(&n, init);
-			goto ret;
+			// fast versions take key by value
+			key = r->right;
+		} else {
+			// standard version takes key by reference
+			// orderexpr made sure key is addressable.
+			key = nod(OADDR, r->right, N);
+			p = "mapaccess2";
 		}
-		fn = mapfn("mapaccess2", t);
-		r = mkcall1(fn, getoutargx(fn->type), init, typename(t), r->left, r->right);
+
+		// from:
+		//   a,b = m[i]
+		// to:
+		//   var,b = mapaccess2*(t, m, i)
+		//   a = *var
+		a = n->list->n;
+		var = temp(ptrto(t->type));
+		var->typecheck = 1;
+		fn = mapfn(p, t);
+		r = mkcall1(fn, getoutargx(fn->type), init, typename(t), r->left, key);
 		n->rlist = list1(r);
 		n->op = OAS2FUNC;
-		goto as2func;
+		n->list->n = var;
+		walkexpr(&n, init);
+		*init = list(*init, n);
+		n = nod(OAS, a, nod(OIND, var, N));
+		typecheck(&n, Etop);
+		walkexpr(&n, init);
+		// mapaccess needs a zero value to be at least this big.
+		if(zerosize < t->type->width)
+			zerosize = t->type->width;
+		// TODO: ptr is always non-nil, so disable nil check for this OIND op.
+		goto ret;
 
 	case ODELETE:
 		*init = concat(*init, n->ninit);
 		n->ninit = nil;
-		l = n->list->n;
-		r = n->list->next->n;
-		t = l->type;
-		n = mkcall1(mapfndel("mapdelete", t), t->down, init, typename(t), l, r);
+		map = n->list->n;
+		key = n->list->next->n;
+		walkexpr(&map, init);
+		walkexpr(&key, init);
+		// orderstmt made sure key is addressable.
+		key = nod(OADDR, key, N);
+		t = map->type;
+		n = mkcall1(mapfndel("mapdelete", t), T, init, typename(t), map, key);
 		goto ret;
 
 	case OAS2DOTTYPE:
@@ -872,7 +909,20 @@ walkexpr(Node **np, NodeList **init)
 				goto ret;
 			}
 		}
-		ll = list(ll, n->left);
+		if(isinter(n->left->type)) {
+			ll = list(ll, n->left);
+		} else {
+			// regular types are passed by reference to avoid C vararg calls
+			// orderexpr arranged for n->left to be a temporary for all
+			// the conversions it could see. comparison of an interface
+			// with a non-interface, especially in a switch on interface value
+			// with non-interface cases, is not visible to orderstmt, so we
+			// have to fall back on allocating a temp here.
+			if(islvalue(n->left))
+				ll = list(ll, nod(OADDR, n->left, N));
+			else
+				ll = list(ll, nod(OADDR, copyexpr(n->left, n->left->type, init), N));
+		}
 		argtype(fn, n->left->type);
 		argtype(fn, n->type);
 		dowidth(fn->type);
@@ -907,51 +957,6 @@ walkexpr(Node **np, NodeList **init)
 			}
 		}
 		walkexpr(&n->left, init);
-		goto ret;
-
-	case OASOP:
-		if(n->etype == OANDNOT) {
-			n->etype = OAND;
-			n->right = nod(OCOM, n->right, N);
-			typecheck(&n->right, Erv);
-		}
-		n->left = safeexpr(n->left, init);
-		walkexpr(&n->left, init);
-		l = n->left;
-		walkexpr(&n->right, init);
-
-		/*
-		 * on 32-bit arch, rewrite 64-bit ops into l = l op r.
-		 * on 386, rewrite float ops into l = l op r.
-		 * everywhere, rewrite map ops into l = l op r.
-		 * everywhere, rewrite string += into l = l op r.
-		 * everywhere, rewrite integer/complex /= into l = l op r.
-		 * TODO(rsc): Maybe this rewrite should be done always?
-		 */
-		et = n->left->type->etype;
-		if((widthptr == 4 && (et == TUINT64 || et == TINT64)) ||
-		   (thechar == '8' && isfloat[et]) ||
-		   l->op == OINDEXMAP ||
-		   et == TSTRING ||
-		   (!isfloat[et] && n->etype == ODIV) ||
-		   n->etype == OMOD) {
-			l = safeexpr(n->left, init);
-			a = l;
-			if(a->op == OINDEXMAP) {
-				// map index has "lhs" bit set in a->etype.
-				// make a copy so we can clear it on the rhs.
-				a = nod(OXXX, N, N);
-				*a = *l;
-				a->etype = 0;
-			}
-			r = nod(OAS, l, nod(n->etype, a, n->right));
-			typecheck(&r, Etop);
-			walkexpr(&r, init);
-			n = r;
-			goto ret;
-		}
-		if(n->etype == OLSH || n->etype == ORSH)
-			goto shiftwalked;
 		goto ret;
 
 	case OANDNOT:
@@ -998,7 +1003,7 @@ walkexpr(Node **np, NodeList **init)
 		switch(n->op) {
 		case OMOD:
 		case ODIV:
-			if(widthptr > 4 || (et != TUINT64 && et != TINT64))
+			if(widthreg >= 8 || (et != TUINT64 && et != TINT64))
 				goto ret;
 			if(et == TINT64)
 				strcpy(namebuf, "int64");
@@ -1063,6 +1068,8 @@ walkexpr(Node **np, NodeList **init)
 	case OINDEXMAP:
 		if(n->etype == 1)
 			goto ret;
+		walkexpr(&n->left, init);
+		walkexpr(&n->right, init);
 
 		t = n->left->type;
 		p = nil;
@@ -1082,23 +1089,25 @@ walkexpr(Node **np, NodeList **init)
 			}
 		}
 		if(p != nil) {
-			// use fast version.  The fast versions return a pointer to the value - we need
-			// to dereference it to get the result.
-			n = mkcall1(mapfn(p, t), ptrto(t->type), init, typename(t), n->left, n->right);
-			n = nod(OIND, n, N);
-			n->type = t->type;
-			n->typecheck = 1;
+			// fast versions take key by value
+			key = n->right;
 		} else {
-			// no fast version for this key
-			n = mkcall1(mapfn("mapaccess1", t), t->type, init, typename(t), n->left, n->right);
+			// standard version takes key by reference.
+			// orderexpr made sure key is addressable.
+			key = nod(OADDR, n->right, N);
+			p = "mapaccess1";
 		}
+		n = mkcall1(mapfn(p, t), ptrto(t->type), init, typename(t), n->left, key);
+		n = nod(OIND, n, N);
+		n->type = t->type;
+		n->typecheck = 1;
+		// mapaccess needs a zero value to be at least this big.
+		if(zerosize < t->type->width)
+			zerosize = t->type->width;
 		goto ret;
 
 	case ORECV:
-		walkexpr(&n->left, init);
-		walkexpr(&n->right, init);
-		n = mkcall1(chanfn("chanrecv1", 2, n->left->type), n->type, init, typename(n->left->type), n->left);
-		goto ret;
+		fatal("walkexpr ORECV"); // should see inside OAS only
 
 	case OSLICE:
 		if(n->right != N && n->right->left == N && n->right->right == N) { // noop
@@ -1182,9 +1191,10 @@ walkexpr(Node **np, NodeList **init)
 		// s + "badgerbadgerbadger" == "badgerbadgerbadger"
 		if((n->etype == OEQ || n->etype == ONE) &&
 		   isconst(n->right, CTSTR) &&
-		   n->left->op == OADDSTR && isconst(n->left->right, CTSTR) &&
-		   cmpslit(n->right, n->left->right) == 0) {
-			r = nod(n->etype, nod(OLEN, n->left->left, N), nodintconst(0));
+		   n->left->op == OADDSTR && count(n->left->list) == 2 &&
+		   isconst(n->left->list->next->n, CTSTR) &&
+		   cmpslit(n->right, n->left->list->next->n) == 0) {
+			r = nod(n->etype, nod(OLEN, n->left->list->n, N), nodintconst(0));
 			typecheck(&r, Erv);
 			walkexpr(&r, init);
 			r->type = n->type;
@@ -1238,19 +1248,7 @@ walkexpr(Node **np, NodeList **init)
 		goto ret;
 
 	case OCOPY:
-		if(flag_race) {
-			if(n->right->type->etype == TSTRING)
-				fn = syslook("slicestringcopy", 1);
-			else
-				fn = syslook("copy", 1);
-			argtype(fn, n->left->type);
-			argtype(fn, n->right->type);
-			n = mkcall1(fn, n->type, init,
-					n->left, n->right,
-					nodintconst(n->left->type->type->width));
-			goto ret;
-		}
-		n = copyany(n, init);
+		n = copyany(n, init, flag_race);
 		goto ret;
 
 	case OCLOSE:
@@ -1321,6 +1319,11 @@ walkexpr(Node **np, NodeList **init)
 		n = mkcall("slicebytetostring", n->type, init, n->left);
 		goto ret;
 
+	case OARRAYBYTESTRTMP:
+		// slicebytetostringtmp([]byte) string;
+		n = mkcall("slicebytetostringtmp", n->type, init, n->left);
+		goto ret;
+
 	case OARRAYRUNESTR:
 		// slicerunetostring([]rune) string;
 		n = mkcall("slicerunetostring", n->type, init, n->left);
@@ -1368,13 +1371,18 @@ walkexpr(Node **np, NodeList **init)
 	case OMAPLIT:
 	case OSTRUCTLIT:
 	case OPTRLIT:
+		// XXX TODO do we need to clear var?
 		var = temp(n->type);
 		anylit(0, n, var, init);
 		n = var;
 		goto ret;
 
 	case OSEND:
-		n = mkcall1(chanfn("chansend1", 2, n->left->type), T, init, typename(n->left->type), n->left, n->right);
+		n1 = n->right;
+		n1 = assignconv(n1, n->left->type->type, "chan send");
+		walkexpr(&n1, init);
+		n1 = nod(OADDR, n1, N);
+		n = mkcall1(chanfn("chansend1", 2, n->left->type), T, init, typename(n->left->type), n->left, n1);
 		goto ret;
 
 	case OCLOSURE:
@@ -1534,11 +1542,16 @@ ascompatet(int op, NodeList *nl, Type **nr, int fp, NodeList **init)
  * package all the arguments that match a ... T parameter into a []T.
  */
 static NodeList*
-mkdotargslice(NodeList *lr0, NodeList *nn, Type *l, int fp, NodeList **init, int esc)
+mkdotargslice(NodeList *lr0, NodeList *nn, Type *l, int fp, NodeList **init, Node *ddd)
 {
 	Node *a, *n;
 	Type *tslice;
-
+	int esc;
+	
+	esc = EscUnknown;
+	if(ddd != nil)
+		esc = ddd->esc;
+	
 	tslice = typ(TARRAY);
 	tslice->type = l->type->type;
 	tslice->bound = -1;
@@ -1548,6 +1561,8 @@ mkdotargslice(NodeList *lr0, NodeList *nn, Type *l, int fp, NodeList **init, int
 		n->type = tslice;
 	} else {
 		n = nod(OCOMPLIT, N, typenod(tslice));
+		if(ddd != nil)
+			n->alloc = ddd->alloc; // temporary to use
 		n->list = lr0;
 		n->esc = esc;
 		typecheck(&n, Erv);
@@ -1619,7 +1634,6 @@ dumpnodetypes(NodeList *l, char *what)
 static NodeList*
 ascompatte(int op, Node *call, int isddd, Type **nl, NodeList *lr, int fp, NodeList **init)
 {
-	int esc;
 	Type *l, *ll;
 	Node *r, *a;
 	NodeList *nn, *lr0, *alist;
@@ -1638,7 +1652,8 @@ ascompatte(int op, Node *call, int isddd, Type **nl, NodeList *lr, int fp, NodeL
 		// optimization - can do block copy
 		if(eqtypenoname(r->type, *nl)) {
 			a = nodarg(*nl, fp);
-			a->type = r->type;
+			r = nod(OCONVNOP, r, N);
+			r->type = a->type;
 			nn = list1(convas(nod(OAS, a, r), init));
 			goto ret;
 		}
@@ -1682,10 +1697,7 @@ loop:
 		// normal case -- make a slice of all
 		// remaining arguments and pass it to
 		// the ddd parameter.
-		esc = EscUnknown;
-		if(call->right)
-			esc = call->right->esc;
-		nn = mkdotargslice(lr, nn, l, fp, init, esc);
+		nn = mkdotargslice(lr, nn, l, fp, init, call->right);
 		goto ret;
 	}
 
@@ -1911,6 +1923,7 @@ static Node*
 convas(Node *n, NodeList **init)
 {
 	Type *lt, *rt;
+	Node *map, *key, *val;
 
 	if(n->op != OAS)
 		fatal("convas: not OAS %O", n->op);
@@ -1931,9 +1944,17 @@ convas(Node *n, NodeList **init)
 	}
 
 	if(n->left->op == OINDEXMAP) {
-		n = mkcall1(mapfn("mapassign1", n->left->left->type), T, init,
-			typename(n->left->left->type),
-			n->left->left, n->left->right, n->right);
+		map = n->left->left;
+		key = n->left->right;
+		val = n->right;
+		walkexpr(&map, init);
+		walkexpr(&key, init);
+		walkexpr(&val, init);
+		// orderexpr made sure key and val are addressable.
+		key = nod(OADDR, key, N);
+		val = nod(OADDR, val, N);
+		n = mkcall1(mapfn("mapassign1", map->type), T, init,
+			typename(map->type), map, key, val);
 		goto out;
 	}
 
@@ -2101,7 +2122,7 @@ reorder3save(Node **np, NodeList *all, NodeList *stop, NodeList **early)
  * what's the outer value that a write to n affects?
  * outer value means containing struct or array.
  */
-static Node*
+Node*
 outervalue(Node *n)
 {	
 	for(;;) {
@@ -2320,7 +2341,7 @@ paramstoheap(Type **argin, int out)
 	nn = nil;
 	for(t = structfirst(&savet, argin); t != T; t = structnext(&savet)) {
 		v = t->nname;
-		if(v && v->sym && v->sym->name[0] == '~')
+		if(v && v->sym && v->sym->name[0] == '~' && v->sym->name[1] == 'r') // unnamed result
 			v = N;
 		// In precisestack mode, the garbage collector assumes results
 		// are always live, so zero them always.
@@ -2493,33 +2514,38 @@ mapfndel(char *name, Type *t)
 static Node*
 addstr(Node *n, NodeList **init)
 {
-	Node *r, *cat, *typstr;
-	NodeList *in, *args;
-	int i, count;
+	Node *r, *cat, *slice;
+	NodeList *args, *l;
+	int c;
+	Type *t;
 
-	count = 0;
-	for(r=n; r->op == OADDSTR; r=r->left)
-		count++;	// r->right
-	count++;	// r
+	// orderexpr rewrote OADDSTR to have a list of strings.
+	c = count(n->list);
+	if(c < 2)
+		yyerror("addstr count %d too small", c);
 
-	// prepare call of runtime.catstring of type int, string, string, string
-	// with as many strings as we have.
-	cat = syslook("concatstring", 1);
-	cat->type = T;
-	cat->ntype = nod(OTFUNC, N, N);
-	in = list1(nod(ODCLFIELD, N, typenod(types[TINT])));	// count
-	typstr = typenod(types[TSTRING]);
-	for(i=0; i<count; i++)
-		in = list(in, nod(ODCLFIELD, N, typstr));
-	cat->ntype->list = in;
-	cat->ntype->rlist = list1(nod(ODCLFIELD, N, typstr));
-
+	// build list of string arguments
 	args = nil;
-	for(r=n; r->op == OADDSTR; r=r->left)
-		args = concat(list1(conv(r->right, types[TSTRING])), args);
-	args = concat(list1(conv(r, types[TSTRING])), args);
-	args = concat(list1(nodintconst(count)), args);
+	for(l=n->list; l != nil; l=l->next)
+		args = list(args, conv(l->n, types[TSTRING]));
 
+	if(c <= 5) {
+		// small numbers of strings use direct runtime helpers.
+		// note: orderexpr knows this cutoff too.
+		snprint(namebuf, sizeof(namebuf), "concatstring%d", c);
+	} else {
+		// large numbers of strings are passed to the runtime as a slice.
+		strcpy(namebuf, "concatstrings");
+		t = typ(TARRAY);
+		t->type = types[TSTRING];
+		t->bound = -1;
+		slice = nod(OCOMPLIT, N, typenod(t));
+		slice->alloc = n->alloc;
+		slice->list = args;
+		slice->esc = EscNone;
+		args = list1(slice);
+	}
+	cat = syslook(namebuf, 1);
 	r = nod(OCALL, cat, N);
 	r->list = args;
 	typecheck(&r, Erv);
@@ -2597,9 +2623,10 @@ appendslice(Node *n, NodeList **init)
 			fn = syslook("copy", 1);
 		argtype(fn, l1->type);
 		argtype(fn, l2->type);
-		l = list(l, mkcall1(fn, types[TINT], init,
+		nt = mkcall1(fn, types[TINT], &l,
 				nptr1, nptr2,
-				nodintconst(s->type->type->width)));
+				nodintconst(s->type->type->width));
+		l = list(l, nt);
 	} else {
 		// memmove(&s[len(l1)], &l2[0], len(l2)*sizeof(T))
 		nptr1 = nod(OINDEX, s, nod(OLEN, l1, N));
@@ -2614,7 +2641,8 @@ appendslice(Node *n, NodeList **init)
 
 		nwid = cheapexpr(conv(nod(OLEN, l2, N), types[TUINTPTR]), &l);
 		nwid = nod(OMUL, nwid, nodintconst(s->type->type->width));
-		l = list(l, mkcall1(fn, T, init, nptr1, nptr2, nwid));
+		nt = mkcall1(fn, T, &l, nptr1, nptr2, nwid);
+		l = list(l, nt);
 	}
 
 	// s = s[:len(l1)+len(l2)]
@@ -2660,6 +2688,10 @@ append(Node *n, NodeList **init)
 		l->n = cheapexpr(l->n, init);
 
 	nsrc = n->list->n;
+
+	// Resolve slice type of multi-valued return.
+	if(istype(nsrc->type, TSTRUCT))
+		nsrc->type = nsrc->type->type->type;
 	argc = count(n->list) - 1;
 	if (argc < 1) {
 		return nsrc;
@@ -2705,7 +2737,7 @@ append(Node *n, NodeList **init)
 	return ns;
 }
 
-// Lower copy(a, b) to a memmove call.
+// Lower copy(a, b) to a memmove call or a runtime call.
 //
 // init {
 //   n := len(a)
@@ -2717,11 +2749,22 @@ append(Node *n, NodeList **init)
 // Also works if b is a string.
 //
 static Node*
-copyany(Node *n, NodeList **init)
+copyany(Node *n, NodeList **init, int runtimecall)
 {
 	Node *nl, *nr, *nfrm, *nto, *nif, *nlen, *nwid, *fn;
 	NodeList *l;
 
+	if(runtimecall) {
+		if(n->right->type->etype == TSTRING)
+			fn = syslook("slicestringcopy", 1);
+		else
+			fn = syslook("copy", 1);
+		argtype(fn, n->left->type);
+		argtype(fn, n->right->type);
+		return mkcall1(fn, n->type, init,
+				n->left, n->right,
+				nodintconst(n->left->type->type->width));
+	}
 	walkexpr(&n->left, init);
 	walkexpr(&n->right, init);
 	nl = temp(n->left->type);
@@ -2802,17 +2845,13 @@ sliceany(Node* n, NodeList **init)
 
 	if(isconst(cb, CTINT)) {
 		cbv = mpgetfix(cb->val.u.xval);
-		if(cbv < 0 || cbv > bv) {
+		if(cbv < 0 || cbv > bv)
 			yyerror("slice index out of bounds");
-			cbv = -1;
-		}
 	}
 	if(isconst(hb, CTINT)) {
 		hbv = mpgetfix(hb->val.u.xval);
-		if(hbv < 0 || hbv > bv) {
+		if(hbv < 0 || hbv > bv)
 			yyerror("slice index out of bounds");
-			hbv = -1;
-		}
 	}
 	if(isconst(lb, CTINT)) {
 		lbv = mpgetfix(lb->val.u.xval);
@@ -3052,13 +3091,10 @@ walkcompare(Node **np, NodeList **init)
 		}
 		if(expr == N)
 			expr = nodbool(n->op == OEQ);
-		typecheck(&expr, Erv);
-		walkexpr(&expr, init);
-		expr->type = n->type;
-		*np = expr;
-		return;
+		r = expr;
+		goto ret;
 	}
-	
+
 	if(t->etype == TSTRUCT && countfield(t) <= 4) {
 		// Struct of four or fewer fields.
 		// Inline comparisons.
@@ -3075,13 +3111,10 @@ walkcompare(Node **np, NodeList **init)
 		}
 		if(expr == N)
 			expr = nodbool(n->op == OEQ);
-		typecheck(&expr, Erv);
-		walkexpr(&expr, init);
-		expr->type = n->type;
-		*np = expr;
-		return;
+		r = expr;
+		goto ret;
 	}
-	
+
 	// Chose not to inline, but still have addresses.
 	// Call equality function directly.
 	// The equality function requires a bool pointer for
@@ -3114,10 +3147,7 @@ walkcompare(Node **np, NodeList **init)
 
 	if(n->op != OEQ)
 		r = nod(ONOT, r, N);
-	typecheck(&r, Erv);
-	walkexpr(&r, init);
-	*np = r;
-	return;
+	goto ret;
 
 hard:
 	// Cannot take address of one or both of the operands.
@@ -3133,7 +3163,16 @@ hard:
 	r = mkcall1(fn, n->type, init, typename(n->left->type), l, r);
 	if(n->op == ONE) {
 		r = nod(ONOT, r, N);
-		typecheck(&r, Erv);
+	}
+	goto ret;
+
+ret:
+	typecheck(&r, Erv);
+	walkexpr(&r, init);
+	if(r->type != n->type) {
+		r = nod(OCONVNOP, r, N);
+		r->type = n->type;
+		r->typecheck = 1;
 	}
 	*np = r;
 	return;

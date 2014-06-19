@@ -19,8 +19,8 @@ http://swig.org/.  When running go build, any file with a .swig
 extension will be passed to SWIG.  Any file with a .swigcxx extension
 will be passed to SWIG with the -c++ option.
 
-When either cgo or SWIG is used, go build will pass any .c, .s, or .S
-files to the C compiler, and any .cc, .cpp, .cxx files to the C++
+When either cgo or SWIG is used, go build will pass any .c, .m, .s,
+or .S files to the C compiler, and any .cc, .cpp, .cxx files to the C++
 compiler.  The CC or CXX environment variables may be set to determine
 the C or C++ compiler, respectively, to use.
 	`,
@@ -182,7 +182,7 @@ example.org/user/foo or foo.hg, and
 	import "example.org/repo.git/foo/bar"
 
 denotes the foo/bar directory of the Git repository at
-example.com/repo or repo.git.
+example.org/repo or repo.git.
 
 When a version control system supports multiple protocols,
 each is tried in turn when downloading.  For example, a Git
@@ -293,5 +293,45 @@ Here's an example directory layout:
 Go searches each directory listed in GOPATH to find source code,
 but new packages are always downloaded into the first directory
 in the list.
+	`,
+}
+
+var helpFileType = &Command{
+	UsageLine: "filetype",
+	Short:     "file types",
+	Long: `
+The go command examines the contents of a restricted set of files
+in each directory. It identifies which files to examine based on
+the extension of the file name. These extensions are:
+
+	.go
+		Go source files.
+	.c, .h
+		C source files.
+		If the package uses cgo, these will be compiled with the
+		OS-native compiler (typically gcc); otherwise they will be
+		compiled with the Go-specific support compiler,
+		5c, 6c, or 8c, etc. as appropriate.
+	.cc, .cpp, .cxx, .hh, .hpp, .hxx
+		C++ source files. Only useful with cgo or SWIG, and always
+		compiled with the OS-native compiler.
+	.m
+		Objective-C source files. Only useful with cgo, and always
+		compiled with the OS-native compiler.
+	.s, .S
+		Assembler source files.
+		If the package uses cgo, these will be assembled with the
+		OS-native assembler (typically gcc (sic)); otherwise they
+		will be assembled with the Go-specific support assembler,
+		5a, 6a, or 8a, etc., as appropriate.
+	.swig, .swigcxx
+		SWIG definition files.
+	.syso
+		System object files.
+
+Files of each of these types except .syso may contain build
+constraints, but the go command stops scanning for build constraints
+at the first item in the file that is not a blank line or //-style
+line comment.
 	`,
 }

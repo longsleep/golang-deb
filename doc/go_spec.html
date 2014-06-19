@@ -1,6 +1,6 @@
 <!--{
 	"Title": "The Go Programming Language Specification",
-	"Subtitle": "Version of Nov 13, 2013",
+	"Subtitle": "Version of May 28, 2014",
 	"Path": "/ref/spec"
 }-->
 
@@ -23,7 +23,7 @@ TODO
 
 <p>
 This is a reference manual for the Go programming language. For
-more information and other documents, see <a href="http://golang.org/">http://golang.org</a>.
+more information and other documents, see <a href="/">http://golang.org</a>.
 </p>
 
 <p>
@@ -120,7 +120,7 @@ unicode_digit  = /* a Unicode code point classified as "Decimal Digit" */ .
 </pre>
 
 <p>
-In <a href="http://www.unicode.org/versions/Unicode6.2.0/">The Unicode Standard 6.2</a>,
+In <a href="http://www.unicode.org/versions/Unicode6.3.0/">The Unicode Standard 6.3</a>,
 Section 4.5 "General Category"
 defines a set of character categories.  Go treats
 those characters in category Lu, Ll, Lt, Lm, or Lo as Unicode letters,
@@ -471,7 +471,7 @@ string composed of the uninterpreted (implicitly UTF-8-encoded) characters
 between the quotes;
 in particular, backslashes have no special meaning and the string may
 contain newlines.
-Carriage returns inside raw string literals
+Carriage return characters ('\r') inside raw string literals
 are discarded from the raw string value.
 </p>
 <p>
@@ -674,7 +674,8 @@ types, the dynamic type is always the static type.
 
 <p>
 Each type <code>T</code> has an <i>underlying type</i>: If <code>T</code>
-is a predeclared type or a type literal, the corresponding underlying
+is one of the predeclared boolean, numeric, or string types, or a type literal,
+the corresponding underlying
 type is <code>T</code> itself. Otherwise, <code>T</code>'s underlying type
 is the underlying type of the type to which <code>T</code> refers in its
 <a href="#Type_declarations">type declaration</a>.
@@ -695,19 +696,19 @@ and <code>T4</code> is <code>[]T1</code>.
 
 <h3 id="Method_sets">Method sets</h3>
 <p>
-A type may have a <i>method set</i> associated with it
-(§<a href="#Interface_types">Interface types</a>, §<a href="#Method_declarations">Method declarations</a>).
+A type may have a <i>method set</i> associated with it.
 The method set of an <a href="#Interface_types">interface type</a> is its interface.
-The method set of any other type <code>T</code>
-consists of all methods with receiver type <code>T</code>.
-The method set of the corresponding pointer type <code>*T</code>
-is the set of all methods with receiver <code>*T</code> or <code>T</code>
+The method set of any other type <code>T</code> consists of all
+<a href="#Method_declarations">methods</a> declared with receiver type <code>T</code>.
+The method set of the corresponding <a href="#Pointer_types">pointer type</a> <code>*T</code>
+is the set of all methods declared with receiver <code>*T</code> or <code>T</code>
 (that is, it also contains the method set of <code>T</code>).
 Further rules apply to structs containing anonymous fields, as described
 in the section on <a href="#Struct_types">struct types</a>.
 Any other type has an empty method set.
 In a method set, each method must have a
-<a href="#Uniqueness_of_identifiers">unique</a> <a href="#MethodName">method name</a>.
+<a href="#Uniqueness_of_identifiers">unique</a>
+non-<a href="#Blank_identifier">blank</a> <a href="#MethodName">method name</a>.
 </p>
 
 <p>
@@ -817,8 +818,8 @@ ElementType = Type .
 </pre>
 
 <p>
-The length is part of the array's type; it must evaluate to a non-
-negative <a href="#Constants">constant</a> representable by a value
+The length is part of the array's type; it must evaluate to a
+non-negative <a href="#Constants">constant</a> representable by a value
 of type <code>int</code>.
 The length of array <code>a</code> can be discovered
 using the built-in function <a href="#Length_and_capacity"><code>len</code></a>.
@@ -1009,7 +1010,7 @@ A field declaration may be followed by an optional string literal <i>tag</i>,
 which becomes an attribute for all the fields in the corresponding
 field declaration. The tags are made
 visible through a <a href="/pkg/reflect/#StructTag">reflection interface</a>
-and take part in <a href="Type_identity">type identity</a> for structs
+and take part in <a href="#Type_identity">type identity</a> for structs
 but are otherwise ignored.
 </p>
 
@@ -1108,7 +1109,8 @@ InterfaceTypeName  = TypeName .
 
 <p>
 As with all method sets, in an interface type, each method must have a
-<a href="#Uniqueness_of_identifiers">unique</a> name.
+<a href="#Uniqueness_of_identifiers">unique</a>
+non-<a href="#Blank_identifier">blank</a> name.
 </p>
 
 <pre>
@@ -1277,20 +1279,23 @@ may be added.
 <h3 id="Channel_types">Channel types</h3>
 
 <p>
-A channel provides a mechanism for two concurrently executing functions
-to synchronize execution and communicate by passing a value of a
-specified element type.
+A channel provides a mechanism for
+<a href="#Go_statements">concurrently executing functions</a>
+to communicate by
+<a href="#Send_statements">sending</a> and
+<a href="#Receive_operator">receiving</a>
+values of a specified element type.
 The value of an uninitialized channel is <code>nil</code>.
 </p>
 
 <pre class="ebnf">
-ChannelType = ( "chan" [ "&lt;-" ] | "&lt;-" "chan" ) ElementType .
+ChannelType = ( "chan" | "chan" "&lt;-" | "&lt;-" "chan" ) ElementType .
 </pre>
 
 <p>
-The <code>&lt;-</code> operator specifies the channel <i>direction</i>,
+The optional <code>&lt;-</code> operator specifies the channel <i>direction</i>,
 <i>send</i> or <i>receive</i>. If no direction is given, the channel is
-<i>bi-directional</i>.
+<i>bidirectional</i>.
 A channel may be constrained only to send or only to receive by
 <a href="#Conversions">conversion</a> or <a href="#Assignments">assignment</a>.
 </p>
@@ -1317,7 +1322,7 @@ chan (&lt;-chan int)
 A new, initialized channel
 value can be made using the built-in function
 <a href="#Making_slices_maps_and_channels"><code>make</code></a>,
-which takes the channel type and an optional capacity as arguments:
+which takes the channel type and an optional <i>capacity</i> as arguments:
 </p>
 
 <pre>
@@ -1325,21 +1330,35 @@ make(chan int, 100)
 </pre>
 
 <p>
-The capacity, in number of elements, sets the size of the buffer in the channel. If the
-capacity is greater than zero, the channel is asynchronous: communication operations
-succeed without blocking if the buffer is not full (sends) or not empty (receives),
-and elements are received in the order they are sent.
-If the capacity is zero or absent, the communication succeeds only when both a sender and
-receiver are ready.
+The capacity, in number of elements, sets the size of the buffer in the channel.
+If the capacity is zero or absent, the channel is unbuffered and communication
+succeeds only when both a sender and receiver are ready. Otherwise, the channel
+is buffered and communication succeeds without blocking if the buffer
+is not full (sends) or not empty (receives).
 A <code>nil</code> channel is never ready for communication.
 </p>
 
 <p>
 A channel may be closed with the built-in function
-<a href="#Close"><code>close</code></a>; the
-multi-valued assignment form of the
+<a href="#Close"><code>close</code></a>.
+The multi-valued assignment form of the
 <a href="#Receive_operator">receive operator</a>
-tests whether a channel has been closed.
+reports whether a received value was sent before
+the channel was closed.
+</p>
+
+<p>
+A single channel may be used in
+<a href="#Send_statements">send statements</a>,
+<a href="#Receive_operator">receive operations</a>,
+and calls to the built-in functions
+<a href="#Length_and_capacity"><code>cap</code></a> and
+<a href="#Length_and_capacity"><code>len</code></a>
+by any number of goroutines without further synchronization.
+Channels act as first-in-first-out queues.
+For example, if one goroutine sends values on a channel
+and a second goroutine receives them, the values are
+received in the order sent.
 </p>
 
 <h2 id="Properties_of_types_and_values">Properties of types and values</h2>
@@ -1515,6 +1534,9 @@ no identifier may be declared in both the file and package block.
 <p>
 The <a href="#Blank_identifier">blank identifier</a> may be used like any other identifier
 in a declaration, but it does not introduce a binding and thus is not declared.
+In the package block, the identifier <code>init</code> may only be used for
+<a href="#Package_initialization"><code>init</code> function</a> declarations,
+and like the blank identifier it does not introduce a new binding.
 </p>
 
 <pre class="ebnf">
@@ -1770,9 +1792,9 @@ last non-empty expression list.
 
 <p>
 A type declaration binds an identifier, the <i>type name</i>, to a new type
-that has the same <a href="#Types">underlying type</a> as
-an existing type.  The new type is <a href="#Type_identity">different</a> from
-the existing type.
+that has the same <a href="#Types">underlying type</a> as an existing type,
+and operations defined for the existing type are also defined for the new type.
+The new type is <a href="#Type_identity">different</a> from the existing type.
 </p>
 
 <pre class="ebnf">
@@ -2267,8 +2289,6 @@ Similarly, elements that are addresses of composite literals may elide
 the <code>&amp;T</code> when the element type is <code>*T</code>.
 </p>
 
-
-
 <pre>
 [...]Point{{1.5, -3.5}, {0, 0}}   // same as [...]Point{Point{1.5, -3.5}, Point{0, 0}}
 [][]int{{1, 2, 3}, {4, 5}}        // same as [][]int{[]int{1, 2, 3}, []int{4, 5}}
@@ -2278,13 +2298,13 @@ the <code>&amp;T</code> when the element type is <code>*T</code>.
 
 <p>
 A parsing ambiguity arises when a composite literal using the
-TypeName form of the LiteralType appears between the
-<a href="#Keywords">keyword</a> and the opening brace of the block of an
-"if", "for", or "switch" statement, because the braces surrounding
-the expressions in the literal are confused with those introducing
-the block of statements. To resolve the ambiguity in this rare case,
-the composite literal must appear within
-parentheses.
+TypeName form of the LiteralType appears as an operand between the
+<a href="#Keywords">keyword</a> and the opening brace of the block
+of an "if", "for", or "switch" statement, and the composite literal
+is not enclosed in parentheses, square brackets, or curly braces.
+In this rare case, the opening brace of the literal is erroneously parsed
+as the one introducing the block of statements. To resolve the ambiguity,
+the composite literal must appear within parentheses.
 </p>
 
 <pre>
@@ -2692,7 +2712,7 @@ For arrays or strings, the indices are <i>in range</i> if
 otherwise they are <i>out of range</i>.
 For slices, the upper index bound is the slice capacity <code>cap(a)</code> rather than the length.
 A <a href="#Constants">constant</a> index must be non-negative and representable by a value of type
-<code>int</code>.
+<code>int</code>; for arrays or constant strings, constant indices must also be in range.
 If both indices are constant, they must satisfy <code>low &lt;= high</code>.
 If the indices are out of range at run time, a <a href="#Run_time_panics">run-time panic</a> occurs.
 </p>
@@ -2752,7 +2772,7 @@ If the sliced operand is an array, it must be <a href="#Address_operators">addre
 The indices are <i>in range</i> if <code>0 &lt;= low &lt;= high &lt;= max &lt;= cap(a)</code>,
 otherwise they are <i>out of range</i>.
 A <a href="#Constants">constant</a> index must be non-negative and representable by a value of type
-<code>int</code>.
+<code>int</code>; for arrays, constant indices must also be in range.
 If multiple indices are constant, the constants that are present must be in range relative to each
 other.
 If the indices are out of range at run time, a <a href="#Run_time_panics">run-time panic</a> occurs.
@@ -2916,27 +2936,32 @@ There is no distinct method type and there are no method literals.
 <h3 id="Passing_arguments_to_..._parameters">Passing arguments to <code>...</code> parameters</h3>
 
 <p>
-If <code>f</code> is variadic with final parameter type <code>...T</code>,
-then within the function the argument is equivalent to a parameter of type
-<code>[]T</code>.  At each call of <code>f</code>, the argument
-passed to the final parameter is
-a new slice of type <code>[]T</code> whose successive elements are
-the actual arguments, which all must be <a href="#Assignability">assignable</a>
-to the type <code>T</code>. The length of the slice is therefore the number of
-arguments bound to the final parameter and may differ for each call site.
+If <code>f</code> is <a href="#Function_types">variadic</a> with a final
+parameter <code>p</code> of type <code>...T</code>, then within <code>f</code>
+the type of <code>p</code> is equivalent to type <code>[]T</code>.
+If <code>f</code> is invoked with no actual arguments for <code>p</code>,
+the value passed to <code>p</code> is <code>nil</code>.
+Otherwise, the value passed is a new slice
+of type <code>[]T</code> with a new underlying array whose successive elements
+are the actual arguments, which all must be <a href="#Assignability">assignable</a>
+to <code>T</code>. The length and capacity of the slice is therefore
+the number of arguments bound to <code>p</code> and may differ for each
+call site.
 </p>
 
 <p>
-Given the function and call
+Given the function and calls
 </p>
 <pre>
 func Greeting(prefix string, who ...string)
+Greeting("nobody")
 Greeting("hello:", "Joe", "Anna", "Eileen")
 </pre>
 
 <p>
 within <code>Greeting</code>, <code>who</code> will have the value
-<code>[]string{"Joe", "Anna", "Eileen"}</code>
+<code>nil</code> in the first call, and
+<code>[]string{"Joe", "Anna", "Eileen"}</code> in the second.
 </p>
 
 <p>
@@ -3385,7 +3410,8 @@ and the type of the receive operation is the element type of the channel.
 The expression blocks until a value is available.
 Receiving from a <code>nil</code> channel blocks forever.
 A receive operation on a <a href="#Close">closed</a> channel can always proceed
-immediately, yielding the element type's <a href="#The_zero_value">zero value</a>.
+immediately, yielding the element type's <a href="#The_zero_value">zero value</a>
+after any previously sent values have been received.
 </p>
 
 <pre>
@@ -3929,7 +3955,7 @@ an untyped complex constant.
 
 <pre>
 const ic = complex(0, c)   // ic == 3.75i  (untyped complex constant)
-const iΘ = complex(0, Θ)   // iΘ == 1.5i   (type complex128)
+const iΘ = complex(0, Θ)   // iΘ == 1i     (type complex128)
 </pre>
 
 <p>
@@ -3992,8 +4018,11 @@ precision.
 <h3 id="Order_of_evaluation">Order of evaluation</h3>
 
 <p>
-When evaluating the <a href="#Operands">operands</a> of an expression,
-<a href="#Assignments">assignment</a>, or
+At package level, <a href="#Package_initialization">initialization dependencies</a>
+determine the evaluation order of individual initialization expressions in
+<a href="#Variable_declarations">variable declarations</a>.
+Otherwise, when evaluating the <a href="#Operands">operands</a> of an
+expression, assignment, or
 <a href="#Return_statements">return statement</a>,
 all function calls, method calls, and
 communication operations are evaluated in lexical left-to-right
@@ -4001,7 +4030,7 @@ order.
 </p>
 
 <p>
-For example, in the assignment
+For example, in the (function-local) assignment
 </p>
 <pre>
 y[f()], ok = g(h(), i()+x[j()], &lt;-c), k()
@@ -4018,10 +4047,32 @@ of <code>y</code> is not specified.
 <pre>
 a := 1
 f := func() int { a++; return a }
-x := []int{a, f()} // x may be [1, 2] or [2, 2]: evaluation order between a and f() is not specified
-m := map[int]int{a: 1, a: 2} // m may be {2: 1} or {2: 2}: evaluation order between the two map assignments is not specified
-m2 := map[int]int{a: f()} // m2 may be {2: 3} or {3: 3}: evaluation order between the key and the value is not specified
+x := []int{a, f()}            // x may be [1, 2] or [2, 2]: evaluation order between a and f() is not specified
+m := map[int]int{a: 1, a: 2}  // m may be {2: 1} or {2: 2}: evaluation order between the two map assignments is not specified
+n := map[int]int{a: f()}      // n may be {2: 3} or {3: 3}: evaluation order between the key and the value is not specified
 </pre>
+
+<p>
+At package level, initialization dependencies override the left-to-right rule
+for individual initialization expressions, but not for operands within each
+expression: 
+</p>
+
+<pre>
+var a, b, c = f() + v(), g(), sqr(u()) + v()
+
+func f() int        { return c }
+func g() int        { return a }
+func sqr(x int) int { return x*x }
+
+// functions u and v are independent of all other variables and functions
+</pre>
+
+<p>
+The function calls happen in the order
+<code>u()</code>, <code>sqr()</code>, <code>v()</code>,
+<code>f()</code>, <code>v()</code>, and <code>g()</code>.
+</p>
 
 <p>
 Floating-point operations within a single expression are evaluated according to
@@ -4209,22 +4260,8 @@ A send on a closed channel proceeds by causing a <a href="#Run_time_panics">run-
 A send on a <code>nil</code> channel blocks forever.
 </p>
 
-<p>
-Channels act as first-in-first-out queues.
-For example, if a single goroutine sends on a channel values
-that are received by a single goroutine, the values are received in the order sent.
-</p>
-
-<p>
-A single channel may be used for send and receive
-operations and calls to the built-in functions
-<a href="#Length_and_capacity"><code>cap</code></a> and
-<a href="#Length_and_capacity"><code>len</code></a>
-by any number of goroutines without further synchronization.
-</p>
-
 <pre>
-ch &lt;- 3
+ch &lt;- 3  // send value 3 to channel ch
 </pre>
 
 
@@ -4459,8 +4496,8 @@ If no case matches and there is a "default" case,
 its statements are executed.
 There can be at most one default case and it may appear anywhere in the
 "switch" statement.
-A missing switch expression is equivalent to
-the expression <code>true</code>.
+A missing switch expression is equivalent to the boolean value
+<code>true</code>.
 </p>
 
 <pre class="ebnf">
@@ -4625,7 +4662,8 @@ Condition = Expression .
 In its simplest form, a "for" statement specifies the repeated execution of
 a block as long as a boolean condition evaluates to true.
 The condition is evaluated before each iteration.
-If the condition is absent, it is equivalent to <code>true</code>.
+If the condition is absent, it is equivalent to the boolean value
+<code>true</code>.
 </p>
 
 <pre>
@@ -4662,7 +4700,8 @@ only if the block was executed).
 Any element of the ForClause may be empty but the
 <a href="#Semicolons">semicolons</a> are
 required unless there is only a condition.
-If the condition is absent, it is equivalent to <code>true</code>.
+If the condition is absent, it is equivalent to the boolean value
+<code>true</code>.
 </p>
 
 <pre>
@@ -4844,8 +4883,12 @@ go func(ch chan&lt;- bool) { for { sleep(10); ch &lt;- true; }} (c)
 <h3 id="Select_statements">Select statements</h3>
 
 <p>
-A "select" statement chooses which of a set of possible communications
-will proceed.  It looks similar to a "switch" statement but with the
+A "select" statement chooses which of a set of possible
+<a href="#Send_statements">send</a> or
+<a href="#Receive_operator">receive</a>
+operations will proceed.
+It looks similar to a
+<a href="#Switch_statements">"switch"</a> statement but with the
 cases all referring to communication operations.
 </p>
 
@@ -4858,41 +4901,63 @@ RecvExpr   = Expression .
 </pre>
 
 <p>
-RecvExpr must be a <a href="#Receive_operator">receive operation</a>.
-For all the cases in the "select"
-statement, the channel expressions are evaluated in top-to-bottom order, along with
-any expressions that appear on the right hand side of send statements.
-A channel may be <code>nil</code>,
-which is equivalent to that case not
-being present in the select statement
-except, if a send, its expression is still evaluated.
-If any of the resulting operations can proceed, one of those is
-chosen and the corresponding communication and statements are
-evaluated.  Otherwise, if there is a default case, that executes;
-if there is no default case, the statement blocks until one of the communications can
-complete. There can be at most one default case and it may appear anywhere in the
-"select" statement.
-If there are no cases with non-<code>nil</code> channels,
-the statement blocks forever.
-Even if the statement blocks,
-the channel and send expressions are evaluated only once,
-upon entering the select statement.
-</p>
-<p>
-Since all the channels and send expressions are evaluated, any side
-effects in that evaluation will occur for all the communications
-in the "select" statement.
-</p>
-<p>
-If multiple cases can proceed, a uniform pseudo-random choice is made to decide
-which single communication will execute.
-<p>
-The receive case may declare one or two new variables using a
+A case with a RecvStmt may assign the result of a RecvExpr to one or
+two variables, which may be declared using a
 <a href="#Short_variable_declarations">short variable declaration</a>.
+The RecvExpr must be a (possibly parenthesized) receive operation.
+There can be at most one default case and it may appear anywhere
+in the list of cases.
+</p>
+
+<p>
+Execution of a "select" statement proceeds in several steps:
+</p>
+
+<ol>
+<li>
+For all the cases in the statement, the channel operands of receive operations
+and the channel and right-hand-side expressions of send statements are
+evaluated exactly once, in source order, upon entering the "select" statement.
+The result is a set of channels to receive from or send to,
+and the corresponding values to send.
+Any side effects in that evaluation will occur irrespective of which (if any)
+communication operation is selected to proceed.
+Expressions on the left-hand side of a RecvStmt with a short variable declaration
+or assignment are not yet evaluated.
+</li>
+
+<li>
+If one or more of the communications can proceed,
+a single one that can proceed is chosen via a uniform pseudo-random selection.
+Otherwise, if there is a default case, that case is chosen.
+If there is no default case, the "select" statement blocks until
+at least one of the communications can proceed.
+</li>
+
+<li>
+Unless the selected case is the default case, the respective communication
+operation is executed.
+</li>
+
+<li>
+If the selected case is a RecvStmt with a short variable declaration or
+an assignment, the left-hand side expressions are evaluated and the
+received value (or values) are assigned.
+</li>
+
+<li>
+The statement list of the selected case is executed.
+</li>
+</ol>
+
+<p>
+Since communication on <code>nil</code> channels can never proceed,
+a select with only <code>nil</code> channels and no default case blocks forever.
 </p>
 
 <pre>
-var c, c1, c2, c3 chan int
+var a []int
+var c, c1, c2, c3, c4 chan int
 var i1, i2 int
 select {
 case i1 = &lt;-c1:
@@ -4905,6 +4970,10 @@ case i3, ok := (&lt;-c3):  // same as: i3, ok := &lt;-c3
 	} else {
 		print("c3 is closed\n")
 	}
+case a[f()] = &lt;-c4:
+	// same as:
+	// case t := &lt;-c4
+	//	a[f()] = t
 default:
 	print("no communication\n")
 }
@@ -5002,6 +5071,21 @@ function. A "return" statement that specifies results sets the result parameters
 any deferred functions are executed.
 </p>
 
+<p>
+Implementation restriction: A compiler may disallow an empty expression list
+in a "return" statement if a different entity (constant, type, or variable)
+with the same name as a result parameter is in
+<a href="#Declarations_and_scope">scope</a> at the place of the return.
+</p>
+
+<pre>
+func f(n int) (res int, err error) {
+	if _, err := f(n-1); err != nil {
+		return  // invalid return statement: err is shadowed
+	}
+	return
+}
+</pre>
 
 <h3 id="Break_statements">Break statements</h3>
 
@@ -5009,7 +5093,8 @@ any deferred functions are executed.
 A "break" statement terminates execution of the innermost
 <a href="#For_statements">"for"</a>,
 <a href="#Switch_statements">"switch"</a>, or
-<a href="#Select_statements">"select"</a> statement.
+<a href="#Select_statements">"select"</a> statement
+within the same function.
 </p>
 
 <pre class="ebnf">
@@ -5043,6 +5128,7 @@ OuterLoop:
 <p>
 A "continue" statement begins the next iteration of the
 innermost <a href="#For_statements">"for" loop</a> at its post statement.
+The "for" loop must be within the same function.
 </p>
 
 <pre class="ebnf">
@@ -5070,7 +5156,8 @@ RowLoop:
 <h3 id="Goto_statements">Goto statements</h3>
 
 <p>
-A "goto" statement transfers control to the statement with the corresponding label.
+A "goto" statement transfers control to the statement with the corresponding label
+within the same function.
 </p>
 
 <pre class="ebnf">
@@ -5263,7 +5350,7 @@ At any time the following relationship holds:
 
 <p>
 The length of a <code>nil</code> slice, map or channel is 0.
-The capacity of a <code>nil</code> slice and channel is 0.
+The capacity of a <code>nil</code> slice or channel is 0.
 </p>
 
 <p>
@@ -5271,12 +5358,22 @@ The expression <code>len(s)</code> is <a href="#Constants">constant</a> if
 <code>s</code> is a string constant. The expressions <code>len(s)</code> and
 <code>cap(s)</code> are constants if the type of <code>s</code> is an array
 or pointer to an array and the expression <code>s</code> does not contain
-<a href="#Receive_operator">channel receives</a> or
+<a href="#Receive_operator">channel receives</a> or (non-constant)
 <a href="#Calls">function calls</a>; in this case <code>s</code> is not evaluated.
 Otherwise, invocations of <code>len</code> and <code>cap</code> are not
 constant and <code>s</code> is evaluated.
 </p>
 
+<pre>
+const (
+	c1 = imag(2i)                    // imag(2i) = 2.0 is a constant
+	c2 = len([10]float64{2})         // [10]float64{2} contains no function calls
+	c3 = len([10]float64{c1})        // [10]float64{c1} contains no function calls
+	c4 = len([10]float64{imag(2i)})  // imag(2i) is a constant and no function call is issued
+	c5 = len([10]float64{imag(z)})   // invalid: imag(x) is a (non-constant) function call
+)
+var z complex128
+</pre>
 
 <h3 id="Allocation">Allocation</h3>
 
@@ -5327,8 +5424,8 @@ make(T, n, m)    slice      slice of type T with length n and capacity m
 make(T)          map        map of type T
 make(T, n)       map        map of type T with initial space for n elements
 
-make(T)          channel    synchronous channel of type T
-make(T, n)       channel    asynchronous channel of type T, buffer size n
+make(T)          channel    unbuffered channel of type T
+make(T, n)       channel    buffered channel of type T, buffer size n
 </pre>
 
 
@@ -5669,7 +5766,7 @@ If the PackageName is omitted, it defaults to the identifier specified in the
 If an explicit period (<code>.</code>) appears instead of a name, all the
 package's exported identifiers declared in that package's
 <a href="#Blocks">package block</a> will be declared in the importing source
-file's file block and can be accessed without a qualifier.
+file's file block and must be accessed without a qualifier.
 </p>
 
 <p>
@@ -5681,7 +5778,7 @@ package and may be relative to a repository of installed packages.
 <p>
 Implementation restriction: A compiler may restrict ImportPaths to
 non-empty strings using only characters belonging to
-<a href="http://www.unicode.org/versions/Unicode6.2.0/">Unicode's</a>
+<a href="http://www.unicode.org/versions/Unicode6.3.0/">Unicode's</a>
 L, M, N, P, and S general categories (the Graphic characters without
 spaces) and may also exclude the characters
 <code>!"#$%&amp;'()*,:;&lt;=&gt;?[\]^`{|}</code>
@@ -5693,7 +5790,7 @@ Assume we have compiled a package containing the package clause
 <code>package math</code>, which exports function <code>Sin</code>, and
 installed the compiled package in the file identified by
 <code>"lib/math"</code>.
-This table illustrates how <code>Sin</code> may be accessed in files
+This table illustrates how <code>Sin</code> is accessed in files
 that import the package after the
 various types of import declaration.
 </p>
@@ -5817,62 +5914,126 @@ The same would also be true after
 var t T
 </pre>
 
-<h3 id="Program_execution">Program execution</h3>
+<h3 id="Package_initialization">Package initialization</h3>
 <p>
-A package with no imports is initialized by assigning initial values to
-all its package-level variables
-and then calling any
-package-level function with the name and signature of
+Within a package, package-level variables are initialized according
+to their <i>dependencies</i>: if a variable <code>x</code> depends on
+a variable <code>y</code>, <code>x</code> will be initialized after
+<code>y</code>.
 </p>
+
+<p>
+Dependency analysis does not rely on the actual values of the
+variables, only on lexical <i>references</i> to them in the source,
+analyzed transitively. For instance, a variable <code>x</code>'s
+<a href="#Variable_declarations">initialization expression</a>
+may refer to a function whose body refers to variable <code>y</code>;
+if so, <code>x</code> depends on <code>y</code>.
+Specifically:
+</p>
+
+<ul>
+<li>
+A reference to a variable or function is an identifier denoting that
+variable or function.
+</li>
+
+<li>
+A reference to a method <code>m</code> is a
+<a href="#Method_values">method value</a> or
+<a href="#Method_expressions">method expression</a> of the form 
+<code>t.m</code>, where the (static) type of <code>t</code> is
+not an interface type, and the method <code>m</code> is in the
+<a href="#Method_sets">method set</a> of <code>t</code>.
+It is immaterial whether the resulting function value
+<code>t.m</code> is invoked.
+</li>
+
+<li>
+A variable, function, or method <code>x</code> depends on a variable 
+<code>y</code> if <code>x</code>'s initialization expression or body
+(for functions and methods) contains a reference to <code>y</code>
+or to a function or method that depends on <code>y</code>.
+</li>
+</ul>
+
+<p>
+Dependency analysis is performed per package; only references referring
+to variables, functions, and methods declared in the current package
+are considered.
+It is an error if variable dependencies form a cycle
+(but dependency cycles containing no variables are permitted).
+If two variables are independent of each other,
+they are initialized in the order they are declared
+in the source, possibly in multiple files, as presented to the compiler.
+</p>
+
+<p>
+For example, given the declarations
+</p>
+
 <pre>
-func init()
+var (
+	a = c + b
+	b = f()
+	c = f()
+	d = 3
+)
+
+func f() int {
+	d++
+	return d
+}
 </pre>
+
 <p>
-defined in its source.
-A package-scope or file-scope identifier
-with name <code>init</code> may only be
-declared to be a function with this signature.
-Multiple such functions may be defined, even
-within a single source file; they execute
-in unspecified order.
+the initialization order is <code>d</code>, <code>b</code>, <code>c</code>, <code>a</code>.
+Since <code>b</code> and <code>c</code> are independent of each other, they are
+initialized in declaration order (<code>b</code> before <code>c</code>).
 </p>
+
 <p>
-Within a package, package-level variables are initialized,
-and constant values are determined, according to
-order of reference: if the initializer of <code>A</code>
-depends on <code>B</code>, <code>A</code>
-will be set after <code>B</code>.
-Dependency analysis does not depend on the actual values
-of the items being initialized, only on their appearance
-in the source.
-<code>A</code>
-depends on <code>B</code> if the value of <code>A</code>
-contains a mention of <code>B</code>, contains a value
-whose initializer
-mentions <code>B</code>, or mentions a function that
-mentions <code>B</code>, recursively.
-It is an error if such dependencies form a cycle.
-If two items are not interdependent, they will be initialized
-in the order they appear in the source, possibly in multiple files,
+Variables may also be initialized using functions named <code>init</code>
+declared in the package block, with no arguments and no result parameters.
+</p>
+
+<pre>
+func init() { … }
+</pre>
+
+<p>
+Multiple such functions may be defined, even within a single 
+source file. The <code>init</code> identifier is not
+<a href="#Declarations_and_scope">declared</a> and thus
+<code>init</code> functions cannot be referred to from anywhere
+in a program.
+</p>
+
+<p>
+A package with no imports is initialized by assigning initial values
+to all its package-level variables followed by calling all <code>init</code>
+functions in the order they appear in the source, possibly in multiple files,
 as presented to the compiler.
-Since the dependency analysis is done per package, it can produce
-unspecified results  if <code>A</code>'s initializer calls a function defined
-in another package that refers to <code>B</code>.
-</p>
-<p>
-An <code>init</code> function cannot be referred to from anywhere
-in a program. In particular, <code>init</code> cannot be called explicitly,
-nor can a pointer to <code>init</code> be assigned to a function variable.
-</p>
-<p>
 If a package has imports, the imported packages are initialized
 before initializing the package itself. If multiple packages import
-a package <code>P</code>, <code>P</code> will be initialized only once.
+a package, the imported package will be initialized only once.
+The importing of packages, by construction, guarantees that there
+can be no cyclic initialization dependencies.
 </p>
+
 <p>
-The importing of packages, by construction, guarantees that there can
-be no cyclic dependencies in initialization.
+Package initialization&mdash;variable initialization and the invocation of
+<code>init</code> functions&mdash;happens in a single goroutine,
+sequentially, one package at a time.
+An <code>init</code> function may launch other goroutines, which can run
+concurrently with the initialization code. However, initialization
+always sequences
+the <code>init</code> functions: it will not invoke the next one
+until the previous one has returned.
 </p>
+
+
+<h3 id="Program_execution">Program execution</h3>
 <p>
 A complete program is created by linking a single, unimported package
 called the <i>main package</i> with all the packages it imports, transitively.
@@ -5889,20 +6050,8 @@ func main() { … }
 <p>
 Program execution begins by initializing the main package and then
 invoking the function <code>main</code>.
-When the function <code>main</code> returns, the program exits.
+When that function invocation returns, the program exits.
 It does not wait for other (non-<code>main</code>) goroutines to complete.
-</p>
-
-<p>
-Package initialization&mdash;variable initialization and the invocation of
-<code>init</code> functions&mdash;happens in a single goroutine,
-sequentially, one package at a time.
-An <code>init</code> function may launch other goroutines, which can run
-concurrently with the initialization code. However, initialization
-always sequences
-the <code>init</code> functions: it will not start the next
-<code>init</code> until
-the previous one has returned.
 </p>
 
 <h2 id="Errors">Errors</h2>

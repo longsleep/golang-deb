@@ -287,6 +287,8 @@ subprop(Flow *r0)
 		if(uniqs(r) == nil)
 			break;
 		p = r->prog;
+		if(p->as == AVARDEF || p->as == AVARKILL)
+			continue;
 		proginfo(&info, p);
 		if(info.flags & Call)
 			return 0;
@@ -397,7 +399,7 @@ copy1(Adr *v1, Adr *v2, Flow *r, int f)
 			if(debug['P'])
 				print("; merge; f=%d", f);
 		}
-		t = copyu(p, v2, A);
+		t = copyu(p, v2, nil);
 		switch(t) {
 		case 2:	/* rar, can't split */
 			if(debug['P'])
@@ -435,7 +437,7 @@ copy1(Adr *v1, Adr *v2, Flow *r, int f)
 			break;
 		}
 		if(!f) {
-			t = copyu(p, v1, A);
+			t = copyu(p, v1, nil);
 			if(!f && (t == 2 || t == 3 || t == 4)) {
 				f = 1;
 				if(debug['P'])
@@ -479,7 +481,7 @@ constprop(Adr *c1, Adr *v1, Flow *r)
 				if(debug['P'])
 					print("; sub%D/%D", &p->from, v1);
 				p->from = *v1;
-		} else if(copyu(p, v1, A) > 1) {
+		} else if(copyu(p, v1, nil) > 1) {
 			if(debug['P'])
 				print("; %Dset; return\n", v1);
 			return;
@@ -592,10 +594,10 @@ shiftprop(Flow *r)
 		p1 = r1->prog;
 		if(debug['P'])
 			print("\n%P", p1);
-		switch(copyu(p1, &p->to, A)) {
+		switch(copyu(p1, &p->to, nil)) {
 		case 0:	/* not used or set */
-			if((p->from.type == D_REG && copyu(p1, &p->from, A) > 1) ||
-			   (a.type == D_REG && copyu(p1, &a, A) > 1))
+			if((p->from.type == D_REG && copyu(p1, &p->from, nil) > 1) ||
+			   (a.type == D_REG && copyu(p1, &a, nil) > 1))
 				FAIL("args modified");
 			continue;
 		case 3:	/* set, not used */
@@ -663,7 +665,7 @@ shiftprop(Flow *r)
 		p1 = r1->prog;
 		if(debug['P'])
 			print("\n%P", p1);
-		switch(copyu(p1, &p->to, A)) {
+		switch(copyu(p1, &p->to, nil)) {
 		case 0:	/* not used or set */
 			continue;
 		case 3: /* set, not used */
@@ -719,7 +721,7 @@ findpre(Flow *r, Adr *v)
 	for(r1=uniqp(r); r1!=nil; r=r1,r1=uniqp(r)) {
 		if(uniqs(r1) != r)
 			return nil;
-		switch(copyu(r1->prog, v, A)) {
+		switch(copyu(r1->prog, v, nil)) {
 		case 1: /* used */
 		case 2: /* read-alter-rewrite */
 			return nil;
@@ -745,7 +747,7 @@ findinc(Flow *r, Flow *r2, Adr *v)
 	for(r1=uniqs(r); r1!=nil && r1!=r2; r=r1,r1=uniqs(r)) {
 		if(uniqp(r1) != r)
 			return nil;
-		switch(copyu(r1->prog, v, A)) {
+		switch(copyu(r1->prog, v, nil)) {
 		case 0: /* not touched */
 			continue;
 		case 4: /* set and used */
@@ -787,7 +789,7 @@ nochange(Flow *r, Flow *r2, Prog *p)
 	for(; r!=nil && r!=r2; r=uniqs(r)) {
 		p = r->prog;
 		for(i=0; i<n; i++)
-			if(copyu(p, &a[i], A) > 1)
+			if(copyu(p, &a[i], nil) > 1)
 				return 0;
 	}
 	return 1;
@@ -800,7 +802,7 @@ findu1(Flow *r, Adr *v)
 		if(r->active)
 			return 0;
 		r->active = 1;
-		switch(copyu(r->prog, v, A)) {
+		switch(copyu(r->prog, v, nil)) {
 		case 1: /* used */
 		case 2: /* read-alter-rewrite */
 		case 4: /* set and used */
@@ -943,7 +945,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		if(v->type != D_REG)
 			return 0;
 		if(p->from.type == D_CONST) {	/* read reglist, read/rar */
-			if(s != A) {
+			if(s != nil) {
 				if(p->from.offset&(1<<v->reg))
 					return 1;
 				if(copysub(&p->to, v, s, 1))
@@ -958,7 +960,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 			if(p->from.offset&(1<<v->reg))
 				return 1;
 		} else {			/* read/rar, write reglist */
-			if(s != A) {
+			if(s != nil) {
 				if(p->to.offset&(1<<v->reg))
 					return 1;
 				if(copysub(&p->from, v, s, 1))
@@ -1003,7 +1005,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 					return 2;
 			}
 		}
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->from, v, s, 1))
 				return 1;
 			if(!copyas(&p->to, v))
@@ -1063,7 +1065,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 	case ACMN:
 	case ACASE:
 	case ATST:	/* read,, */
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->from, v, s, 1))
 				return 1;
 			if(copysub1(p, v, s, 1))
@@ -1108,7 +1110,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 	case ABLT:
 	case ABGT:
 	case ABLE:
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->from, v, s, 1))
 				return 1;
 			return copysub1(p, v, s, 1);
@@ -1120,7 +1122,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		return 0;
 
 	case AB:	/* funny */
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->to, v, s, 1))
 				return 1;
 			return 0;
@@ -1130,7 +1132,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		return 0;
 
 	case ARET:	/* funny */
-		if(s != A)
+		if(s != nil)
 			return 1;
 		return 3;
 
@@ -1138,7 +1140,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		if(v->type == D_REG) {
 			if(v->reg <= REGEXT && v->reg > exregoffset)
 				return 2;
-			if(v->reg == (uchar)REGARG)
+			if(v->reg == REGARG)
 				return 2;
 		}
 		if(v->type == D_FREG)
@@ -1147,7 +1149,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		if(p->from.type == D_REG && v->type == D_REG && p->from.reg == v->reg)
 			return 2;
 
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->to, v, s, 1))
 				return 1;
 			return 0;
@@ -1155,15 +1157,37 @@ copyu(Prog *p, Adr *v, Adr *s)
 		if(copyau(&p->to, v))
 			return 4;
 		return 3;
-
+	case ADUFFZERO:
+		// R0 is zero, used by DUFFZERO, cannot be substituted.
+		// R1 is ptr to memory, used and set, cannot be substituted.
+		if(v->type == D_REG) {
+			if(v->reg == REGALLOC_R0)
+				return 1;
+			if(v->reg == REGALLOC_R0+1)
+				return 2;
+		}
+		return 0;
+	case ADUFFCOPY:
+		// R0 is scratch, set by DUFFCOPY, cannot be substituted.
+		// R1, R2 areptr to src, dst, used and set, cannot be substituted.
+		if(v->type == D_REG) {
+			if(v->reg == REGALLOC_R0)
+				return 3;
+			if(v->reg == REGALLOC_R0+1 || v->reg == REGALLOC_R0+2)
+				return 2;
+		}
+		return 0;
+			
 	case ATEXT:	/* funny */
 		if(v->type == D_REG)
-			if(v->reg == (uchar)REGARG)
+			if(v->reg == REGARG)
 				return 3;
 		return 0;
 
 	case APCDATA:
 	case AFUNCDATA:
+	case AVARDEF:
+	case AVARKILL:
 		return 0;
 	}
 }
@@ -1241,35 +1265,79 @@ copyau(Adr *a, Adr *v)
 	return 0;
 }
 
+static int
+a2type(Prog *p)
+{
+	if(p->reg == NREG)
+		return D_NONE;
+
+	switch(p->as) {
+	default:
+		fatal("a2type: unhandled %P", p);
+
+	case AAND:
+	case AEOR:
+	case ASUB:
+	case ARSB:
+	case AADD:
+	case AADC:
+	case ASBC:
+	case ARSC:
+	case ATST:
+	case ATEQ:
+	case ACMP:
+	case ACMN:
+	case AORR:
+	case ABIC:
+	case AMVN:
+	case ASRL:
+	case ASRA:
+	case ASLL:
+	case AMULU:
+	case ADIVU:
+	case AMUL:
+	case ADIV:
+	case AMOD:
+	case AMODU:
+	case AMULA:
+	case AMULL:
+	case AMULAL:
+	case AMULLU:
+	case AMULALU:
+	case AMULWT:
+	case AMULWB:
+	case AMULAWT:
+	case AMULAWB:
+		return D_REG;
+
+	case ACMPF:
+	case ACMPD:
+	case AADDF:
+	case AADDD:
+	case ASUBF:
+	case ASUBD:
+	case AMULF:
+	case AMULD:
+	case ADIVF:
+	case ADIVD:
+	case ASQRTF:
+	case ASQRTD:
+	case AABSF:
+	case AABSD:
+		return D_FREG;
+	}
+}
+
 /*
  * compare v to the center
  * register in p (p->reg)
- * the trick is that this
- * register might be D_REG
- * D_FREG. there are basically
- * two cases,
- *	ADD r,r,r
- *	CMP r,r,
  */
 static int
 copyau1(Prog *p, Adr *v)
 {
-
-	if(regtyp(v))
-	if(p->reg == v->reg) {
-		if(p->to.type != D_NONE) {
-			if(v->type == p->to.type)
-				return 1;
-			return 0;
-		}
-		if(p->from.type != D_NONE) {
-			if(v->type == p->from.type)
-				return 1;
-			return 0;
-		}
-		print("copyau1: can't tell %P\n", p);
-	}
-	return 0;
+	if(v->type == D_REG && v->reg == NREG)
+		return 0;
+	return p->reg == v->reg && a2type(p) == v->type;
 }
 
 /*

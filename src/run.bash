@@ -6,6 +6,7 @@
 set -e
 
 eval $(go env)
+export GOROOT   # the api test requires GOROOT to be set.
 
 unset CDPATH	# in case user has it set
 unset GOPATH    # we disallow local import for non-local packages, if $GOROOT happens
@@ -17,6 +18,12 @@ ulimit -c 0
 # Raise soft limits to hard limits for NetBSD/OpenBSD.
 # We need at least 256 files and ~300 MB of bss.
 # On OS X ulimit -S -n rejects 'unlimited'.
+#
+# Note that ulimit -S -n may fail if ulimit -H -n is set higher than a
+# non-root process is allowed to set the high limit.
+# This is a system misconfiguration and should be fixed on the
+# broken system, not "fixed" by ignoring the failure here.
+# See longer discussion on golang.org/issue/7381. 
 [ "$(ulimit -H -n)" == "unlimited" ] || ulimit -S -n $(ulimit -H -n)
 [ "$(ulimit -H -d)" == "unlimited" ] || ulimit -S -d $(ulimit -H -d)
 
@@ -27,7 +34,7 @@ fi
 
 # allow all.bash to avoid double-build of everything
 rebuild=true
-if [ "$1" = "--no-rebuild" ]; then
+if [ "$1" == "--no-rebuild" ]; then
 	shift
 else
 	echo '# Building packages and commands.'
@@ -48,6 +55,8 @@ echo '# Testing packages.'
 time go test std -short -timeout=$(expr 120 \* $timeout_scale)s
 echo
 
+# We set GOMAXPROCS=2 in addition to -cpu=1,2,4 in order to test runtime bootstrap code,
+# creation of first goroutines and first garbage collections in the parallel setting.
 echo '# GOMAXPROCS=2 runtime -cpu=1,2,4'
 GOMAXPROCS=2 go test runtime -short -timeout=$(expr 300 \* $timeout_scale)s -cpu=1,2,4
 echo
@@ -119,10 +128,30 @@ darwin-386 | darwin-amd64)
 	*) go test -ldflags '-linkmode=external'  || exit 1;;
 	esac
 	;;
-dragonfly-386 | dragonfly-amd64 | freebsd-386 | freebsd-amd64 | linux-386 | linux-amd64 | linux-arm | netbsd-386 | netbsd-amd64)
+dragonfly-386 | dragonfly-amd64 | freebsd-386 | freebsd-amd64 | freebsd-arm | linux-386 | linux-amd64 | linux-arm | netbsd-386 | netbsd-amd64)
 	go test -ldflags '-linkmode=external' || exit 1
 	go test -ldflags '-linkmode=auto' ../testtls || exit 1
 	go test -ldflags '-linkmode=external' ../testtls || exit 1
+	
+	case "$GOHOSTOS-$GOARCH" in
+	netbsd-386 | netbsd-amd64) ;; # no static linking
+	freebsd-arm) ;; # -fPIC compiled tls code will use __tls_get_addr instead
+	                # of __aeabi_read_tp, however, on FreeBSD/ARM, __tls_get_addr
+	                # is implemented in rtld-elf, so -fPIC isn't compatible with
+	                # static linking on FreeBSD/ARM with clang. (cgo depends on
+			# -fPIC fundamentally.)
+	*)
+		if ! $CC -xc -o /dev/null -static - 2>/dev/null <<<'int main() {}' ; then
+			echo "No support for static linking found (lacks libc.a?), skip cgo static linking test."
+		else
+			go test -ldflags '-linkmode=external -extldflags "-static -pthread"' ../testtls || exit 1
+			go test ../nocgo || exit 1
+			go test -ldflags '-linkmode=external' ../nocgo || exit 1
+			go test -ldflags '-linkmode=external -extldflags "-static -pthread"' ../nocgo || exit 1
+		fi
+		;;
+	esac
+	;;
 esac
 ) || exit $?
 
@@ -152,28 +181,26 @@ go run main.go || exit 1
 ./test.bash || exit 1
 ) || exit $?
 
+[ "$GOOS" == nacl ] ||
 (xcd ../doc/progs
 time ./run || exit 1
 ) || exit $?
 
+[ "$GOOS" == nacl ] ||
 [ "$GOARCH" == arm ] ||  # uses network, fails under QEMU
 (xcd ../doc/articles/wiki
-make clean || exit 1
 ./test.bash || exit 1
 ) || exit $?
 
+[ "$GOOS" == nacl ] ||
 (xcd ../doc/codewalk
 time ./run || exit 1
 ) || exit $?
 
-echo
-echo '#' ../misc/goplay
-go build ../misc/goplay
-rm -f goplay
-
+[ "$GOOS" == nacl ] ||
 [ "$GOARCH" == arm ] ||
 (xcd ../test/bench/shootout
-./timing.sh -test || exit 1
+time ./timing.sh -test || exit 1
 ) || exit $?
 
 [ "$GOOS" == openbsd ] || # golang.org/issue/5057
@@ -185,12 +212,17 @@ go test ../test/bench/go1 || exit 1
 
 (xcd ../test
 unset GOMAXPROCS
-time go run run.go || exit 1
+GOOS=$GOHOSTOS GOARCH=$GOHOSTARCH go build -o runtest run.go || exit 1
+time ./runtest || exit 1
+rm -f runtest
 ) || exit $?
 
+[ "$GOOS" == nacl ] ||
+(
 echo
 echo '# Checking API compatibility.'
-time go run $GOROOT/src/cmd/api/run.go
+time go run $GOROOT/src/cmd/api/run.go || exit 1
+) || exit $?
 
 echo
 echo ALL TESTS PASSED

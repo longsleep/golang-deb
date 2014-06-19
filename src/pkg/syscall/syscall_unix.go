@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin dragonfly freebsd linux netbsd openbsd
+// +build darwin dragonfly freebsd linux netbsd openbsd solaris
 
 package syscall
 
@@ -19,8 +19,9 @@ var (
 )
 
 const (
-	darwin64Bit = runtime.GOOS == "darwin" && sizeofPtr == 8
-	netbsd32Bit = runtime.GOOS == "netbsd" && sizeofPtr == 4
+	darwin64Bit    = runtime.GOOS == "darwin" && sizeofPtr == 8
+	dragonfly64Bit = runtime.GOOS == "dragonfly" && sizeofPtr == 8
+	netbsd32Bit    = runtime.GOOS == "netbsd" && sizeofPtr == 4
 )
 
 func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
@@ -55,7 +56,7 @@ func (m *mmapper) Mmap(fd int, offset int64, length int, prot int, flags int) (d
 		cap  int
 	}{addr, length, length}
 
-	// Use unsafe to turn sl into a []byte.
+	// Use unsafeto turn sl into a []byte.
 	b := *(*[]byte)(unsafe.Pointer(&sl))
 
 	// Register mapping in m and return it.
@@ -160,7 +161,7 @@ func Write(fd int, p []byte) (n int, err error) {
 var SocketDisableIPv6 bool
 
 type Sockaddr interface {
-	sockaddr() (ptr uintptr, len _Socklen, err error) // lowercase; only we can define Sockaddrs
+	sockaddr() (ptr unsafe.Pointer, len _Socklen, err error) // lowercase; only we can define Sockaddrs
 }
 
 type SockaddrInet4 struct {
@@ -209,7 +210,7 @@ func Getpeername(fd int) (sa Sockaddr, err error) {
 func GetsockoptInt(fd, level, opt int) (value int, err error) {
 	var n int32
 	vallen := _Socklen(4)
-	err = getsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), &vallen)
+	err = getsockopt(fd, level, opt, unsafe.Pointer(&n), &vallen)
 	return int(n), err
 }
 
@@ -234,40 +235,40 @@ func Sendto(fd int, p []byte, flags int, to Sockaddr) (err error) {
 }
 
 func SetsockoptByte(fd, level, opt int, value byte) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&value)), 1)
+	return setsockopt(fd, level, opt, unsafe.Pointer(&value), 1)
 }
 
 func SetsockoptInt(fd, level, opt int, value int) (err error) {
 	var n = int32(value)
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&n)), 4)
+	return setsockopt(fd, level, opt, unsafe.Pointer(&n), 4)
 }
 
 func SetsockoptInet4Addr(fd, level, opt int, value [4]byte) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&value[0])), 4)
+	return setsockopt(fd, level, opt, unsafe.Pointer(&value[0]), 4)
 }
 
 func SetsockoptIPMreq(fd, level, opt int, mreq *IPMreq) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(mreq)), SizeofIPMreq)
+	return setsockopt(fd, level, opt, unsafe.Pointer(mreq), SizeofIPMreq)
 }
 
 func SetsockoptIPv6Mreq(fd, level, opt int, mreq *IPv6Mreq) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(mreq)), SizeofIPv6Mreq)
+	return setsockopt(fd, level, opt, unsafe.Pointer(mreq), SizeofIPv6Mreq)
 }
 
 func SetsockoptICMPv6Filter(fd, level, opt int, filter *ICMPv6Filter) error {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(filter)), SizeofICMPv6Filter)
+	return setsockopt(fd, level, opt, unsafe.Pointer(filter), SizeofICMPv6Filter)
 }
 
 func SetsockoptLinger(fd, level, opt int, l *Linger) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(l)), SizeofLinger)
+	return setsockopt(fd, level, opt, unsafe.Pointer(l), SizeofLinger)
 }
 
 func SetsockoptString(fd, level, opt int, s string) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(&[]byte(s)[0])), uintptr(len(s)))
+	return setsockopt(fd, level, opt, unsafe.Pointer(&[]byte(s)[0]), uintptr(len(s)))
 }
 
 func SetsockoptTimeval(fd, level, opt int, tv *Timeval) (err error) {
-	return setsockopt(fd, level, opt, uintptr(unsafe.Pointer(tv)), unsafe.Sizeof(*tv))
+	return setsockopt(fd, level, opt, unsafe.Pointer(tv), unsafe.Sizeof(*tv))
 }
 
 func Socket(domain, typ, proto int) (fd int, err error) {

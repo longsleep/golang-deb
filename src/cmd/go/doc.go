@@ -33,6 +33,7 @@ Use "go help [command]" for more information about a command.
 Additional help topics:
 
     c           calling between Go and C
+    filetype    file types
     gopath      GOPATH environment variable
     importpath  import path syntax
     packages    description of package lists
@@ -46,7 +47,7 @@ Compile packages and dependencies
 
 Usage:
 
-	go build [-o output] [build flags] [packages]
+	go build [-o output] [-i] [build flags] [packages]
 
 Build compiles the packages named by the import paths,
 along with their dependencies, but it does not install the results.
@@ -67,7 +68,10 @@ derives from the first file name mentioned, such as f1 for 'go build
 f1.go f2.go'; with no files provided ('go build'), the output file
 name is the base name of the containing directory.
 
-The build flags are shared by the build, install, run, and test commands:
+The -i flag installs the packages that are dependencies of the target.
+
+The build flags are shared by the build, clean, get, install, list, run,
+and test commands:
 
 	-a
 		force rebuilding of packages that are already up-to-date.
@@ -104,8 +108,8 @@ The build flags are shared by the build, install, run, and test commands:
 		arguments to pass on each 5l, 6l, or 8l linker invocation.
 	-tags 'tag list'
 		a list of build tags to consider satisfied during the build.
-		See the documentation for the go/build package for
-		more information about build tags.
+		For more information about build tags, see the description of
+		build constraints in the documentation for the go/build package.
 
 The list flags accept a space-separated list of strings. To embed spaces
 in an element in the list, surround it with either single or double quotes.
@@ -122,7 +126,7 @@ Remove object files
 
 Usage:
 
-	go clean [-i] [-r] [-n] [-x] [packages]
+	go clean [-i] [-r] [-n] [-x] [build flags] [packages]
 
 Clean removes object files from package source directories.
 The go command builds most objects in a temporary directory,
@@ -159,6 +163,8 @@ The -r flag causes clean to be applied recursively to all the
 dependencies of the packages named by the import paths.
 
 The -x flag causes clean to print remove commands as it executes them.
+
+For more about build flags, see 'go help build'.
 
 For more about specifying packages, see 'go help packages'.
 
@@ -235,8 +241,7 @@ The -u flag instructs get to use the network to update the named packages
 and their dependencies.  By default, get uses the network to check out
 missing packages but does not use it to look for updates to existing packages.
 
-Get also accepts all the flags in the 'go build' and 'go install' commands,
-to control the installation. See 'go help build'.
+Get also accepts build flags to control the installation. See 'go help build'.
 
 When checking out or updating a package, get looks for a branch or tag
 that matches the locally installed version of Go. The most important
@@ -271,7 +276,7 @@ List packages
 
 Usage:
 
-	go list [-e] [-race] [-f format] [-json] [-tags 'tag list'] [packages]
+	go list [-e] [-f format] [-json] [build flags] [packages]
 
 List lists the packages named by the import paths, one per line.
 
@@ -283,8 +288,7 @@ The default output shows the package import path:
 
 The -f flag specifies an alternate format for the list, using the
 syntax of package template.  The default output is equivalent to -f
-'{{.ImportPath}}'.  One extra template function is available, "join",
-which calls strings.Join. The struct being passed to the template is:
+'{{.ImportPath}}'. The struct being passed to the template is:
 
     type Package struct {
         Dir        string // directory containing package sources
@@ -303,6 +307,7 @@ which calls strings.Join. The struct being passed to the template is:
         IgnoredGoFiles []string // .go sources ignored due to build constraints
         CFiles   []string       // .c source files
         CXXFiles []string       // .cc, .cxx and .cpp source files
+        MFiles   []string       // .m source files
         HFiles   []string       // .h, .hh, .hpp and .hxx source files
         SFiles   []string       // .s source files
         SwigFiles []string      // .swig files
@@ -331,6 +336,26 @@ which calls strings.Join. The struct being passed to the template is:
         XTestImports []string // imports from XTestGoFiles
     }
 
+The template function "join" calls strings.Join.
+
+The template function "context" returns the build context, defined as:
+
+	type Context struct {
+		GOARCH        string   // target architecture
+		GOOS          string   // target operating system
+		GOROOT        string   // Go root
+		GOPATH        string   // Go path
+		CgoEnabled    bool     // whether cgo can be used
+		UseAllFiles   bool     // use files regardless of +build lines, file names
+		Compiler      string   // compiler to assume when computing target paths
+		BuildTags     []string // build constraints to match in +build lines
+		ReleaseTags   []string // releases the current release is compatible with
+		InstallSuffix string   // suffix to use in the name of the install dir
+	}
+
+For more information about the meaning of these fields see the documentation
+for the go/build package's Context type.
+
 The -json flag causes the package data to be printed in JSON format
 instead of using the template format.
 
@@ -344,11 +369,7 @@ printing.  Erroneous packages will have a non-empty ImportPath and
 a non-nil Error field; other information may or may not be missing
 (zeroed).
 
-The -tags flag specifies a list of build tags, like in the 'go build'
-command.
-
-The -race flag causes the package data to include the dependencies
-required by the race detector.
+For more about build flags, see 'go help build'.
 
 For more about specifying packages, see 'go help packages'.
 
@@ -357,10 +378,19 @@ Compile and run Go program
 
 Usage:
 
-	go run [build flags] gofiles... [arguments...]
+	go run [build flags] [-exec xprog] gofiles... [arguments...]
 
 Run compiles and runs the main package comprising the named Go source files.
 A Go source file is defined to be a file ending in a literal ".go" suffix.
+
+By default, 'go run' runs the compiled binary directly: 'a.out arguments...'.
+If the -exec flag is given, 'go run' invokes the binary using xprog: 'xprog a.out arguments...'.
+If the -exec flag is not given, GOOS or GOARCH is different from the system
+default, and a program named go_$GOOS_$GOARCH_exec can be found
+on the current search path, 'go run' invokes the binary using that program,
+for example 'go_nacl_386_exec a.out arguments...'. This allows execution of
+cross-compiled programs when a simulator or other execution method is
+available.
 
 For more about build flags, see 'go help build'.
 
@@ -407,6 +437,10 @@ In addition to the build flags, the flags handled by 'go test' itself are:
 	-i
 	    Install packages that are dependencies of the test.
 	    Do not run the test.
+
+	-exec xprog
+	    Run the test binary using xprog. The behavior is the same as
+	    in 'go run'. See 'go help run' for details.
 
 The test binary also accepts flags that control execution of the test; these
 flags are also accessible by 'go test'.  See 'go help testflag' for details.
@@ -478,10 +512,47 @@ http://swig.org/.  When running go build, any file with a .swig
 extension will be passed to SWIG.  Any file with a .swigcxx extension
 will be passed to SWIG with the -c++ option.
 
-When either cgo or SWIG is used, go build will pass any .c, .s, or .S
-files to the C compiler, and any .cc, .cpp, .cxx files to the C++
+When either cgo or SWIG is used, go build will pass any .c, .m, .s,
+or .S files to the C compiler, and any .cc, .cpp, .cxx files to the C++
 compiler.  The CC or CXX environment variables may be set to determine
 the C or C++ compiler, respectively, to use.
+
+
+File types
+
+The go command examines the contents of a restricted set of files
+in each directory. It identifies which files to examine based on
+the extension of the file name. These extensions are:
+
+	.go
+		Go source files.
+	.c, .h
+		C source files.
+		If the package uses cgo, these will be compiled with the
+		OS-native compiler (typically gcc); otherwise they will be
+		compiled with the Go-specific support compiler,
+		5c, 6c, or 8c, etc. as appropriate.
+	.cc, .cpp, .cxx, .hh, .hpp, .hxx
+		C++ source files. Only useful with cgo or SWIG, and always
+		compiled with the OS-native compiler.
+	.m
+		Objective-C source files. Only useful with cgo, and always
+		compiled with the OS-native compiler.
+	.s, .S
+		Assembler source files.
+		If the package uses cgo, these will be assembled with the
+		OS-native assembler (typically gcc (sic)); otherwise they
+		will be assembled with the Go-specific support assembler,
+		5a, 6a, or 8a, etc., as appropriate.
+	.swig, .swigcxx
+		SWIG definition files.
+	.syso
+		System object files.
+
+Files of each of these types except .syso may contain build
+constraints, but the go command stops scanning for build constraints
+at the first item in the file that is not a blank line or //-style
+line comment.
 
 
 GOPATH environment variable
@@ -638,7 +709,7 @@ example.org/user/foo or foo.hg, and
 	import "example.org/repo.git/foo/bar"
 
 denotes the foo/bar directory of the Git repository at
-example.com/repo or repo.git.
+example.org/repo or repo.git.
 
 When a version control system supports multiple protocols,
 each is tried in turn when downloading.  For example, a Git
@@ -788,7 +859,8 @@ control the execution of any test:
 
 	-covermode set,count,atomic
 	    Set the mode for coverage analysis for the package[s]
-	    being tested. The default is "set".
+	    being tested. The default is "set" unless -race is enabled,
+	    in which case it is "atomic".
 	    The values:
 		set: bool: does this statement run?
 		count: int: how many times does this statement run?
@@ -823,9 +895,7 @@ control the execution of any test:
 	    Enable more precise (and expensive) memory profiles by setting
 	    runtime.MemProfileRate.  See 'godoc runtime MemProfileRate'.
 	    To profile all memory allocations, use -test.memprofilerate=1
-	    and set the environment variable GOGC=off to disable the
-	    garbage collector, provided the test can run in the available
-	    memory without garbage collection.
+	    and pass --alloc_space flag to the pprof tool.
 
 	-outputdir directory
 	    Place output files from profiling in the specified directory,

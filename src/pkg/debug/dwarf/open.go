@@ -24,9 +24,9 @@ type Data struct {
 
 	// parsed data
 	abbrevCache map[uint32]abbrevTable
-	addrsize    int
 	order       binary.ByteOrder
 	typeCache   map[Offset]Type
+	typeSigs    map[uint64]*typeUnit
 	unit        []unit
 }
 
@@ -50,6 +50,7 @@ func New(abbrev, aranges, frame, info, line, pubnames, ranges, str []byte) (*Dat
 		str:         str,
 		abbrevCache: make(map[uint32]abbrevTable),
 		typeCache:   make(map[Offset]Type),
+		typeSigs:    make(map[uint64]*typeUnit),
 	}
 
 	// Sniff .debug_info to figure out byte order.
@@ -75,4 +76,12 @@ func New(abbrev, aranges, frame, info, line, pubnames, ranges, str []byte) (*Dat
 	}
 	d.unit = u
 	return d, nil
+}
+
+// AddTypes will add one .debug_types section to the DWARF data.  A
+// typical object with DWARF version 4 debug info will have multiple
+// .debug_types sections.  The name is used for error reporting only,
+// and serves to distinguish one .debug_types section from another.
+func (d *Data) AddTypes(name string, types []byte) error {
+	return d.parseTypes(name, types)
 }

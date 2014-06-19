@@ -55,30 +55,6 @@ rcmp(const void *a1, const void *a2)
 }
 
 static void
-setoutvar(void)
-{
-	Type *t;
-	Node *n;
-	Addr a;
-	Iter save;
-	Bits bit;
-	int z;
-
-	t = structfirst(&save, getoutarg(curfn->type));
-	while(t != T) {
-		n = nodarg(t, 1);
-		a = zprog.from;
-		naddr(n, &a, 0);
-		bit = mkvar(R, &a);
-		for(z=0; z<BITS; z++)
-			ovar.b[z] |= bit.b[z];
-		t = structnext(&save);
-	}
-//if(bany(&ovar))
-//print("ovars = %Q\n", ovar);
-}
-
-static void
 setaddrs(Bits bit)
 {
 	int i, n;
@@ -138,6 +114,8 @@ static char* regname[] = {
 
 static Node* regnodes[NREGVAR];
 
+static void walkvardef(Node *n, Reg *r, int active);
+
 void
 regopt(Prog *firstp)
 {
@@ -145,7 +123,7 @@ regopt(Prog *firstp)
 	Prog *p;
 	Graph *g;
 	ProgInfo info;
-	int i, z;
+	int i, z, active;
 	uint32 vreg;
 	Bits bit;
 
@@ -155,9 +133,8 @@ regopt(Prog *firstp)
 		first = 0;
 	}
 
-	fixjmp(firstp);
 	mergetemp(firstp);
-	
+
 	/*
 	 * control flow is more complicated in generated go code
 	 * than in generated c code.  define pseudo-variables for
@@ -177,11 +154,9 @@ regopt(Prog *firstp)
 		params.b[z] = 0;
 		consts.b[z] = 0;
 		addrs.b[z] = 0;
+		ivar.b[z] = 0;
 		ovar.b[z] = 0;
 	}
-
-	// build list of return variables
-	setoutvar();
 
 	/*
 	 * pass 1
@@ -190,12 +165,18 @@ regopt(Prog *firstp)
 	 * find use and set of variables
 	 */
 	g = flowstart(firstp, sizeof(Reg));
-	if(g == nil)
+	if(g == nil) {
+		for(i=0; i<nvar; i++)
+			var[i].node->opt = nil;
 		return;
+	}
+
 	firstr = (Reg*)g->start;
 
 	for(r = firstr; r != R; r = (Reg*)r->f.link) {
 		p = r->f.prog;
+		if(p->as == AVARDEF || p->as == AVARKILL)
+			continue;
 		proginfo(&info, p);
 
 		// Avoid making variables for direct-called functions.
@@ -254,6 +235,26 @@ regopt(Prog *firstp)
 
 	if(debug['R'] && debug['v'])
 		dumpit("pass2", &firstr->f, 1);
+
+	/*
+	 * pass 2.5
+	 * iterate propagating fat vardef covering forward
+	 * r->act records vars with a VARDEF since the last CALL.
+	 * (r->act will be reused in pass 5 for something else,
+	 * but we'll be done with it by then.)
+	 */
+	active = 0;
+	for(r = firstr; r != R; r = (Reg*)r->f.link) {
+		r->f.active = 0;
+		r->act = zbits;
+	}
+	for(r = firstr; r != R; r = (Reg*)r->f.link) {
+		p = r->f.prog;
+		if(p->as == AVARDEF && isfat(p->to.node->type) && p->to.node->opt != nil) {
+			active++;
+			walkvardef(p->to.node, r, active);
+		}
+	}
 
 	/*
 	 * pass 3
@@ -406,6 +407,8 @@ brk:
 	/*
 	 * free aux structures. peep allocates new ones.
 	 */
+	for(i=0; i<nvar; i++)
+		var[i].node->opt = nil;
 	flowend(g);
 	firstr = R;
 
@@ -454,6 +457,32 @@ brk:
 	}
 }
 
+static void
+walkvardef(Node *n, Reg *r, int active)
+{
+	Reg *r1, *r2;
+	int bn;
+	Var *v;
+	
+	for(r1=r; r1!=R; r1=(Reg*)r1->f.s1) {
+		if(r1->f.active == active)
+			break;
+		r1->f.active = active;
+		if(r1->f.prog->as == AVARKILL && r1->f.prog->to.node == n)
+			break;
+		for(v=n->opt; v!=nil; v=v->nextinnode) {
+			bn = v - var;
+			r1->act.b[bn/32] |= 1L << (bn%32);
+		}
+		if(r1->f.prog->as == ACALL)
+			break;
+	}
+
+	for(r2=r; r2!=r1; r2=(Reg*)r2->f.s1)
+		if(r2->f.s2 != nil)
+			walkvardef(n, (Reg*)r2->f.s2, active);
+}
+
 /*
  * add mov b,rn
  * just after r
@@ -467,7 +496,7 @@ addmove(Reg *r, int bn, int rn, int f)
 
 	p1 = mal(sizeof(*p1));
 	clearp(p1);
-	p1->loc = 9999;
+	p1->pc = 9999;
 
 	p = r->f.prog;
 	p1->link = p->link;
@@ -481,12 +510,12 @@ addmove(Reg *r, int bn, int rn, int f)
 	a->etype = v->etype;
 	a->type = v->name;
 	a->node = v->node;
-	a->sym = v->node->sym;
+	a->sym = linksym(v->node->sym);
 
 	// need to clean this up with wptr and
 	// some of the defaults
 	p1->as = AMOVL;
-	switch(v->etype) {
+	switch(simtype[(uchar)v->etype]) {
 	default:
 		fatal("unknown type %E", v->etype);
 	case TINT8:
@@ -500,7 +529,6 @@ addmove(Reg *r, int bn, int rn, int f)
 		break;
 	case TINT64:
 	case TUINT64:
-	case TUINTPTR:
 	case TPTR64:
 		p1->as = AMOVQ;
 		break;
@@ -510,8 +538,6 @@ addmove(Reg *r, int bn, int rn, int f)
 	case TFLOAT64:
 		p1->as = AMOVSD;
 		break;
-	case TINT:
-	case TUINT:
 	case TINT32:
 	case TUINT32:
 	case TPTR32:
@@ -655,6 +681,16 @@ mkvar(Reg *r, Adr *a)
 	if(nvar >= NVAR) {
 		if(debug['w'] > 1 && node != N)
 			fatal("variable not optimized: %#N", node);
+		
+		// If we're not tracking a word in a variable, mark the rest as
+		// having its address taken, so that we keep the whole thing
+		// live at all calls. otherwise we might optimize away part of
+		// a variable but not all of it.
+		for(i=0; i<nvar; i++) {
+			v = var+i;
+			if(v->node == node)
+				v->addr = 1;
+		}
 		goto none;
 	}
 
@@ -667,11 +703,13 @@ mkvar(Reg *r, Adr *a)
 	v->width = w;
 	v->addr = flag;		// funny punning
 	v->node = node;
-
-	if(debug['R'])
-		print("bit=%2d et=%2E w=%d+%lld %#N %D flag=%d\n", i, et, o, w, node, a, v->addr);
-
-	ostats.nvar++;
+	
+	// node->opt is the head of a linked list
+	// of Vars within the given Node, so that
+	// we can start at a Var and find all the other
+	// Vars in the same Go variable.
+	v->nextinnode = node->opt;
+	node->opt = v;
 
 	bit = blsh(i);
 	if(n == D_EXTERN || n == D_STATIC)
@@ -680,6 +718,46 @@ mkvar(Reg *r, Adr *a)
 	if(n == D_PARAM)
 		for(z=0; z<BITS; z++)
 			params.b[z] |= bit.b[z];
+
+	if(node->class == PPARAM)
+		for(z=0; z<BITS; z++)
+			ivar.b[z] |= bit.b[z];
+	if(node->class == PPARAMOUT)
+		for(z=0; z<BITS; z++)
+			ovar.b[z] |= bit.b[z];
+
+	// Treat values with their address taken as live at calls,
+	// because the garbage collector's liveness analysis in ../gc/plive.c does.
+	// These must be consistent or else we will elide stores and the garbage
+	// collector will see uninitialized data.
+	// The typical case where our own analysis is out of sync is when the
+	// node appears to have its address taken but that code doesn't actually
+	// get generated and therefore doesn't show up as an address being
+	// taken when we analyze the instruction stream.
+	// One instance of this case is when a closure uses the same name as
+	// an outer variable for one of its own variables declared with :=.
+	// The parser flags the outer variable as possibly shared, and therefore
+	// sets addrtaken, even though it ends up not being actually shared.
+	// If we were better about _ elision, _ = &x would suffice too.
+	// The broader := in a closure problem is mentioned in a comment in
+	// closure.c:/^typecheckclosure and dcl.c:/^oldname.
+	if(node->addrtaken)
+		v->addr = 1;
+
+	// Disable registerization for globals, because:
+	// (1) we might panic at any time and we want the recovery code
+	// to see the latest values (issue 1304).
+	// (2) we don't know what pointers might point at them and we want
+	// loads via those pointers to see updated values and vice versa (issue 7995).
+	//
+	// Disable registerization for results if using defer, because the deferred func
+	// might recover and return, causing the current values to be used.
+	if(node->class == PEXTERN || (hasdefer && node->class == PPARAMOUT))
+		v->addr = 1;
+
+	if(debug['R'])
+		print("bit=%2d et=%2E w=%lld+%lld %#N %D flag=%d\n", i, et, o, w, node, a, v->addr);
+	ostats.nvar++;
 
 	return bit;
 
@@ -691,7 +769,8 @@ void
 prop(Reg *r, Bits ref, Bits cal)
 {
 	Reg *r1, *r2;
-	int z;
+	int z, i, j;
+	Var *v, *v1;
 
 	for(r1 = r; r1 != R; r1 = (Reg*)r1->f.p1) {
 		for(z=0; z<BITS; z++) {
@@ -710,9 +789,60 @@ prop(Reg *r, Bits ref, Bits cal)
 		case ACALL:
 			if(noreturn(r1->f.prog))
 				break;
+
+			// Mark all input variables (ivar) as used, because that's what the
+			// liveness bitmaps say. The liveness bitmaps say that so that a
+			// panic will not show stale values in the parameter dump.
+			// Mark variables with a recent VARDEF (r1->act) as used,
+			// so that the optimizer flushes initializations to memory,
+			// so that if a garbage collection happens during this CALL,
+			// the collector will see initialized memory. Again this is to
+			// match what the liveness bitmaps say.
 			for(z=0; z<BITS; z++) {
-				cal.b[z] |= ref.b[z] | externs.b[z];
+				cal.b[z] |= ref.b[z] | externs.b[z] | ivar.b[z] | r1->act.b[z];
 				ref.b[z] = 0;
+			}
+			
+			// cal.b is the current approximation of what's live across the call.
+			// Every bit in cal.b is a single stack word. For each such word,
+			// find all the other tracked stack words in the same Go variable
+			// (struct/slice/string/interface) and mark them live too.
+			// This is necessary because the liveness analysis for the garbage
+			// collector works at variable granularity, not at word granularity.
+			// It is fundamental for slice/string/interface: the garbage collector
+			// needs the whole value, not just some of the words, in order to
+			// interpret the other bits correctly. Specifically, slice needs a consistent
+			// ptr and cap, string needs a consistent ptr and len, and interface
+			// needs a consistent type word and data word.
+			for(z=0; z<BITS; z++) {
+				if(cal.b[z] == 0)
+					continue;
+				for(i=0; i<32; i++) {
+					if(z*32+i >= nvar || ((cal.b[z]>>i)&1) == 0)
+						continue;
+					v = var+z*32+i;
+					if(v->node->opt == nil) // v represents fixed register, not Go variable
+						continue;
+
+					// v->node->opt is the head of a linked list of Vars
+					// corresponding to tracked words from the Go variable v->node.
+					// Walk the list and set all the bits.
+					// For a large struct this could end up being quadratic:
+					// after the first setting, the outer loop (for z, i) would see a 1 bit
+					// for all of the remaining words in the struct, and for each such
+					// word would go through and turn on all the bits again.
+					// To avoid the quadratic behavior, we only turn on the bits if
+					// v is the head of the list or if the head's bit is not yet turned on.
+					// This will set the bits at most twice, keeping the overall loop linear.
+					v1 = v->node->opt;
+					j = v1 - var;
+					if(v == v1 || ((cal.b[j/32]>>(j&31))&1) == 0) {
+						for(; v1 != nil; v1 = v1->nextinnode) {
+							j = v1 - var;
+							cal.b[j/32] |= 1<<(j&31);
+						}
+					}
+				}
 			}
 			break;
 
@@ -727,17 +857,6 @@ prop(Reg *r, Bits ref, Bits cal)
 			for(z=0; z<BITS; z++) {
 				cal.b[z] = externs.b[z] | ovar.b[z];
 				ref.b[z] = 0;
-			}
-			break;
-
-		default:
-			// Work around for issue 1304:
-			// flush modified globals before each instruction.
-			for(z=0; z<BITS; z++) {
-				cal.b[z] |= externs.b[z];
-				// issue 4066: flush modified return variables in case of panic
-				if(hasdefer)
-					cal.b[z] |= ovar.b[z];
 			}
 			break;
 		}
@@ -860,12 +979,11 @@ paint1(Reg *r, int bn)
 	for(;;) {
 		r->act.b[z] |= bb;
 
-		if(r->use1.b[z] & bb) {
-			change += CREF * r->f.loop;
-		}
-
-		if((r->use2.b[z]|r->set.b[z]) & bb) {
-			change += CREF * r->f.loop;
+		if(r->f.prog->as != ANOP) { // don't give credit for NOPs
+			if(r->use1.b[z] & bb)
+				change += CREF * r->f.loop;
+			if((r->use2.b[z]|r->set.b[z]) & bb)
+				change += CREF * r->f.loop;
 		}
 
 		if(STORE(r) & r->regdiff.b[z] & bb) {
@@ -906,7 +1024,7 @@ regset(Reg *r, uint32 bb)
 		v.type = b & 0xFFFF? BtoR(b): BtoF(b);
 		if(v.type == 0)
 			fatal("zero v.type for %#ux", b);
-		c = copyu(r->f.prog, &v, A);
+		c = copyu(r->f.prog, &v, nil);
 		if(c == 3)
 			set |= b;
 		bb &= ~b;
@@ -925,7 +1043,7 @@ reguse(Reg *r, uint32 bb)
 	v = zprog.from;
 	while(b = bb & ~(bb-1)) {
 		v.type = b & 0xFFFF? BtoR(b): BtoF(b);
-		c = copyu(r->f.prog, &v, A);
+		c = copyu(r->f.prog, &v, nil);
 		if(c == 1 || c == 2 || c == 4)
 			set |= b;
 		bb &= ~b;
@@ -1067,8 +1185,7 @@ paint3(Reg *r, int bn, int32 rb, int rn)
 void
 addreg(Adr *a, int rn)
 {
-
-	a->sym = 0;
+	a->sym = nil;
 	a->offset = 0;
 	a->type = rn;
 
@@ -1088,6 +1205,8 @@ int
 BtoR(int32 b)
 {
 	b &= 0xffffL;
+	if(nacl)
+		b &= ~((1<<(D_BP-D_AX)) | (1<<(D_R15-D_AX)));
 	if(b == 0)
 		return 0;
 	return bitno(b) + D_AX;
@@ -1176,14 +1295,14 @@ dumpit(char *str, Flow *r0, int isreg)
 		if(r1 != nil) {
 			print("	pred:");
 			for(; r1 != nil; r1 = r1->p2link)
-				print(" %.4ud", r1->prog->loc);
+				print(" %.4ud", (int)r1->prog->pc);
 			print("\n");
 		}
 //		r1 = r->s1;
 //		if(r1 != R) {
 //			print("	succ:");
 //			for(; r1 != R; r1 = r1->s1)
-//				print(" %.4ud", r1->prog->loc);
+//				print(" %.4ud", (int)r1->prog->pc);
 //			print("\n");
 //		}
 	}

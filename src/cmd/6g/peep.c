@@ -109,7 +109,7 @@ peep(Prog *firstp)
 		case ALEAL:
 		case ALEAQ:
 			if(regtyp(&p->to))
-			if(p->from.sym != S)
+			if(p->from.sym != nil)
 			if(p->from.index == D_NONE || p->from.index == D_CONST)
 				conprop(r);
 			break;
@@ -306,7 +306,7 @@ pushback(Flow *r0)
 		if(p->as != ANOP) {
 			if(!regconsttyp(&p->from) || !regtyp(&p->to))
 				break;
-			if(copyu(p, &p0->to, A) || copyu(p0, &p->to, A))
+			if(copyu(p, &p0->to, nil) || copyu(p0, &p->to, nil))
 				break;
 		}
 		if(p->as == ACALL)
@@ -573,6 +573,8 @@ subprop(Flow *r0)
 			break;
 		}
 		p = r->prog;
+		if(p->as == AVARDEF || p->as == AVARKILL)
+			continue;
 		proginfo(&info, p);
 		if(info.flags & Call) {
 			if(debug['P'] && debug['v'])
@@ -682,7 +684,7 @@ copy1(Adr *v1, Adr *v2, Flow *r, int f)
 			if(debug['P'])
 				print("; merge; f=%d", f);
 		}
-		t = copyu(p, v2, A);
+		t = copyu(p, v2, nil);
 		switch(t) {
 		case 2:	/* rar, can't split */
 			if(debug['P'])
@@ -720,7 +722,7 @@ copy1(Adr *v1, Adr *v2, Flow *r, int f)
 			break;
 		}
 		if(!f) {
-			t = copyu(p, v1, A);
+			t = copyu(p, v1, nil);
 			if(!f && (t == 2 || t == 3 || t == 4)) {
 				f = 1;
 				if(debug['P'])
@@ -751,7 +753,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 
 	switch(p->as) {
 	case AJMP:
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->to, v, s, 1))
 				return 1;
 			return 0;
@@ -761,7 +763,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		return 0;
 
 	case ARET:
-		if(s != A)
+		if(s != nil)
 			return 1;
 		return 3;
 
@@ -773,7 +775,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 		if(v->type == p->from.type)
 			return 2;
 
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->to, v, s, 1))
 				return 1;
 			return 0;
@@ -788,6 +790,8 @@ copyu(Prog *p, Adr *v, Adr *s)
 		return 0;
 	}
 
+	if(p->as == AVARDEF || p->as == AVARKILL)
+		return 0;
 	proginfo(&info, p);
 
 	if((info.reguse|info.regset) & RtoB(v->type))
@@ -803,7 +807,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 	
 	if(info.flags & RightWrite) {
 		if(copyas(&p->to, v)) {
-			if(s != A)
+			if(s != nil)
 				return copysub(&p->from, v, s, 1);
 			if(copyau(&p->from, v))
 				return 4;
@@ -812,7 +816,7 @@ copyu(Prog *p, Adr *v, Adr *s)
 	}
 	
 	if(info.flags & (LeftAddr|LeftRead|LeftWrite|RightAddr|RightRead|RightWrite)) {
-		if(s != A) {
+		if(s != nil) {
 			if(copysub(&p->from, v, s, 1))
 				return 1;
 			return copysub(&p->to, v, s, 1);
@@ -940,7 +944,7 @@ loop:
 		return;
 
 	p = r->prog;
-	t = copyu(p, v0, A);
+	t = copyu(p, v0, nil);
 	switch(t) {
 	case 0:	// miss
 	case 1:	// use
@@ -956,7 +960,7 @@ loop:
 		if(p->from.node == p0->from.node)
 		if(p->from.offset == p0->from.offset)
 		if(p->from.scale == p0->from.scale)
-		if(p->from.u.vval == p0->from.u.vval)
+		if(p->from.type == D_FCONST && p->from.u.dval == p0->from.u.dval)
 		if(p->from.index == p0->from.index) {
 			excise(r);
 			goto loop;

@@ -30,15 +30,27 @@
 
 #include "gc.h"
 
+int thechar = '6';
+char *thestring = "amd64";
+
+LinkArch	*thelinkarch = &linkamd64;
+
+void
+linkarchinit(void)
+{
+	if(strcmp(getgoarch(), "amd64p32") == 0)
+		thelinkarch = &linkamd64p32;
+}
+
 void
 ginit(void)
 {
 	int i;
 	Type *t;
 
-	thechar = '6';
-	thestring = "amd64";
-	dodefine("_64BIT");
+	dodefine("_64BITREG");
+	if(ewidth[TIND] == 8)
+		dodefine("_64BIT");
 	listinit();
 	nstring = 0;
 	mnstring = 0;
@@ -47,7 +59,6 @@ ginit(void)
 	breakpc = -1;
 	continpc = -1;
 	cases = C;
-	firstp = P;
 	lastp = P;
 	tfield = types[TINT];
 
@@ -129,6 +140,10 @@ ginit(void)
 		if(i >= D_X0 && i <= D_X7)
 			reg[i] = 0;
 	}
+	if(nacl) {
+		reg[D_BP] = 1;
+		reg[D_R15] = 1;
+	}
 }
 
 void
@@ -138,6 +153,10 @@ gclean(void)
 	Sym *s;
 
 	reg[D_SP]--;
+	if(nacl) {
+		reg[D_BP]--;
+		reg[D_R15]--;
+	}
 	for(i=D_AX; i<=D_R15; i++)
 		if(reg[i])
 			diag(Z, "reg %R left allocated", i);
@@ -168,17 +187,18 @@ gclean(void)
 void
 nextpc(void)
 {
+	Plist *pl;
 
 	p = alloc(sizeof(*p));
 	*p = zprog;
 	p->lineno = nearln;
+	p->pc = pc;
 	pc++;
-	if(firstp == P) {
-		firstp = p;
-		lastp = p;
-		return;
-	}
-	lastp->link = p;
+	if(lastp == nil) {
+		pl = linknewplist(ctxt);
+		pl->firstpc = p;
+	} else
+		lastp->link = p;
 	lastp = p;
 }
 
@@ -441,7 +461,7 @@ regaalloc1(Node *n, Node *nn)
 		return;
 	}
 	nodreg(n, nn, REGARG);
-	reg[REGARG]++;
+	reg[(uchar)REGARG]++;
 	curarg = align(curarg, nn->type, Aarg1, nil);
 	curarg = align(curarg, nn->type, Aarg2, nil);
 	maxargsafe = maxround(maxargsafe, cursafe+curarg);
@@ -474,7 +494,7 @@ regind(Node *n, Node *nn)
 }
 
 void
-naddr(Node *n, Adr *a)
+naddr(Node *n, Addr *a)
 {
 	int32 v;
 
@@ -489,11 +509,11 @@ naddr(Node *n, Adr *a)
 
 	case OREGISTER:
 		a->type = n->reg;
-		a->sym = S;
+		a->sym = nil;
 		break;
 
 	case OEXREG:
-		a->type = D_INDIR + D_GS;
+		a->type = D_INDIR + D_TLS;
 		a->offset = n->reg - 1;
 		break;
 
@@ -534,14 +554,14 @@ naddr(Node *n, Adr *a)
 
 	case OINDREG:
 		a->type = n->reg+D_INDIR;
-		a->sym = S;
+		a->sym = nil;
 		a->offset = n->xoffset;
 		break;
 
 	case ONAME:
 		a->etype = n->etype;
 		a->type = D_STATIC;
-		a->sym = n->sym;
+		a->sym = linksym(n->sym);
 		a->offset = n->xoffset;
 		if(n->class == CSTATIC)
 			break;
@@ -562,12 +582,12 @@ naddr(Node *n, Adr *a)
 	case OCONST:
 		if(typefd[n->type->etype]) {
 			a->type = D_FCONST;
-			a->dval = n->fconst;
+			a->u.dval = n->fconst;
 			break;
 		}
-		a->sym = S;
+		a->sym = nil;
 		a->type = D_CONST;
-		if(typev[n->type->etype] || n->type->etype == TIND)
+		if(typev[n->type->etype] || (n->type->etype == TIND && ewidth[TIND] == 8))
 			a->offset = n->vconst;
 		else
 			a->offset = convvtox(n->vconst, typeu[n->type->etype]? TULONG: TLONG);
@@ -630,6 +650,12 @@ gmove(Node *f, Node *t)
 
 	ft = f->type->etype;
 	tt = t->type->etype;
+	if(ewidth[TIND] == 4) {
+		if(ft == TIND)
+			ft = TUINT;
+		if(tt == TIND)
+			tt = TUINT;
+	}
 	t64 = tt == TVLONG || tt == TUVLONG || tt == TIND;
 	if(debug['M'])
 		print("gop: %O %O[%s],%O[%s]\n", OAS,
@@ -721,6 +747,8 @@ gmove(Node *f, Node *t)
 		goto ld;
 	case TIND:
 		a = AMOVQ;
+		if(ewidth[TIND] == 4)
+			a = AMOVL;
 
 	ld:
 		regalloc(&nod, f, t);
@@ -1226,6 +1254,8 @@ gopcode(int o, Type *ty, Node *f, Node *t)
 	et = TLONG;
 	if(ty != T)
 		et = ty->etype;
+	if(et == TIND && ewidth[TIND] == 4)
+		et = TUINT;
 	if(debug['M']) {
 		if(f != Z && f->type != T)
 			print("gop: %O %O[%s],", o, f->op, tnames[et]);
@@ -1487,9 +1517,10 @@ gbranch(int o)
 void
 patch(Prog *op, int32 pc)
 {
-
 	op->to.offset = pc;
 	op->to.type = D_BRANCH;
+	op->to.u.branch = nil;
+	op->pcond = nil;
 }
 
 void
@@ -1499,7 +1530,7 @@ gpseudo(int a, Sym *s, Node *n)
 	nextpc();
 	p->as = a;
 	p->from.type = D_EXTERN;
-	p->from.sym = s;
+	p->from.sym = linksym(s);
 
 	switch(a) {
 	case ATEXT:
@@ -1561,7 +1592,7 @@ exreg(Type *t)
 		if(exregoffset >= 64)
 			return 0;
 		o = exregoffset;
-		exregoffset += 8;
+		exregoffset += ewidth[TIND];
 		return o+1;	// +1 to avoid 0 == failure; naddr's case OEXREG will subtract 1.
 	}
 	return 0;

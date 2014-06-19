@@ -89,6 +89,7 @@ var commands = []*Command{
 	cmdVet,
 
 	helpC,
+	helpFileType,
 	helpGopath,
 	helpImportPath,
 	helpPackages,
@@ -238,6 +239,11 @@ func printUsage(w io.Writer) {
 }
 
 func usage() {
+	// special case "go test -h"
+	if len(os.Args) > 1 && os.Args[1] == "test" {
+		help([]string{"testflag"})
+		os.Exit(2)
+	}
 	printUsage(os.Stderr)
 	os.Exit(2)
 }

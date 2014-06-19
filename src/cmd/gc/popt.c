@@ -51,9 +51,14 @@ noreturn(Prog *p)
 		symlist[2] = pkglookup("throwinit", runtimepkg);
 		symlist[3] = pkglookup("panic", runtimepkg);
 		symlist[4] = pkglookup("panicwrap", runtimepkg);
+		symlist[5] = pkglookup("throwreturn", runtimepkg);
+		symlist[6] = pkglookup("selectgo", runtimepkg);
+		symlist[7] = pkglookup("block", runtimepkg);
 	}
 
-	s = p->to.sym;
+	if(p->to.node == nil)
+		return 0;
+	s = p->to.node->sym;
 	if(s == S)
 		return 0;
 	for(i=0; symlist[i]!=S; i++)
@@ -144,7 +149,13 @@ fixjmp(Prog *firstp)
 		if(p->opt == dead) {
 			if(p->link == P && p->as == ARET && last && last->as != ARET) {
 				// This is the final ARET, and the code so far doesn't have one.
-				// Let it stay.
+				// Let it stay. The register allocator assumes that all live code in
+				// the function can be traversed by starting at all the RET instructions
+				// and following predecessor links. If we remove the final RET,
+				// this assumption will not hold in the case of an infinite loop
+				// at the end of a function.
+				// Keep the RET but mark it dead for the liveness analysis.
+				p->mode = 1;
 			} else {
 				if(debug['R'] && debug['v'])
 					print("del %P\n", p);
@@ -489,8 +500,8 @@ struct TempVar
 	TempFlow *use; // use list, chained through TempFlow.uselink
 	TempVar *freelink; // next free temp in Type.opt list
 	TempVar *merge; // merge var with this one
-	uint32 start; // smallest Prog.loc in live range
-	uint32 end; // largest Prog.loc in live range
+	vlong start; // smallest Prog.pc in live range
+	vlong end; // largest Prog.pc in live range
 	uchar addr; // address taken - no accurate end
 	uchar removed; // removed from program
 };
@@ -520,10 +531,11 @@ startcmp(const void *va, const void *vb)
 static int
 canmerge(Node *n)
 {
-	return n->class == PAUTO && !n->addrtaken && strncmp(n->sym->name, "autotmp", 7) == 0;
+	return n->class == PAUTO && strncmp(n->sym->name, "autotmp", 7) == 0;
 }
 
 static void mergewalk(TempVar*, TempFlow*, uint32);
+static void varkillwalk(TempVar*, TempFlow*, uint32);
 
 void
 mergetemp(Prog *firstp)
@@ -544,7 +556,7 @@ mergetemp(Prog *firstp)
 	g = flowstart(firstp, sizeof(TempFlow));
 	if(g == nil)
 		return;
-
+	
 	// Build list of all mergeable variables.
 	nvar = 0;
 	for(l = curfn->dcl; l != nil; l = l->next)
@@ -640,6 +652,11 @@ mergetemp(Prog *firstp)
 		gen++;
 		for(r = v->use; r != nil; r = r->uselink)
 			mergewalk(v, r, gen);
+		if(v->addr) {
+			gen++;
+			for(r = v->use; r != nil; r = r->uselink)
+				varkillwalk(v, r, gen);
+		}
 	}
 
 	// Sort variables by start.
@@ -659,7 +676,7 @@ mergetemp(Prog *firstp)
 	nfree = nvar;
 	for(i=0; i<nvar; i++) {
 		v = bystart[i];
-		if(v->addr || v->removed)
+		if(v->removed)
 			continue;
 
 		// Expire no longer in use.
@@ -672,7 +689,12 @@ mergetemp(Prog *firstp)
 		t = v->node->type;
 		for(j=nfree; j<nvar; j++) {
 			v1 = inuse[j];
-			if(eqtype(t, v1->node->type)) {
+			// Require the types to match but also require the addrtaken bits to match.
+			// If a variable's address is taken, that disables registerization for the individual
+			// words of the variable (for example, the base,len,cap of a slice).
+			// We don't want to merge a non-addressed var with an addressed one and
+			// inhibit registerization of the former.
+			if(eqtype(t, v1->node->type) && v->node->addrtaken == v1->node->addrtaken) {
 				inuse[j] = inuse[nfree++];
 				if(v1->merge)
 					v->merge = v1->merge;
@@ -695,7 +717,7 @@ mergetemp(Prog *firstp)
 	if(Debug) {
 		print("%S [%d - %d]\n", curfn->nname->sym, nvar, nkill);
 		for(v=var; v<var+nvar; v++) {
-			print("var %#N %T %d-%d", v->node, v->node->type, v->start, v->end);
+			print("var %#N %T %lld-%lld", v->node, v->node->type, v->start, v->end);
 			if(v->addr)
 				print(" addr=1");
 			if(v->removed)
@@ -752,10 +774,10 @@ mergewalk(TempVar *v, TempFlow *r0, uint32 gen)
 			break;
 		r1->f.active = gen;
 		p = r1->f.prog;
-		if(v->end < p->loc)
-			v->end = p->loc;
+		if(v->end < p->pc)
+			v->end = p->pc;
 		if(r1 == v->def) {
-			v->start = p->loc;
+			v->start = p->pc;
 			break;
 		}
 	}
@@ -763,6 +785,29 @@ mergewalk(TempVar *v, TempFlow *r0, uint32 gen)
 	for(r = r0; r != r1; r = (TempFlow*)r->f.p1)
 		for(r2 = (TempFlow*)r->f.p2; r2 != nil; r2 = (TempFlow*)r2->f.p2link)
 			mergewalk(v, r2, gen);
+}
+
+static void
+varkillwalk(TempVar *v, TempFlow *r0, uint32 gen)
+{
+	Prog *p;
+	TempFlow *r1, *r;
+	
+	for(r1 = r0; r1 != nil; r1 = (TempFlow*)r1->f.s1) {
+		if(r1->f.active == gen)
+			break;
+		r1->f.active = gen;
+		p = r1->f.prog;
+		if(v->end < p->pc)
+			v->end = p->pc;
+		if(v->start > p->pc)
+			v->start = p->pc;
+		if(p->as == ARET || (p->as == AVARKILL && p->to.node == v->node))
+			break;
+	}
+	
+	for(r = r0; r != r1; r = (TempFlow*)r->f.s1)
+		varkillwalk(v, (TempFlow*)r->f.s2, gen);
 }
 
 // Eliminate redundant nil pointer checks.
@@ -911,7 +956,7 @@ nilwalkback(NilFlow *rcheck)
 static void
 nilwalkfwd(NilFlow *rcheck)
 {
-	NilFlow *r;
+	NilFlow *r, *last;
 	Prog *p;
 	ProgInfo info;
 	
@@ -922,6 +967,7 @@ nilwalkfwd(NilFlow *rcheck)
 	// avoid problems like:
 	//	_ = *x // should panic
 	//	for {} // no writes but infinite loop may be considered visible
+	last = nil;
 	for(r = (NilFlow*)uniqs(&rcheck->f); r != nil; r = (NilFlow*)uniqs(&r->f)) {
 		p = r->f.prog;
 		proginfo(&info, p);
@@ -944,5 +990,12 @@ nilwalkfwd(NilFlow *rcheck)
 		// Stop if memory write.
 		if((info.flags & RightWrite) && !regtyp(&p->to))
 			return;
+		// Stop if we jump backward.
+		// This test is valid because all the NilFlow* are pointers into
+		// a single contiguous array. We will need to add an explicit
+		// numbering when the code is converted to Go.
+		if(last != nil && r <= last)
+			return;
+		last = r;
 	}
 }

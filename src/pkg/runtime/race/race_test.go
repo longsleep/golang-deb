@@ -44,7 +44,7 @@ func TestRace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to run tests: %v\n%v", err, string(testOutput))
 	}
-	reader := bufio.NewReader(bytes.NewBuffer(testOutput))
+	reader := bufio.NewReader(bytes.NewReader(testOutput))
 
 	funcName := ""
 	var tsanLog []string
@@ -154,4 +154,19 @@ func runTests() ([]byte, error) {
 	}
 	cmd.Env = append(cmd.Env, `GORACE="suppress_equal_stacks=0 suppress_equal_addresses=0 exitcode=0"`)
 	return cmd.CombinedOutput()
+}
+
+func TestIssue8102(t *testing.T) {
+	// If this compiles with -race, the test passes.
+	type S struct {
+		x interface{}
+		i int
+	}
+	c := make(chan int)
+	a := [2]*int{}
+	for ; ; c <- *a[S{}.i] {
+		if t != nil {
+			break
+		}
+	}
 }

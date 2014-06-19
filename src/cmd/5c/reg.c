@@ -480,8 +480,10 @@ brk:
 	r1 = 0; /* set */
 	for(r = firstr; r != R; r = r->link) {
 		p = r->prog;
-		if(p->to.type == D_BRANCH)
+		if(p->to.type == D_BRANCH) {
 			p->to.offset = r->s2->pc;
+			p->to.u.branch = r->s2->prog;
+		}
 		r1 = r;
 	}
 
@@ -535,7 +537,7 @@ void
 addmove(Reg *r, int bn, int rn, int f)
 {
 	Prog *p, *p1;
-	Adr *a;
+	Addr *a;
 	Var *v;
 
 	p1 = alloc(sizeof(*p1));
@@ -554,7 +556,7 @@ addmove(Reg *r, int bn, int rn, int f)
 	a->offset = v->offset;
 	a->etype = v->etype;
 	a->type = D_OREG;
-	if(a->etype == TARRAY || a->sym == S)
+	if(a->etype == TARRAY || a->sym == nil)
 		a->type = D_CONST;
 
 	p1->as = AMOVW;
@@ -592,13 +594,13 @@ addmove(Reg *r, int bn, int rn, int f)
 }
 
 Bits
-mkvar(Adr *a, int docon)
+mkvar(Addr *a, int docon)
 {
 	Var *v;
 	int i, t, n, et, z;
 	int32 o;
 	Bits bit;
-	Sym *s;
+	LSym *s;
 
 	t = a->type;
 	if(t == D_REG && a->reg != NREG)
@@ -608,13 +610,13 @@ mkvar(Adr *a, int docon)
 	s = a->sym;
 	o = a->offset;
 	et = a->etype;
-	if(s == S) {
+	if(s == nil) {
 		if(t != D_CONST || !docon || a->reg != NREG)
 			goto none;
 		et = TLONG;
 	}
 	if(t == D_CONST) {
-		if(s == S && sval(o))
+		if(s == nil && sval(o))
 			goto none;
 	}
 
@@ -656,7 +658,7 @@ out:
 		for(z=0; z<BITS; z++)
 			addrs.b[z] |= bit.b[z];
 	if(t == D_CONST) {
-		if(s == S) {
+		if(s == nil) {
 			for(z=0; z<BITS; z++)
 				consts.b[z] |= bit.b[z];
 			return bit;
@@ -1135,7 +1137,7 @@ paint3(Reg *r, int bn, int32 rb, int rn)
 }
 
 void
-addreg(Adr *a, int rn)
+addreg(Addr *a, int rn)
 {
 
 	a->sym = 0;

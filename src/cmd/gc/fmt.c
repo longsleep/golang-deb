@@ -17,7 +17,7 @@
 //		Flags: "%#O": print go syntax. (automatic unless fmtmode == FDbg)
 //
 //	%J Node*	Node details
-//		Flags: "%hJ" supresses things not relevant until walk.
+//		Flags: "%hJ" suppresses things not relevant until walk.
 //
 //	%V Val*		Constant values
 //
@@ -102,75 +102,7 @@ setfmode(unsigned long *flags)
 static int
 Lconv(Fmt *fp)
 {
-	struct
-	{
-		Hist*	incl;	/* start of this include file */
-		int32	idel;	/* delta line number to apply to include */
-		Hist*	line;	/* start of this #line directive */
-		int32	ldel;	/* delta line number to apply to #line */
-	} a[HISTSZ];
-	int32 lno, d;
-	int i, n;
-	Hist *h;
-
-	lno = va_arg(fp->args, int32);
-
-	n = 0;
-	for(h=hist; h!=H; h=h->link) {
-		if(h->offset < 0)
-			continue;
-		if(lno < h->line)
-			break;
-		if(h->name) {
-			if(h->offset > 0) {
-				// #line directive
-				if(n > 0 && n < HISTSZ) {
-					a[n-1].line = h;
-					a[n-1].ldel = h->line - h->offset + 1;
-				}
-			} else {
-				// beginning of file
-				if(n < HISTSZ) {
-					a[n].incl = h;
-					a[n].idel = h->line;
-					a[n].line = 0;
-				}
-				n++;
-			}
-			continue;
-		}
-		n--;
-		if(n > 0 && n < HISTSZ) {
-			d = h->line - a[n].incl->line;
-			a[n-1].ldel += d;
-			a[n-1].idel += d;
-		}
-	}
-
-	if(n > HISTSZ)
-		n = HISTSZ;
-
-	for(i=n-1; i>=0; i--) {
-		if(i != n-1) {
-			if(fp->flags & ~(FmtWidth|FmtPrec))
-				break;
-			fmtprint(fp, " ");
-		}
-		if(debug['L'] || (fp->flags&FmtLong))
-			fmtprint(fp, "%s/", pathname);
-		if(a[i].line)
-			fmtprint(fp, "%s:%d[%s:%d]",
-				a[i].line->name, lno-a[i].ldel+1,
-				a[i].incl->name, lno-a[i].idel+1);
-		else
-			fmtprint(fp, "%s:%d",
-				a[i].incl->name, lno-a[i].idel+1);
-		lno = a[i].incl->line - 1;	// now print out start of this file
-	}
-	if(n == 0)
-		fmtprint(fp, "<unknown line number>");
-
-	return 0;
+	return linklinefmt(ctxt, fp);
 }
 
 static char*
@@ -702,9 +634,17 @@ typefmt(Fmt *fp, Type *t)
 	case TSTRUCT:
 		// Format the bucket struct for map[x]y as map.bucket[x]y.
 		// This avoids a recursive print that generates very long names.
-		if(t->hmap != T) {
-			t = t->hmap;
-			return fmtprint(fp, "map.bucket[%T]%T", t->down, t->type);
+		if(t->map != T) {
+			if(t->map->bucket == t) {
+				return fmtprint(fp, "map.bucket[%T]%T", t->map->down, t->map->type);
+			}
+			if(t->map->hmap == t) {
+				return fmtprint(fp, "map.hdr[%T]%T", t->map->down, t->map->type);
+			}
+			if(t->map->hiter == t) {
+				return fmtprint(fp, "map.iter[%T]%T", t->map->down, t->map->type);
+			}
+			yyerror("unknown internal map type");
 		}
 
 		if(t->funarg) {
@@ -738,12 +678,17 @@ typefmt(Fmt *fp, Type *t)
 		if(!(fp->flags&FmtShort)) {
 			s = t->sym;
 
-			// Take the name from the original, lest we substituted it with ~anon%d
+			// Take the name from the original, lest we substituted it with ~r%d or ~b%d.
+			// ~r%d is a (formerly) unnamed result.
 			if ((fmtmode == FErr || fmtmode == FExp) && t->nname != N) {
 				if(t->nname->orig != N) {
 					s = t->nname->orig->sym;
-					if(s != S && s->name[0] == '~')
-						s = S;
+					if(s != S && s->name[0] == '~') {
+						if(s->name[1] == 'r') // originally an unnamed result
+							s = S;
+						else if(s->name[1] == 'b') // originally the blank identifier _
+							s = lookup("_");
+					}
 				} else 
 					s = S;
 			}
@@ -1099,6 +1044,7 @@ static int opprec[] = {
 	[OEMPTY] = -1,
 	[OFALL] = -1,
 	[OFOR] = -1,
+	[OGOTO] = -1,
 	[OIF] = -1,
 	[OLABEL] = -1,
 	[OPROC] = -1,
@@ -1163,7 +1109,10 @@ exprfmt(Fmt *f, Node *n, int prec)
 		case PAUTO:
 		case PPARAM:
 		case PPARAMOUT:
-			if(fmtmode == FExp && n->sym && !isblanksym(n->sym) && n->vargen > 0)
+			// _ becomes ~b%d internally; print as _ for export
+			if(fmtmode == FExp && n->sym && n->sym->name[0] == '~' && n->sym->name[1] == 'b')
+				return fmtprint(f, "_");
+			if(fmtmode == FExp && n->sym && !isblank(n) && n->vargen > 0)
 				return fmtprint(f, "%S·%d", n->sym, n->vargen);
 		}
 
@@ -1390,7 +1339,6 @@ exprfmt(Fmt *f, Node *n, int prec)
 
 	// Binary
 	case OADD:
-	case OADDSTR:
 	case OAND:
 	case OANDAND:
 	case OANDNOT:
@@ -1413,6 +1361,14 @@ exprfmt(Fmt *f, Node *n, int prec)
 		exprfmt(f, n->left, nprec);
 		fmtprint(f, " %#O ", n->op);
 		exprfmt(f, n->right, nprec+1);
+		return 0;
+
+	case OADDSTR:
+		for(l=n->list; l; l=l->next) {
+			if(l != n->list)
+				fmtprint(f, " + ");
+			exprfmt(f, l->n, nprec);
+		}
 		return 0;
 
 	case OCMPSTR:
@@ -1571,6 +1527,9 @@ Sconv(Fmt *fp)
 	Sym *s;
 	int r, sm;
 	unsigned long sf;
+
+	if(fp->flags&FmtLong)
+		return linksymfmt(fp);
 
 	s = va_arg(fp->args, Sym*);
 	if(s == S)

@@ -32,10 +32,14 @@
 #include	"l.h"
 #include	"lib.h"
 #include	"../ld/elf.h"
+#include	"../ld/dwarf.h"
 #include	"../../pkg/runtime/stack.h"
 #include	"../../pkg/runtime/funcdata.h"
 
 #include	<ar.h>
+#if !(defined(_WIN32) || defined(PLAN9))
+#include	<sys/stat.h>
+#endif
 
 enum
 {
@@ -48,18 +52,9 @@ int iconv(Fmt*);
 
 char	symname[]	= SYMDEF;
 char	pkgname[]	= "__.PKGDEF";
-char**	libdir;
-int	nlibdir = 0;
-static int	maxlibdir = 0;
 static int	cout = -1;
 
-// symbol version, incremented each time a file is loaded.
-// version==1 is reserved for savehist.
-enum
-{
-	HistVersion = 1,
-};
-int	version = HistVersion;
+extern int	version;
 
 // Set if we see an object compiled by the host compiler that is not
 // from a package that is known to support internal linking mode.
@@ -77,15 +72,32 @@ Lflag(char *arg)
 {
 	char **p;
 
-	if(nlibdir >= maxlibdir) {
-		if (maxlibdir == 0)
-			maxlibdir = 8;
+	if(ctxt->nlibdir >= ctxt->maxlibdir) {
+		if (ctxt->maxlibdir == 0)
+			ctxt->maxlibdir = 8;
 		else
-			maxlibdir *= 2;
-		p = erealloc(libdir, maxlibdir * sizeof(*p));
-		libdir = p;
+			ctxt->maxlibdir *= 2;
+		p = erealloc(ctxt->libdir, ctxt->maxlibdir * sizeof(*p));
+		ctxt->libdir = p;
 	}
-	libdir[nlibdir++] = arg;
+	ctxt->libdir[ctxt->nlibdir++] = arg;
+}
+
+/*
+ * Unix doesn't like it when we write to a running (or, sometimes,
+ * recently run) binary, so remove the output file before writing it.
+ * On Windows 7, remove() can force a subsequent create() to fail.
+ * S_ISREG() does not exist on Plan 9.
+ */
+static void
+mayberemoveoutfile(void) 
+{
+#if !(defined(_WIN32) || defined(PLAN9))
+	struct stat st;
+	if(lstat(outfile, &st) == 0 && !S_ISREG(st.st_mode))
+		return;
+#endif
+	remove(outfile);
 }
 
 void
@@ -93,12 +105,11 @@ libinit(void)
 {
 	char *suffix, *suffixsep;
 
+	funcalign = FuncAlign;
 	fmtinstall('i', iconv);
 	fmtinstall('Y', Yconv);
 	fmtinstall('Z', Zconv);
 	mywhatsys();	// get goroot, goarch, goos
-	if(strcmp(goarch, thestring) != 0)
-		print("goarch is not known: %s\n", goarch);
 
 	// add goroot to the end of the libdir list.
 	suffix = "";
@@ -112,12 +123,7 @@ libinit(void)
 	}
 	Lflag(smprint("%s/pkg/%s_%s%s%s", goroot, goos, goarch, suffixsep, suffix));
 
-	// Unix doesn't like it when we write to a running (or, sometimes,
-	// recently run) binary, so remove the output file before writing it.
-	// On Windows 7, remove() can force the following create() to fail.
-#ifndef _WIN32
-	remove(outfile);
-#endif
+	mayberemoveoutfile();
 	cout = create(outfile, 1, 0775);
 	if(cout < 0) {
 		diag("cannot create %s: %r", outfile);
@@ -132,7 +138,7 @@ libinit(void)
 			sprint(INITENTRY, "_rt0_%s_%s_lib", goarch, goos);
 		}
 	}
-	lookup(INITENTRY, 0)->type = SXREF;
+	linklookup(ctxt, INITENTRY, 0)->type = SXREF;
 }
 
 void
@@ -140,150 +146,10 @@ errorexit(void)
 {
 	if(nerrors) {
 		if(cout >= 0)
-			remove(outfile);
+			mayberemoveoutfile();
 		exits("error");
 	}
 	exits(0);
-}
-
-void
-addlib(char *src, char *obj)
-{
-	char name[1024], pname[1024], comp[256], *p;
-	int i, search;
-
-	if(histfrogp <= 0)
-		return;
-
-	search = 0;
-	if(histfrog[0]->name[1] == '/') {
-		sprint(name, "");
-		i = 1;
-	} else
-	if(isalpha((uchar)histfrog[0]->name[1]) && histfrog[0]->name[2] == ':') {
-		strcpy(name, histfrog[0]->name+1);
-		i = 1;
-	} else
-	if(histfrog[0]->name[1] == '.') {
-		sprint(name, ".");
-		i = 0;
-	} else {
-		sprint(name, "");
-		i = 0;
-		search = 1;
-	}
-
-	for(; i<histfrogp; i++) {
-		snprint(comp, sizeof comp, "%s", histfrog[i]->name+1);
-		for(;;) {
-			p = strstr(comp, "$O");
-			if(p == 0)
-				break;
-			memmove(p+1, p+2, strlen(p+2)+1);
-			p[0] = thechar;
-		}
-		for(;;) {
-			p = strstr(comp, "$M");
-			if(p == 0)
-				break;
-			if(strlen(comp)+strlen(thestring)-2+1 >= sizeof comp) {
-				diag("library component too long");
-				return;
-			}
-			memmove(p+strlen(thestring), p+2, strlen(p+2)+1);
-			memmove(p, thestring, strlen(thestring));
-		}
-		if(strlen(name) + strlen(comp) + 3 >= sizeof(name)) {
-			diag("library component too long");
-			return;
-		}
-		if(i > 0 || !search)
-			strcat(name, "/");
-		strcat(name, comp);
-	}
-	cleanname(name);
-	
-	// runtime.a -> runtime
-	p = nil;
-	if(strlen(name) > 2 && name[strlen(name)-2] == '.') {
-		p = name+strlen(name)-2;
-		*p = '\0';
-	}
-	
-	// already loaded?
-	for(i=0; i<libraryp; i++)
-		if(strcmp(library[i].pkg, name) == 0)
-			return;
-	
-	// runtime -> runtime.a for search
-	if(p != nil)
-		*p = '.';
-
-	if(search) {
-		// try dot, -L "libdir", and then goroot.
-		for(i=0; i<nlibdir; i++) {
-			snprint(pname, sizeof pname, "%s/%s", libdir[i], name);
-			if(access(pname, AEXIST) >= 0)
-				break;
-		}
-	}else
-		strcpy(pname, name);
-	cleanname(pname);
-
-	/* runtime.a -> runtime */
-	if(p != nil)
-		*p = '\0';
-
-	if(debug['v'] > 1)
-		Bprint(&bso, "%5.2f addlib: %s %s pulls in %s\n", cputime(), obj, src, pname);
-
-	addlibpath(src, obj, pname, name);
-}
-
-/*
- * add library to library list.
- *	srcref: src file referring to package
- *	objref: object file referring to package
- *	file: object file, e.g., /home/rsc/go/pkg/container/vector.a
- *	pkg: package import path, e.g. container/vector
- */
-void
-addlibpath(char *srcref, char *objref, char *file, char *pkg)
-{
-	int i;
-	Library *l;
-	char *p;
-
-	for(i=0; i<libraryp; i++)
-		if(strcmp(file, library[i].file) == 0)
-			return;
-
-	if(debug['v'] > 1)
-		Bprint(&bso, "%5.2f addlibpath: srcref: %s objref: %s file: %s pkg: %s\n",
-			cputime(), srcref, objref, file, pkg);
-
-	if(libraryp == nlibrary){
-		nlibrary = 50 + 2*libraryp;
-		library = erealloc(library, sizeof library[0] * nlibrary);
-	}
-
-	l = &library[libraryp++];
-
-	p = mal(strlen(objref) + 1);
-	strcpy(p, objref);
-	l->objref = p;
-
-	p = mal(strlen(srcref) + 1);
-	strcpy(p, srcref);
-	l->srcref = p;
-
-	p = mal(strlen(file) + 1);
-	strcpy(p, file);
-	l->file = p;
-
-	p = mal(strlen(pkg) + 1);
-	strcpy(p, pkg);
-	l->pkg = p;
 }
 
 void
@@ -293,12 +159,12 @@ loadinternal(char *name)
 	int i, found;
 
 	found = 0;
-	for(i=0; i<nlibdir; i++) {
-		snprint(pname, sizeof pname, "%s/%s.a", libdir[i], name);
+	for(i=0; i<ctxt->nlibdir; i++) {
+		snprint(pname, sizeof pname, "%s/%s.a", ctxt->libdir[i], name);
 		if(debug['v'])
 			Bprint(&bso, "searching for %s.a in %s\n", name, pname);
 		if(access(pname, AEXIST) >= 0) {
-			addlibpath("internal", "internal", pname, name);
+			addlibpath(ctxt, "internal", "internal", pname, name);
 			found = 1;
 			break;
 		}
@@ -311,12 +177,13 @@ void
 loadlib(void)
 {
 	int i, w, x;
-	Sym *s, *gmsym;
+	LSym *s, *gmsym;
+	char* cgostrsym;
 
 	if(flag_shared) {
-		s = lookup("runtime.islibrary", 0);
+		s = linklookup(ctxt, "runtime.islibrary", 0);
 		s->dupok = 1;
-		adduint8(s, 1);
+		adduint8(ctxt, s, 1);
 	}
 
 	loadinternal("runtime");
@@ -324,27 +191,36 @@ loadlib(void)
 		loadinternal("math");
 	if(flag_race)
 		loadinternal("runtime/race");
-	if(linkmode == LinkExternal) {
+
+	for(i=0; i<ctxt->libraryp; i++) {
+		if(debug['v'] > 1)
+			Bprint(&bso, "%5.2f autolib: %s (from %s)\n", cputime(), ctxt->library[i].file, ctxt->library[i].objref);
+		iscgo |= strcmp(ctxt->library[i].pkg, "runtime/cgo") == 0;
+		objfile(ctxt->library[i].file, ctxt->library[i].pkg);
+	}
+	
+	if(linkmode == LinkExternal && !iscgo) {
 		// This indicates a user requested -linkmode=external.
 		// The startup code uses an import of runtime/cgo to decide
 		// whether to initialize the TLS.  So give it one.  This could
 		// be handled differently but it's an unusual case.
 		loadinternal("runtime/cgo");
+		if(i < ctxt->libraryp)
+			objfile(ctxt->library[i].file, ctxt->library[i].pkg);
+
 		// Pretend that we really imported the package.
-		// This will do no harm if we did in fact import it.
-		s = lookup("go.importpath.runtime/cgo.", 0);
+		s = linklookup(ctxt, "go.importpath.runtime/cgo.", 0);
 		s->type = SDATA;
 		s->dupok = 1;
 		s->reachable = 1;
+
+		// Provided by the code that imports the package.
+		// Since we are simulating the import, we have to provide this string.
+		cgostrsym = "go.string.\"runtime/cgo\"";
+		if(linkrlookup(ctxt, cgostrsym, 0) == nil)
+			addstrdata(cgostrsym, "runtime/cgo");
 	}
 
-	for(i=0; i<libraryp; i++) {
-		if(debug['v'] > 1)
-			Bprint(&bso, "%5.2f autolib: %s (from %s)\n", cputime(), library[i].file, library[i].objref);
-		iscgo |= strcmp(library[i].pkg, "runtime/cgo") == 0;
-		objfile(library[i].file, library[i].pkg);
-	}
-	
 	if(linkmode == LinkAuto) {
 		if(iscgo && externalobj)
 			linkmode = LinkExternal;
@@ -355,7 +231,7 @@ loadlib(void)
 	if(linkmode == LinkInternal) {
 		// Drop all the cgo_import_static declarations.
 		// Turns out we won't be needing them.
-		for(s = allsym; s != S; s = s->allsym)
+		for(s = ctxt->allsym; s != S; s = s->allsym)
 			if(s->type == SHOSTOBJ) {
 				// If a symbol was marked both
 				// cgo_import_static and cgo_import_dynamic,
@@ -368,14 +244,12 @@ loadlib(void)
 			}
 	}
 	
-	gmsym = lookup("runtime.tlsgm", 0);
+	gmsym = linklookup(ctxt, "runtime.tlsgm", 0);
 	gmsym->type = STLSBSS;
 	gmsym->size = 2*PtrSize;
 	gmsym->hide = 1;
-	if(linkmode == LinkExternal && iself && HEADTYPE != Hopenbsd)
-		gmsym->reachable = 1;
-	else
-		gmsym->reachable = 0;
+	gmsym->reachable = 1;
+	ctxt->gmsym = gmsym;
 
 	// Now that we know the link mode, trim the dynexp list.
 	x = CgoExportDynamic;
@@ -402,7 +276,9 @@ loadlib(void)
 	//
 	// Exception: on OS X, programs such as Shark only work with dynamic
 	// binaries, so leave it enabled on OS X (Mach-O) binaries.
-	if(!flag_shared && !havedynamic && HEADTYPE != Hdarwin)
+	// Also leave it enabled on Solaris which doesn't support
+	// statically linked binaries.
+	if(!flag_shared && !havedynamic && HEADTYPE != Hdarwin && HEADTYPE != Hsolaris)
 		debug['d'] = 1;
 	
 	importcycles();
@@ -412,8 +288,8 @@ loadlib(void)
  * look for the next file in an archive.
  * adapted from libmach.
  */
-int
-nextar(Biobuf *bp, int off, struct ar_hdr *a)
+static vlong
+nextar(Biobuf *bp, vlong off, struct ar_hdr *a)
 {
 	int r;
 	int32 arsize;
@@ -443,7 +319,7 @@ nextar(Biobuf *bp, int off, struct ar_hdr *a)
 void
 objfile(char *file, char *pkg)
 {
-	int32 off, l;
+	vlong off, l;
 	Biobuf *f;
 	char magbuf[SARMAG];
 	char pname[150];
@@ -470,25 +346,24 @@ objfile(char *file, char *pkg)
 		return;
 	}
 	
-	/* skip over __.GOSYMDEF */
+	/* skip over optional __.GOSYMDEF and process __.PKGDEF */
 	off = Boffset(f);
-	if((l = nextar(f, off, &arhdr)) <= 0) {
+	l = nextar(f, off, &arhdr);
+	if(l <= 0) {
 		diag("%s: short read on archive file symbol header", file);
 		goto out;
 	}
-	if(strncmp(arhdr.name, symname, strlen(symname))) {
-		diag("%s: first entry not symbol header", file);
-		goto out;
+	if(strncmp(arhdr.name, symname, strlen(symname)) == 0) {
+		off += l;
+		l = nextar(f, off, &arhdr);
+		if(l <= 0) {
+			diag("%s: short read on archive file symbol header", file);
+			goto out;
+		}
 	}
-	off += l;
-	
-	/* skip over (or process) __.PKGDEF */
-	if((l = nextar(f, off, &arhdr)) <= 0) {
-		diag("%s: short read on archive file symbol header", file);
-		goto out;
-	}
+
 	if(strncmp(arhdr.name, pkgname, strlen(pkgname))) {
-		diag("%s: second entry not package header", file);
+		diag("%s: cannot find package header", file);
 		goto out;
 	}
 	off += l;
@@ -539,7 +414,7 @@ dowrite(int fd, char *p, int n)
 	while(n > 0) {
 		m = write(fd, p, n);
 		if(m <= 0) {
-			cursym = S;
+			ctxt->cursym = S;
 			diag("write error: %r");
 			errorexit();
 		}
@@ -628,7 +503,7 @@ hostobjs(void)
 		h = &hostobj[i];
 		f = Bopen(h->file, OREAD);
 		if(f == nil) {
-			cursym = S;
+			ctxt->cursym = S;
 			diag("cannot reopen %s: %r", h->pn);
 			errorexit();
 		}
@@ -697,7 +572,7 @@ hostlink(void)
 		p = strchr(p + 1, ' ');
 	}
 
-	argv = malloc((13+nhostobj+nldflag+c)*sizeof argv[0]);
+	argv = malloc((14+nhostobj+nldflag+c)*sizeof argv[0]);
 	argc = 0;
 	if(extld == nil)
 		extld = "gcc";
@@ -720,6 +595,8 @@ hostlink(void)
 	}
 	if(HEADTYPE == Hdarwin)
 		argv[argc++] = "-Wl,-no_pie,-pagezero_size,4000000";
+	if(HEADTYPE == Hopenbsd)
+		argv[argc++] = "-Wl,-nopie";
 	
 	if(iself && AssumeGoldLinker)
 		argv[argc++] = "-Wl,--rosegment";
@@ -738,13 +615,16 @@ hostlink(void)
 	if(iself)
 		argv[argc++] = "-rdynamic";
 
+	if(strstr(argv[0], "clang") != nil)
+		argv[argc++] = "-Qunused-arguments";
+
 	// already wrote main object file
 	// copy host objects to temporary directory
 	for(i=0; i<nhostobj; i++) {
 		h = &hostobj[i];
 		f = Bopen(h->file, OREAD);
 		if(f == nil) {
-			cursym = S;
+			ctxt->cursym = S;
 			diag("cannot reopen %s: %r", h->pn);
 			errorexit();
 		}
@@ -753,7 +633,7 @@ hostlink(void)
 		argv[argc++] = p;
 		w = create(p, 1, 0775);
 		if(w < 0) {
-			cursym = S;
+			ctxt->cursym = S;
 			diag("cannot create %s: %r", p);
 			errorexit();
 		}
@@ -765,7 +645,7 @@ hostlink(void)
 			len -= n;
 		}
 		if(close(w) < 0) {
-			cursym = S;
+			ctxt->cursym = S;
 			diag("cannot write %s: %r", p);
 			errorexit();
 		}
@@ -783,6 +663,20 @@ hostlink(void)
 		if(*p == '\0')
 			break;
 		argv[argc++] = p;
+
+		// clang, unlike GCC, passes -rdynamic to the linker
+		// even when linking with -static, causing a linker
+		// error when using GNU ld.  So take out -rdynamic if
+		// we added it.  We do it in this order, rather than
+		// only adding -rdynamic later, so that -extldflags
+		// can override -rdynamic without using -static.
+		if(iself && strncmp(p, "-static", 7) == 0 && (p[7]==' ' || p[7]=='\0')) {
+			for(i=0; i<argc; i++) {
+				if(strcmp(argv[i], "-rdynamic") == 0)
+					argv[i] = "-static";
+			}
+		}
+
 		p = strchr(p + 1, ' ');
 	}
 
@@ -798,7 +692,7 @@ hostlink(void)
 	}
 
 	if(runcmd(argv) < 0) {
-		cursym = S;
+		ctxt->cursym = S;
 		diag("%s: running %s failed: %r", argv0, argv[0]);
 		errorexit();
 	}
@@ -866,8 +760,8 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, char *file, int whence)
 		return;
 	}
 	
-	// First, check that the basic goos, string, and version match.
-	t = smprint("%s %s %s ", goos, thestring, getgoversion());
+	// First, check that the basic goos, goarch, and version match.
+	t = smprint("%s %s %s ", goos, getgoarch(), getgoversion());
 	line[n] = ' ';
 	if(strncmp(line+10, t, strlen(t)) != 0 && !debug['f']) {
 		line[n] = '\0';
@@ -913,7 +807,7 @@ ldobj(Biobuf *f, char *pkg, int64 len, char *pn, char *file, int whence)
 	ldpkg(f, pkg, import1 - import0 - 2, pn, whence);	// -2 for !\n
 	Bseek(f, import1, 0);
 
-	ldobj1(f, pkg, eof - Boffset(f), pn);
+	ldobjfile(ctxt, f, pkg, eof - Boffset(f), pn);
 	free(pn);
 	return;
 
@@ -922,318 +816,12 @@ eof:
 	free(pn);
 }
 
-Sym*
-newsym(char *symb, int v)
-{
-	Sym *s;
-	int l;
-
-	l = strlen(symb) + 1;
-	s = mal(sizeof(*s));
-	if(debug['v'] > 1)
-		Bprint(&bso, "newsym %s\n", symb);
-
-	s->dynid = -1;
-	s->plt = -1;
-	s->got = -1;
-	s->name = mal(l + 1);
-	memmove(s->name, symb, l);
-
-	s->type = 0;
-	s->version = v;
-	s->value = 0;
-	s->sig = 0;
-	s->size = 0;
-	nsymbol++;
-
-	s->allsym = allsym;
-	allsym = s;
-
-	return s;
-}
-
-static Sym*
-_lookup(char *symb, int v, int creat)
-{
-	Sym *s;
-	char *p;
-	uint32 h;
-	int c;
-
-	h = v;
-	for(p=symb; c = *p; p++)
-		h = h+h+h + c;
-	// not if(h < 0) h = ~h, because gcc 4.3 -O2 miscompiles it.
-	h &= 0xffffff;
-	h %= NHASH;
-	for(s = hash[h]; s != S; s = s->hash)
-		if(strcmp(s->name, symb) == 0)
-			return s;
-	if(!creat)
-		return nil;
-
-	s = newsym(symb, v);
-	s->extname = s->name;
-	s->hash = hash[h];
-	hash[h] = s;
-
-	return s;
-}
-
-Sym*
-lookup(char *name, int v)
-{
-	return _lookup(name, v, 1);
-}
-
-// read-only lookup
-Sym*
-rlookup(char *name, int v)
-{
-	return _lookup(name, v, 0);
-}
-
-void
-copyhistfrog(char *buf, int nbuf)
-{
-	char *p, *ep;
-	int i;
-
-	p = buf;
-	ep = buf + nbuf;
-	for(i=0; i<histfrogp; i++) {
-		p = seprint(p, ep, "%s", histfrog[i]->name+1);
-		if(i+1<histfrogp && (p == buf || p[-1] != '/'))
-			p = seprint(p, ep, "/");
-	}
-}
-
-void
-addhist(int32 line, int type)
-{
-	Auto *u;
-	Sym *s;
-	int i, j, k;
-
-	u = mal(sizeof(Auto));
-	s = mal(sizeof(Sym));
-	s->name = mal(2*(histfrogp+1) + 1);
-
-	u->asym = s;
-	u->type = type;
-	u->aoffset = line;
-	u->link = curhist;
-	curhist = u;
-
-	s->name[0] = 0;
-	j = 1;
-	for(i=0; i<histfrogp; i++) {
-		k = histfrog[i]->value;
-		s->name[j+0] = k>>8;
-		s->name[j+1] = k;
-		j += 2;
-	}
-	s->name[j] = 0;
-	s->name[j+1] = 0;
-}
-
-void
-histtoauto(void)
-{
-	Auto *l;
-
-	while(l = curhist) {
-		curhist = l->link;
-		l->link = curauto;
-		curauto = l;
-	}
-}
-
-void
-collapsefrog(Sym *s)
-{
-	int i;
-
-	/*
-	 * bad encoding of path components only allows
-	 * MAXHIST components. if there is an overflow,
-	 * first try to collapse xxx/..
-	 */
-	for(i=1; i<histfrogp; i++)
-		if(strcmp(histfrog[i]->name+1, "..") == 0) {
-			memmove(histfrog+i-1, histfrog+i+1,
-				(histfrogp-i-1)*sizeof(histfrog[0]));
-			histfrogp--;
-			goto out;
-		}
-
-	/*
-	 * next try to collapse .
-	 */
-	for(i=0; i<histfrogp; i++)
-		if(strcmp(histfrog[i]->name+1, ".") == 0) {
-			memmove(histfrog+i, histfrog+i+1,
-				(histfrogp-i-1)*sizeof(histfrog[0]));
-			goto out;
-		}
-
-	/*
-	 * last chance, just truncate from front
-	 */
-	memmove(histfrog+0, histfrog+1,
-		(histfrogp-1)*sizeof(histfrog[0]));
-
-out:
-	histfrog[histfrogp-1] = s;
-}
-
-void
-nuxiinit(void)
-{
-	int i, c;
-
-	for(i=0; i<4; i++) {
-		c = find1(0x04030201L, i+1);
-		if(i < 2)
-			inuxi2[i] = c;
-		if(i < 1)
-			inuxi1[i] = c;
-		inuxi4[i] = c;
-		if(c == i) {
-			inuxi8[i] = c;
-			inuxi8[i+4] = c+4;
-		} else {
-			inuxi8[i] = c+4;
-			inuxi8[i+4] = c;
-		}
-		fnuxi4[i] = c;
-		fnuxi8[i] = c;
-		fnuxi8[i+4] = c+4;
-	}
-	if(debug['v']) {
-		Bprint(&bso, "inuxi = ");
-		for(i=0; i<1; i++)
-			Bprint(&bso, "%d", inuxi1[i]);
-		Bprint(&bso, " ");
-		for(i=0; i<2; i++)
-			Bprint(&bso, "%d", inuxi2[i]);
-		Bprint(&bso, " ");
-		for(i=0; i<4; i++)
-			Bprint(&bso, "%d", inuxi4[i]);
-		Bprint(&bso, " ");
-		for(i=0; i<8; i++)
-			Bprint(&bso, "%d", inuxi8[i]);
-		Bprint(&bso, "\nfnuxi = ");
-		for(i=0; i<4; i++)
-			Bprint(&bso, "%d", fnuxi4[i]);
-		Bprint(&bso, " ");
-		for(i=0; i<8; i++)
-			Bprint(&bso, "%d", fnuxi8[i]);
-		Bprint(&bso, "\n");
-	}
-	Bflush(&bso);
-}
-
-int
-find1(int32 l, int c)
-{
-	char *p;
-	int i;
-
-	p = (char*)&l;
-	for(i=0; i<4; i++)
-		if(*p++ == c)
-			return i;
-	return 0;
-}
-
-int
-find2(int32 l, int c)
-{
-	union {
-		int32 l;
-		short p[2];
-	} u;
-	short *p;
-	int i;
-
-	u.l = l;
-	p = u.p;
-	for(i=0; i<4; i+=2) {
-		if(((*p >> 8) & 0xff) == c)
-			return i;
-		if((*p++ & 0xff) == c)
-			return i+1;
-	}
-	return 0;
-}
-
-int32
-ieeedtof(Ieee *e)
-{
-	int exp;
-	int32 v;
-
-	if(e->h == 0)
-		return 0;
-	exp = (e->h>>20) & ((1L<<11)-1L);
-	exp -= (1L<<10) - 2L;
-	v = (e->h & 0xfffffL) << 3;
-	v |= (e->l >> 29) & 0x7L;
-	if((e->l >> 28) & 1) {
-		v++;
-		if(v & 0x800000L) {
-			v = (v & 0x7fffffL) >> 1;
-			exp++;
-		}
-	}
-	if(-148 <= exp && exp <= -126) {
-		v |= 1<<23;
-		v >>= -125 - exp;
-		exp = -126;
-	}
-	else if(exp < -148 || exp >= 130)
-		diag("double fp to single fp overflow: %.17g", ieeedtod(e));
-	v |= ((exp + 126) & 0xffL) << 23;
-	v |= e->h & 0x80000000L;
-	return v;
-}
-
-double
-ieeedtod(Ieee *ieeep)
-{
-	Ieee e;
-	double fr;
-	int exp;
-
-	if(ieeep->h & (1L<<31)) {
-		e.h = ieeep->h & ~(1L<<31);
-		e.l = ieeep->l;
-		return -ieeedtod(&e);
-	}
-	if(ieeep->l == 0 && ieeep->h == 0)
-		return 0;
-	exp = (ieeep->h>>20) & ((1L<<11)-1L);
-	exp -= (1L<<10) - 2L;
-	fr = ieeep->l & ((1L<<16)-1L);
-	fr /= 1L<<16;
-	fr += (ieeep->l>>16) & ((1L<<16)-1L);
-	fr /= 1L<<16;
-	if(exp == -(1L<<10) - 2L) {
-		fr += (ieeep->h & (1L<<20)-1L);
-		exp++;
-	} else
-		fr += (ieeep->h & (1L<<20)-1L) | (1L<<20);
-	fr /= 1L<<21;
-	return ldexp(fr, exp);
-}
-
 void
 zerosig(char *sp)
 {
-	Sym *s;
+	LSym *s;
 
-	s = lookup(sp, 0);
+	s = linklookup(ctxt, sp, 0);
 	s->sig = 0;
 }
 
@@ -1242,7 +830,10 @@ mywhatsys(void)
 {
 	goroot = getgoroot();
 	goos = getgoos();
-	goarch = thestring;	// ignore $GOARCH - we know who we are
+	goarch = getgoarch();
+
+	if(strncmp(goarch, thestring, strlen(thestring)) != 0)
+		sysfatal("cannot use %cc with GOARCH=%s", thechar, goarch);
 }
 
 int
@@ -1303,7 +894,8 @@ unmal(void *v, uint32 n)
  * Invalid bytes turn into %xx.	 Right now the only bytes that need
  * escaping are %, ., and ", but we escape all control characters too.
  *
- * Must be same as ../gc/subr.c:/^pathtoprefix.
+ * If you edit this, edit ../gc/subr.c:/^pathtoprefix too.
+ * If you edit this, edit ../../pkg/debug/goobj/read.go:/importPathToPrefix too.
  */
 static char*
 pathtoprefix(char *s)
@@ -1357,13 +949,6 @@ iconv(Fmt *fp)
 	return 0;
 }
 
-void
-mangle(char *file)
-{
-	fprint(2, "%s: mangled input file\n", file);
-	errorexit();
-}
-
 Section*
 addsection(Segment *seg, char *name, int rwx)
 {
@@ -1379,235 +964,6 @@ addsection(Segment *seg, char *name, int rwx)
 	sect->align = PtrSize; // everything is at least pointer-aligned
 	*l = sect;
 	return sect;
-}
-
-void
-addvarint(Sym *s, uint32 val)
-{
-	int32 n;
-	uint32 v;
-	uchar *p;
-
-	n = 0;
-	for(v = val; v >= 0x80; v >>= 7)
-		n++;
-	n++;
-
-	symgrow(s, s->np+n);
-
-	p = s->p + s->np - n;
-	for(v = val; v >= 0x80; v >>= 7)
-		*p++ = v | 0x80;
-	*p = v;
-}
-
-// funcpctab appends to dst a pc-value table mapping the code in func to the values
-// returned by valfunc parameterized by arg. The invocation of valfunc to update the
-// current value is, for each p,
-//
-//	val = valfunc(func, val, p, 0, arg);
-//	record val as value at p->pc;
-//	val = valfunc(func, val, p, 1, arg);
-//
-// where func is the function, val is the current value, p is the instruction being
-// considered, and arg can be used to further parameterize valfunc.
-void
-funcpctab(Sym *dst, Sym *func, char *desc, int32 (*valfunc)(Sym*, int32, Prog*, int32, int32), int32 arg)
-{
-	int dbg, i, start;
-	int32 oldval, val, started;
-	uint32 delta;
-	vlong pc;
-	Prog *p;
-
-	// To debug a specific function, uncomment second line and change name.
-	dbg = 0;
-	//dbg = strcmp(func->name, "main.main") == 0;
-
-	debug['O'] += dbg;
-
-	start = dst->np;
-
-	if(debug['O'])
-		Bprint(&bso, "funcpctab %s -> %s [valfunc=%s]\n", func->name, dst->name, desc);
-
-	val = -1;
-	oldval = val;
-	pc = func->value;
-	
-	if(debug['O'])
-		Bprint(&bso, "%6llux %6d %P\n", pc, val, func->text);
-
-	started = 0;
-	for(p=func->text; p != P; p = p->link) {
-		// Update val. If it's not changing, keep going.
-		val = valfunc(func, val, p, 0, arg);
-		if(val == oldval && started) {
-			val = valfunc(func, val, p, 1, arg);
-			if(debug['O'])
-				Bprint(&bso, "%6llux %6s %P\n", (vlong)p->pc, "", p);
-			continue;
-		}
-
-		// If the pc of the next instruction is the same as the
-		// pc of this instruction, this instruction is not a real
-		// instruction. Keep going, so that we only emit a delta
-		// for a true instruction boundary in the program.
-		if(p->link && p->link->pc == p->pc) {
-			val = valfunc(func, val, p, 1, arg);
-			if(debug['O'])
-				Bprint(&bso, "%6llux %6s %P\n", (vlong)p->pc, "", p);
-			continue;
-		}
-
-		// The table is a sequence of (value, pc) pairs, where each
-		// pair states that the given value is in effect from the current position
-		// up to the given pc, which becomes the new current position.
-		// To generate the table as we scan over the program instructions,
-		// we emit a "(value" when pc == func->value, and then
-		// each time we observe a change in value we emit ", pc) (value".
-		// When the scan is over, we emit the closing ", pc)".
-		//
-		// The table is delta-encoded. The value deltas are signed and
-		// transmitted in zig-zag form, where a complement bit is placed in bit 0,
-		// and the pc deltas are unsigned. Both kinds of deltas are sent
-		// as variable-length little-endian base-128 integers,
-		// where the 0x80 bit indicates that the integer continues.
-
-		if(debug['O'])
-			Bprint(&bso, "%6llux %6d %P\n", (vlong)p->pc, val, p);
-
-		if(started) {
-			addvarint(dst, (p->pc - pc) / MINLC);
-			pc = p->pc;
-		}
-		delta = val - oldval;
-		if(delta>>31)
-			delta = 1 | ~(delta<<1);
-		else
-			delta <<= 1;
-		addvarint(dst, delta);
-		oldval = val;
-		started = 1;
-		val = valfunc(func, val, p, 1, arg);
-	}
-
-	if(started) {
-		if(debug['O'])
-			Bprint(&bso, "%6llux done\n", (vlong)func->value+func->size);
-		addvarint(dst, (func->value+func->size - pc) / MINLC);
-		addvarint(dst, 0); // terminator
-	}
-
-	if(debug['O']) {
-		Bprint(&bso, "wrote %d bytes\n", dst->np - start);
-		for(i=start; i<dst->np; i++)
-			Bprint(&bso, " %02ux", dst->p[i]);
-		Bprint(&bso, "\n");
-	}
-
-	debug['O'] -= dbg;
-}
-
-// pctofileline computes either the file number (arg == 0)
-// or the line number (arg == 1) to use at p.
-// Because p->lineno applies to p, phase == 0 (before p)
-// takes care of the update.
-static int32
-pctofileline(Sym *sym, int32 oldval, Prog *p, int32 phase, int32 arg)
-{
-	int32 f, l;
-
-	if(p->as == ATEXT || p->as == ANOP || p->as == AUSEFIELD || p->line == 0 || phase == 1)
-		return oldval;
-	getline(sym->hist, p->line, &f, &l);
-	if(f == 0) {
-	//	print("getline failed for %s %P\n", cursym->name, p);
-		return oldval;
-	}
-	if(arg == 0)
-		return f;
-	return l;
-}
-
-// pctospadj computes the sp adjustment in effect.
-// It is oldval plus any adjustment made by p itself.
-// The adjustment by p takes effect only after p, so we
-// apply the change during phase == 1.
-static int32
-pctospadj(Sym *sym, int32 oldval, Prog *p, int32 phase, int32 arg)
-{
-	USED(arg);
-	USED(sym);
-
-	if(oldval == -1) // starting
-		oldval = 0;
-	if(phase == 0)
-		return oldval;
-	if(oldval + p->spadj < -10000 || oldval + p->spadj > 1100000000) {
-		diag("overflow in spadj: %d + %d = %d", oldval, p->spadj, oldval + p->spadj);
-		errorexit();
-	}
-	return oldval + p->spadj;
-}
-
-// pctopcdata computes the pcdata value in effect at p.
-// A PCDATA instruction sets the value in effect at future
-// non-PCDATA instructions.
-// Since PCDATA instructions have no width in the final code,
-// it does not matter which phase we use for the update.
-static int32
-pctopcdata(Sym *sym, int32 oldval, Prog *p, int32 phase, int32 arg)
-{
-	USED(sym);
-
-	if(phase == 0 || p->as != APCDATA || p->from.offset != arg)
-		return oldval;
-	if((int32)p->to.offset != p->to.offset) {
-		diag("overflow in PCDATA instruction: %P", p);
-		errorexit();
-	}
-	return p->to.offset;
-}
-
-#define	LOG	5
-void
-mkfwd(void)
-{
-	Prog *p;
-	int i;
-	int32 dwn[LOG], cnt[LOG];
-	Prog *lst[LOG];
-
-	for(i=0; i<LOG; i++) {
-		if(i == 0)
-			cnt[i] = 1;
-		else
-			cnt[i] = LOG * cnt[i-1];
-		dwn[i] = 1;
-		lst[i] = P;
-	}
-	i = 0;
-	for(cursym = textp; cursym != nil; cursym = cursym->next) {
-		for(p = cursym->text; p != P; p = p->link) {
-			if(p->link == P) {
-				if(cursym->next)
-					p->forwd = cursym->next->text;
-				break;
-			}
-			i--;
-			if(i < 0)
-				i = LOG-1;
-			p->forwd = P;
-			dwn[i]--;
-			if(dwn[i] <= 0) {
-				dwn[i] = cnt[i];
-				if(lst[i] != P)
-					lst[i]->forwd = p;
-				lst[i] = p;
-			}
-		}
-	}
 }
 
 uint16
@@ -1652,7 +1008,7 @@ Endian le = { le16, le32, le64 };
 typedef struct Chain Chain;
 struct Chain
 {
-	Sym *sym;
+	LSym *sym;
 	Chain *up;
 	int limit;  // limit on entry to sym
 };
@@ -1660,67 +1016,87 @@ struct Chain
 static int stkcheck(Chain*, int);
 static void stkprint(Chain*, int);
 static void stkbroke(Chain*, int);
-static Sym *morestack;
-static Sym *newstack;
+static LSym *morestack;
+static LSym *newstack;
 
 enum
 {
 	HasLinkRegister = (thechar == '5'),
-	CallSize = (!HasLinkRegister)*PtrSize,	// bytes of stack required for a call
 };
+
+// TODO: Record enough information in new object files to
+// allow stack checks here.
+
+static int
+callsize(void)
+{
+	if(thechar == '5')
+		return 0;
+	return RegSize;
+}
 
 void
 dostkcheck(void)
 {
 	Chain ch;
-	Sym *s;
+	LSym *s;
 	
-	morestack = lookup("runtime.morestack", 0);
-	newstack = lookup("runtime.newstack", 0);
+	morestack = linklookup(ctxt, "runtime.morestack", 0);
+	newstack = linklookup(ctxt, "runtime.newstack", 0);
 
-	// First the nosplits on their own.
-	for(s = textp; s != nil; s = s->next) {
-		if(s->text == nil || s->text->link == nil || (s->text->textflag & NOSPLIT) == 0)
+	// Every splitting function ensures that there are at least StackLimit
+	// bytes available below SP when the splitting prologue finishes.
+	// If the splitting function calls F, then F begins execution with
+	// at least StackLimit - callsize() bytes available.
+	// Check that every function behaves correctly with this amount
+	// of stack, following direct calls in order to piece together chains
+	// of non-splitting functions.
+	ch.up = nil;
+	ch.limit = StackLimit - callsize();
+
+	// Check every function, but do the nosplit functions in a first pass,
+	// to make the printed failure chains as short as possible.
+	for(s = ctxt->textp; s != nil; s = s->next) {
+		// runtime.racesymbolizethunk is called from gcc-compiled C
+		// code running on the operating system thread stack.
+		// It uses more than the usual amount of stack but that's okay.
+		if(strcmp(s->name, "runtime.racesymbolizethunk") == 0)
 			continue;
-		cursym = s;
-		ch.up = nil;
+
+		if(s->nosplit) {
+		ctxt->cursym = s;
 		ch.sym = s;
-		ch.limit = StackLimit - CallSize;
-		stkcheck(&ch, 0);
-		s->stkcheck = 1;
-	}
-	
-	// Check calling contexts.
-	// Some nosplits get called a little further down,
-	// like newproc and deferproc.	We could hard-code
-	// that knowledge but it's more robust to look at
-	// the actual call sites.
-	for(s = textp; s != nil; s = s->next) {
-		if(s->text == nil || s->text->link == nil || (s->text->textflag & NOSPLIT) != 0)
-			continue;
-		cursym = s;
-		ch.up = nil;
-		ch.sym = s;
-		ch.limit = StackLimit - CallSize;
 		stkcheck(&ch, 0);
 	}
+	}
+	for(s = ctxt->textp; s != nil; s = s->next) {
+		if(!s->nosplit) {
+		ctxt->cursym = s;
+		ch.sym = s;
+		stkcheck(&ch, 0);
+	}
+}
 }
 
 static int
 stkcheck(Chain *up, int depth)
 {
 	Chain ch, ch1;
-	Prog *p;
-	Sym *s;
-	int limit, prolog;
+	LSym *s;
+	int limit;
+	Reloc *r, *endr;
+	Pciter pcsp;
 	
 	limit = up->limit;
 	s = up->sym;
-	p = s->text;
 	
-	// Small optimization: don't repeat work at top.
-	if(s->stkcheck && limit == StackLimit-CallSize)
+	// Don't duplicate work: only need to consider each
+	// function at top of safe zone once.
+	if(limit == StackLimit-callsize()) {
+		if(s->stkcheck)
 		return 0;
+		s->stkcheck = 1;
+	}
 	
 	if(depth > 100) {
 		diag("nosplit stack check too deep");
@@ -1728,11 +1104,11 @@ stkcheck(Chain *up, int depth)
 		return -1;
 	}
 
-	if(p == nil || p->link == nil) {
+	if(s->external || s->pcln == nil) {
 		// external function.
 		// should never be called directly.
 		// only diagnose the direct caller.
-		if(depth == 1)
+		if(depth == 1 && s->type != SXREF)
 			diag("call to external function %s", s->name);
 		return -1;
 	}
@@ -1748,50 +1124,56 @@ stkcheck(Chain *up, int depth)
 		return 0;
 
 	ch.up = up;
-	prolog = (s->text->textflag & NOSPLIT) == 0;
-	for(p = s->text; p != P; p = p->link) {
-		limit -= p->spadj;
-		if(prolog && p->spadj != 0) {
-			// The first stack adjustment in a function with a
-			// split-checking prologue marks the end of the
-			// prologue.  Assuming the split check is correct,
-			// after the adjustment there should still be at least
-			// StackLimit bytes available below the stack pointer.
-			// If this is not the top call in the chain, no need
-			// to duplicate effort, so just stop.
-			if(depth > 0)
-				return 0;
-			prolog = 0;
-			limit = StackLimit;
-		}
-		if(limit < 0) {
-			stkbroke(up, limit);
+	
+	// Walk through sp adjustments in function, consuming relocs.
+	r = s->r;
+	endr = r + s->nr;
+	for(pciterinit(ctxt, &pcsp, &s->pcln->pcsp); !pcsp.done; pciternext(&pcsp)) {
+		// pcsp.value is in effect for [pcsp.pc, pcsp.nextpc).
+
+		// Check stack size in effect for this span.
+		if(limit - pcsp.value < 0) {
+			stkbroke(up, limit - pcsp.value);
 			return -1;
 		}
-		if(iscall(p)) {
-			limit -= CallSize;
-			ch.limit = limit;
-			if(p->to.type == D_BRANCH) {
+
+		// Process calls in this span.
+		for(; r < endr && r->off < pcsp.nextpc; r++) {
+			switch(r->type) {
+			case R_CALL:
+			case R_CALLARM:
 				// Direct call.
-				ch.sym = p->to.sym;
+				ch.limit = limit - pcsp.value - callsize();
+				ch.sym = r->sym;
 				if(stkcheck(&ch, depth+1) < 0)
 					return -1;
-			} else {
-				// Indirect call.  Assume it is a splitting function,
+
+				// If this is a call to morestack, we've just raised our limit back
+				// to StackLimit beyond the frame size.
+				if(strncmp(r->sym->name, "runtime.morestack", 17) == 0) {
+					limit = StackLimit + s->locals;
+					if(thechar == '5')
+						limit += 4; // saved LR
+				}
+				break;
+
+			case R_CALLIND:
+				// Indirect call.  Assume it is a call to a splitting function,
 				// so we have to make sure it can call morestack.
-				limit -= CallSize;
+				// Arrange the data structures to report both calls, so that
+				// if there is an error, stkprint shows all the steps involved.
+				ch.limit = limit - pcsp.value - callsize();
 				ch.sym = nil;
-				ch1.limit = limit;
+				ch1.limit = ch.limit - callsize(); // for morestack in called prologue
 				ch1.up = &ch;
 				ch1.sym = morestack;
 				if(stkcheck(&ch1, depth+2) < 0)
 					return -1;
-				limit += CallSize;
+				break;
 			}
-			limit += CallSize;
+		}
 		}
 		
-	}
 	return 0;
 }
 
@@ -1814,7 +1196,7 @@ stkprint(Chain *ch, int limit)
 
 	if(ch->up == nil) {
 		// top of chain.  ch->sym != nil.
-		if(ch->sym->text->textflag & NOSPLIT)
+		if(ch->sym->nosplit)
 			print("\t%d\tassumed on entry to %s\n", ch->limit, name);
 		else
 			print("\t%d\tguaranteed after split check in %s\n", ch->limit, name);
@@ -1828,52 +1210,14 @@ stkprint(Chain *ch, int limit)
 }
 
 int
-headtype(char *name)
-{
-	int i;
-
-	for(i=0; headers[i].name; i++)
-		if(strcmp(name, headers[i].name) == 0) {
-			headstring = headers[i].name;
-			return headers[i].val;
-		}
-	fprint(2, "unknown header type -H %s\n", name);
-	errorexit();
-	return -1;  // not reached
-}
-
-char*
-headstr(int v)
-{
-	static char buf[20];
-	int i;
-
-	for(i=0; headers[i].name; i++)
-		if(v == headers[i].val)
-			return headers[i].name;
-	snprint(buf, sizeof buf, "%d", v);
-	return buf;
-}
-
-void
-undef(void)
-{
-	Sym *s;
-
-	for(s = allsym; s != S; s = s->allsym)
-		if(s->type == SXREF)
-			diag("%s(%d): not defined", s->name, s->version);
-}
-
-int
 Yconv(Fmt *fp)
 {
-	Sym *s;
+	LSym *s;
 	Fmt fmt;
 	int i;
 	char *str;
 
-	s = va_arg(fp->args, Sym*);
+	s = va_arg(fp->args, LSym*);
 	if (s == S) {
 		fmtprint(fp, "<nil>");
 	} else {
@@ -1967,6 +1311,14 @@ usage(void)
 void
 setheadtype(char *s)
 {
+	int h;
+	
+	h = headtype(s);
+	if(h < 0) {
+		fprint(2, "unknown header type -H %s\n", s);
+		errorexit();
+	}
+	headstring = s;
 	HEADTYPE = headtype(s);
 }
 
@@ -1985,22 +1337,22 @@ doversion(void)
 }
 
 void
-genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
+genasmsym(void (*put)(LSym*, char*, int, vlong, vlong, int, LSym*))
 {
 	Auto *a;
-	Sym *s;
+	LSym *s;
 	int32 off;
 
 	// These symbols won't show up in the first loop below because we
 	// skip STEXT symbols. Normal STEXT symbols are emitted by walking textp.
-	s = lookup("text", 0);
+	s = linklookup(ctxt, "text", 0);
 	if(s->type == STEXT)
 		put(s, s->name, 'T', s->value, s->size, s->version, 0);
-	s = lookup("etext", 0);
+	s = linklookup(ctxt, "etext", 0);
 	if(s->type == STEXT)
 		put(s, s->name, 'T', s->value, s->size, s->version, 0);
 
-	for(s=allsym; s!=S; s=s->allsym) {
+	for(s=ctxt->allsym; s!=S; s=s->allsym) {
 		if(s->hide || (s->name[0] == '.' && s->version == 0 && strcmp(s->name, ".rathole") != 0))
 			continue;
 		switch(s->type&SMASK) {
@@ -2036,20 +1388,20 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 		}
 	}
 
-	for(s = textp; s != nil; s = s->next) {
-		if(s->text == nil)
-			continue;
-
+	for(s = ctxt->textp; s != nil; s = s->next) {
 		put(s, s->name, 'T', s->value, s->size, s->version, s->gotype);
+
+		// NOTE(ality): acid can't produce a stack trace without .frame symbols
+		put(nil, ".frame", 'm', s->locals+PtrSize, 0, 0, 0);
 
 		for(a=s->autom; a; a=a->link) {
 			// Emit a or p according to actual offset, even if label is wrong.
 			// This avoids negative offsets, which cannot be encoded.
-			if(a->type != D_AUTO && a->type != D_PARAM)
+			if(a->type != A_AUTO && a->type != A_PARAM)
 				continue;
 			
 			// compute offset relative to FP
-			if(a->type == D_PARAM)
+			if(a->type == A_PARAM)
 				off = a->aoffset;
 			else
 				off = a->aoffset - PtrSize;
@@ -2075,461 +1427,126 @@ genasmsym(void (*put)(Sym*, char*, int, vlong, vlong, int, Sym*))
 	Bflush(&bso);
 }
 
-char*
-estrdup(char *p)
+vlong
+symaddr(LSym *s)
 {
-	p = strdup(p);
-	if(p == nil) {
-		cursym = S;
-		diag("out of memory");
-		errorexit();
-	}
-	return p;
+	if(!s->reachable)
+		diag("unreachable symbol in symaddr - %s", s->name);
+	return s->value;
 }
 
-void*
-erealloc(void *p, long n)
-{
-	p = realloc(p, n);
-	if(p == nil) {
-		cursym = S;
-		diag("out of memory");
-		errorexit();
-	}
-	return p;
-}
-
-// Saved history stacks encountered while reading archives.
-// Keeping them allows us to answer virtual lineno -> file:line
-// queries.
-//
-// The history stack is a complex data structure, described best at the
-// bottom of http://plan9.bell-labs.com/magic/man2html/6/a.out.
-// One of the key benefits of interpreting it here is that the runtime
-// does not have to. Perhaps some day the compilers could generate
-// a simpler linker input too.
-
-struct Hist
-{
-	int32 line;
-	int32 off;
-	Sym *file;
-};
-
-static Hist *histcopy;
-static Hist *hist;
-static int32 nhist;
-static int32 maxhist;
-static int32 histdepth;
-static int32 nhistfile;
-static Sym *filesyms;
-
-// savehist processes a single line, off history directive
-// found in the input object file.
 void
-savehist(int32 line, int32 off)
+xdefine(char *p, int t, vlong v)
 {
-	char tmp[1024];
-	Sym *file;
-	Hist *h;
+	LSym *s;
 
-	// NOTE(rsc): We used to do the copyhistfrog first and this
-	// condition was if(tmp[0] != '\0') to check for an empty string,
-	// implying that histfrogp == 0, implying that this is a history pop.
-	// However, on Windows in the misc/cgo test, the linker is
-	// presented with an ANAME corresponding to an empty string,
-	// that ANAME ends up being the only histfrog, and thus we have
-	// a situation where histfrogp > 0 (not a pop) but the path we find
-	// is the empty string. Really that shouldn't happen, but it doesn't
-	// seem to be bothering anyone yet, and it's easier to fix the condition
-	// to test histfrogp than to track down where that empty string is
-	// coming from. Probably it is coming from go tool pack's P command.
-	if(histfrogp > 0) {
-		tmp[0] = '\0';
-		copyhistfrog(tmp, sizeof tmp);
-		file = lookup(tmp, HistVersion);
-		if(file->type != SFILEPATH) {
-			file->value = ++nhistfile;
-			file->type = SFILEPATH;
-			file->next = filesyms;
-			filesyms = file;
-		}
-	} else
-		file = nil;
-
-	if(file != nil && line == 1 && off == 0) {
-		// start of new stack
-		if(histdepth != 0) {
-			diag("history stack phase error: unexpected start of new stack depth=%d file=%s", histdepth, tmp);
-			errorexit();
-		}
-		nhist = 0;
-		histcopy = nil;
-	}
-	
-	if(nhist >= maxhist) {
-		if(maxhist == 0)
-			maxhist = 1;
-		maxhist *= 2;
-		hist = erealloc(hist, maxhist*sizeof hist[0]);
-	}
-	h = &hist[nhist++];
-	h->line = line;
-	h->off = off;
-	h->file = file;
-	
-	if(file != nil) {
-		if(off == 0)
-			histdepth++;
-	} else {
-		if(off != 0) {
-			diag("history stack phase error: bad offset in pop");
-			errorexit();
-		}
-		histdepth--;
-	}
-}
-
-// gethist returns the history stack currently in effect.
-// The result is valid indefinitely.
-Hist*
-gethist(void)
-{
-	if(histcopy == nil) {
-		if(nhist == 0)
-			return nil;
-		histcopy = mal((nhist+1)*sizeof hist[0]);
-		memmove(histcopy, hist, nhist*sizeof hist[0]);
-		histcopy[nhist].line = -1;
-	}
-	return histcopy;
-}
-
-typedef struct Hstack Hstack;
-struct Hstack
-{
-	Hist *h;
-	int delta;
-};
-
-// getline sets *f to the file number and *l to the line number
-// of the virtual line number line according to the history stack h.
-void
-getline(Hist *h, int32 line, int32 *f, int32 *l)
-{
-	Hstack stk[100];
-	int nstk, start;
-	Hist *top, *h0;
-	static Hist *lasth;
-	static int32 laststart, lastend, lastdelta, lastfile;
-
-	h0 = h;
-	*f = 0;
-	*l = 0;
-	start = 0;
-	if(h == nil || line == 0) {
-		print("%s: getline: h=%p line=%d\n", cursym->name, h, line);
-		return;
-	}
-
-	// Cache span used during last lookup, so that sequential
-	// translation of line numbers in compiled code is efficient.
-	if(!debug['O'] && lasth == h && laststart <= line && line < lastend) {
-		*f = lastfile;
-		*l = line - lastdelta;
-		return;
-	}
-
-	if(debug['O'])
-		print("getline %d laststart=%d lastend=%d\n", line, laststart, lastend);
-	
-	nstk = 0;
-	for(; h->line != -1; h++) {
-		if(debug['O'])
-			print("\t%s %d %d\n", h->file ? h->file->name : "?", h->line, h->off);
-
-		if(h->line > line) {
-			if(nstk == 0) {
-				diag("history stack phase error: empty stack at line %d", (int)line);
-				errorexit();
-			}
-			top = stk[nstk-1].h;
-			lasth = h;
-			lastfile = top->file->value;
-			laststart = start;
-			lastend = h->line;
-			lastdelta = stk[nstk-1].delta;
-			*f = lastfile;
-			*l = line - lastdelta;
-			if(debug['O'])
-				print("\tgot %d %d [%d %d %d]\n", *f, *l, laststart, lastend, lastdelta);
-			return;
-		}
-		if(h->file == nil) {
-			// pop included file
-			if(nstk == 0) {
-				diag("history stack phase error: stack underflow");
-				errorexit();
-			}
-			nstk--;
-			if(nstk > 0)
-				stk[nstk-1].delta += h->line - stk[nstk].h->line;
-			start = h->line;
-		} else if(h->off == 0) {
-			// push included file
-			if(nstk >= nelem(stk)) {
-				diag("history stack phase error: stack overflow");
-				errorexit();
-			}
-			start = h->line;
-			stk[nstk].h = h;
-			stk[nstk].delta = h->line - 1;
-			nstk++;
-		} else {
-			// #line directive
-			if(nstk == 0) {
-				diag("history stack phase error: stack underflow");
-				errorexit();
-			}
-			stk[nstk-1].h = h;
-			stk[nstk-1].delta = h->line - h->off;
-			start = h->line;
-		}
-		if(debug['O'])
-			print("\t\tnstk=%d delta=%d\n", nstk, stk[nstk].delta);
-	}
-
-	diag("history stack phase error: cannot find line for %d", line);
-	nstk = 0;
-	for(h = h0; h->line != -1; h++) {
-		print("\t%d %d %s\n", h->line, h->off, h->file ? h->file->name : "");
-		if(h->file == nil)
-			nstk--;
-		else if(h->off == 0)
-			nstk++;
-	}
-}
-
-// defgostring returns a symbol for the Go string containing text.
-Sym*
-defgostring(char *text)
-{
-	char *p;
-	Sym *s;
-	int32 n;
-	
-	n = strlen(text);
-	p = smprint("go.string.\"%Z\"", text);
-	s = lookup(p, 0);
-	if(s->size == 0) {
-		s->type = SGOSTRING;
-		s->reachable = 1;
-		s->size = 2*PtrSize+n;
-		symgrow(s, 2*PtrSize+n);
-		setaddrplus(s, 0, s, 2*PtrSize);
-		setuintxx(s, PtrSize, n, PtrSize);
-		memmove(s->p+2*PtrSize, text, n);
-	}
+	s = linklookup(ctxt, p, 0);
+	s->type = t;
+	s->value = v;
 	s->reachable = 1;
-	return s;
+	s->special = 1;
 }
 
-// addpctab appends to f a pc-value table, storing its offset at off.
-// The pc-value table is for func and reports the value of valfunc
-// parameterized by arg.
-static int32
-addpctab(Sym *f, int32 off, Sym *func, char *desc, int32 (*valfunc)(Sym*, int32, Prog*, int32, int32), int32 arg)
+vlong
+datoff(vlong addr)
 {
-	int32 start;
-	
-	start = f->np;
-	funcpctab(f, func, desc, valfunc, arg);
-	if(start == f->np) {
-		// no table
-		return setuint32(f, off, 0);
+	if(addr >= segdata.vaddr)
+		return addr - segdata.vaddr + segdata.fileoff;
+	if(addr >= segtext.vaddr)
+		return addr - segtext.vaddr + segtext.fileoff;
+	diag("datoff %#llx", addr);
+	return 0;
+}
+
+vlong
+entryvalue(void)
+{
+	char *a;
+	LSym *s;
+
+	a = INITENTRY;
+	if(*a >= '0' && *a <= '9')
+		return atolwhex(a);
+	s = linklookup(ctxt, a, 0);
+	if(s->type == 0)
+		return INITTEXT;
+	if(s->type != STEXT)
+		diag("entry not text: %s", s->name);
+	return s->value;
+}
+
+static void
+undefsym(LSym *s)
+{
+	int i;
+	Reloc *r;
+
+	ctxt->cursym = s;
+	for(i=0; i<s->nr; i++) {
+		r = &s->r[i];
+		if(r->sym == nil) // happens for some external ARM relocs
+			continue;
+		if(r->sym->type == Sxxx || r->sym->type == SXREF)
+			diag("undefined: %s", r->sym->name);
+		if(!r->sym->reachable)
+			diag("use of unreachable symbol: %s", r->sym->name);
 	}
-	if((int32)start > (int32)f->np) {
-		diag("overflow adding pc-table: symbol too large");
+}
+
+void
+undef(void)
+{
+	LSym *s;
+	
+	for(s = ctxt->textp; s != nil; s = s->next)
+		undefsym(s);
+	for(s = datap; s != nil; s = s->next)
+		undefsym(s);
+	if(nerrors > 0)
+		errorexit();
+}
+
+void
+callgraph(void)
+{
+	LSym *s;
+	Reloc *r;
+	int i;
+
+	if(!debug['c'])
+		return;
+
+	for(s = ctxt->textp; s != nil; s = s->next) {
+		for(i=0; i<s->nr; i++) {
+			r = &s->r[i];
+			if(r->sym == nil)
+				continue;
+			if((r->type == R_CALL || r->type == R_CALLARM) && r->sym->type == STEXT)
+				Bprint(&bso, "%s calls %s\n", s->name, r->sym->name);
+		}
+	}
+}
+
+void
+diag(char *fmt, ...)
+{
+	char buf[1024], *tn, *sep;
+	va_list arg;
+
+	tn = "";
+	sep = "";
+	if(ctxt->cursym != S) {
+		tn = ctxt->cursym->name;
+		sep = ": ";
+	}
+	va_start(arg, fmt);
+	vseprint(buf, buf+sizeof(buf), fmt, arg);
+	va_end(arg);
+	print("%s%s%s\n", tn, sep, buf);
+
+	nerrors++;
+	if(nerrors > 20) {
+		print("too many errors\n");
 		errorexit();
 	}
-	return setuint32(f, off, start);
 }
-
-static int32
-ftabaddstring(Sym *ftab, char *s)
-{
-	int32 n, start;
-	
-	n = strlen(s)+1;
-	start = ftab->np;
-	symgrow(ftab, start+n+1);
-	strcpy((char*)ftab->p + start, s);
-	return start;
-}
-
-// pclntab initializes the pclntab symbol with
-// runtime function and file name information.
-void
-pclntab(void)
-{
-	Prog *p;
-	int32 i, n, nfunc, start, funcstart;
-	uint32 *havepc, *havefunc;
-	Sym *ftab, *s;
-	int32 npcdata, nfuncdata, off, end;
-	int64 funcdata_bytes;
-	
-	funcdata_bytes = 0;
-	ftab = lookup("pclntab", 0);
-	ftab->type = SPCLNTAB;
-	ftab->reachable = 1;
-
-	// See golang.org/s/go12symtab for the format. Briefly:
-	//	8-byte header
-	//	nfunc [PtrSize bytes]
-	//	function table, alternating PC and offset to func struct [each entry PtrSize bytes]
-	//	end PC [PtrSize bytes]
-	//	offset to file table [4 bytes]
-	nfunc = 0;
-	for(cursym = textp; cursym != nil; cursym = cursym->next)
-		nfunc++;
-	symgrow(ftab, 8+PtrSize+nfunc*2*PtrSize+PtrSize+4);
-	setuint32(ftab, 0, 0xfffffffb);
-	setuint8(ftab, 6, MINLC);
-	setuint8(ftab, 7, PtrSize);
-	setuintxx(ftab, 8, nfunc, PtrSize);
-
-	nfunc = 0;
-	for(cursym = textp; cursym != nil; cursym = cursym->next, nfunc++) {
-		funcstart = ftab->np;
-		funcstart += -ftab->np & (PtrSize-1);
-
-		setaddr(ftab, 8+PtrSize+nfunc*2*PtrSize, cursym);
-		setuintxx(ftab, 8+PtrSize+nfunc*2*PtrSize+PtrSize, funcstart, PtrSize);
-
-		npcdata = 0;
-		nfuncdata = 0;
-		for(p = cursym->text; p != P; p = p->link) {
-			if(p->as == APCDATA && p->from.offset >= npcdata)
-				npcdata = p->from.offset+1;
-			if(p->as == AFUNCDATA && p->from.offset >= nfuncdata)
-				nfuncdata = p->from.offset+1;
-		}
-
-		// fixed size of struct, checked below
-		off = funcstart;
-		end = funcstart + PtrSize + 3*4 + 5*4 + npcdata*4 + nfuncdata*PtrSize;
-		if(nfuncdata > 0 && (end&(PtrSize-1)))
-			end += 4;
-		symgrow(ftab, end);
-
-		// entry uintptr
-		off = setaddr(ftab, off, cursym);
-
-		// name int32
-		off = setuint32(ftab, off, ftabaddstring(ftab, cursym->name));
-		
-		// args int32
-		// TODO: Move into funcinfo.
-		if(cursym->text == nil)
-			off = setuint32(ftab, off, ArgsSizeUnknown);
-		else
-			off = setuint32(ftab, off, cursym->args);
-	
-		// frame int32
-		// TODO: Remove entirely. The pcsp table is more precise.
-		// This is only used by a fallback case during stack walking
-		// when a called function doesn't have argument information.
-		// We need to make sure everything has argument information
-		// and then remove this.
-		if(cursym->text == nil)
-			off = setuint32(ftab, off, 0);
-		else
-			off = setuint32(ftab, off, (uint32)cursym->text->to.offset+PtrSize);
-
-		// pcsp table (offset int32)
-		off = addpctab(ftab, off, cursym, "pctospadj", pctospadj, 0);
-
-		// pcfile table (offset int32)
-		off = addpctab(ftab, off, cursym, "pctofileline file", pctofileline, 0);
-
-		// pcln table (offset int32)
-		off = addpctab(ftab, off, cursym, "pctofileline line", pctofileline, 1);
-		
-		// npcdata int32
-		off = setuint32(ftab, off, npcdata);
-		
-		// nfuncdata int32
-		off = setuint32(ftab, off, nfuncdata);
-		
-		// tabulate which pc and func data we have.
-		n = ((npcdata+31)/32 + (nfuncdata+31)/32)*4;
-		havepc = mal(n);
-		havefunc = havepc + (npcdata+31)/32;
-		for(p = cursym->text; p != P; p = p->link) {
-			if(p->as == AFUNCDATA) {
-				if((havefunc[p->from.offset/32]>>(p->from.offset%32))&1)
-					diag("multiple definitions for FUNCDATA $%d", p->from.offset);
-				havefunc[p->from.offset/32] |= 1<<(p->from.offset%32);
-			}
-			if(p->as == APCDATA)
-				havepc[p->from.offset/32] |= 1<<(p->from.offset%32);
-		}
-
-		// pcdata.
-		for(i=0; i<npcdata; i++) {
-			if(!(havepc[i/32]>>(i%32))&1) {
-				off = setuint32(ftab, off, 0);
-				continue;
-			}
-			off = addpctab(ftab, off, cursym, "pctopcdata", pctopcdata, i);
-		}
-		
-		unmal(havepc, n);
-		
-		// funcdata, must be pointer-aligned and we're only int32-aligned.
-		// Unlike pcdata, can gather in a single pass.
-		// Missing funcdata will be 0 (nil pointer).
-		if(nfuncdata > 0) {
-			if(off&(PtrSize-1))
-				off += 4;
-			for(p = cursym->text; p != P; p = p->link) {
-				if(p->as == AFUNCDATA) {
-					i = p->from.offset;
-					if(p->to.type == D_CONST)
-						setuintxx(ftab, off+PtrSize*i, p->to.offset, PtrSize);
-					else {
-						// TODO: Dedup.
-						funcdata_bytes += p->to.sym->size;
-						setaddrplus(ftab, off+PtrSize*i, p->to.sym, p->to.offset);
-					}
-				}
-			}
-			off += nfuncdata*PtrSize;
-		}
-
-		if(off != end) {
-			diag("bad math in functab: funcstart=%d off=%d but end=%d (npcdata=%d nfuncdata=%d)", funcstart, off, end, npcdata, nfuncdata);
-			errorexit();
-		}
-	
-		// Final entry of table is just end pc.
-		if(cursym->next == nil)
-			setaddrplus(ftab, 8+PtrSize+(nfunc+1)*2*PtrSize, cursym, cursym->size);
-	}
-	
-	// Start file table.
-	start = ftab->np;
-	start += -ftab->np & (PtrSize-1);
-	setuint32(ftab, 8+PtrSize+nfunc*2*PtrSize+PtrSize, start);
-
-	symgrow(ftab, start+(nhistfile+1)*4);
-	setuint32(ftab, start, nhistfile);
-	for(s = filesyms; s != S; s = s->next)
-		setuint32(ftab, start + s->value*4, ftabaddstring(ftab, s->name));
-
-	ftab->size = ftab->np;
-	
-	if(debug['v'])
-		Bprint(&bso, "%5.2f pclntab=%lld bytes, funcdata total %lld bytes\n", cputime(), (vlong)ftab->size, (vlong)funcdata_bytes);
-}	

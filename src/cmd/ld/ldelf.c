@@ -258,7 +258,7 @@ struct ElfSect
 	uint64	align;
 	uint64	entsize;
 	uchar	*base;
-	Sym	*sym;
+	LSym	*sym;
 };
 
 struct ElfObj
@@ -301,7 +301,7 @@ struct ElfSym
 	uchar	type;
 	uchar	other;
 	uint16	shndx;
-	Sym*	sym;
+	LSym*	sym;
 };
 
 uchar ElfMagic[4] = { 0x7F, 'E', 'L', 'F' };
@@ -312,7 +312,7 @@ static int	readsym(ElfObj*, int i, ElfSym*, int);
 static int	reltype(char*, int, uchar*);
 
 int
-valuecmp(Sym *a, Sym *b)
+valuecmp(LSym *a, LSym *b)
 {
 	if(a->value < b->value)
 		return -1;
@@ -336,15 +336,15 @@ ldelf(Biobuf *f, char *pkg, int64 len, char *pn)
 	ElfSym sym;
 	Endian *e;
 	Reloc *r, *rp;
-	Sym *s;
-	Sym **symbols;
+	LSym *s;
+	LSym **symbols;
 
 	symbols = nil;
 
 	if(debug['v'])
 		Bprint(&bso, "%5.2f ldelf %s\n", cputime(), pn);
 
-	version++;
+	ctxt->version++;
 	base = Boffset(f);
 
 	if(Bread(f, hdrbuf, sizeof hdrbuf) != sizeof hdrbuf)
@@ -529,7 +529,7 @@ ldelf(Biobuf *f, char *pkg, int64 len, char *pn)
 			goto bad;
 		
 		name = smprint("%s(%s)", pkg, sect->name);
-		s = lookup(name, version);
+		s = linklookup(ctxt, name, ctxt->version);
 		free(name);
 		switch((int)sect->flags&(ElfSectFlagAlloc|ElfSectFlagWrite|ElfSectFlagExec)) {
 		default:
@@ -601,24 +601,9 @@ ldelf(Biobuf *f, char *pkg, int64 len, char *pn)
 		s->size = sym.size;
 		s->outer = sect->sym;
 		if(sect->sym->type == STEXT) {
-			Prog *p;
-
-			if(s->text != P) {
-				if(!s->dupok)
+			if(s->external && !s->dupok)
 					diag("%s: duplicate definition of %s", pn, s->name);
-			} else {
-				// build a TEXT instruction with a unique pc
-				// just to make the rest of the linker happy.
-				p = prg();
-				p->as = ATEXT;
-				p->from.type = D_EXTERN;
-				p->from.sym = s;
-				p->textflag = 7;
-				p->to.type = D_CONST;
-				p->link = nil;
-				p->pc = pc++;
-				s->text = p;
-			}
+			s->external = 1;
 		}
 	}
 	
@@ -629,16 +614,22 @@ ldelf(Biobuf *f, char *pkg, int64 len, char *pn)
 		if(s == S)
 			continue;
 		if(s->sub)
-			s->sub = listsort(s->sub, valuecmp, offsetof(Sym, sub));
+			s->sub = listsort(s->sub, valuecmp, offsetof(LSym, sub));
 		if(s->type == STEXT) {
-			if(etextp)
-				etextp->next = s;
+			if(s->onlist)
+				sysfatal("symbol %s listed multiple times", s->name);
+			s->onlist = 1;
+			if(ctxt->etextp)
+				ctxt->etextp->next = s;
 			else
-				textp = s;
-			etextp = s;
+				ctxt->textp = s;
+			ctxt->etextp = s;
 			for(s = s->sub; s != S; s = s->sub) {
-				etextp->next = s;
-				etextp = s;
+				if(s->onlist)
+					sysfatal("symbol %s listed multiple times", s->name);
+				s->onlist = 1;
+				ctxt->etextp->next = s;
+				ctxt->etextp = s;
 			}
 		}
 	}
@@ -712,6 +703,9 @@ ldelf(Biobuf *f, char *pkg, int64 len, char *pn)
 				else
 					diag("invalid rela size %d", rp->siz);
 			}
+			if(rp->siz == 4)
+				rp->add = (int32)rp->add;
+			//print("rel %s %d %d %s %#llx\n", sect->sym->name, rp->type, rp->siz, rp->sym->name, rp->add);
 		}
 		qsort(r, n, sizeof r[0], rbyoff);	// just in case
 		
@@ -761,7 +755,7 @@ map(ElfObj *obj, ElfSect *sect)
 static int
 readsym(ElfObj *obj, int i, ElfSym *sym, int needSym)
 {
-	Sym *s;
+	LSym *s;
 
 	if(i >= obj->nsymtab || i < 0) {
 		werrstr("invalid elf symbol index");
@@ -808,7 +802,7 @@ readsym(ElfObj *obj, int i, ElfSym *sym, int needSym)
 		switch(sym->bind) {
 		case ElfSymBindGlobal:
 			if(needSym) {
-				s = lookup(sym->name, 0);
+				s = linklookup(ctxt, sym->name, 0);
 				// for global scoped hidden symbols we should insert it into
 				// symbol hash table, but mark them as hidden.
 				// __i686.get_pc_thunk.bx is allowed to be duplicated, to
@@ -828,13 +822,13 @@ readsym(ElfObj *obj, int i, ElfSym *sym, int needSym)
 					// local names and hidden visiblity global names are unique
 					// and should only reference by its index, not name, so we
 					// don't bother to add them into hash table
-					s = newsym(sym->name, version);
+					s = linknewsym(ctxt, sym->name, ctxt->version);
 					s->type |= SHIDDEN;
 				}
 			break;
 		case ElfSymBindWeak:
 			if(needSym) {
-				s = newsym(sym->name, 0);
+				s = linknewsym(ctxt, sym->name, 0);
 				if(sym->other == 2)
 					s->type |= SHIDDEN;
 			}

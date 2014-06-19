@@ -28,8 +28,11 @@
 #include "runtime.h"
 #include "arch_GOARCH.h"
 #include "malloc.h"
+#include "../../cmd/ld/textflag.h"
 
+#pragma dataflag NOPTR
 int32 runtime·class_to_size[NumSizeClasses];
+#pragma dataflag NOPTR
 int32 runtime·class_to_allocnpages[NumSizeClasses];
 
 // The SizeToClass lookup is implemented using two arrays,
@@ -41,11 +44,15 @@ int32 runtime·class_to_allocnpages[NumSizeClasses];
 // size divided by 128 (rounded up).  The arrays are filled in
 // by InitSizes.
 
+#pragma dataflag NOPTR
 int8 runtime·size_to_class8[1024/8 + 1];
+#pragma dataflag NOPTR
 int8 runtime·size_to_class128[(MaxSmallSize-1024)/128 + 1];
 
-static int32
-SizeToClass(int32 size)
+void runtime·testdefersizes(void);
+
+int32
+runtime·SizeToClass(int32 size)
 {
 	if(size > MaxSmallSize)
 		runtime·throw("SizeToClass - invalid size");
@@ -90,9 +97,9 @@ runtime·InitSizes(void)
 		// objects into the page, we might as well
 		// use just this size instead of having two
 		// different sizes.
-		if(sizeclass > 1
-		&& npages == runtime·class_to_allocnpages[sizeclass-1]
-		&& allocsize/size == allocsize/runtime·class_to_size[sizeclass-1]) {
+		if(sizeclass > 1 &&
+			npages == runtime·class_to_allocnpages[sizeclass-1] &&
+			allocsize/size == allocsize/runtime·class_to_size[sizeclass-1]) {
 			runtime·class_to_size[sizeclass-1] = size;
 			continue;
 		}
@@ -119,7 +126,7 @@ runtime·InitSizes(void)
 	// Double-check SizeToClass.
 	if(0) {
 		for(n=0; n < MaxSmallSize; n++) {
-			sizeclass = SizeToClass(n);
+			sizeclass = runtime·SizeToClass(n);
 			if(sizeclass < 1 || sizeclass >= NumSizeClasses || runtime·class_to_size[sizeclass] < n) {
 				runtime·printf("size=%d sizeclass=%d runtime·class_to_size=%d\n", n, sizeclass, runtime·class_to_size[sizeclass]);
 				runtime·printf("incorrect SizeToClass");
@@ -132,6 +139,8 @@ runtime·InitSizes(void)
 			}
 		}
 	}
+
+	runtime·testdefersizes();
 
 	// Copy out for statistics table.
 	for(i=0; i<nelem(runtime·class_to_size); i++)
@@ -157,4 +166,19 @@ dump:
 		runtime·printf("\n");
 	}
 	runtime·throw("InitSizes failed");
+}
+
+// Returns size of the memory block that mallocgc will allocate if you ask for the size.
+uintptr
+runtime·roundupsize(uintptr size)
+{
+	if(size < MaxSmallSize) {
+		if(size <= 1024-8)
+			return runtime·class_to_size[runtime·size_to_class8[(size+7)>>3]];
+		else
+			return runtime·class_to_size[runtime·size_to_class128[(size-1024+127) >> 7]];
+	}
+	if(size + PageSize < size)
+		return size;
+	return ROUND(size, PageSize);
 }

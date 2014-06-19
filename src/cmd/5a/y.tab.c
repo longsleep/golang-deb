@@ -1,8 +1,8 @@
-/* A Bison parser, made by GNU Bison 2.5.  */
+/* A Bison parser, made by GNU Bison 2.7.12-4996.  */
 
 /* Bison implementation for Yacc-like parsers in C
    
-      Copyright (C) 1984, 1989-1990, 2000-2011 Free Software Foundation, Inc.
+      Copyright (C) 1984, 1989-1990, 2000-2013 Free Software Foundation, Inc.
    
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@
 #define YYBISON 1
 
 /* Bison version.  */
-#define YYBISON_VERSION "2.5"
+#define YYBISON_VERSION "2.7.12-4996"
 
 /* Skeleton name.  */
 #define YYSKELETON_NAME "yacc.c"
@@ -58,14 +58,11 @@
 /* Pull parsers.  */
 #define YYPULL 1
 
-/* Using locations.  */
-#define YYLSP_NEEDED 0
 
 
 
 /* Copy the first part of user declarations.  */
-
-/* Line 268 of yacc.c  */
+/* Line 371 of yacc.c  */
 #line 31 "a.y"
 
 #include <u.h>
@@ -74,14 +71,16 @@
 #include "a.h"
 #include "../../pkg/runtime/funcdata.h"
 
+/* Line 371 of yacc.c  */
+#line 76 "y.tab.c"
 
-/* Line 268 of yacc.c  */
-#line 80 "y.tab.c"
-
-/* Enabling traces.  */
-#ifndef YYDEBUG
-# define YYDEBUG 0
-#endif
+# ifndef YY_NULL
+#  if defined __cplusplus && 201103L <= __cplusplus
+#   define YY_NULL nullptr
+#  else
+#   define YY_NULL 0
+#  endif
+# endif
 
 /* Enabling verbose error messages.  */
 #ifdef YYERROR_VERBOSE
@@ -91,11 +90,17 @@
 # define YYERROR_VERBOSE 0
 #endif
 
-/* Enabling the token table.  */
-#ifndef YYTOKEN_TABLE
-# define YYTOKEN_TABLE 0
+/* In a future release of Bison, this section will be replaced
+   by #include "y.tab.h".  */
+#ifndef YY_YY_Y_TAB_H_INCLUDED
+# define YY_YY_Y_TAB_H_INCLUDED
+/* Enabling traces.  */
+#ifndef YYDEBUG
+# define YYDEBUG 0
 #endif
-
+#if YYDEBUG
+extern int yydebug;
+#endif
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
@@ -205,36 +210,49 @@
 
 
 
-
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 typedef union YYSTYPE
 {
-
-/* Line 293 of yacc.c  */
+/* Line 387 of yacc.c  */
 #line 39 "a.y"
 
 	Sym	*sym;
 	int32	lval;
 	double	dval;
 	char	sval[8];
-	Gen	gen;
+	Addr	addr;
 
 
-
-/* Line 293 of yacc.c  */
-#line 226 "y.tab.c"
+/* Line 387 of yacc.c  */
+#line 228 "y.tab.c"
 } YYSTYPE;
 # define YYSTYPE_IS_TRIVIAL 1
 # define yystype YYSTYPE /* obsolescent; will be withdrawn */
 # define YYSTYPE_IS_DECLARED 1
 #endif
 
+extern YYSTYPE yylval;
+
+#ifdef YYPARSE_PARAM
+#if defined __STDC__ || defined __cplusplus
+int yyparse (void *YYPARSE_PARAM);
+#else
+int yyparse ();
+#endif
+#else /* ! YYPARSE_PARAM */
+#if defined __STDC__ || defined __cplusplus
+int yyparse (void);
+#else
+int yyparse ();
+#endif
+#endif /* ! YYPARSE_PARAM */
+
+#endif /* !YY_YY_Y_TAB_H_INCLUDED  */
 
 /* Copy the second part of user declarations.  */
 
-
-/* Line 343 of yacc.c  */
-#line 238 "y.tab.c"
+/* Line 390 of yacc.c  */
+#line 256 "y.tab.c"
 
 #ifdef short
 # undef short
@@ -287,24 +305,33 @@ typedef short int yytype_int16;
 # if defined YYENABLE_NLS && YYENABLE_NLS
 #  if ENABLE_NLS
 #   include <libintl.h> /* INFRINGES ON USER NAME SPACE */
-#   define YY_(msgid) dgettext ("bison-runtime", msgid)
+#   define YY_(Msgid) dgettext ("bison-runtime", Msgid)
 #  endif
 # endif
 # ifndef YY_
-#  define YY_(msgid) msgid
+#  define YY_(Msgid) Msgid
+# endif
+#endif
+
+#ifndef __attribute__
+/* This feature is available in gcc versions 2.5 and later.  */
+# if (! defined __GNUC__ || __GNUC__ < 2 \
+      || (__GNUC__ == 2 && __GNUC_MINOR__ < 5))
+#  define __attribute__(Spec) /* empty */
 # endif
 #endif
 
 /* Suppress unused-variable warnings by "using" E.  */
 #if ! defined lint || defined __GNUC__
-# define YYUSE(e) ((void) (e))
+# define YYUSE(E) ((void) (E))
 #else
-# define YYUSE(e) /* empty */
+# define YYUSE(E) /* empty */
 #endif
+
 
 /* Identity function, used to suppress warnings about constant conditions.  */
 #ifndef lint
-# define YYID(n) (n)
+# define YYID(N) (N)
 #else
 #if (defined __STDC__ || defined __C99__FUNC__ \
      || defined __cplusplus || defined _MSC_VER)
@@ -340,6 +367,7 @@ YYID (yyi)
 #    if ! defined _ALLOCA_H && ! defined EXIT_SUCCESS && (defined __STDC__ || defined __C99__FUNC__ \
      || defined __cplusplus || defined _MSC_VER)
 #     include <stdlib.h> /* INFRINGES ON USER NAME SPACE */
+      /* Use EXIT_SUCCESS as a witness for stdlib.h.  */
 #     ifndef EXIT_SUCCESS
 #      define EXIT_SUCCESS 0
 #     endif
@@ -431,20 +459,20 @@ union yyalloc
 #endif
 
 #if defined YYCOPY_NEEDED && YYCOPY_NEEDED
-/* Copy COUNT objects from FROM to TO.  The source and destination do
+/* Copy COUNT objects from SRC to DST.  The source and destination do
    not overlap.  */
 # ifndef YYCOPY
 #  if defined __GNUC__ && 1 < __GNUC__
-#   define YYCOPY(To, From, Count) \
-      __builtin_memcpy (To, From, (Count) * sizeof (*(From)))
+#   define YYCOPY(Dst, Src, Count) \
+      __builtin_memcpy (Dst, Src, (Count) * sizeof (*(Src)))
 #  else
-#   define YYCOPY(To, From, Count)		\
-      do					\
-	{					\
-	  YYSIZE_T yyi;				\
-	  for (yyi = 0; yyi < (Count); yyi++)	\
-	    (To)[yyi] = (From)[yyi];		\
-	}					\
+#   define YYCOPY(Dst, Src, Count)              \
+      do                                        \
+        {                                       \
+          YYSIZE_T yyi;                         \
+          for (yyi = 0; yyi < (Count); yyi++)   \
+            (Dst)[yyi] = (Src)[yyi];            \
+        }                                       \
       while (YYID (0))
 #  endif
 # endif
@@ -594,19 +622,19 @@ static const yytype_uint16 yyrline[] =
      141,   148,   155,   162,   169,   176,   185,   197,   201,   205,
      212,   219,   225,   231,   240,   247,   254,   261,   265,   269,
      273,   280,   302,   310,   319,   326,   335,   346,   352,   355,
-     359,   364,   365,   368,   374,   383,   391,   397,   402,   407,
-     413,   416,   422,   430,   434,   443,   449,   450,   451,   452,
-     457,   463,   469,   475,   476,   479,   480,   488,   497,   498,
-     507,   508,   514,   517,   518,   519,   521,   529,   537,   546,
-     552,   558,   564,   572,   578,   586,   587,   591,   599,   600,
-     606,   607,   615,   616,   619,   625,   633,   641,   649,   659,
-     662,   666,   672,   673,   674,   677,   678,   682,   686,   690,
-     694,   700,   703,   709,   710,   714,   718,   722,   726,   730,
-     734,   738,   742,   746
+     359,   364,   365,   368,   374,   382,   389,   395,   400,   405,
+     411,   414,   420,   428,   432,   441,   447,   448,   449,   450,
+     455,   461,   467,   473,   474,   477,   478,   486,   495,   496,
+     505,   506,   512,   515,   516,   517,   519,   527,   535,   544,
+     550,   556,   562,   570,   576,   584,   585,   589,   597,   598,
+     604,   605,   613,   614,   617,   623,   631,   639,   647,   657,
+     660,   664,   670,   671,   672,   675,   676,   680,   684,   688,
+     692,   698,   701,   707,   708,   712,   716,   720,   724,   728,
+     732,   736,   740,   744
 };
 #endif
 
-#if YYDEBUG || YYERROR_VERBOSE || YYTOKEN_TABLE
+#if YYDEBUG || YYERROR_VERBOSE || 0
 /* YYTNAME[SYMBOL-NUM] -- String name of the symbol SYMBOL-NUM.
    First, the terminals, then, starting at YYNTOKENS, nonterminals.  */
 static const char *const yytname[] =
@@ -623,7 +651,7 @@ static const char *const yytname[] =
   "$@1", "line", "$@2", "$@3", "inst", "cond", "comma", "rel", "ximm",
   "fcon", "reglist", "gen", "nireg", "ireg", "ioreg", "oreg", "imsr",
   "imm", "reg", "regreg", "shift", "rcon", "sreg", "spreg", "creg",
-  "frcon", "freg", "name", "offset", "pointer", "con", "oexpr", "expr", 0
+  "frcon", "freg", "name", "offset", "pointer", "con", "oexpr", "expr", YY_NULL
 };
 #endif
 
@@ -850,10 +878,10 @@ static const yytype_int16 yytable[] =
      202,   203,   204,   198,   199,   200,   201,   202,   203,   204
 };
 
-#define yypact_value_is_default(yystate) \
-  ((yystate) == (-128))
+#define yypact_value_is_default(Yystate) \
+  (!!((Yystate) == (-128)))
 
-#define yytable_value_is_error(yytable_value) \
+#define yytable_value_is_error(Yytable_value) \
   YYID (0)
 
 static const yytype_int16 yycheck[] =
@@ -988,62 +1016,35 @@ static const yytype_uint8 yystos[] =
 
 #define YYRECOVERING()  (!!yyerrstatus)
 
-#define YYBACKUP(Token, Value)					\
-do								\
-  if (yychar == YYEMPTY && yylen == 1)				\
-    {								\
-      yychar = (Token);						\
-      yylval = (Value);						\
-      YYPOPSTACK (1);						\
-      goto yybackup;						\
-    }								\
-  else								\
-    {								\
+#define YYBACKUP(Token, Value)                                  \
+do                                                              \
+  if (yychar == YYEMPTY)                                        \
+    {                                                           \
+      yychar = (Token);                                         \
+      yylval = (Value);                                         \
+      YYPOPSTACK (yylen);                                       \
+      yystate = *yyssp;                                         \
+      goto yybackup;                                            \
+    }                                                           \
+  else                                                          \
+    {                                                           \
       yyerror (YY_("syntax error: cannot back up")); \
       YYERROR;							\
     }								\
 while (YYID (0))
 
-
+/* Error token number */
 #define YYTERROR	1
 #define YYERRCODE	256
 
 
-/* YYLLOC_DEFAULT -- Set CURRENT to span from RHS[1] to RHS[N].
-   If N is 0, then set CURRENT to the empty location which ends
-   the previous symbol: RHS[0] (always defined).  */
-
-#define YYRHSLOC(Rhs, K) ((Rhs)[K])
-#ifndef YYLLOC_DEFAULT
-# define YYLLOC_DEFAULT(Current, Rhs, N)				\
-    do									\
-      if (YYID (N))                                                    \
-	{								\
-	  (Current).first_line   = YYRHSLOC (Rhs, 1).first_line;	\
-	  (Current).first_column = YYRHSLOC (Rhs, 1).first_column;	\
-	  (Current).last_line    = YYRHSLOC (Rhs, N).last_line;		\
-	  (Current).last_column  = YYRHSLOC (Rhs, N).last_column;	\
-	}								\
-      else								\
-	{								\
-	  (Current).first_line   = (Current).last_line   =		\
-	    YYRHSLOC (Rhs, 0).last_line;				\
-	  (Current).first_column = (Current).last_column =		\
-	    YYRHSLOC (Rhs, 0).last_column;				\
-	}								\
-    while (YYID (0))
-#endif
-
-
 /* This macro is provided for backward compatibility. */
-
 #ifndef YY_LOCATION_PRINT
 # define YY_LOCATION_PRINT(File, Loc) ((void) 0)
 #endif
 
 
 /* YYLEX -- calling `yylex' with the right arguments.  */
-
 #ifdef YYLEX_PARAM
 # define YYLEX yylex (YYLEX_PARAM)
 #else
@@ -1093,6 +1094,8 @@ yy_symbol_value_print (yyoutput, yytype, yyvaluep)
     YYSTYPE const * const yyvaluep;
 #endif
 {
+  FILE *yyo = yyoutput;
+  YYUSE (yyo);
   if (!yyvaluep)
     return;
 # ifdef YYPRINT
@@ -1101,11 +1104,7 @@ yy_symbol_value_print (yyoutput, yytype, yyvaluep)
 # else
   YYUSE (yyoutput);
 # endif
-  switch (yytype)
-    {
-      default:
-	break;
-    }
+  YYUSE (yytype);
 }
 
 
@@ -1344,12 +1343,11 @@ static int
 yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
                 yytype_int16 *yyssp, int yytoken)
 {
-  YYSIZE_T yysize0 = yytnamerr (0, yytname[yytoken]);
+  YYSIZE_T yysize0 = yytnamerr (YY_NULL, yytname[yytoken]);
   YYSIZE_T yysize = yysize0;
-  YYSIZE_T yysize1;
   enum { YYERROR_VERBOSE_ARGS_MAXIMUM = 5 };
   /* Internationalized format string. */
-  const char *yyformat = 0;
+  const char *yyformat = YY_NULL;
   /* Arguments of yyformat. */
   char const *yyarg[YYERROR_VERBOSE_ARGS_MAXIMUM];
   /* Number of reported tokens (one for the "unexpected", one per
@@ -1409,11 +1407,13 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
                     break;
                   }
                 yyarg[yycount++] = yytname[yyx];
-                yysize1 = yysize + yytnamerr (0, yytname[yyx]);
-                if (! (yysize <= yysize1
-                       && yysize1 <= YYSTACK_ALLOC_MAXIMUM))
-                  return 2;
-                yysize = yysize1;
+                {
+                  YYSIZE_T yysize1 = yysize + yytnamerr (YY_NULL, yytname[yyx]);
+                  if (! (yysize <= yysize1
+                         && yysize1 <= YYSTACK_ALLOC_MAXIMUM))
+                    return 2;
+                  yysize = yysize1;
+                }
               }
         }
     }
@@ -1433,10 +1433,12 @@ yysyntax_error (YYSIZE_T *yymsg_alloc, char **yymsg,
 # undef YYCASE_
     }
 
-  yysize1 = yysize + yystrlen (yyformat);
-  if (! (yysize <= yysize1 && yysize1 <= YYSTACK_ALLOC_MAXIMUM))
-    return 2;
-  yysize = yysize1;
+  {
+    YYSIZE_T yysize1 = yysize + yystrlen (yyformat);
+    if (! (yysize <= yysize1 && yysize1 <= YYSTACK_ALLOC_MAXIMUM))
+      return 2;
+    yysize = yysize1;
+  }
 
   if (*yymsg_alloc < yysize)
     {
@@ -1492,36 +1494,26 @@ yydestruct (yymsg, yytype, yyvaluep)
     yymsg = "Deleting";
   YY_SYMBOL_PRINT (yymsg, yytype, yyvaluep, yylocationp);
 
-  switch (yytype)
-    {
-
-      default:
-	break;
-    }
+  YYUSE (yytype);
 }
 
 
-/* Prevent warnings from -Wmissing-prototypes.  */
-#ifdef YYPARSE_PARAM
-#if defined __STDC__ || defined __cplusplus
-int yyparse (void *YYPARSE_PARAM);
-#else
-int yyparse ();
-#endif
-#else /* ! YYPARSE_PARAM */
-#if defined __STDC__ || defined __cplusplus
-int yyparse (void);
-#else
-int yyparse ();
-#endif
-#endif /* ! YYPARSE_PARAM */
 
 
 /* The lookahead symbol.  */
 int yychar;
 
+
+#ifndef YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
+# define YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
+# define YY_IGNORE_MAYBE_UNINITIALIZED_END
+#endif
+#ifndef YY_INITIAL_VALUE
+# define YY_INITIAL_VALUE(Value) /* Nothing. */
+#endif
+
 /* The semantic value of the lookahead symbol.  */
-YYSTYPE yylval;
+YYSTYPE yylval YY_INITIAL_VALUE(yyval_default);
 
 /* Number of syntax errors so far.  */
 int yynerrs;
@@ -1561,7 +1553,7 @@ yyparse ()
        `yyss': related to states.
        `yyvs': related to semantic values.
 
-       Refer to the stacks thru separate pointers, to allow yyoverflow
+       Refer to the stacks through separate pointers, to allow yyoverflow
        to reallocate them elsewhere.  */
 
     /* The state stack.  */
@@ -1579,7 +1571,7 @@ yyparse ()
   int yyn;
   int yyresult;
   /* Lookahead token as an internal (translated) token number.  */
-  int yytoken;
+  int yytoken = 0;
   /* The variables used to return semantic value and location from the
      action routines.  */
   YYSTYPE yyval;
@@ -1597,9 +1589,8 @@ yyparse ()
      Keep to zero when no symbol should be popped.  */
   int yylen = 0;
 
-  yytoken = 0;
-  yyss = yyssa;
-  yyvs = yyvsa;
+  yyssp = yyss = yyssa;
+  yyvsp = yyvs = yyvsa;
   yystacksize = YYINITDEPTH;
 
   YYDPRINTF ((stderr, "Starting parse\n"));
@@ -1608,14 +1599,6 @@ yyparse ()
   yyerrstatus = 0;
   yynerrs = 0;
   yychar = YYEMPTY; /* Cause a token to be read.  */
-
-  /* Initialize stack pointers.
-     Waste one element of value and location stack
-     so that they stay on the same level as the state stack.
-     The wasted elements are never initialized.  */
-  yyssp = yyss;
-  yyvsp = yyvs;
-
   goto yysetstate;
 
 /*------------------------------------------------------------.
@@ -1756,7 +1739,9 @@ yybackup:
   yychar = YYEMPTY;
 
   yystate = yyn;
+  YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
   *++yyvsp = yylval;
+  YY_IGNORE_MAYBE_UNINITIALIZED_END
 
   goto yynewstate;
 
@@ -1793,8 +1778,7 @@ yyreduce:
   switch (yyn)
     {
         case 3:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 70 "a.y"
     {
 		stmtline = lineno;
@@ -1802,8 +1786,7 @@ yyreduce:
     break;
 
   case 5:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 77 "a.y"
     {
 		if((yyvsp[(1) - (2)].sym)->value != pc)
@@ -1813,8 +1796,7 @@ yyreduce:
     break;
 
   case 7:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 84 "a.y"
     {
 		(yyvsp[(1) - (2)].sym)->type = LLAB;
@@ -1823,8 +1805,7 @@ yyreduce:
     break;
 
   case 9:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 90 "a.y"
     {
 		(yyvsp[(1) - (4)].sym)->type = LVAR;
@@ -1833,8 +1814,7 @@ yyreduce:
     break;
 
   case 10:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 95 "a.y"
     {
 		if((yyvsp[(1) - (4)].sym)->value != (yyvsp[(3) - (4)].lval))
@@ -1844,162 +1824,145 @@ yyreduce:
     break;
 
   case 14:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 109 "a.y"
     {
-		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].gen), (yyvsp[(5) - (7)].lval), &(yyvsp[(7) - (7)].gen));
+		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].addr), (yyvsp[(5) - (7)].lval), &(yyvsp[(7) - (7)].addr));
 	}
     break;
 
   case 15:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 113 "a.y"
     {
-		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(3) - (6)].gen), (yyvsp[(5) - (6)].lval), &nullgen);
+		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(3) - (6)].addr), (yyvsp[(5) - (6)].lval), &nullgen);
 	}
     break;
 
   case 16:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 117 "a.y"
     {
-		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].gen), NREG, &(yyvsp[(5) - (5)].gen));
+		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].addr), NREG, &(yyvsp[(5) - (5)].addr));
 	}
     break;
 
   case 17:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 124 "a.y"
     {
-		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].gen), NREG, &(yyvsp[(5) - (5)].gen));
+		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].addr), NREG, &(yyvsp[(5) - (5)].addr));
 	}
     break;
 
   case 18:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 131 "a.y"
     {
-		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].gen), NREG, &(yyvsp[(5) - (5)].gen));
+		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].addr), NREG, &(yyvsp[(5) - (5)].addr));
 	}
     break;
 
   case 19:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 138 "a.y"
     {
-		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &nullgen, NREG, &(yyvsp[(4) - (4)].gen));
+		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &nullgen, NREG, &(yyvsp[(4) - (4)].addr));
 	}
     break;
 
   case 20:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 142 "a.y"
     {
-		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &nullgen, NREG, &(yyvsp[(4) - (4)].gen));
+		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &nullgen, NREG, &(yyvsp[(4) - (4)].addr));
 	}
     break;
 
   case 21:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 149 "a.y"
     {
-		outcode((yyvsp[(1) - (3)].lval), Always, &nullgen, NREG, &(yyvsp[(3) - (3)].gen));
+		outcode((yyvsp[(1) - (3)].lval), Always, &nullgen, NREG, &(yyvsp[(3) - (3)].addr));
 	}
     break;
 
   case 22:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 156 "a.y"
     {
-		outcode((yyvsp[(1) - (3)].lval), Always, &nullgen, NREG, &(yyvsp[(3) - (3)].gen));
+		outcode((yyvsp[(1) - (3)].lval), Always, &nullgen, NREG, &(yyvsp[(3) - (3)].addr));
 	}
     break;
 
   case 23:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 163 "a.y"
     {
-		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &nullgen, NREG, &(yyvsp[(4) - (4)].gen));
+		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &nullgen, NREG, &(yyvsp[(4) - (4)].addr));
 	}
     break;
 
   case 24:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 170 "a.y"
     {
-		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(3) - (6)].gen), (yyvsp[(5) - (6)].lval), &nullgen);
+		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(3) - (6)].addr), (yyvsp[(5) - (6)].lval), &nullgen);
 	}
     break;
 
   case 25:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 177 "a.y"
     {
-		Gen g;
+		Addr g;
 
 		g = nullgen;
 		g.type = D_CONST;
 		g.offset = (yyvsp[(6) - (7)].lval);
-		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].gen), NREG, &g);
+		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].addr), NREG, &g);
 	}
     break;
 
   case 26:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 186 "a.y"
     {
-		Gen g;
+		Addr g;
 
 		g = nullgen;
 		g.type = D_CONST;
 		g.offset = (yyvsp[(4) - (7)].lval);
-		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &g, NREG, &(yyvsp[(7) - (7)].gen));
+		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &g, NREG, &(yyvsp[(7) - (7)].addr));
 	}
     break;
 
   case 27:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 198 "a.y"
     {
-		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(5) - (7)].gen), (yyvsp[(3) - (7)].gen).reg, &(yyvsp[(7) - (7)].gen));
+		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(5) - (7)].addr), (yyvsp[(3) - (7)].addr).reg, &(yyvsp[(7) - (7)].addr));
 	}
     break;
 
   case 28:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 202 "a.y"
     {
-		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(5) - (6)].gen), (yyvsp[(3) - (6)].gen).reg, &(yyvsp[(3) - (6)].gen));
+		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(5) - (6)].addr), (yyvsp[(3) - (6)].addr).reg, &(yyvsp[(3) - (6)].addr));
 	}
     break;
 
   case 29:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 206 "a.y"
     {
-		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(4) - (6)].gen), (yyvsp[(6) - (6)].gen).reg, &(yyvsp[(6) - (6)].gen));
+		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(4) - (6)].addr), (yyvsp[(6) - (6)].addr).reg, &(yyvsp[(6) - (6)].addr));
 	}
     break;
 
   case 30:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 213 "a.y"
     {
 		outcode((yyvsp[(1) - (3)].lval), (yyvsp[(2) - (3)].lval), &nullgen, NREG, &nullgen);
@@ -2007,107 +1970,96 @@ yyreduce:
     break;
 
   case 31:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 220 "a.y"
     {
-		(yyvsp[(4) - (4)].gen).type = D_CONST2;
-		(yyvsp[(4) - (4)].gen).offset2 = ArgsSizeUnknown;
-		outcode((yyvsp[(1) - (4)].lval), Always, &(yyvsp[(2) - (4)].gen), 0, &(yyvsp[(4) - (4)].gen));
+		(yyvsp[(4) - (4)].addr).type = D_CONST2;
+		(yyvsp[(4) - (4)].addr).offset2 = ArgsSizeUnknown;
+		outcode((yyvsp[(1) - (4)].lval), Always, &(yyvsp[(2) - (4)].addr), 0, &(yyvsp[(4) - (4)].addr));
 	}
     break;
 
   case 32:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 226 "a.y"
     {
-		(yyvsp[(6) - (6)].gen).type = D_CONST2;
-		(yyvsp[(6) - (6)].gen).offset2 = ArgsSizeUnknown;
-		outcode((yyvsp[(1) - (6)].lval), Always, &(yyvsp[(2) - (6)].gen), (yyvsp[(4) - (6)].lval), &(yyvsp[(6) - (6)].gen));
+		(yyvsp[(6) - (6)].addr).type = D_CONST2;
+		(yyvsp[(6) - (6)].addr).offset2 = ArgsSizeUnknown;
+		outcode((yyvsp[(1) - (6)].lval), Always, &(yyvsp[(2) - (6)].addr), (yyvsp[(4) - (6)].lval), &(yyvsp[(6) - (6)].addr));
 	}
     break;
 
   case 33:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 232 "a.y"
     {
-		(yyvsp[(6) - (8)].gen).type = D_CONST2;
-		(yyvsp[(6) - (8)].gen).offset2 = (yyvsp[(8) - (8)].lval);
-		outcode((yyvsp[(1) - (8)].lval), Always, &(yyvsp[(2) - (8)].gen), (yyvsp[(4) - (8)].lval), &(yyvsp[(6) - (8)].gen));
+		(yyvsp[(6) - (8)].addr).type = D_CONST2;
+		(yyvsp[(6) - (8)].addr).offset2 = (yyvsp[(8) - (8)].lval);
+		outcode((yyvsp[(1) - (8)].lval), Always, &(yyvsp[(2) - (8)].addr), (yyvsp[(4) - (8)].lval), &(yyvsp[(6) - (8)].addr));
 	}
     break;
 
   case 34:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 241 "a.y"
     {
-		outcode((yyvsp[(1) - (6)].lval), Always, &(yyvsp[(2) - (6)].gen), (yyvsp[(4) - (6)].lval), &(yyvsp[(6) - (6)].gen));
+		outcode((yyvsp[(1) - (6)].lval), Always, &(yyvsp[(2) - (6)].addr), (yyvsp[(4) - (6)].lval), &(yyvsp[(6) - (6)].addr));
 	}
     break;
 
   case 35:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 248 "a.y"
     {
-		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &(yyvsp[(3) - (4)].gen), NREG, &nullgen);
+		outcode((yyvsp[(1) - (4)].lval), (yyvsp[(2) - (4)].lval), &(yyvsp[(3) - (4)].addr), NREG, &nullgen);
 	}
     break;
 
   case 36:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 255 "a.y"
     {
-		outcode((yyvsp[(1) - (3)].lval), Always, &nullgen, NREG, &(yyvsp[(3) - (3)].gen));
+		outcode((yyvsp[(1) - (3)].lval), Always, &nullgen, NREG, &(yyvsp[(3) - (3)].addr));
 	}
     break;
 
   case 37:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 262 "a.y"
     {
-		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].gen), NREG, &(yyvsp[(5) - (5)].gen));
+		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].addr), NREG, &(yyvsp[(5) - (5)].addr));
 	}
     break;
 
   case 38:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 266 "a.y"
     {
-		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].gen), NREG, &(yyvsp[(5) - (5)].gen));
+		outcode((yyvsp[(1) - (5)].lval), (yyvsp[(2) - (5)].lval), &(yyvsp[(3) - (5)].addr), NREG, &(yyvsp[(5) - (5)].addr));
 	}
     break;
 
   case 39:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 270 "a.y"
     {
-		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].gen), (yyvsp[(5) - (7)].lval), &(yyvsp[(7) - (7)].gen));
+		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].addr), (yyvsp[(5) - (7)].lval), &(yyvsp[(7) - (7)].addr));
 	}
     break;
 
   case 40:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 274 "a.y"
     {
-		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(3) - (6)].gen), (yyvsp[(5) - (6)].gen).reg, &nullgen);
+		outcode((yyvsp[(1) - (6)].lval), (yyvsp[(2) - (6)].lval), &(yyvsp[(3) - (6)].addr), (yyvsp[(5) - (6)].addr).reg, &nullgen);
 	}
     break;
 
   case 41:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 281 "a.y"
     {
-		Gen g;
+		Addr g;
 
 		g = nullgen;
 		g.type = D_CONST;
@@ -2122,66 +2074,60 @@ yyreduce:
 			(((yyvsp[(11) - (12)].lval) & 15) << 0) |	/* Crm */
 			(((yyvsp[(12) - (12)].lval) & 7) << 5) |	/* coprocessor information */
 			(1<<4);			/* must be set */
-		outcode(AWORD, Always, &nullgen, NREG, &g);
+		outcode(AMRC, Always, &nullgen, NREG, &g);
 	}
     break;
 
   case 42:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 303 "a.y"
     {
-		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].gen), (yyvsp[(5) - (7)].gen).reg, &(yyvsp[(7) - (7)].gen));
+		outcode((yyvsp[(1) - (7)].lval), (yyvsp[(2) - (7)].lval), &(yyvsp[(3) - (7)].addr), (yyvsp[(5) - (7)].addr).reg, &(yyvsp[(7) - (7)].addr));
 	}
     break;
 
   case 43:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 311 "a.y"
     {
-		(yyvsp[(7) - (9)].gen).type = D_REGREG2;
-		(yyvsp[(7) - (9)].gen).offset = (yyvsp[(9) - (9)].lval);
-		outcode((yyvsp[(1) - (9)].lval), (yyvsp[(2) - (9)].lval), &(yyvsp[(3) - (9)].gen), (yyvsp[(5) - (9)].gen).reg, &(yyvsp[(7) - (9)].gen));
+		(yyvsp[(7) - (9)].addr).type = D_REGREG2;
+		(yyvsp[(7) - (9)].addr).offset = (yyvsp[(9) - (9)].lval);
+		outcode((yyvsp[(1) - (9)].lval), (yyvsp[(2) - (9)].lval), &(yyvsp[(3) - (9)].addr), (yyvsp[(5) - (9)].addr).reg, &(yyvsp[(7) - (9)].addr));
 	}
     break;
 
   case 44:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 320 "a.y"
     {
-		outcode((yyvsp[(1) - (2)].lval), Always, &(yyvsp[(2) - (2)].gen), NREG, &nullgen);
+		outcode((yyvsp[(1) - (2)].lval), Always, &(yyvsp[(2) - (2)].addr), NREG, &nullgen);
 	}
     break;
 
   case 45:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 327 "a.y"
     {
-		if((yyvsp[(2) - (4)].gen).type != D_CONST || (yyvsp[(4) - (4)].gen).type != D_CONST)
+		if((yyvsp[(2) - (4)].addr).type != D_CONST || (yyvsp[(4) - (4)].addr).type != D_CONST)
 			yyerror("arguments to PCDATA must be integer constants");
-		outcode((yyvsp[(1) - (4)].lval), Always, &(yyvsp[(2) - (4)].gen), NREG, &(yyvsp[(4) - (4)].gen));
+		outcode((yyvsp[(1) - (4)].lval), Always, &(yyvsp[(2) - (4)].addr), NREG, &(yyvsp[(4) - (4)].addr));
 	}
     break;
 
   case 46:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 336 "a.y"
     {
-		if((yyvsp[(2) - (4)].gen).type != D_CONST)
+		if((yyvsp[(2) - (4)].addr).type != D_CONST)
 			yyerror("index for FUNCDATA must be integer constant");
-		if((yyvsp[(4) - (4)].gen).type != D_EXTERN && (yyvsp[(4) - (4)].gen).type != D_STATIC)
+		if((yyvsp[(4) - (4)].addr).type != D_EXTERN && (yyvsp[(4) - (4)].addr).type != D_STATIC && (yyvsp[(4) - (4)].addr).type != D_OREG)
 			yyerror("value for FUNCDATA must be symbol reference");
- 		outcode((yyvsp[(1) - (4)].lval), Always, &(yyvsp[(2) - (4)].gen), NREG, &(yyvsp[(4) - (4)].gen));
+ 		outcode((yyvsp[(1) - (4)].lval), Always, &(yyvsp[(2) - (4)].addr), NREG, &(yyvsp[(4) - (4)].addr));
 	}
     break;
 
   case 47:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 347 "a.y"
     {
 		outcode((yyvsp[(1) - (2)].lval), Always, &nullgen, NREG, &nullgen);
@@ -2189,8 +2135,7 @@ yyreduce:
     break;
 
   case 48:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 352 "a.y"
     {
 		(yyval.lval) = Always;
@@ -2198,8 +2143,7 @@ yyreduce:
     break;
 
   case 49:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 356 "a.y"
     {
 		(yyval.lval) = ((yyvsp[(1) - (2)].lval) & ~C_SCOND) | (yyvsp[(2) - (2)].lval);
@@ -2207,8 +2151,7 @@ yyreduce:
     break;
 
   case 50:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 360 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (2)].lval) | (yyvsp[(2) - (2)].lval);
@@ -2216,119 +2159,106 @@ yyreduce:
     break;
 
   case 53:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 369 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_BRANCH;
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval) + pc;
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_BRANCH;
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval) + pc;
 	}
     break;
 
   case 54:
-
-/* Line 1806 of yacc.c  */
+/* Line 1787 of yacc.c  */
 #line 375 "a.y"
     {
-		(yyval.gen) = nullgen;
+		(yyval.addr) = nullgen;
 		if(pass == 2)
 			yyerror("undefined label: %s", (yyvsp[(1) - (2)].sym)->name);
-		(yyval.gen).type = D_BRANCH;
-		(yyval.gen).sym = (yyvsp[(1) - (2)].sym);
-		(yyval.gen).offset = (yyvsp[(2) - (2)].lval);
+		(yyval.addr).type = D_BRANCH;
+		(yyval.addr).offset = (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 55:
-
-/* Line 1806 of yacc.c  */
-#line 384 "a.y"
+/* Line 1787 of yacc.c  */
+#line 383 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_BRANCH;
-		(yyval.gen).sym = (yyvsp[(1) - (2)].sym);
-		(yyval.gen).offset = (yyvsp[(1) - (2)].sym)->value + (yyvsp[(2) - (2)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_BRANCH;
+		(yyval.addr).offset = (yyvsp[(1) - (2)].sym)->value + (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 56:
-
-/* Line 1806 of yacc.c  */
-#line 392 "a.y"
+/* Line 1787 of yacc.c  */
+#line 390 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_CONST;
-		(yyval.gen).offset = (yyvsp[(2) - (2)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_CONST;
+		(yyval.addr).offset = (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 57:
-
-/* Line 1806 of yacc.c  */
-#line 398 "a.y"
+/* Line 1787 of yacc.c  */
+#line 396 "a.y"
     {
-		(yyval.gen) = (yyvsp[(2) - (2)].gen);
-		(yyval.gen).type = D_CONST;
+		(yyval.addr) = (yyvsp[(2) - (2)].addr);
+		(yyval.addr).type = D_CONST;
 	}
     break;
 
   case 58:
-
-/* Line 1806 of yacc.c  */
-#line 403 "a.y"
+/* Line 1787 of yacc.c  */
+#line 401 "a.y"
     {
-		(yyval.gen) = (yyvsp[(4) - (4)].gen);
-		(yyval.gen).type = D_OCONST;
+		(yyval.addr) = (yyvsp[(4) - (4)].addr);
+		(yyval.addr).type = D_OCONST;
 	}
     break;
 
   case 59:
-
-/* Line 1806 of yacc.c  */
-#line 408 "a.y"
+/* Line 1787 of yacc.c  */
+#line 406 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_SCONST;
-		memcpy((yyval.gen).sval, (yyvsp[(2) - (2)].sval), sizeof((yyval.gen).sval));
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_SCONST;
+		memcpy((yyval.addr).u.sval, (yyvsp[(2) - (2)].sval), sizeof((yyval.addr).u.sval));
 	}
     break;
 
   case 61:
-
-/* Line 1806 of yacc.c  */
-#line 417 "a.y"
+/* Line 1787 of yacc.c  */
+#line 415 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_FCONST;
-		(yyval.gen).dval = (yyvsp[(2) - (2)].dval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_FCONST;
+		(yyval.addr).u.dval = (yyvsp[(2) - (2)].dval);
 	}
     break;
 
   case 62:
-
-/* Line 1806 of yacc.c  */
-#line 423 "a.y"
+/* Line 1787 of yacc.c  */
+#line 421 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_FCONST;
-		(yyval.gen).dval = -(yyvsp[(3) - (3)].dval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_FCONST;
+		(yyval.addr).u.dval = -(yyvsp[(3) - (3)].dval);
 	}
     break;
 
   case 63:
-
-/* Line 1806 of yacc.c  */
-#line 431 "a.y"
+/* Line 1787 of yacc.c  */
+#line 429 "a.y"
     {
 		(yyval.lval) = 1 << (yyvsp[(1) - (1)].lval);
 	}
     break;
 
   case 64:
-
-/* Line 1806 of yacc.c  */
-#line 435 "a.y"
+/* Line 1787 of yacc.c  */
+#line 433 "a.y"
     {
 		int i;
 		(yyval.lval)=0;
@@ -2340,185 +2270,168 @@ yyreduce:
     break;
 
   case 65:
-
-/* Line 1806 of yacc.c  */
-#line 444 "a.y"
+/* Line 1787 of yacc.c  */
+#line 442 "a.y"
     {
 		(yyval.lval) = (1<<(yyvsp[(1) - (3)].lval)) | (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 69:
-
-/* Line 1806 of yacc.c  */
-#line 453 "a.y"
+/* Line 1787 of yacc.c  */
+#line 451 "a.y"
     {
-		(yyval.gen) = (yyvsp[(1) - (4)].gen);
-		(yyval.gen).reg = (yyvsp[(3) - (4)].lval);
+		(yyval.addr) = (yyvsp[(1) - (4)].addr);
+		(yyval.addr).reg = (yyvsp[(3) - (4)].lval);
 	}
     break;
 
   case 70:
-
-/* Line 1806 of yacc.c  */
-#line 458 "a.y"
+/* Line 1787 of yacc.c  */
+#line 456 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_PSR;
-		(yyval.gen).reg = (yyvsp[(1) - (1)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_PSR;
+		(yyval.addr).reg = (yyvsp[(1) - (1)].lval);
 	}
     break;
 
   case 71:
-
-/* Line 1806 of yacc.c  */
-#line 464 "a.y"
+/* Line 1787 of yacc.c  */
+#line 462 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_FPCR;
-		(yyval.gen).reg = (yyvsp[(1) - (1)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_FPCR;
+		(yyval.addr).reg = (yyvsp[(1) - (1)].lval);
 	}
     break;
 
   case 72:
-
-/* Line 1806 of yacc.c  */
-#line 470 "a.y"
+/* Line 1787 of yacc.c  */
+#line 468 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).offset = (yyvsp[(1) - (1)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).offset = (yyvsp[(1) - (1)].lval);
 	}
     break;
 
   case 76:
-
-/* Line 1806 of yacc.c  */
-#line 481 "a.y"
+/* Line 1787 of yacc.c  */
+#line 479 "a.y"
     {
-		(yyval.gen) = (yyvsp[(1) - (1)].gen);
-		if((yyvsp[(1) - (1)].gen).name != D_EXTERN && (yyvsp[(1) - (1)].gen).name != D_STATIC) {
+		(yyval.addr) = (yyvsp[(1) - (1)].addr);
+		if((yyvsp[(1) - (1)].addr).name != D_EXTERN && (yyvsp[(1) - (1)].addr).name != D_STATIC) {
 		}
 	}
     break;
 
   case 77:
-
-/* Line 1806 of yacc.c  */
-#line 489 "a.y"
+/* Line 1787 of yacc.c  */
+#line 487 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).reg = (yyvsp[(2) - (3)].lval);
-		(yyval.gen).offset = 0;
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).reg = (yyvsp[(2) - (3)].lval);
+		(yyval.addr).offset = 0;
 	}
     break;
 
   case 79:
-
-/* Line 1806 of yacc.c  */
-#line 499 "a.y"
+/* Line 1787 of yacc.c  */
+#line 497 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).reg = (yyvsp[(3) - (4)].lval);
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).reg = (yyvsp[(3) - (4)].lval);
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval);
 	}
     break;
 
   case 81:
-
-/* Line 1806 of yacc.c  */
-#line 509 "a.y"
+/* Line 1787 of yacc.c  */
+#line 507 "a.y"
     {
-		(yyval.gen) = (yyvsp[(1) - (4)].gen);
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).reg = (yyvsp[(3) - (4)].lval);
+		(yyval.addr) = (yyvsp[(1) - (4)].addr);
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).reg = (yyvsp[(3) - (4)].lval);
 	}
     break;
 
   case 86:
-
-/* Line 1806 of yacc.c  */
-#line 522 "a.y"
+/* Line 1787 of yacc.c  */
+#line 520 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_CONST;
-		(yyval.gen).offset = (yyvsp[(2) - (2)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_CONST;
+		(yyval.addr).offset = (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 87:
-
-/* Line 1806 of yacc.c  */
-#line 530 "a.y"
+/* Line 1787 of yacc.c  */
+#line 528 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_REG;
-		(yyval.gen).reg = (yyvsp[(1) - (1)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_REG;
+		(yyval.addr).reg = (yyvsp[(1) - (1)].lval);
 	}
     break;
 
   case 88:
-
-/* Line 1806 of yacc.c  */
-#line 538 "a.y"
+/* Line 1787 of yacc.c  */
+#line 536 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_REGREG;
-		(yyval.gen).reg = (yyvsp[(2) - (5)].lval);
-		(yyval.gen).offset = (yyvsp[(4) - (5)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_REGREG;
+		(yyval.addr).reg = (yyvsp[(2) - (5)].lval);
+		(yyval.addr).offset = (yyvsp[(4) - (5)].lval);
 	}
     break;
 
   case 89:
-
-/* Line 1806 of yacc.c  */
-#line 547 "a.y"
+/* Line 1787 of yacc.c  */
+#line 545 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_SHIFT;
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (0 << 5);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_SHIFT;
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (0 << 5);
 	}
     break;
 
   case 90:
-
-/* Line 1806 of yacc.c  */
-#line 553 "a.y"
+/* Line 1787 of yacc.c  */
+#line 551 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_SHIFT;
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (1 << 5);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_SHIFT;
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (1 << 5);
 	}
     break;
 
   case 91:
-
-/* Line 1806 of yacc.c  */
-#line 559 "a.y"
+/* Line 1787 of yacc.c  */
+#line 557 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_SHIFT;
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (2 << 5);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_SHIFT;
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (2 << 5);
 	}
     break;
 
   case 92:
-
-/* Line 1806 of yacc.c  */
-#line 565 "a.y"
+/* Line 1787 of yacc.c  */
+#line 563 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_SHIFT;
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (3 << 5);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_SHIFT;
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval) | (yyvsp[(4) - (4)].lval) | (3 << 5);
 	}
     break;
 
   case 93:
-
-/* Line 1806 of yacc.c  */
-#line 573 "a.y"
+/* Line 1787 of yacc.c  */
+#line 571 "a.y"
     {
 		if((yyval.lval) < 0 || (yyval.lval) >= 16)
 			print("register value out of range\n");
@@ -2527,9 +2440,8 @@ yyreduce:
     break;
 
   case 94:
-
-/* Line 1806 of yacc.c  */
-#line 579 "a.y"
+/* Line 1787 of yacc.c  */
+#line 577 "a.y"
     {
 		if((yyval.lval) < 0 || (yyval.lval) >= 32)
 			print("shift value out of range\n");
@@ -2538,18 +2450,16 @@ yyreduce:
     break;
 
   case 96:
-
-/* Line 1806 of yacc.c  */
-#line 588 "a.y"
+/* Line 1787 of yacc.c  */
+#line 586 "a.y"
     {
 		(yyval.lval) = REGPC;
 	}
     break;
 
   case 97:
-
-/* Line 1806 of yacc.c  */
-#line 592 "a.y"
+/* Line 1787 of yacc.c  */
+#line 590 "a.y"
     {
 		if((yyvsp[(3) - (4)].lval) < 0 || (yyvsp[(3) - (4)].lval) >= NREG)
 			print("register value out of range\n");
@@ -2558,18 +2468,16 @@ yyreduce:
     break;
 
   case 99:
-
-/* Line 1806 of yacc.c  */
-#line 601 "a.y"
+/* Line 1787 of yacc.c  */
+#line 599 "a.y"
     {
 		(yyval.lval) = REGSP;
 	}
     break;
 
   case 101:
-
-/* Line 1806 of yacc.c  */
-#line 608 "a.y"
+/* Line 1787 of yacc.c  */
+#line 606 "a.y"
     {
 		if((yyvsp[(3) - (4)].lval) < 0 || (yyvsp[(3) - (4)].lval) >= NREG)
 			print("register value out of range\n");
@@ -2578,250 +2486,224 @@ yyreduce:
     break;
 
   case 104:
-
-/* Line 1806 of yacc.c  */
-#line 620 "a.y"
+/* Line 1787 of yacc.c  */
+#line 618 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_FREG;
-		(yyval.gen).reg = (yyvsp[(1) - (1)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_FREG;
+		(yyval.addr).reg = (yyvsp[(1) - (1)].lval);
 	}
     break;
 
   case 105:
-
-/* Line 1806 of yacc.c  */
-#line 626 "a.y"
+/* Line 1787 of yacc.c  */
+#line 624 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_FREG;
-		(yyval.gen).reg = (yyvsp[(3) - (4)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_FREG;
+		(yyval.addr).reg = (yyvsp[(3) - (4)].lval);
 	}
     break;
 
   case 106:
-
-/* Line 1806 of yacc.c  */
-#line 634 "a.y"
+/* Line 1787 of yacc.c  */
+#line 632 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).name = (yyvsp[(3) - (4)].lval);
-		(yyval.gen).sym = S;
-		(yyval.gen).offset = (yyvsp[(1) - (4)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).name = (yyvsp[(3) - (4)].lval);
+		(yyval.addr).sym = nil;
+		(yyval.addr).offset = (yyvsp[(1) - (4)].lval);
 	}
     break;
 
   case 107:
-
-/* Line 1806 of yacc.c  */
-#line 642 "a.y"
+/* Line 1787 of yacc.c  */
+#line 640 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).name = (yyvsp[(4) - (5)].lval);
-		(yyval.gen).sym = (yyvsp[(1) - (5)].sym);
-		(yyval.gen).offset = (yyvsp[(2) - (5)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).name = (yyvsp[(4) - (5)].lval);
+		(yyval.addr).sym = linklookup(ctxt, (yyvsp[(1) - (5)].sym)->name, 0);
+		(yyval.addr).offset = (yyvsp[(2) - (5)].lval);
 	}
     break;
 
   case 108:
-
-/* Line 1806 of yacc.c  */
-#line 650 "a.y"
+/* Line 1787 of yacc.c  */
+#line 648 "a.y"
     {
-		(yyval.gen) = nullgen;
-		(yyval.gen).type = D_OREG;
-		(yyval.gen).name = D_STATIC;
-		(yyval.gen).sym = (yyvsp[(1) - (7)].sym);
-		(yyval.gen).offset = (yyvsp[(4) - (7)].lval);
+		(yyval.addr) = nullgen;
+		(yyval.addr).type = D_OREG;
+		(yyval.addr).name = D_STATIC;
+		(yyval.addr).sym = linklookup(ctxt, (yyvsp[(1) - (7)].sym)->name, 1);
+		(yyval.addr).offset = (yyvsp[(4) - (7)].lval);
 	}
     break;
 
   case 109:
-
-/* Line 1806 of yacc.c  */
-#line 659 "a.y"
+/* Line 1787 of yacc.c  */
+#line 657 "a.y"
     {
 		(yyval.lval) = 0;
 	}
     break;
 
   case 110:
-
-/* Line 1806 of yacc.c  */
-#line 663 "a.y"
+/* Line 1787 of yacc.c  */
+#line 661 "a.y"
     {
 		(yyval.lval) = (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 111:
-
-/* Line 1806 of yacc.c  */
-#line 667 "a.y"
+/* Line 1787 of yacc.c  */
+#line 665 "a.y"
     {
 		(yyval.lval) = -(yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 116:
-
-/* Line 1806 of yacc.c  */
-#line 679 "a.y"
+/* Line 1787 of yacc.c  */
+#line 677 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (1)].sym)->value;
 	}
     break;
 
   case 117:
-
-/* Line 1806 of yacc.c  */
-#line 683 "a.y"
+/* Line 1787 of yacc.c  */
+#line 681 "a.y"
     {
 		(yyval.lval) = -(yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 118:
-
-/* Line 1806 of yacc.c  */
-#line 687 "a.y"
+/* Line 1787 of yacc.c  */
+#line 685 "a.y"
     {
 		(yyval.lval) = (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 119:
-
-/* Line 1806 of yacc.c  */
-#line 691 "a.y"
+/* Line 1787 of yacc.c  */
+#line 689 "a.y"
     {
 		(yyval.lval) = ~(yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 120:
-
-/* Line 1806 of yacc.c  */
-#line 695 "a.y"
+/* Line 1787 of yacc.c  */
+#line 693 "a.y"
     {
 		(yyval.lval) = (yyvsp[(2) - (3)].lval);
 	}
     break;
 
   case 121:
-
-/* Line 1806 of yacc.c  */
-#line 700 "a.y"
+/* Line 1787 of yacc.c  */
+#line 698 "a.y"
     {
 		(yyval.lval) = 0;
 	}
     break;
 
   case 122:
-
-/* Line 1806 of yacc.c  */
-#line 704 "a.y"
+/* Line 1787 of yacc.c  */
+#line 702 "a.y"
     {
 		(yyval.lval) = (yyvsp[(2) - (2)].lval);
 	}
     break;
 
   case 124:
-
-/* Line 1806 of yacc.c  */
-#line 711 "a.y"
+/* Line 1787 of yacc.c  */
+#line 709 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) + (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 125:
-
-/* Line 1806 of yacc.c  */
-#line 715 "a.y"
+/* Line 1787 of yacc.c  */
+#line 713 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) - (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 126:
-
-/* Line 1806 of yacc.c  */
-#line 719 "a.y"
+/* Line 1787 of yacc.c  */
+#line 717 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) * (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 127:
-
-/* Line 1806 of yacc.c  */
-#line 723 "a.y"
+/* Line 1787 of yacc.c  */
+#line 721 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) / (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 128:
-
-/* Line 1806 of yacc.c  */
-#line 727 "a.y"
+/* Line 1787 of yacc.c  */
+#line 725 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) % (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 129:
-
-/* Line 1806 of yacc.c  */
-#line 731 "a.y"
+/* Line 1787 of yacc.c  */
+#line 729 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (4)].lval) << (yyvsp[(4) - (4)].lval);
 	}
     break;
 
   case 130:
-
-/* Line 1806 of yacc.c  */
-#line 735 "a.y"
+/* Line 1787 of yacc.c  */
+#line 733 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (4)].lval) >> (yyvsp[(4) - (4)].lval);
 	}
     break;
 
   case 131:
-
-/* Line 1806 of yacc.c  */
-#line 739 "a.y"
+/* Line 1787 of yacc.c  */
+#line 737 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) & (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 132:
-
-/* Line 1806 of yacc.c  */
-#line 743 "a.y"
+/* Line 1787 of yacc.c  */
+#line 741 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) ^ (yyvsp[(3) - (3)].lval);
 	}
     break;
 
   case 133:
-
-/* Line 1806 of yacc.c  */
-#line 747 "a.y"
+/* Line 1787 of yacc.c  */
+#line 745 "a.y"
     {
 		(yyval.lval) = (yyvsp[(1) - (3)].lval) | (yyvsp[(3) - (3)].lval);
 	}
     break;
 
 
-
-/* Line 1806 of yacc.c  */
-#line 2825 "y.tab.c"
+/* Line 1787 of yacc.c  */
+#line 2707 "y.tab.c"
       default: break;
     }
   /* User semantic actions sometimes alter yychar, and that requires
@@ -2984,7 +2866,9 @@ yyerrlab1:
       YY_STACK_PRINT (yyss, yyssp);
     }
 
+  YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
   *++yyvsp = yylval;
+  YY_IGNORE_MAYBE_UNINITIALIZED_END
 
 
   /* Shift the error token.  */
@@ -3008,7 +2892,7 @@ yyabortlab:
   yyresult = 1;
   goto yyreturn;
 
-#if !defined(yyoverflow) || YYERROR_VERBOSE
+#if !defined yyoverflow || YYERROR_VERBOSE
 /*-------------------------------------------------.
 | yyexhaustedlab -- memory exhaustion comes here.  |
 `-------------------------------------------------*/
@@ -3048,6 +2932,5 @@ yyreturn:
   /* Make sure YYID is used.  */
   return YYID (yyresult);
 }
-
 
 

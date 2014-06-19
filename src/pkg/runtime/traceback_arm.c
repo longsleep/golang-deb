@@ -8,17 +8,23 @@
 #include "funcdata.h"
 
 void runtime·sigpanic(void);
+void runtime·newproc(void);
+void runtime·deferproc(void);
 
 int32
-runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, uintptr *pcbuf, int32 max, void (*callback)(Stkframe*, void*), void *v, bool printall)
+runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, uintptr *pcbuf, int32 max, bool (*callback)(Stkframe*, void*), void *v, bool printall)
 {
-	int32 i, n, nprint, line;
-	uintptr x, tracepc;
-	bool waspanic, printing;
+	int32 i, n, nprint, line, gotraceback;
+	uintptr x, tracepc, sparg;
+	bool waspanic, wasnewproc, printing;
 	Func *f, *flr;
 	Stkframe frame;
 	Stktop *stk;
 	String file;
+	Panic *panic;
+	Defer *defer;
+
+	gotraceback = runtime·gotraceback(nil);
 
 	if(pc0 == ~(uintptr)0 && sp0 == ~(uintptr)0) { // Signal to fetch saved values from gp.
 		if(gp->syscallstack != (uintptr)nil) {
@@ -38,7 +44,16 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 	frame.lr = lr0;
 	frame.sp = sp0;
 	waspanic = false;
+	wasnewproc = false;
 	printing = pcbuf==nil && callback==nil;
+
+	panic = gp->panic;
+	defer = gp->defer;
+
+	while(defer != nil && defer->argp == NoArgs)
+		defer = defer->link;	
+	while(panic != nil && panic->defer == nil)
+		panic = panic->link;
 
 	// If the PC is zero, it's likely a nil function call.
 	// Start in the caller's frame.
@@ -95,6 +110,19 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 		if(runtime·topofstack(f)) {
 			frame.lr = 0;
 			flr = nil;
+		} else if(f->entry == (uintptr)runtime·jmpdefer) {
+			// jmpdefer modifies SP/LR/PC non-atomically.
+			// If a profiling interrupt arrives during jmpdefer,
+			// the stack unwind may see a mismatched register set
+			// and get confused. Stop if we see PC within jmpdefer
+			// to avoid that confusion.
+			// See golang.org/issue/8153.
+			// This check can be deleted if jmpdefer is changed
+			// to restore all three atomically using pop.
+			if(callback != nil)
+				runtime·throw("traceback_arm: found jmpdefer when tracing with callback");
+			frame.lr = 0;
+			flr = nil;
 		} else {
 			if((n == 0 && frame.sp < frame.fp) || frame.lr == 0)
 				frame.lr = *(uintptr*)frame.sp;
@@ -133,6 +161,47 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 			}
 		}
 
+		// Determine function SP where deferproc would find its arguments.
+		// On ARM that's just the standard bottom-of-stack plus 1 word for
+		// the saved LR. If the previous frame was a direct call to newproc/deferproc,
+		// however, the SP is three words lower than normal.
+		// If the function has no frame at all - perhaps it just started, or perhaps
+		// it is a leaf with no local variables - then we cannot possibly find its
+		// SP in a defer, and we might confuse its SP for its caller's SP, so
+		// set sparg=0 in that case.
+		sparg = 0;
+		if(frame.fp != frame.sp) {
+			sparg = frame.sp + sizeof(uintreg);
+			if(wasnewproc)
+				sparg += 3*sizeof(uintreg);
+		}
+
+		// Determine frame's 'continuation PC', where it can continue.
+		// Normally this is the return address on the stack, but if sigpanic
+		// is immediately below this function on the stack, then the frame
+		// stopped executing due to a trap, and frame.pc is probably not
+		// a safe point for looking up liveness information. In this panicking case,
+		// the function either doesn't return at all (if it has no defers or if the
+		// defers do not recover) or it returns from one of the calls to 
+		// deferproc a second time (if the corresponding deferred func recovers).
+		// It suffices to assume that the most recent deferproc is the one that
+		// returns; everything live at earlier deferprocs is still live at that one.
+		frame.continpc = frame.pc;
+		if(waspanic) {
+			if(panic != nil && panic->defer->argp == (byte*)sparg)
+				frame.continpc = (uintptr)panic->defer->pc;
+			else if(defer != nil && defer->argp == (byte*)sparg)
+				frame.continpc = (uintptr)defer->pc;
+			else
+				frame.continpc = 0;
+		}
+
+		// Unwind our local panic & defer stacks past this frame.
+		while(panic != nil && (panic->defer == nil || panic->defer->argp == (byte*)sparg || panic->defer->argp == NoArgs))
+			panic = panic->link;
+		while(defer != nil && (defer->argp == (byte*)sparg || defer->argp == NoArgs))
+			defer = defer->link;	
+
 		if(skip > 0) {
 			skip--;
 			goto skipped;
@@ -140,8 +209,10 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 
 		if(pcbuf != nil)
 			pcbuf[n] = frame.pc;
-		if(callback != nil)
-			callback(&frame, v);
+		if(callback != nil) {
+			if(!callback(&frame, v))
+				return n;
+		}
 		if(printing) {
 			if(printall || runtime·showframe(f, gp)) {
 				// Print during crash.
@@ -152,7 +223,7 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 					tracepc -= sizeof(uintptr);
 				runtime·printf("%s(", runtime·funcname(f));
 				for(i = 0; i < frame.arglen/sizeof(uintptr); i++) {
-					if(i >= 5) {
+					if(i >= 10) {
 						runtime·prints(", ...");
 						break;
 					}
@@ -165,8 +236,8 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 				runtime·printf("\t%S:%d", file, line);
 				if(frame.pc > f->entry)
 					runtime·printf(" +%p", (uintptr)(frame.pc - f->entry));
-				if(m->throwing > 0 && gp == m->curg)
-					runtime·printf(" fp=%p", frame.fp);
+				if(m->throwing > 0 && gp == m->curg || gotraceback >= 2)
+					runtime·printf(" fp=%p sp=%p", frame.fp, frame.sp);
 				runtime·printf("\n");
 				nprint++;
 			}
@@ -175,6 +246,7 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 		
 	skipped:
 		waspanic = f->entry == (uintptr)runtime·sigpanic;
+		wasnewproc = f->entry == (uintptr)runtime·newproc || f->entry == (uintptr)runtime·deferproc;
 
 		// Do not unwind past the bottom of the stack.
 		if(flr == nil)
@@ -201,6 +273,23 @@ runtime·gentraceback(uintptr pc0, uintptr sp0, uintptr lr0, G *gp, int32 skip, 
 	
 	if(pcbuf == nil && callback == nil)
 		n = nprint;
+
+	// For rationale, see long comment in traceback_x86.c.
+	if(callback != nil && n < max && defer != nil) {
+		if(defer != nil)
+			runtime·printf("runtime: g%D: leftover defer argp=%p pc=%p\n", gp->goid, defer->argp, defer->pc);
+		if(panic != nil)
+			runtime·printf("runtime: g%D: leftover panic argp=%p pc=%p\n", gp->goid, panic->defer->argp, panic->defer->pc);
+		for(defer = gp->defer; defer != nil; defer = defer->link)
+			runtime·printf("\tdefer %p argp=%p pc=%p\n", defer, defer->argp, defer->pc);
+		for(panic = gp->panic; panic != nil; panic = panic->link) {
+			runtime·printf("\tpanic %p defer %p", panic, panic->defer);
+			if(panic->defer != nil)
+				runtime·printf(" argp=%p pc=%p", panic->defer->argp, panic->defer->pc);
+			runtime·printf("\n");
+		}
+		runtime·throw("traceback has leftover defers or panics");
+	}
 
 	return n;		
 }
@@ -231,6 +320,8 @@ runtime·printcreatedby(G *gp)
 void
 runtime·traceback(uintptr pc, uintptr sp, uintptr lr, G *gp)
 {
+	int32 n;
+
 	if(gp->status == Gsyscall) {
 		// Override signal registers if blocked in system call.
 		pc = gp->syscallpc;
@@ -240,8 +331,11 @@ runtime·traceback(uintptr pc, uintptr sp, uintptr lr, G *gp)
 
 	// Print traceback. By default, omits runtime frames.
 	// If that means we print nothing at all, repeat forcing all frames printed.
-	if(runtime·gentraceback(pc, sp, lr, gp, 0, nil, 100, nil, nil, false) == 0)
-		runtime·gentraceback(pc, sp, lr, gp, 0, nil, 100, nil, nil, true);
+	n = runtime·gentraceback(pc, sp, lr, gp, 0, nil, TracebackMaxFrames, nil, nil, false);
+	if(n == 0)
+		runtime·gentraceback(pc, sp, lr, gp, 0, nil, TracebackMaxFrames, nil, nil, true);
+	if(n == TracebackMaxFrames)
+		runtime·printf("...additional frames elided...\n");
 	runtime·printcreatedby(gp);
 }
 

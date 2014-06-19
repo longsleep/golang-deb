@@ -301,6 +301,9 @@ gen(Node *n)
 		break;
 
 	case OLABEL:
+		if(isblanksym(n->left->sym))
+			break;
+		
 		lab = newlab(n);
 
 		// if there are pending gotos, resolve them all to the current pc.
@@ -495,6 +498,11 @@ gen(Node *n)
 	
 	case OCHECKNIL:
 		cgen_checknil(n->left);
+		break;
+	
+	case OVARKILL:
+		gvarkill(n->left);
+		break;
 	}
 
 ret:
@@ -562,8 +570,7 @@ cgen_proc(Node *n, int proc)
 
 /*
  * generate declaration.
- * nothing to do for on-stack automatics,
- * but might have to allocate heap copy
+ * have to allocate heap copy
  * for escaped variables.
  */
 static void
@@ -739,6 +746,8 @@ cgen_as(Node *nl, Node *nr)
 		if(tl == T)
 			return;
 		if(isfat(tl)) {
+			if(nl->op == ONAME)
+				gvardef(nl);
 			clearfat(nl);
 			return;
 		}
@@ -767,10 +776,18 @@ cgen_eface(Node *n, Node *res)
 	 * so it's important that it is done first
 	 */
 	Node dst;
+	Node *tmp;
+
+	tmp = temp(types[tptr]);
+	cgen(n->right, tmp);
+
+	gvardef(res);
+
 	dst = *res;
 	dst.type = types[tptr];
 	dst.xoffset += widthptr;
-	cgen(n->right, &dst);
+	cgen(tmp, &dst);
+
 	dst.xoffset -= widthptr;
 	cgen(n->left, &dst);
 }
@@ -787,13 +804,61 @@ cgen_eface(Node *n, Node *res)
 void
 cgen_slice(Node *n, Node *res)
 {
-	Node src, dst, *cap, *len, *offs, *add;
+	Node src, dst, *cap, *len, *offs, *add, *base;
 
 	cap = n->list->n;
 	len = n->list->next->n;
 	offs = N;
 	if(n->list->next->next)
 		offs = n->list->next->next->n;
+
+	// evaluate base pointer first, because it is the only
+	// possibly complex expression. once that is evaluated
+	// and stored, updating the len and cap can be done
+	// without making any calls, so without doing anything that
+	// might cause preemption or garbage collection.
+	// this makes the whole slice update atomic as far as the
+	// garbage collector can see.
+	
+	base = temp(types[TUINTPTR]);
+
+	if(isnil(n->left)) {
+		tempname(&src, n->left->type);
+		cgen(n->left, &src);
+	} else
+		src = *n->left;
+	if(n->op == OSLICE || n->op == OSLICE3 || n->op == OSLICESTR)
+		src.xoffset += Array_array;
+
+	if(n->op == OSLICEARR || n->op == OSLICE3ARR) {
+		if(!isptr[n->left->type->etype])
+			fatal("slicearr is supposed to work on pointer: %+N\n", n);
+		cgen(&src, base);
+		cgen_checknil(base);
+		if(offs != N) {
+			add = nod(OADD, base, offs);
+			typecheck(&add, Erv);
+			cgen(add, base);
+		}
+	} else if(offs == N) {
+		src.type = types[tptr];
+		cgen(&src, base);
+	} else {
+		src.type = types[tptr];
+		add = nod(OADDPTR, &src, offs);
+		typecheck(&add, Erv);
+		cgen(add, base);
+	}
+	
+	// committed to the update
+	gvardef(res);
+
+	// dst.array = src.array  [ + lo *width ]
+	dst = *res;
+	dst.xoffset += Array_array;
+	dst.type = types[tptr];
+	
+	cgen(base, &dst);
 
 	// dst.len = hi [ - lo ]
 	dst = *res;
@@ -807,38 +872,6 @@ cgen_slice(Node *n, Node *res)
 		dst.xoffset += Array_cap;
 		dst.type = types[simtype[TUINT]];
 		cgen(cap, &dst);
-	}
-
-	// dst.array = src.array  [ + lo *width ]
-	dst = *res;
-	dst.xoffset += Array_array;
-	dst.type = types[TUINTPTR];
-
-	if(isnil(n->left)) {
-		tempname(&src, n->left->type);
-		cgen(n->left, &src);
-	} else
-		src = *n->left;
-	if(n->op == OSLICE || n->op == OSLICE3 || n->op == OSLICESTR)
-		src.xoffset += Array_array;
-	src.type = types[TUINTPTR];
-
-	if(n->op == OSLICEARR || n->op == OSLICE3ARR) {
-		if(!isptr[n->left->type->etype])
-			fatal("slicearr is supposed to work on pointer: %+N\n", n);
-		cgen(&src, &dst);
-		cgen_checknil(&dst);
-		if(offs != N) {
-			add = nod(OADD, &dst, offs);
-			typecheck(&add, Erv);
-			cgen(add, &dst);
-		}
-	} else if(offs == N) {
-		cgen(&src, &dst);
-	} else {
-		add = nod(OADD, &src, offs);
-		typecheck(&add, Erv);
-		cgen(add, &dst);
 	}
 }
 
@@ -935,5 +968,5 @@ temp(Type *t)
 	n = nod(OXXX, N, N);
 	tempname(n, t);
 	n->sym->def->used = 1;
-	return n;
+	return n->orig;
 }

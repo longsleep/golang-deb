@@ -106,7 +106,7 @@ TEXT runtime·mincore(SB),NOSPLIT,$0-24
 // func now() (sec int64, nsec int32)
 TEXT time·now(SB), NOSPLIT, $32
 	MOVL	$265, AX			// syscall - clock_gettime
-	MOVL	$0, BX
+	MOVL	$0, BX		// CLOCK_REALTIME
 	LEAL	8(SP), CX
 	MOVL	$0, DX
 	CALL	*runtime·_vdso(SB)
@@ -123,7 +123,7 @@ TEXT time·now(SB), NOSPLIT, $32
 // void nanotime(int64 *nsec)
 TEXT runtime·nanotime(SB), NOSPLIT, $32
 	MOVL	$265, AX			// syscall - clock_gettime
-	MOVL	$0, BX
+	MOVL	$1, BX		// CLOCK_MONOTONIC
 	LEAL	8(SP), CX
 	MOVL	$0, DX
 	CALL	*runtime·_vdso(SB)
@@ -383,7 +383,7 @@ TEXT runtime·setldt(SB),NOSPLIT,$32
 	 * for us.  When we do that, the private storage
 	 * we get is not at 0(GS), 4(GS), but -8(GS), -4(GS).
 	 * To insulate the rest of the tool chain from this
-	 * ugliness, 8l rewrites 0(GS) into -8(GS) for us.
+	 * ugliness, 8l rewrites 0(TLS) into -8(GS) for us.
 	 * To accommodate that rewrite, we translate
 	 * the address here and bump the limit to 0xffffffff (no limit)
 	 * so that -8(GS) maps to 0(address).

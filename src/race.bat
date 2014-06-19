@@ -15,6 +15,7 @@ echo race.bat must be run from go\src
 goto end
 :ok
 
+set GOROOT=%CD%\..
 call make.bat --dist-tool >NUL
 if errorlevel 1 goto fail
 .\cmd\dist\dist env -wp >env.bat
@@ -35,7 +36,13 @@ go install -race cmd/cgo
 echo # go install -race std
 go install -race std
 if errorlevel 1 goto fail
-echo # go test -race -short -std
+
+:: we must unset GOROOT_FINAL before tests, because runtime/debug requires
+:: correct access to source code, so if we have GOROOT_FINAL in effect,
+:: at least runtime/debug test will fail.
+set GOROOT_FINAL=
+
+echo # go test -race -short std
 go test -race -short std
 if errorlevel 1 goto fail
 echo # go test -race -run=nothingplease -bench=.* -benchtime=.1s -cpu=4 std
@@ -52,4 +59,5 @@ goto end
 echo All tests passed.
 
 :end
+if x%GOBUILDEXIT%==x1 exit %GOBUILDFAIL%
 

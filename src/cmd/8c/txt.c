@@ -30,14 +30,23 @@
 
 #include "gc.h"
 
+
+int thechar = '8';
+char *thestring = "386";
+
+LinkArch	*thelinkarch = &link386;
+
+void
+linkarchinit(void)
+{
+}
+
 void
 ginit(void)
 {
 	int i;
 	Type *t;
 
-	thechar = '8';
-	thestring = "386";
 	exregoffset = 0;
 	exfregoffset = 0;
 	listinit();
@@ -48,7 +57,6 @@ ginit(void)
 	breakpc = -1;
 	continpc = -1;
 	cases = C;
-	firstp = P;
 	lastp = P;
 	tfield = types[TLONG];
 
@@ -156,17 +164,18 @@ gclean(void)
 void
 nextpc(void)
 {
+	Plist *pl;
 
 	p = alloc(sizeof(*p));
 	*p = zprog;
 	p->lineno = nearln;
+	p->pc = pc;
 	pc++;
-	if(firstp == P) {
-		firstp = p;
-		lastp = p;
-		return;
-	}
-	lastp->link = p;
+	if(lastp == nil) {
+		pl = linknewplist(ctxt);
+		pl->firstpc = p;
+	} else
+		lastp->link = p;
 	lastp = p;
 }
 
@@ -188,7 +197,8 @@ gargs(Node *n, Node *tn1, Node *tn2)
 	cursafe = regs;
 }
 
-int nareg(void)
+int
+nareg(void)
 {
 	int i, n;
 
@@ -435,7 +445,7 @@ regind(Node *n, Node *nn)
 }
 
 void
-naddr(Node *n, Adr *a)
+naddr(Node *n, Addr *a)
 {
 	int32 v;
 
@@ -450,11 +460,11 @@ naddr(Node *n, Adr *a)
 
 	case OREGISTER:
 		a->type = n->reg;
-		a->sym = S;
+		a->sym = nil;
 		break;
 
 	case OEXREG:
-		a->type = D_INDIR + D_GS;
+		a->type = D_INDIR + D_TLS;
 		a->offset = n->reg - 1;
 		break;
 
@@ -495,14 +505,14 @@ naddr(Node *n, Adr *a)
 
 	case OINDREG:
 		a->type = n->reg+D_INDIR;
-		a->sym = S;
+		a->sym = nil;
 		a->offset = n->xoffset;
 		break;
 
 	case ONAME:
 		a->etype = n->etype;
 		a->type = D_STATIC;
-		a->sym = n->sym;
+		a->sym = linksym(n->sym);
 		a->offset = n->xoffset;
 		if(n->class == CSTATIC)
 			break;
@@ -523,10 +533,10 @@ naddr(Node *n, Adr *a)
 	case OCONST:
 		if(typefd[n->type->etype]) {
 			a->type = D_FCONST;
-			a->dval = n->fconst;
+			a->u.dval = n->fconst;
 			break;
 		}
-		a->sym = S;
+		a->sym = nil;
 		a->type = D_CONST;
 		a->offset = n->vconst;
 		break;
@@ -1366,9 +1376,10 @@ gbranch(int o)
 void
 patch(Prog *op, int32 pc)
 {
-
 	op->to.offset = pc;
 	op->to.type = D_BRANCH;
+	op->to.u.branch = nil;
+	op->pcond = nil;
 }
 
 void
@@ -1378,7 +1389,7 @@ gpseudo(int a, Sym *s, Node *n)
 	nextpc();
 	p->as = a;
 	p->from.type = D_EXTERN;
-	p->from.sym = s;
+	p->from.sym = linksym(s);
 
 	switch(a) {
 	case ATEXT:

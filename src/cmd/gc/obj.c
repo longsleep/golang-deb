@@ -10,13 +10,28 @@
  * architecture-independent object file output
  */
 
-static	void	outhist(Biobuf *b);
 static	void	dumpglobls(void);
+
+enum
+{
+	ArhdrSize = 60
+};
+
+static void
+formathdr(char *arhdr, char *name, vlong size)
+{
+	snprint(arhdr, ArhdrSize, "%-16s%-12d%-6d%-6d%-8o%-10lld`",
+		name, 0, 0, 0, 0644, size);
+	arhdr[ArhdrSize-1] = '\n'; // overwrite \0 written by snprint
+}
 
 void
 dumpobj(void)
 {
 	NodeList *externs, *tmp;
+	char arhdr[ArhdrSize];
+	vlong startobj, size;
+	Sym *zero;
 
 	bout = Bopen(outfile, OWRITE);
 	if(bout == nil) {
@@ -25,13 +40,34 @@ dumpobj(void)
 		errorexit();
 	}
 
-	Bprint(bout, "go object %s %s %s %s\n", getgoos(), thestring, getgoversion(), expstring());
-	Bprint(bout, "  exports automatically generated from\n");
-	Bprint(bout, "  %s in package \"%s\"\n", curio.infile, localpkg->name);
+	startobj = 0;
+	if(writearchive) {
+		Bwrite(bout, "!<arch>\n", 8);
+		memset(arhdr, 0, sizeof arhdr);
+		Bwrite(bout, arhdr, sizeof arhdr);
+		startobj = Boffset(bout);
+	}
+	Bprint(bout, "go object %s %s %s %s\n", getgoos(), getgoarch(), getgoversion(), expstring());
 	dumpexport();
-	Bprint(bout, "\n!\n");
+	
+	if(writearchive) {
+		Bflush(bout);
+		size = Boffset(bout) - startobj;
+		if(size&1)
+			Bputc(bout, 0);
+		Bseek(bout, startobj - ArhdrSize, 0);
+		formathdr(arhdr, "__.PKGDEF", size);
+		Bwrite(bout, arhdr, ArhdrSize);
+		Bflush(bout);
 
-	outhist(bout);
+		Bseek(bout, startobj + size + (size&1), 0);
+		memset(arhdr, 0, ArhdrSize);
+		Bwrite(bout, arhdr, ArhdrSize);
+		startobj = Boffset(bout);
+		Bprint(bout, "go object %s %s %s %s\n", getgoos(), getgoarch(), getgoversion(), expstring());
+	}
+
+	Bprint(bout, "\n!\n");
 
 	externs = nil;
 	if(externdcl != nil)
@@ -47,9 +83,22 @@ dumpobj(void)
 	dumpglobls();
 	externdcl = tmp;
 
-	dumpdata();
-	dumpfuncs();
+	zero = pkglookup("zerovalue", runtimepkg);
+	ggloblsym(zero, zerosize, 1, 1);
 
+	dumpdata();
+	writeobj(ctxt, bout);
+
+	if(writearchive) {
+		Bflush(bout);
+		size = Boffset(bout) - startobj;
+		if(size&1)
+			Bputc(bout, 0);
+		Bseek(bout, startobj - ArhdrSize, 0);
+		snprint(namebuf, sizeof namebuf, "_go_.%c", thechar);
+		formathdr(arhdr, namebuf, size);
+		Bwrite(bout, arhdr, ArhdrSize);
+	}
 	Bterm(bout);
 }
 
@@ -75,184 +124,50 @@ dumpglobls(void)
 
 		ggloblnod(n);
 	}
-
+	
 	for(l=funcsyms; l; l=l->next) {
 		n = l->n;
 		dsymptr(n->sym, 0, n->sym->def->shortname->sym, 0);
 		ggloblsym(n->sym, widthptr, 1, 1);
 	}
+	
+	// Do not reprocess funcsyms on next dumpglobls call.
+	funcsyms = nil;
 }
 
 void
-Bputname(Biobuf *b, Sym *s)
+Bputname(Biobuf *b, LSym *s)
 {
-	Bprint(b, "%s", s->pkg->prefix);
-	BPUTC(b, '.');
 	Bwrite(b, s->name, strlen(s->name)+1);
 }
 
-static void
-outzfile(Biobuf *b, char *p)
+LSym*
+linksym(Sym *s)
 {
-	char *q, *q2;
+	char *p;
 
-	while(p) {
-		q = utfrune(p, '/');
-		if(windows) {
-			q2 = utfrune(p, '\\');
-			if(q2 && (!q || q2 < q))
-				q = q2;
-		}
-		if(!q) {
-			zfile(b, p, strlen(p));
-			return;
-		}
-		if(q > p)
-			zfile(b, p, q-p);
-		p = q + 1;
+	if(s == nil)
+		return nil;
+	if(s->lsym != nil)
+		return s->lsym;
+	if(isblanksym(s))
+		s->lsym = linklookup(ctxt, "_", 0);
+	else {
+		p = smprint("%s.%s", s->pkg->prefix, s->name);
+		s->lsym = linklookup(ctxt, p, 0);
+		free(p);
 	}
+	return s->lsym;	
 }
 
-#define isdelim(c) (c == '/' || c == '\\')
-
-static void
-outwinname(Biobuf *b, Hist *h, char *ds, char *p)
+int
+duintxx(Sym *s, int off, uint64 v, int wid)
 {
-	if(isdelim(p[0])) {
-		// full rooted name
-		zfile(b, ds, 3);	// leading "c:/"
-		outzfile(b, p+1);
-	} else {
-		// relative name
-		if(h->offset >= 0 && pathname && pathname[1] == ':') {
-			if(tolowerrune(ds[0]) == tolowerrune(pathname[0])) {
-				// using current drive
-				zfile(b, pathname, 3);	// leading "c:/"
-				outzfile(b, pathname+3);
-			} else {
-				// using drive other then current,
-				// we don't have any simple way to
-				// determine current working directory
-				// there, therefore will output name as is
-				zfile(b, ds, 2);	// leading "c:"
-			}
-		}
-		outzfile(b, p);
-	}
-}
-
-static void
-outhist(Biobuf *b)
-{
-	Hist *h;
-	char *p, ds[] = {'c', ':', '/', 0};
-	char *tofree;
-	int n;
-	static int first = 1;
-	static char *goroot, *goroot_final;
-
-	if(first) {
-		// Decide whether we need to rewrite paths from $GOROOT to $GOROOT_FINAL.
-		first = 0;
-		goroot = getenv("GOROOT");
-		goroot_final = getenv("GOROOT_FINAL");
-		if(goroot == nil)
-			goroot = "";
-		if(goroot_final == nil)
-			goroot_final = goroot;
-		if(strcmp(goroot, goroot_final) == 0) {
-			goroot = nil;
-			goroot_final = nil;
-		}
-	}
-
-	tofree = nil;
-	for(h = hist; h != H; h = h->link) {
-		p = h->name;
-		if(p) {
-			if(goroot != nil) {
-				n = strlen(goroot);
-				if(strncmp(p, goroot, strlen(goroot)) == 0 && p[n] == '/') {
-					tofree = smprint("%s%s", goroot_final, p+n);
-					p = tofree;
-				}
-			}
-			if(windows) {
-				// if windows variable is set, then, we know already,
-				// pathname is started with windows drive specifier
-				// and all '\' were replaced with '/' (see lex.c)
-				if(isdelim(p[0]) && isdelim(p[1])) {
-					// file name has network name in it, 
-					// like \\server\share\dir\file.go
-					zfile(b, "//", 2);	// leading "//"
-					outzfile(b, p+2);
-				} else if(p[1] == ':') {
-					// file name has drive letter in it
-					ds[0] = p[0];
-					outwinname(b, h, ds, p+2);
-				} else {
-					// no drive letter in file name
-					outwinname(b, h, pathname, p);
-				}
-			} else {
-				if(p[0] == '/') {
-					// full rooted name, like /home/rsc/dir/file.go
-					zfile(b, "/", 1);	// leading "/"
-					outzfile(b, p+1);
-				} else {
-					// relative name, like dir/file.go
-					if(h->offset >= 0 && pathname && pathname[0] == '/') {
-						zfile(b, "/", 1);	// leading "/"
-						outzfile(b, pathname+1);
-					}
-					outzfile(b, p);
-				}
-			}
-		}
-		zhist(b, h->line, h->offset);
-		if(tofree) {
-			free(tofree);
-			tofree = nil;
-		}
-	}
-}
-
-void
-ieeedtod(uint64 *ieee, double native)
-{
-	double fr, ho, f;
-	int exp;
-	uint32 h, l;
-	uint64 bits;
-
-	if(native < 0) {
-		ieeedtod(ieee, -native);
-		*ieee |= 1ULL<<63;
-		return;
-	}
-	if(native == 0) {
-		*ieee = 0;
-		return;
-	}
-	fr = frexp(native, &exp);
-	f = 2097152L;		/* shouldn't use fp constants here */
-	fr = modf(fr*f, &ho);
-	h = ho;
-	h &= 0xfffffL;
-	f = 65536L;
-	fr = modf(fr*f, &ho);
-	l = ho;
-	l <<= 16;
-	l |= (int32)(fr*f);
-	bits = ((uint64)h<<32) | l;
-	if(exp < -1021) {
-		// gradual underflow
-		bits |= 1LL<<52;
-		bits >>= -1021 - exp;
-		exp = -1022;
-	}
-	bits |= (uint64)(exp+1022L) << 52;
-	*ieee = bits;
+	// Update symbol data directly instead of generating a
+	// DATA instruction that liblink will have to interpret later.
+	// This reduces compilation time and memory usage.
+	off = rnd(off, wid);
+	return setuintxx(ctxt, linksym(s), off, v, wid);
 }
 
 int
@@ -337,4 +252,32 @@ stringsym(char *s, int len)
 	ggloblsym(sym, off, 1, 1);
 
 	return sym;	
+}
+
+void
+slicebytes(Node *nam, char *s, int len)
+{
+	int off, n, m;
+	static int gen;
+	Sym *sym;
+
+	snprint(namebuf, sizeof(namebuf), ".gobytes.%d", ++gen);
+	sym = pkglookup(namebuf, localpkg);
+	sym->def = newname(sym);
+
+	off = 0;
+	for(n=0; n<len; n+=m) {
+		m = 8;
+		if(m > len-n)
+			m = len-n;
+		off = dsname(sym, off, s+n, m);
+	}
+	ggloblsym(sym, off, 0, 0);
+	
+	if(nam->op != ONAME)
+		fatal("slicebytes %N", nam);
+	off = nam->xoffset;
+	off = dsymptr(nam->sym, off, sym, 0);
+	off = duintxx(nam->sym, off, len, widthint);
+	duintxx(nam->sym, off, len, widthint);
 }

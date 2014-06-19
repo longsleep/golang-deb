@@ -32,15 +32,11 @@ static char dosstub[] =
 	0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-// Note: currently only up to 8 chars plus \0.
-static char *symlabels[] = {
-	"symtab", "esymtab", "pclntab", "epclntab"
-};
+static LSym *rsrcsym;
 
-static Sym *rsrcsym;
-
-static char symnames[256]; 
-static int  nextsymoff;
+static char* strtbl;
+static int strtblnextoff;
+static int strtblsize;
 
 int32 PESECTHEADR;
 int32 PEFILEHEADR;
@@ -50,6 +46,7 @@ static int nsect;
 static int nextsectoff;
 static int nextfileoff;
 static int textsect;
+static int datasect;
 
 static IMAGE_FILE_HEADER fh;
 static IMAGE_OPTIONAL_HEADER oh;
@@ -62,7 +59,7 @@ static IMAGE_DATA_DIRECTORY* dd;
 
 typedef struct Imp Imp;
 struct Imp {
-	Sym* s;
+	LSym* s;
 	uvlong off;
 	Imp* next;
 };
@@ -78,8 +75,20 @@ struct Dll {
 
 static Dll* dr;
 
-static Sym *dexport[1024];
+static LSym *dexport[1024];
 static int nexport;
+
+typedef struct COFFSym COFFSym;
+struct COFFSym
+{
+	LSym* sym;
+	int strtbloff;
+	int sect;
+	vlong value;
+};
+
+static COFFSym* coffsym;
+static int ncoffsym;
 
 static IMAGE_SECTION_HEADER*
 addpesection(char *name, int sectsize, int filesize)
@@ -191,11 +200,11 @@ initdynimport(void)
 {
 	Imp *m;
 	Dll *d;
-	Sym *s, *dynamic;
+	LSym *s, *dynamic;
 
 	dr = nil;
 	m = nil;
-	for(s = allsym; s != S; s = s->allsym) {
+	for(s = ctxt->allsym; s != S; s = s->allsym) {
 		if(!s->reachable || s->type != SDYNIMPORT)
 			continue;
 		for(d = dr; d != nil; d = d->next) {
@@ -216,7 +225,7 @@ initdynimport(void)
 		d->ms = m;
 	}
 	
-	dynamic = lookup(".windynamic", 0);
+	dynamic = linklookup(ctxt, ".windynamic", 0);
 	dynamic->reachable = 1;
 	dynamic->type = SWINDOWS;
 	for(d = dr; d != nil; d = d->next) {
@@ -241,10 +250,10 @@ addimports(IMAGE_SECTION_HEADER *datsect)
 	vlong startoff, endoff;
 	Imp *m;
 	Dll *d;
-	Sym* dynamic;
+	LSym* dynamic;
 	
 	startoff = cpos();
-	dynamic = lookup(".windynamic", 0);
+	dynamic = linklookup(ctxt, ".windynamic", 0);
 
 	// skip import descriptor table (will write it later)
 	n = 0;
@@ -322,20 +331,20 @@ addimports(IMAGE_SECTION_HEADER *datsect)
 static int
 scmp(const void *p1, const void *p2)
 {
-	Sym *s1, *s2;
+	LSym *s1, *s2;
 
-	s1 = *(Sym**)p1;
-	s2 = *(Sym**)p2;
+	s1 = *(LSym**)p1;
+	s2 = *(LSym**)p2;
 	return strcmp(s1->extname, s2->extname);
 }
 
 static void
 initdynexport(void)
 {
-	Sym *s;
+	LSym *s;
 	
 	nexport = 0;
-	for(s = allsym; s != S; s = s->allsym) {
+	for(s = ctxt->allsym; s != S; s = s->allsym) {
 		if(!s->reachable || !(s->cgoexport & CgoExportDynamic))
 			continue;
 		if(nexport+1 > sizeof(dexport)/sizeof(dexport[0])) {
@@ -410,15 +419,33 @@ addexports(void)
 void
 dope(void)
 {
-	Sym *rel;
+	LSym *rel;
 
 	/* relocation table */
-	rel = lookup(".rel", 0);
+	rel = linklookup(ctxt, ".rel", 0);
 	rel->reachable = 1;
 	rel->type = SELFROSECT;
 
 	initdynimport();
 	initdynexport();
+}
+
+static int
+strtbladd(char *name)
+{
+	int newsize, thisoff;
+
+	newsize = strtblnextoff + strlen(name) + 1;
+	if(newsize > strtblsize) {
+		strtblsize = 2 * (newsize + (1<<18));
+		strtbl = realloc(strtbl, strtblsize);
+	}
+	thisoff = strtblnextoff+4; // first string starts at offset=4
+	strcpy(&strtbl[strtblnextoff], name);
+	strtblnextoff += strlen(name);
+	strtbl[strtblnextoff] = 0;
+	strtblnextoff++;
+	return thisoff;
 }
 
 /*
@@ -433,20 +460,13 @@ newPEDWARFSection(char *name, vlong size)
 {
 	IMAGE_SECTION_HEADER *h;
 	char s[8];
+	int off;
 
 	if(size == 0)
 		return nil;
 
-	if(nextsymoff+strlen(name)+1 > sizeof(symnames)) {
-		diag("pe string table is full");
-		errorexit();
-	}
-
-	strcpy(&symnames[nextsymoff], name);
-	sprint(s, "/%d\0", nextsymoff+4);
-	nextsymoff += strlen(name);
-	symnames[nextsymoff] = 0;
-	nextsymoff ++;
+	off = strtbladd(name);
+	sprint(s, "/%d\0", off);
 	h = addpesection(s, size, size);
 	h->Characteristics = IMAGE_SCN_MEM_READ|
 		IMAGE_SCN_MEM_DISCARDABLE;
@@ -455,40 +475,97 @@ newPEDWARFSection(char *name, vlong size)
 }
 
 static void
+addsym(LSym *s, char *name, int type, vlong addr, vlong size, int ver, LSym *gotype)
+{
+	COFFSym *cs;
+	USED(name);
+	USED(addr);
+	USED(size);
+	USED(ver);
+	USED(gotype);
+
+	if(s == nil)
+		return;
+
+	if(s->sect == nil)
+		return;
+
+	switch(type) {
+	default:
+		return;
+	case 'D':
+	case 'B':
+	case 'T':
+		break;
+	}
+
+	if(coffsym) {
+		cs = &coffsym[ncoffsym];
+		cs->sym = s;
+		if(strlen(s->name) > 8)
+			cs->strtbloff = strtbladd(s->name);
+		if(s->value >= segdata.vaddr) {
+			cs->value = s->value - segdata.vaddr;
+			cs->sect = datasect;
+		} else if(s->value >= segtext.vaddr) {
+			cs->value = s->value - segtext.vaddr;
+			cs->sect = textsect;
+		} else {
+			cs->value = 0;
+			cs->sect = 0;
+			diag("addsym %#llx", addr);
+		}
+	}
+	ncoffsym++;
+}
+
+static void
 addsymtable(void)
 {
 	IMAGE_SECTION_HEADER *h;
 	int i, size;
-	Sym *s;
-	
-	fh.NumberOfSymbols = sizeof(symlabels)/sizeof(symlabels[0]);
-	size = nextsymoff + 4 + 18*fh.NumberOfSymbols;
+	COFFSym *s;
+
+	if(!debug['s']) {
+		genasmsym(addsym);
+		coffsym = mal(ncoffsym * sizeof coffsym[0]);
+		ncoffsym = 0;
+		genasmsym(addsym);
+	}
+
+	size = strtblnextoff + 4 + 18*ncoffsym;
 	h = addpesection(".symtab", size, size);
 	h->Characteristics = IMAGE_SCN_MEM_READ|
 		IMAGE_SCN_MEM_DISCARDABLE;
 	chksectoff(h, cpos());
 	fh.PointerToSymbolTable = cpos();
+	fh.NumberOfSymbols = ncoffsym;
 	
 	// put COFF symbol table
-	for (i=0; i<fh.NumberOfSymbols; i++) {
-		s = rlookup(symlabels[i], 0);
-		strnput(s->name, 8);
-		lputl(datoff(s->value));
-		wputl(textsect);
+	for (i=0; i<ncoffsym; i++) {
+		s = &coffsym[i];
+		if(s->strtbloff == 0)
+			strnput(s->sym->name, 8);
+		else {
+			lputl(0);
+			lputl(s->strtbloff);
+		}
+		lputl(s->value);
+		wputl(s->sect);
 		wputl(0x0308);  // "array of structs"
 		cput(2);        // storage class: external
 		cput(0);        // no aux entries
 	}
 
 	// put COFF string table
-	lputl(nextsymoff + 4);
-	for (i=0; i<nextsymoff; i++)
-		cput(symnames[i]);
+	lputl(strtblnextoff + 4);
+	for (i=0; i<strtblnextoff; i++)
+		cput(strtbl[i]);
 	strnput("", h->SizeOfRawData - size);
 }
 
 void
-setpersrc(Sym *sym)
+setpersrc(LSym *sym)
 {
 	if(rsrcsym != nil)
 		diag("too many .rsrc sections");
@@ -529,49 +606,6 @@ addpersrc(void)
 	dd[IMAGE_DIRECTORY_ENTRY_RESOURCE].Size = h->VirtualSize;
 }
 
-static void
-addexcept(IMAGE_SECTION_HEADER *text)
-{
-	IMAGE_SECTION_HEADER *pdata, *xdata;
-	vlong startoff;
-	uvlong n;
-	Sym *sym;
-
-	USED(text);
-	if(thechar != '6')
-		return;
-
-	// write unwind info
-	sym = lookup("runtime.sigtramp", 0);
-	startoff = cpos();
-	lputl(9);	// version=1, flags=UNW_FLAG_EHANDLER, rest 0
-	lputl(sym->value - PEBASE);
-	lputl(0);
-
-	n = cpos() - startoff;
-	xdata = addpesection(".xdata", n, n);
-	xdata->Characteristics = IMAGE_SCN_MEM_READ|
-		IMAGE_SCN_CNT_INITIALIZED_DATA;
-	chksectoff(xdata, startoff);
-	strnput("", xdata->SizeOfRawData - n);
-
-	// write a function table entry for the whole text segment
-	startoff = cpos();
-	lputl(text->VirtualAddress);
-	lputl(text->VirtualAddress + text->VirtualSize);
-	lputl(xdata->VirtualAddress);
-
-	n = cpos() - startoff;
-	pdata = addpesection(".pdata", n, n);
-	pdata->Characteristics = IMAGE_SCN_MEM_READ|
-		IMAGE_SCN_CNT_INITIALIZED_DATA;
-	chksectoff(pdata, startoff);
-	strnput("", pdata->SizeOfRawData - n);
-
-	dd[IMAGE_DIRECTORY_ENTRY_EXCEPTION].VirtualAddress = pdata->VirtualAddress;
-	dd[IMAGE_DIRECTORY_ENTRY_EXCEPTION].Size = pdata->VirtualSize;
-}
-
 void
 asmbpe(void)
 {
@@ -600,6 +634,7 @@ asmbpe(void)
 	d->Characteristics = IMAGE_SCN_CNT_INITIALIZED_DATA|
 		IMAGE_SCN_MEM_READ|IMAGE_SCN_MEM_WRITE;
 	chksectseg(d, &segdata);
+	datasect = nsect;
 
 	if(!debug['s'])
 		dwarfaddpeheaders();
@@ -609,7 +644,6 @@ asmbpe(void)
 	addexports();
 	addsymtable();
 	addpersrc();
-	addexcept(t);
 
 	fh.NumberOfSections = nsect;
 	fh.TimeDateStamp = time(0);

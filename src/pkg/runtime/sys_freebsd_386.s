@@ -135,7 +135,7 @@ TEXT runtime·setitimer(SB), NOSPLIT, $-4
 TEXT time·now(SB), NOSPLIT, $32
 	MOVL	$232, AX
 	LEAL	12(SP), BX
-	MOVL	$0, 4(SP)
+	MOVL	$0, 4(SP)	// CLOCK_REALTIME
 	MOVL	BX, 8(SP)
 	INT	$0x80
 	MOVL	12(SP), AX	// sec
@@ -152,7 +152,9 @@ TEXT time·now(SB), NOSPLIT, $32
 TEXT runtime·nanotime(SB), NOSPLIT, $32
 	MOVL	$232, AX
 	LEAL	12(SP), BX
-	MOVL	$0, 4(SP)
+	// We can use CLOCK_MONOTONIC_FAST here when we drop
+	// support for FreeBSD 8-STABLE.
+	MOVL	$4, 4(SP)	// CLOCK_MONOTONIC
 	MOVL	BX, 8(SP)
 	INT	$0x80
 	MOVL	12(SP), AX	// sec
@@ -307,8 +309,7 @@ TEXT runtime·i386_set_ldt(SB),NOSPLIT,$16
 	MOVL	AX, 8(SP)
 	MOVL	$165, AX
 	INT	$0x80
-	CMPL	AX, $0xfffff001
-	JLS	2(PC)
+	JAE	2(PC)
 	INT	$3
 	RET
 
@@ -324,7 +325,7 @@ TEXT runtime·sysctl(SB),NOSPLIT,$28
 	MOVSL				// arg 6 - newlen
 	MOVL	$202, AX		// sys___sysctl
 	INT	$0x80
-	JCC	3(PC)
+	JAE	3(PC)
 	NEGL	AX
 	RET
 	MOVL	$0, AX

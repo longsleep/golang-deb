@@ -11,7 +11,7 @@
 // ../gc/reflect.c stuffs in these.
 
 static Reloc*
-decode_reloc(Sym *s, int32 off)
+decode_reloc(LSym *s, int32 off)
 {
 	int i;
 
@@ -21,8 +21,8 @@ decode_reloc(Sym *s, int32 off)
 	return nil;
 }
 
-static Sym*
-decode_reloc_sym(Sym *s, int32 off)
+static LSym*
+decode_reloc_sym(LSym *s, int32 off)
 {
 	Reloc *r;
 
@@ -67,103 +67,109 @@ decode_inuxi(uchar* p, int sz)
 	return l;
 }
 
+static int
+commonsize(void)
+{
+	return 7*PtrSize + 8;
+}
+
 // Type.commonType.kind
 uint8
-decodetype_kind(Sym *s)
+decodetype_kind(LSym *s)
 {
 	return s->p[1*PtrSize + 7] & ~KindNoPointers;	//  0x13 / 0x1f
 }
 
 // Type.commonType.size
 vlong
-decodetype_size(Sym *s)
+decodetype_size(LSym *s)
 {
 	return decode_inuxi(s->p, PtrSize);	 // 0x8 / 0x10
 }
 
 // Type.commonType.gc
-Sym*
-decodetype_gc(Sym *s)
+LSym*
+decodetype_gc(LSym *s)
 {
 	return decode_reloc_sym(s, 1*PtrSize + 8 + 1*PtrSize);
 }
 
 // Type.ArrayType.elem and Type.SliceType.Elem
-Sym*
-decodetype_arrayelem(Sym *s)
+LSym*
+decodetype_arrayelem(LSym *s)
 {
-	return decode_reloc_sym(s, CommonSize);	// 0x1c / 0x30
+	return decode_reloc_sym(s, commonsize());	// 0x1c / 0x30
 }
 
 vlong
-decodetype_arraylen(Sym *s)
+decodetype_arraylen(LSym *s)
 {
-	return decode_inuxi(s->p + CommonSize+PtrSize, PtrSize);
+	return decode_inuxi(s->p + commonsize()+PtrSize, PtrSize);
 }
 
 // Type.PtrType.elem
-Sym*
-decodetype_ptrelem(Sym *s)
+LSym*
+decodetype_ptrelem(LSym *s)
 {
-	return decode_reloc_sym(s, CommonSize);	// 0x1c / 0x30
+	return decode_reloc_sym(s, commonsize());	// 0x1c / 0x30
 }
 
 // Type.MapType.key, elem
-Sym*
-decodetype_mapkey(Sym *s)
+LSym*
+decodetype_mapkey(LSym *s)
 {
-	return decode_reloc_sym(s, CommonSize);	// 0x1c / 0x30
+	return decode_reloc_sym(s, commonsize());	// 0x1c / 0x30
 }
-Sym*
-decodetype_mapvalue(Sym *s)
+LSym*
+decodetype_mapvalue(LSym *s)
 {
-	return decode_reloc_sym(s, CommonSize+PtrSize);	// 0x20 / 0x38
+	return decode_reloc_sym(s, commonsize()+PtrSize);	// 0x20 / 0x38
 }
 
 // Type.ChanType.elem
-Sym*
-decodetype_chanelem(Sym *s)
+LSym*
+decodetype_chanelem(LSym *s)
 {
-	return decode_reloc_sym(s, CommonSize);	// 0x1c / 0x30
+	return decode_reloc_sym(s, commonsize());	// 0x1c / 0x30
 }
 
 // Type.FuncType.dotdotdot
 int
-decodetype_funcdotdotdot(Sym *s)
+decodetype_funcdotdotdot(LSym *s)
 {
-	return s->p[CommonSize];
+	return s->p[commonsize()];
 }
 
 // Type.FuncType.in.len
 int
-decodetype_funcincount(Sym *s)
+decodetype_funcincount(LSym *s)
 {
-	return decode_inuxi(s->p + CommonSize+2*PtrSize, IntSize);
+	return decode_inuxi(s->p + commonsize()+2*PtrSize, IntSize);
 }
 
 int
-decodetype_funcoutcount(Sym *s)
+decodetype_funcoutcount(LSym *s)
 {
-	return decode_inuxi(s->p + CommonSize+3*PtrSize + 2*IntSize, IntSize);
+	return decode_inuxi(s->p + commonsize()+3*PtrSize + 2*IntSize, IntSize);
 }
 
-Sym*
-decodetype_funcintype(Sym *s, int i)
+LSym*
+decodetype_funcintype(LSym *s, int i)
 {
 	Reloc *r;
 
-	r = decode_reloc(s, CommonSize + PtrSize);
+	r = decode_reloc(s, commonsize() + PtrSize);
 	if (r == nil)
 		return nil;
 	return decode_reloc_sym(r->sym, r->add + i * PtrSize);
 }
 
-Sym*
-decodetype_funcouttype(Sym *s, int i)
+LSym*
+decodetype_funcouttype(LSym *s, int i)
 {
 	Reloc *r;
 
-	r = decode_reloc(s, CommonSize + 2*PtrSize + 2*IntSize);
+	r = decode_reloc(s, commonsize() + 2*PtrSize + 2*IntSize);
 	if (r == nil)
 		return nil;
 	return decode_reloc_sym(r->sym, r->add + i * PtrSize);
@@ -171,22 +177,25 @@ decodetype_funcouttype(Sym *s, int i)
 
 // Type.StructType.fields.Slice::len
 int
-decodetype_structfieldcount(Sym *s)
+decodetype_structfieldcount(LSym *s)
 {
-	return decode_inuxi(s->p + CommonSize + PtrSize, IntSize);
+	return decode_inuxi(s->p + commonsize() + PtrSize, IntSize);
 }
 
-enum {
-	StructFieldSize = 5*PtrSize
-};
+static int
+structfieldsize(void)
+{
+	return 5*PtrSize;
+}
+
 // Type.StructType.fields[]-> name, typ and offset.
 char*
-decodetype_structfieldname(Sym *s, int i)
+decodetype_structfieldname(LSym *s, int i)
 {
 	Reloc *r;
 
 	// go.string."foo"  0x28 / 0x40
-	s = decode_reloc_sym(s, CommonSize + PtrSize + 2*IntSize + i*StructFieldSize);
+	s = decode_reloc_sym(s, commonsize() + PtrSize + 2*IntSize + i*structfieldsize());
 	if (s == nil)			// embedded structs have a nil name.
 		return nil;
 	r = decode_reloc(s, 0);		// s has a pointer to the string data at offset 0
@@ -195,21 +204,21 @@ decodetype_structfieldname(Sym *s, int i)
 	return (char*) r->sym->p + r->add;	// the c-string
 }
 
-Sym*
-decodetype_structfieldtype(Sym *s, int i)
+LSym*
+decodetype_structfieldtype(LSym *s, int i)
 {
-	return decode_reloc_sym(s, CommonSize + PtrSize + 2*IntSize + i*StructFieldSize + 2*PtrSize);
+	return decode_reloc_sym(s, commonsize() + PtrSize + 2*IntSize + i*structfieldsize() + 2*PtrSize);
 }
 
 vlong
-decodetype_structfieldoffs(Sym *s, int i)
+decodetype_structfieldoffs(LSym *s, int i)
 {
-	return decode_inuxi(s->p + CommonSize + PtrSize + 2*IntSize + i*StructFieldSize + 4*PtrSize, IntSize);
+	return decode_inuxi(s->p + commonsize() + PtrSize + 2*IntSize + i*structfieldsize() + 4*PtrSize, IntSize);
 }
 
 // InterfaceTYpe.methods.len
 vlong
-decodetype_ifacemethodcount(Sym *s)
+decodetype_ifacemethodcount(LSym *s)
 {
-	return decode_inuxi(s->p + CommonSize + PtrSize, IntSize);
+	return decode_inuxi(s->p + commonsize() + PtrSize, IntSize);
 }

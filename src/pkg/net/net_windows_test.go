@@ -84,7 +84,7 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 	}
 	err = cmd.Start()
 	if err != nil {
-		t.Fatalf("cmd.Start failed: %v\n%s\n", err)
+		t.Fatalf("cmd.Start failed: %v\n", err)
 	}
 	outReader := bufio.NewReader(stdout)
 	for {
@@ -107,7 +107,7 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 	result := make(chan error)
 	go func() {
 		time.Sleep(alittle)
-		err = send(ln.Addr().String(), "abc")
+		err := send(ln.Addr().String(), "abc")
 		if err != nil {
 			result <- err
 		}
