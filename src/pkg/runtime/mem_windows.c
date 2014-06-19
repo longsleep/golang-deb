@@ -15,12 +15,15 @@ enum {
 	MEM_RELEASE = 0x8000,
 	
 	PAGE_READWRITE = 0x0004,
+	PAGE_NOACCESS = 0x0001,
 };
 
 #pragma dynimport runtime·VirtualAlloc VirtualAlloc "kernel32.dll"
 #pragma dynimport runtime·VirtualFree VirtualFree "kernel32.dll"
+#pragma dynimport runtime·VirtualProtect VirtualProtect "kernel32.dll"
 extern void *runtime·VirtualAlloc;
 extern void *runtime·VirtualFree;
+extern void *runtime·VirtualProtect;
 
 void*
 runtime·SysAlloc(uintptr n, uint64 *stat)
@@ -33,10 +36,30 @@ void
 runtime·SysUnused(void *v, uintptr n)
 {
 	void *r;
+	uintptr small;
 
 	r = runtime·stdcall(runtime·VirtualFree, 3, v, n, (uintptr)MEM_DECOMMIT);
-	if(r == nil)
-		runtime·throw("runtime: failed to decommit pages");
+	if(r != nil)
+		return;
+
+	// Decommit failed. Usual reason is that we've merged memory from two different
+	// VirtualAlloc calls, and Windows will only let each VirtualFree handle pages from
+	// a single VirtualAlloc. It is okay to specify a subset of the pages from a single alloc,
+	// just not pages from multiple allocs. This is a rare case, arising only when we're
+	// trying to give memory back to the operating system, which happens on a time
+	// scale of minutes. It doesn't have to be terribly fast. Instead of extra bookkeeping
+	// on all our VirtualAlloc calls, try freeing successively smaller pieces until
+	// we manage to free something, and then repeat. This ends up being O(n log n)
+	// in the worst case, but that's fast enough.
+	while(n > 0) {
+		small = n;
+		while(small >= 4096 && runtime·stdcall(runtime·VirtualFree, 3, v, small, (uintptr)MEM_DECOMMIT) == nil)
+			small = (small / 2) & ~(4096-1);
+		if(small < 4096)
+			runtime·throw("runtime: failed to decommit pages");
+		v = (byte*)v + small;
+		n -= small;
+	}
 }
 
 void
@@ -60,9 +83,17 @@ runtime·SysFree(void *v, uintptr n, uint64 *stat)
 		runtime·throw("runtime: failed to release pages");
 }
 
-void*
-runtime·SysReserve(void *v, uintptr n)
+void
+runtime·SysFault(void *v, uintptr n)
 {
+	// SysUnused makes the memory inaccessible and prevents its reuse
+	runtime·SysUnused(v, n);
+}
+
+void*
+runtime·SysReserve(void *v, uintptr n, bool *reserved)
+{
+	*reserved = true;
 	// v is just a hint.
 	// First try at v.
 	v = runtime·stdcall(runtime·VirtualAlloc, 4, v, n, (uintptr)MEM_RESERVE, (uintptr)PAGE_READWRITE);
@@ -74,10 +105,12 @@ runtime·SysReserve(void *v, uintptr n)
 }
 
 void
-runtime·SysMap(void *v, uintptr n, uint64 *stat)
+runtime·SysMap(void *v, uintptr n, bool reserved, uint64 *stat)
 {
 	void *p;
-	
+
+	USED(reserved);
+
 	runtime·xadd64(stat, n);
 	p = runtime·stdcall(runtime·VirtualAlloc, 4, v, n, (uintptr)MEM_COMMIT, (uintptr)PAGE_READWRITE);
 	if(p != v)

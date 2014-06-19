@@ -89,11 +89,9 @@ TEXT runtime·breakpoint(SB),NOSPLIT,$0-0
 	WORD	$0xe1200071	// BKPT 0x0001
 	RET
 
-GLOBL runtime·goarm(SB), $4
-
 TEXT runtime·asminit(SB),NOSPLIT,$0-0
 	// disable runfast (flush-to-zero) mode of vfp if runtime.goarm > 5
-	MOVW	runtime·goarm(SB), R11
+	MOVB	runtime·goarm(SB), R11
 	CMP	$5, R11
 	BLE	4(PC)
 	WORD	$0xeef1ba10	// vmrs r11, fpscr
@@ -215,6 +213,10 @@ TEXT runtime·morestack(SB),NOSPLIT,$-4-0
 	// is still in this function, and not the beginning of the next.
 	RET
 
+TEXT runtime·morestack_noctxt(SB),NOSPLIT,$-4-0
+	MOVW	$0, R7
+	B runtime·morestack(SB)
+
 // Called from panic.  Mimics morestack,
 // reuses stack growth code to create a frame
 // with the desired args running the desired function.
@@ -267,7 +269,7 @@ TEXT runtime·newstackcall(SB), NOSPLIT, $-4-12
 	MOVW	$runtime·NAME(SB), R1;	\
 	B	(R1)
 
-TEXT reflect·call(SB), NOSPLIT, $-4-12
+TEXT reflect·call(SB), NOSPLIT, $-4-16
 	MOVW	argsize+8(FP), R0
 	DISPATCH(call16, 16)
 	DISPATCH(call32, 32)
@@ -299,8 +301,22 @@ TEXT reflect·call(SB), NOSPLIT, $-4-12
 	MOVW	$runtime·badreflectcall(SB), R1
 	B	(R1)
 
+// Argument map for the callXX frames.  Each has one
+// stack map (for the single call) with 3 arguments.
+DATA gcargs_reflectcall<>+0x00(SB)/4, $1  // 1 stackmap
+DATA gcargs_reflectcall<>+0x04(SB)/4, $6  // 3 args
+DATA gcargs_reflectcall<>+0x08(SB)/4, $(const_BitsPointer+(const_BitsPointer<<2)+(const_BitsScalar<<4))
+GLOBL gcargs_reflectcall<>(SB),RODATA,$12
+
+// callXX frames have no locals
+DATA gclocals_reflectcall<>+0x00(SB)/4, $1  // 1 stackmap
+DATA gclocals_reflectcall<>+0x04(SB)/4, $0  // 0 locals
+GLOBL gclocals_reflectcall<>(SB),RODATA,$8
+
 #define CALLFN(NAME,MAXSIZE)			\
-TEXT runtime·NAME(SB), WRAPPER, $MAXSIZE-12;		\
+TEXT runtime·NAME(SB), WRAPPER, $MAXSIZE-16;	\
+	FUNCDATA $FUNCDATA_ArgsPointerMaps,gcargs_reflectcall<>(SB);	\
+	FUNCDATA $FUNCDATA_LocalsPointerMaps,gclocals_reflectcall<>(SB);\
 	/* copy arguments to stack */		\
 	MOVW	argptr+4(FP), R0;		\
 	MOVW	argsize+8(FP), R2;		\
@@ -314,11 +330,16 @@ TEXT runtime·NAME(SB), WRAPPER, $MAXSIZE-12;		\
 	/* call function */			\
 	MOVW	f+0(FP), R7;			\
 	MOVW	(R7), R0;			\
+	PCDATA  $PCDATA_StackMapIndex, $0;	\
 	BL	(R0);				\
 	/* copy return values back */		\
 	MOVW	argptr+4(FP), R0;		\
 	MOVW	argsize+8(FP), R2;		\
+	MOVW	retoffset+12(FP), R3;		\
 	ADD	$4, SP, R1;			\
+	ADD	R3, R1;				\
+	ADD	R3, R0;				\
+	SUB	R3, R2;				\
 	CMP	$0, R2;				\
 	RET.EQ	;				\
 	MOVBU.P	1(R1), R5;			\
@@ -373,6 +394,10 @@ TEXT runtime·lessstack(SB), NOSPLIT, $-4-0
 // 1. grab stored LR for caller
 // 2. sub 4 bytes to get back to BL deferreturn
 // 3. B to fn
+// TODO(rsc): Push things on stack and then use pop
+// to load all registers simultaneously, so that a profiling
+// interrupt can never see mismatched SP/LR/PC.
+// (And double-check that pop is atomic in that way.)
 TEXT runtime·jmpdefer(SB), NOSPLIT, $0-8
 	MOVW	0(SP), LR
 	MOVW	$-4(LR), LR	// BL deferreturn
@@ -629,17 +654,33 @@ _next:
 // Note: all three functions will clobber R0, and the last
 // two can be called from 5c ABI code.
 
-// g (R10) at 8(TP), m (R9) at 12(TP)
+// save_gm saves the g and m registers into pthread-provided
+// thread-local memory, so that we can call externally compiled
+// ARM code that will overwrite those registers.
+// NOTE: runtime.gogo assumes that R1 is preserved by this function.
 TEXT runtime·save_gm(SB),NOSPLIT,$0
-	MRC		15, 0, R0, C13, C0, 3 // Fetch TLS register
-	MOVW	g, 8(R0)
-	MOVW	m, 12(R0)
+	MRC		15, 0, R0, C13, C0, 3 // fetch TLS base pointer
+	// $runtime.tlsgm(SB) is a special linker symbol.
+	// It is the offset from the TLS base pointer to our
+	// thread-local storage for g and m.
+	MOVW	$runtime·tlsgm(SB), R11
+	ADD	R11, R0
+	MOVW	g, 0(R0)
+	MOVW	m, 4(R0)
 	RET
 
+// load_gm loads the g and m registers from pthread-provided
+// thread-local memory, for use after calling externally compiled
+// ARM code that overwrote those registers.
 TEXT runtime·load_gm(SB),NOSPLIT,$0
-	MRC		15, 0, R0, C13, C0, 3 // Fetch TLS register
-	MOVW	8(R0), g
-	MOVW	12(R0), m
+	MRC		15, 0, R0, C13, C0, 3 // fetch TLS base pointer
+	// $runtime.tlsgm(SB) is a special linker symbol.
+	// It is the offset from the TLS base pointer to our
+	// thread-local storage for g and m.
+	MOVW	$runtime·tlsgm(SB), R11
+	ADD	R11, R0
+	MOVW	0(R0), g
+	MOVW	4(R0), m
 	RET
 
 // void setmg_gcc(M*, G*); set m and g called from gcc.
@@ -647,7 +688,6 @@ TEXT setmg_gcc<>(SB),NOSPLIT,$0
 	MOVW	R0, m
 	MOVW	R1, g
 	B		runtime·save_gm(SB)
-
 
 // TODO: share code with memeq?
 TEXT bytes·Equal(SB),NOSPLIT,$0
@@ -725,4 +765,415 @@ _sib_loop:
 _sib_notfound:
 	MOVW	$-1, R0
 	MOVW	R0, ret+12(FP)
+	RET
+
+TEXT runtime·timenow(SB), NOSPLIT, $0-0
+	B	time·now(SB)
+
+// A Duff's device for zeroing memory.
+// The compiler jumps to computed addresses within
+// this routine to zero chunks of memory.  Do not
+// change this code without also changing the code
+// in ../../cmd/5g/ggen.c:clearfat.
+// R0: zero
+// R1: ptr to memory to be zeroed
+// R1 is updated as a side effect.
+TEXT runtime·duffzero(SB), NOSPLIT, $0-0
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	RET
+
+// A Duff's device for copying memory.
+// The compiler jumps to computed addresses within
+// this routine to copy chunks of memory.  Source
+// and destination must not overlap.  Do not
+// change this code without also changing the code
+// in ../../cmd/5g/cgen.c:sgen.
+// R0: scratch space
+// R1: ptr to source memory
+// R2: ptr to destination memory
+// R1 and R2 are updated as a side effect
+TEXT runtime·duffcopy(SB), NOSPLIT, $0-0
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
 	RET

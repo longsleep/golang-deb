@@ -558,7 +558,7 @@ brk:
 	if(debug['R'] && debug['v']) {
 		print("after pass 7 (peep)\n");
 		for(r=firstr; r; r=r->link)
-			print("%04d %P\n", r->pc, r->prog);
+			print("%04d %P\n", (int)r->pc, r->prog);
 		print("\n");
 	}
 
@@ -602,8 +602,10 @@ brk:
 	r1 = 0; /* set */
 	for(r = firstr; r != R; r = r->link) {
 		p = r->prog;
-		if(p->to.type == D_BRANCH)
+		if(p->to.type == D_BRANCH) {
 			p->to.offset = r->s2->pc;
+			p->to.u.branch = r->s2->prog;
+		}
 		r1 = r;
 	}
 
@@ -638,7 +640,7 @@ void
 addmove(Reg *r, int bn, int rn, int f)
 {
 	Prog *p, *p1;
-	Adr *a;
+	Addr *a;
 	Var *v;
 
 	p1 = alloc(sizeof(*p1));
@@ -697,13 +699,13 @@ doregbits(int r)
 }
 
 Bits
-mkvar(Reg *r, Adr *a)
+mkvar(Reg *r, Addr *a)
 {
 	Var *v;
 	int i, t, n, et, z;
 	int32 o;
 	Bits bit;
-	Sym *s;
+	LSym *s;
 
 	/*
 	 * mark registers used
@@ -730,7 +732,7 @@ mkvar(Reg *r, Adr *a)
 		break;
 	}
 	s = a->sym;
-	if(s == S)
+	if(s == nil)
 		goto none;
 	if(s->name[0] == '.')
 		goto none;
@@ -1121,7 +1123,7 @@ uint32
 regset(Reg *r, uint32 bb)
 {
 	uint32 b, set;
-	Adr v;
+	Addr v;
 	int c;
 
 	set = 0;
@@ -1140,7 +1142,7 @@ uint32
 reguse(Reg *r, uint32 bb)
 {
 	uint32 b, set;
-	Adr v;
+	Addr v;
 	int c;
 
 	set = 0;
@@ -1287,7 +1289,7 @@ paint3(Reg *r, int bn, int32 rb, int rn)
 }
 
 void
-addreg(Adr *a, int rn)
+addreg(Addr *a, int rn)
 {
 
 	a->sym = 0;
@@ -1373,10 +1375,11 @@ fixjmp(Reg *firstr)
 	for(r=firstr; r; r=r->link) {
 		p = r->prog;
 		if(debug['R'] && debug['v'])
-			print("%04d %P\n", r->pc, p);
+			print("%04d %P\n", (int)r->pc, p);
 		if(p->as != ACALL && p->to.type == D_BRANCH && r->s2 && r->s2->prog->as == AJMP) {
 			r->s2 = chasejmp(r->s2, &jmploop);
 			p->to.offset = r->s2->pc;
+			p->to.u.branch = r->s2->prog;
 			if(debug['R'] && debug['v'])
 				print("->%P\n", p);
 		}
@@ -1397,7 +1400,7 @@ fixjmp(Reg *firstr)
 				// Let it stay.
 			} else {
 				if(debug['R'] && debug['v'])
-					print("del %04d %P\n", r->pc, p);
+					print("del %04d %P\n", (int)r->pc, p);
 				p->as = ANOP;
 			}
 		}
@@ -1410,7 +1413,7 @@ fixjmp(Reg *firstr)
 			p = r->prog;
 			if(p->as == AJMP && p->to.type == D_BRANCH && r->s2 == r->link) {
 				if(debug['R'] && debug['v'])
-					print("del %04d %P\n", r->pc, p);
+					print("del %04d %P\n", (int)r->pc, p);
 				p->as = ANOP;
 			}
 		}
@@ -1431,7 +1434,7 @@ fixjmp(Reg *firstr)
 	if(debug['R'] && debug['v']) {
 		print("\n");
 		for(r=firstr; r; r=r->link)
-			print("%04d %P\n", r->pc, r->prog);
+			print("%04d %P\n", (int)r->pc, r->prog);
 		print("\n");
 	}
 }

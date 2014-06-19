@@ -33,8 +33,6 @@ extern "C" {
 AUTOLIB(bio)
 #endif
 
-#include <fcntl.h>	/* for O_RDONLY, O_WRONLY */
-
 typedef	struct	Biobuf	Biobuf;
 
 enum
@@ -75,7 +73,7 @@ struct	Biobuf
  * next few bytes in little-endian order.
  */
 #define	BGETC(bp)\
-	((bp)->icount?(bp)->ebuf[(bp)->icount++]:Bgetc((bp)))
+	((bp)->icount?(int)((bp)->ebuf[(bp)->icount++]):Bgetc((bp)))
 #define	BGETLE2(bp)\
 	((bp)->icount<=-2?((bp)->icount+=2,((bp)->ebuf[(bp)->icount-2])|((bp)->ebuf[(bp)->icount-1]<<8)):Bgetle2((bp)))
 #define	BGETLE4(bp)\

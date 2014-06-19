@@ -242,6 +242,7 @@ cgen(Node *n, Node *res)
 	case OOR:
 	case OXOR:
 	case OADD:
+	case OADDPTR:
 	case OMUL:
 		a = optoas(n->op, nl->type);
 		if(a == AIMULB) {
@@ -522,6 +523,7 @@ agen(Node *n, Node *res)
 		// The generated code is just going to panic, so it need not
 		// be terribly efficient. See issue 3670.
 		tempname(&n1, n->type);
+		gvardef(&n1);
 		clearfat(&n1);
 		regalloc(&n2, types[tptr], res);
 		gins(ALEAL, &n1, &n2);
@@ -934,6 +936,13 @@ bgen(Node *n, int true, int likely, Prog *to)
 		patch(gins(AEND, N, N), to);
 		return;
 	}
+
+	while(n->op == OCONVNOP) {
+		n = n->left;
+		if(n->ninit != nil)
+			genlist(n->ninit);
+	}
+
 	nl = n->left;
 	nr = N;
 
@@ -1203,6 +1212,8 @@ sgen(Node *n, Node *res, int64 w)
 {
 	Node dst, src, tdst, tsrc;
 	int32 c, q, odst, osrc;
+	NodeList *l;
+	Prog *p;
 
 	if(debug['g']) {
 		print("\nsgen w=%lld\n", w);
@@ -1222,6 +1233,13 @@ sgen(Node *n, Node *res, int64 w)
 		agen(n, &tdst);
 		return;
 	}
+
+	// If copying .args, that's all the results, so record definition sites
+	// for them for the liveness analysis.
+	if(res->op == ONAME && strcmp(res->sym->name, ".args") == 0)
+		for(l = curfn->dcl; l != nil; l = l->next)
+			if(l->n->class == PPARAMOUT)
+				gvardef(l->n);
 
 	// Avoid taking the address for simple enough types.
 	if(componentgen(n, res))
@@ -1255,6 +1273,10 @@ sgen(Node *n, Node *res, int64 w)
 		agen(n, &src);
 	else
 		gmove(&tsrc, &src);
+
+	if(res->op == ONAME)
+		gvardef(res);
+
 	if(res->addable)
 		agen(res, &dst);
 	else
@@ -1294,10 +1316,16 @@ sgen(Node *n, Node *res, int64 w)
 	} else {
 		gins(ACLD, N, N);	// paranoia.  TODO(rsc): remove?
 		// normal direction
-		if(q >= 4) {
+		if(q > 128 || (q >= 4 && nacl)) {
 			gconreg(AMOVL, q, D_CX);
 			gins(AREP, N, N);	// repeat
 			gins(AMOVSL, N, N);	// MOVL *(SI)+,*(DI)+
+		} else if(q >= 4) {
+			p = gins(ADUFFCOPY, N, N);
+			p->to.type = D_ADDR;
+			p->to.sym = linksym(pkglookup("duffcopy", runtimepkg));
+			// 10 and 128 = magic constants: see ../../pkg/runtime/asm_386.s
+			p->to.offset = 10*(128-q);
 		} else
 		while(q > 0) {
 			gins(AMOVSL, N, N);	// MOVL *(SI)+,*(DI)+
@@ -1369,8 +1397,17 @@ componentgen(Node *nr, Node *nl)
 		}
 	}
 
+	// nl and nr are 'cadable' which basically means they are names (variables) now.
+	// If they are the same variable, don't generate any code, because the
+	// VARDEF we generate will mark the old value as dead incorrectly.
+	// (And also the assignments are useless.)
+	if(nr != N && nl->op == ONAME && nr->op == ONAME && nl == nr)
+		goto yes;
+
 	switch(nl->type->etype) {
 	case TARRAY:
+		if(nl->op == ONAME)
+			gvardef(nl);
 		nodl.xoffset += Array_array;
 		nodl.type = ptrto(nl->type->type);
 
@@ -1404,6 +1441,8 @@ componentgen(Node *nr, Node *nl)
 		goto yes;
 
 	case TSTRING:
+		if(nl->op == ONAME)
+			gvardef(nl);
 		nodl.xoffset += Array_array;
 		nodl.type = ptrto(types[TUINT8]);
 
@@ -1427,6 +1466,8 @@ componentgen(Node *nr, Node *nl)
 		goto yes;
 
 	case TINTER:
+		if(nl->op == ONAME)
+			gvardef(nl);
 		nodl.xoffset += Array_array;
 		nodl.type = ptrto(types[TUINT8]);
 

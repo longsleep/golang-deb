@@ -117,8 +117,28 @@ void
 main(int argc, char *argv[])
 {
 	int c;
+	char *p;
+
+	// Allow GOARCH=thestring or GOARCH=thestringsuffix,
+	// but not other values.	
+	p = getgoarch();
+	if(strncmp(p, thestring, strlen(thestring)) != 0)
+		sysfatal("cannot use %cc with GOARCH=%s", thechar, p);
+	if(strcmp(p, "amd64p32") == 0) // must be before cinit
+		ewidth[TIND] = 4;
+		
+	nacl = strcmp(getgoos(), "nacl") == 0;
+	if(nacl)
+		flag_largemodel = 1;
 
 	quotefmtinstall(); // before cinit, which overrides %Q
+
+	linkarchinit();
+	ctxt = linknew(thelinkarch);
+	ctxt->diag = yyerror;
+	ctxt->bso = &bstdout;
+	Binit(&bstdout, 1, OWRITE);
+
 	ensuresymb(NSYMB);
 	memset(debug, 0, sizeof(debug));
 	tinit();
@@ -175,12 +195,14 @@ main(int argc, char *argv[])
 	flagcount("q", "print Go definitions", &debug['q']);
 	flagcount("s", "print #define assembly offsets", &debug['s']);
 	flagcount("t", "debug code generation", &debug['t']);
+	flagstr("trimpath", "prefix: remove prefix from recorded source file paths", &ctxt->trimpath);
 	flagcount("w", "enable warnings", &debug['w']);
 	flagcount("v", "increase debug verbosity", &debug['v']);	
 	if(thechar == '6')
 		flagcount("largemodel", "generate code that assumes a large memory model", &flag_largemodel);
 	
 	flagparse(&argc, &argv, usage);
+	ctxt->debugasm = debug['S'];
 
 	if(argc < 1 && outfile == 0)
 		usage();
@@ -195,6 +217,7 @@ main(int argc, char *argv[])
 	else
 		c = compile(argv[0], defs, ndef);
 
+	Bflush(&bstdout);
 	if(c)
 		errorexit();
 	exits(0);
@@ -331,6 +354,7 @@ compile(char *file, char **defs, int ndef)
 void
 errorexit(void)
 {
+	Bflush(&bstdout);
 	if(outfile)
 		remove(outfile);
 	exits("error");
@@ -390,7 +414,7 @@ newfile(char *s, int f)
 		errorexit();
 	}
 	fi.c = 0;
-	linehist(s, 0);
+	linklinehist(ctxt, lineno, s, 0);
 }
 
 Sym*
@@ -1300,13 +1324,6 @@ cinit(void)
 	nodproto = new(OPROTO, Z, Z);
 	dclstack = D;
 
-	pathname = allocn(pathname, 0, 100);
-	if(getwd(pathname, 99) == 0) {
-		pathname = allocn(pathname, 100, 900);
-		if(getwd(pathname, 999) == 0)
-			strcpy(pathname, "/???");
-	}
-
 	fmtinstall('O', Oconv);
 	fmtinstall('T', Tconv);
 	fmtinstall('F', FNconv);
@@ -1314,6 +1331,7 @@ cinit(void)
 	fmtinstall('Q', Qconv);
 	fmtinstall('|', VBconv);
 	fmtinstall('U', Uconv);
+	fmtinstall('B', Bconv);
 }
 
 int
@@ -1330,7 +1348,7 @@ loop:
 	fi.c = read(i->f, i->b, BUFSIZ) - 1;
 	if(fi.c < 0) {
 		close(i->f);
-		linehist(0, 0);
+		linklinehist(ctxt, lineno, nil, 0);
 		goto pop;
 	}
 	fi.p = i->b + 1;
@@ -1365,70 +1383,7 @@ Oconv(Fmt *fp)
 int
 Lconv(Fmt *fp)
 {
-	char str[STRINGSZ], s[STRINGSZ];
-	Hist *h;
-	struct
-	{
-		Hist*	incl;	/* start of this include file */
-		int32	idel;	/* delta line number to apply to include */
-		Hist*	line;	/* start of this #line directive */
-		int32	ldel;	/* delta line number to apply to #line */
-	} a[HISTSZ];
-	int32 l, d;
-	int i, n;
-
-	l = va_arg(fp->args, int32);
-	n = 0;
-	for(h = hist; h != H; h = h->link) {
-		if(l < h->line)
-			break;
-		if(h->name) {
-			if(h->offset != 0) {		/* #line directive, not #pragma */
-				if(n > 0 && n < HISTSZ && h->offset >= 0) {
-					a[n-1].line = h;
-					a[n-1].ldel = h->line - h->offset + 1;
-				}
-			} else {
-				if(n < HISTSZ) {	/* beginning of file */
-					a[n].incl = h;
-					a[n].idel = h->line;
-					a[n].line = 0;
-				}
-				n++;
-			}
-			continue;
-		}
-		n--;
-		if(n > 0 && n < HISTSZ) {
-			d = h->line - a[n].incl->line;
-			a[n-1].ldel += d;
-			a[n-1].idel += d;
-		}
-	}
-	if(n > HISTSZ)
-		n = HISTSZ;
-	str[0] = 0;
-	for(i=n-1; i>=0; i--) {
-		if(i != n-1) {
-			if(fp->flags & ~(FmtWidth|FmtPrec))	/* BUG ROB - was f3 */
-				break;
-			strcat(str, " ");
-		}
-		if(a[i].line)
-			snprint(s, STRINGSZ, "%s:%d[%s:%d]",
-				a[i].line->name, l-a[i].ldel+1,
-				a[i].incl->name, l-a[i].idel+1);
-		else
-			snprint(s, STRINGSZ, "%s:%d",
-				a[i].incl->name, l-a[i].idel+1);
-		if(strlen(s)+strlen(str) >= STRINGSZ-10)
-			break;
-		strcat(str, s);
-		l = a[i].incl->line - 1;	/* now print out start of this file */
-	}
-	if(n == 0)
-		strcat(str, "<eof>");
-	return fmtstrcpy(fp, str);
+	return linklinefmt(ctxt, fp);
 }
 
 int
@@ -1545,6 +1500,32 @@ VBconv(Fmt *fp)
 	}
 	str[i] = 0;
 
+	return fmtstrcpy(fp, str);
+}
+
+int
+Bconv(Fmt *fp)
+{
+	char str[STRINGSZ], ss[STRINGSZ], *s;
+	Bits bits;
+	int i;
+
+	str[0] = 0;
+	bits = va_arg(fp->args, Bits);
+	while(bany(&bits)) {
+		i = bnum(bits);
+		if(str[0])
+			strcat(str, " ");
+		if(var[i].sym == nil) {
+			sprint(ss, "$%lld", var[i].offset);
+			s = ss;
+		} else
+			s = var[i].sym->name;
+		if(strlen(str) + strlen(s) + 1 >= STRINGSZ)
+			break;
+		strcat(str, s);
+		bits.b[i/32] &= ~(1L << (i%32));
+	}
 	return fmtstrcpy(fp, str);
 }
 

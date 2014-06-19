@@ -42,6 +42,7 @@ type Package struct {
 	IgnoredGoFiles []string `json:",omitempty"` // .go sources ignored due to build constraints
 	CFiles         []string `json:",omitempty"` // .c source files
 	CXXFiles       []string `json:",omitempty"` // .cc, .cpp and .cxx source files
+	MFiles         []string `json:",omitempty"` // .m source files
 	HFiles         []string `json:",omitempty"` // .h, .hh, .hpp and .hxx source files
 	SFiles         []string `json:",omitempty"` // .s source files
 	SwigFiles      []string `json:",omitempty"` // .swig files
@@ -88,6 +89,7 @@ type Package struct {
 	exeName      string               // desired name for temporary executable
 	coverMode    string               // preprocess Go source files with the coverage tool in this mode
 	coverVars    map[string]*CoverVar // variables created by coverage analysis
+	omitDWARF    bool                 // tell linker not to write DWARF information
 }
 
 // CoverVar holds the name of the generated coverage variables targeting the named file.
@@ -113,6 +115,7 @@ func (p *Package) copyBuild(pp *build.Package) {
 	p.IgnoredGoFiles = pp.IgnoredGoFiles
 	p.CFiles = pp.CFiles
 	p.CXXFiles = pp.CXXFiles
+	p.MFiles = pp.MFiles
 	p.HFiles = pp.HFiles
 	p.SFiles = pp.SFiles
 	p.SwigFiles = pp.SwigFiles
@@ -136,12 +139,13 @@ type PackageError struct {
 	Pos           string   // position of error
 	Err           string   // the error itself
 	isImportCycle bool     // the error is an import cycle
+	hard          bool     // whether the error is soft or hard; soft errors are ignored in some places
 }
 
 func (p *PackageError) Error() string {
 	// Import cycles deserve special treatment.
 	if p.isImportCycle {
-		return fmt.Sprintf("%s: %s\npackage %s\n", p.Pos, p.Err, strings.Join(p.ImportStack, "\n\timports "))
+		return fmt.Sprintf("%s\npackage %s\n", p.Err, strings.Join(p.ImportStack, "\n\timports "))
 	}
 	if p.Pos != "" {
 		// Omit import stack.  The full path to the file where the error
@@ -304,9 +308,14 @@ const (
 
 // goTools is a map of Go program import path to install target directory.
 var goTools = map[string]targetDir{
+	"cmd/addr2line":                        toTool,
 	"cmd/api":                              toTool,
 	"cmd/cgo":                              toTool,
 	"cmd/fix":                              toTool,
+	"cmd/link":                             toTool,
+	"cmd/nm":                               toTool,
+	"cmd/objdump":                          toTool,
+	"cmd/pack":                             toTool,
 	"cmd/yacc":                             toTool,
 	"code.google.com/p/go.tools/cmd/cover": toTool,
 	"code.google.com/p/go.tools/cmd/godoc": toBin,
@@ -454,6 +463,7 @@ func (p *Package) load(stk *importStack, bp *build.Package, err error) *Package 
 		p.IgnoredGoFiles,
 		p.CFiles,
 		p.CXXFiles,
+		p.MFiles,
 		p.HFiles,
 		p.SFiles,
 		p.SysoFiles,
@@ -549,24 +559,6 @@ func (p *Package) usesSwig() bool {
 // usesCgo reports whether the package needs to run cgo
 func (p *Package) usesCgo() bool {
 	return len(p.CgoFiles) > 0
-}
-
-// swigSoname returns the name of the shared library we create for a
-// SWIG input file.
-func (p *Package) swigSoname(file string) string {
-	return strings.Replace(p.ImportPath, "/", "-", -1) + "-" + strings.Replace(file, ".", "-", -1) + ".so"
-}
-
-// swigDir returns the name of the shared SWIG directory for a
-// package.
-func (p *Package) swigDir(ctxt *build.Context) string {
-	dir := p.build.PkgRoot
-	if ctxt.Compiler == "gccgo" {
-		dir = filepath.Join(dir, "gccgo_"+ctxt.GOOS+"_"+ctxt.GOARCH)
-	} else {
-		dir = filepath.Join(dir, ctxt.GOOS+"_"+ctxt.GOARCH)
-	}
-	return filepath.Join(dir, "swig")
 }
 
 // packageList returns the list of packages in the dag rooted at roots
@@ -681,7 +673,7 @@ func isStale(p *Package, topRoot map[string]bool) bool {
 		return false
 	}
 
-	srcs := stringList(p.GoFiles, p.CFiles, p.CXXFiles, p.HFiles, p.SFiles, p.CgoFiles, p.SysoFiles, p.SwigFiles, p.SwigCXXFiles)
+	srcs := stringList(p.GoFiles, p.CFiles, p.CXXFiles, p.MFiles, p.HFiles, p.SFiles, p.CgoFiles, p.SysoFiles, p.SwigFiles, p.SwigCXXFiles)
 	for _, src := range srcs {
 		if olderThan(filepath.Join(p.Dir, src)) {
 			return true
@@ -724,6 +716,7 @@ func loadPackage(arg string, stk *importStack) *Package {
 				Error: &PackageError{
 					ImportStack: stk.copy(),
 					Err:         fmt.Sprintf("invalid import path: cmd/... is reserved for Go commands"),
+					hard:        true,
 				},
 			}
 			return p

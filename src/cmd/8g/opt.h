@@ -109,6 +109,7 @@ EXTERN	Bits	externs;
 EXTERN	Bits	params;
 EXTERN	Bits	consts;
 EXTERN	Bits	addrs;
+EXTERN	Bits	ivar;
 EXTERN	Bits	ovar;
 EXTERN	int	change;
 EXTERN	int32	maxnr;
@@ -154,8 +155,6 @@ int32	RtoB(int);
 int32	FtoB(int);
 int	BtoR(int32);
 int	BtoF(int32);
-
-#pragma	varargck	type	"D"	Adr*
 
 /*
  * prog.c

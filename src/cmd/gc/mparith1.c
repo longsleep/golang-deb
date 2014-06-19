@@ -65,7 +65,7 @@ mpcmpfltc(Mpflt *b, double c)
 	Mpflt a;
 
 	mpmovecflt(&a, c);
-	return mpcmpfltflt(&a, b);
+	return mpcmpfltflt(b, &a);
 }
 
 void
@@ -416,7 +416,7 @@ mpatoflt(Mpflt *a, char *as)
 	if(eb) {
 		if(dp)
 			goto bad;
-		a->exp += ex;
+		mpsetexp(a, a->exp+ex);
 		goto out;
 	}
 
@@ -427,8 +427,14 @@ mpatoflt(Mpflt *a, char *as)
 			mppow10flt(&b, ex-dp);
 			mpmulfltflt(a, &b);
 		} else {
-			mppow10flt(&b, dp-ex);
-			mpdivfltflt(a, &b);
+			// 4 approximates least_upper_bound(log2(10)).
+			if(dp-ex >= (1<<(8*sizeof(dp)-3)) || (short)(4*(dp-ex)) != 4*(dp-ex)) {
+				mpmovecflt(a, 0.0);
+			}
+			else {
+				mppow10flt(&b, dp-ex);
+				mpdivfltflt(a, &b);
+			}
 		}
 	}
 
@@ -573,20 +579,40 @@ Fconv(Fmt *fp)
 {
 	char buf[500];
 	Mpflt *fvp, fv;
-	double d;
+	double d, dexp;
+	int exp;
 
 	fvp = va_arg(fp->args, Mpflt*);
 	if(fp->flags & FmtSharp) {
 		// alternate form - decimal for error messages.
 		// for well in range, convert to double and use print's %g
-		if(-900 < fvp->exp && fvp->exp < 900) {
+		exp = fvp->exp + sigfig(fvp)*Mpscale;
+		if(-900 < exp && exp < 900) {
 			d = mpgetflt(fvp);
 			if(d >= 0 && (fp->flags & FmtSign))
 				fmtprint(fp, "+");
-			return fmtprint(fp, "%g", d);
+			return fmtprint(fp, "%g", d, exp, fvp);
 		}
-		// TODO(rsc): for well out of range, print
-		// an approximation like 1.234e1000
+		
+		// very out of range. compute decimal approximation by hand.
+		// decimal exponent
+		dexp = fvp->exp * 0.301029995663981195; // log_10(2)
+		exp = (int)dexp;
+		// decimal mantissa
+		fv = *fvp;
+		fv.val.neg = 0;
+		fv.exp = 0;
+		d = mpgetflt(&fv);
+		d *= pow(10, dexp-exp);
+		while(d >= 9.99995) {
+			d /= 10;
+			exp++;
+		}
+		if(fvp->val.neg)
+			fmtprint(fp, "-");
+		else if(fp->flags & FmtSign)
+			fmtprint(fp, "+");
+		return fmtprint(fp, "%.5fe+%d", d, exp);
 	}
 
 	if(sigfig(fvp) == 0) {

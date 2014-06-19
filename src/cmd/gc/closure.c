@@ -161,6 +161,7 @@ makeclosure(Node *func)
 	// and initialize in entry prologue.
 	body = nil;
 	offset = widthptr;
+	xfunc->needctxt = func->cvars != nil;
 	for(l=func->cvars; l; l=l->next) {
 		v = l->n;
 		if(v->op == 0)
@@ -252,6 +253,14 @@ walkclosure(Node *func, NodeList **init)
 	// typecheck will insert a PTRLIT node under CONVNOP,
 	// tag it with escape analysis result.
 	clos->left->esc = func->esc;
+	// non-escaping temp to use, if any.
+	// orderexpr did not compute the type; fill it in now.
+	if(func->alloc != N) {
+		func->alloc->type = clos->left->left->type;
+		func->alloc->orig->type = func->alloc->type;
+		clos->left->right = func->alloc;
+		func->alloc = N;
+	}
 	walkexpr(&clos, init);
 
 	return clos;
@@ -361,9 +370,12 @@ makepartialcall(Node *fn, Type *t0, Node *meth)
 
 	// Declare and initialize variable holding receiver.
 	body = nil;
+	xfunc->needctxt = 1;
 	cv = nod(OCLOSUREVAR, N, N);
 	cv->xoffset = widthptr;
 	cv->type = rcvrtype;
+	if(cv->type->align > widthptr)
+		cv->xoffset = cv->type->align;
 	ptr = nod(ONAME, N, N);
 	ptr->sym = lookup("rcvr");
 	ptr->class = PAUTO;
@@ -441,6 +453,14 @@ walkpartialcall(Node *n, NodeList **init)
 	// typecheck will insert a PTRLIT node under CONVNOP,
 	// tag it with escape analysis result.
 	clos->left->esc = n->esc;
+	// non-escaping temp to use, if any.
+	// orderexpr did not compute the type; fill it in now.
+	if(n->alloc != N) {
+		n->alloc->type = clos->left->left->type;
+		n->alloc->orig->type = n->alloc->type;
+		clos->left->right = n->alloc;
+		n->alloc = N;
+	}
 	walkexpr(&clos, init);
 
 	return clos;

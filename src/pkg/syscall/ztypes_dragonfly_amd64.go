@@ -55,10 +55,6 @@ type Rlimit struct {
 type _Gid_t uint32
 
 const (
-	F_DUPFD_CLOEXEC = 0
-)
-
-const (
 	S_IFMT   = 0xf000
 	S_IFIFO  = 0x1000
 	S_IFCHR  = 0x2000
@@ -432,4 +428,14 @@ type BpfHdr struct {
 	Datalen   uint32
 	Hdrlen    uint16
 	Pad_cgo_0 [6]byte
+}
+
+type Termios struct {
+	Iflag  uint32
+	Oflag  uint32
+	Cflag  uint32
+	Lflag  uint32
+	Cc     [20]uint8
+	Ispeed uint32
+	Ospeed uint32
 }

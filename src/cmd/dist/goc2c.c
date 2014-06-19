@@ -85,11 +85,15 @@ enum {
 	String,
 	Slice,
 	Eface,
+	Complex128,
+	Float32,
+	Float64,
 };
 
 static struct {
 	char *name;
 	int size;
+	int rnd; // alignment
 } type_table[] = {
 	/* 
 	 * variable sized first, for easy replacement.
@@ -105,6 +109,7 @@ static struct {
 	{"String",	8},
 	{"Slice",	12},
 	{"Eface",	8},
+	{"Complex128", 16},
 
 	/* fixed size */
 	{"float32",	4},
@@ -130,7 +135,7 @@ int structround = 4;
 static void
 bad_eof(void)
 {
-	fatal("%s:%ud: unexpected EOF\n", file, lineno);
+	fatal("%s:%d: unexpected EOF\n", file, lineno);
 }
 
 /* Free a list of parameters.  */
@@ -295,9 +300,9 @@ read_package(void)
 
 	token = read_token_no_eof();
 	if (token == nil)
-		fatal("%s:%ud: no token\n", file, lineno);
+		fatal("%s:%d: no token\n", file, lineno);
 	if (!streq(token, "package")) {
-		fatal("%s:%ud: expected \"package\", got \"%s\"\n",
+		fatal("%s:%d: expected \"package\", got \"%s\"\n",
 			file, lineno, token);
 	}
 	return read_token_no_eof();
@@ -307,6 +312,9 @@ read_package(void)
 static void
 read_preprocessor_lines(void)
 {
+	int first;
+	
+	first = 1;
 	while (1) {
 		int c;
 
@@ -316,6 +324,10 @@ read_preprocessor_lines(void)
 		if (c != '#') {
 			xungetc();
 			break;
+		}
+		if(first) {
+			first = 0;
+			xputchar('\n');
 		}
 		xputchar(c);
 		do {
@@ -365,17 +377,24 @@ read_type(void)
 
 /* Return the size of the given type. */
 static int
-type_size(char *p)
+type_size(char *p, int *rnd)
 {
 	int i;
 
-	if(p[xstrlen(p)-1] == '*')
+	if(p[xstrlen(p)-1] == '*') {
+		*rnd = type_table[Uintptr].rnd;
 		return type_table[Uintptr].size;
+	}
+
+	if(streq(p, "Iface"))
+		p = "Eface";
 
 	for(i=0; type_table[i].name; i++)
-		if(streq(type_table[i].name, p))
+		if(streq(type_table[i].name, p)) {
+			*rnd = type_table[i].rnd;
 			return type_table[i].size;
-	fatal("%s:%ud: unknown type %s\n", file, lineno, p);
+		}
+	fatal("%s:%d: unknown type %s\n", file, lineno, p);
 	return 0;
 }
 
@@ -398,18 +417,22 @@ read_params(int *poffset)
 		while (1) {
 			p = xmalloc(sizeof(struct params));
 			p->name = token;
-			p->type = read_type();
 			p->next = nil;
 			*pp = p;
 			pp = &p->next;
 
-			size = type_size(p->type);
-			rnd = size;
-			if(rnd > structround)
-				rnd = structround;
-			if(offset%rnd)
-				offset += rnd - offset%rnd;
-			offset += size;
+			if(streq(token, "...")) {
+				p->type = xstrdup("");
+			} else {
+				p->type = read_type();
+				rnd = 0;
+				size = type_size(p->type, &rnd);
+				if(rnd > structround)
+					rnd = structround;
+				if(offset%rnd)
+					offset += rnd - offset%rnd;
+				offset += size;
+			}
 
 			token = read_token_no_eof();
 			if (!streq(token, ","))
@@ -418,7 +441,7 @@ read_params(int *poffset)
 		}
 	}
 	if (!streq(token, ")")) {
-		fatal("%s:%ud: expected '('\n",
+		fatal("%s:%d: expected '('\n",
 			file, lineno);
 	}
 	if (poffset != nil)
@@ -438,6 +461,7 @@ read_func_header(char **name, struct params **params, int *paramwid, struct para
 
 	lastline = -1;
 	while (1) {
+		read_preprocessor_lines();
 		token = read_token();
 		if (token == nil)
 			return 0;
@@ -460,7 +484,7 @@ read_func_header(char **name, struct params **params, int *paramwid, struct para
 
 	token = read_token();
 	if (token == nil || !streq(token, "(")) {
-		fatal("%s:%ud: expected \"(\"\n",
+		fatal("%s:%d: expected \"(\"\n",
 			file, lineno);
 	}
 	*params = read_params(paramwid);
@@ -473,7 +497,7 @@ read_func_header(char **name, struct params **params, int *paramwid, struct para
 		token = read_token();
 	}
 	if (token == nil || !streq(token, "{")) {
-		fatal("%s:%ud: expected \"{\"\n",
+		fatal("%s:%d: expected \"{\"\n",
 			file, lineno);
 	}
 	return 1;
@@ -500,8 +524,13 @@ write_6g_func_header(char *package, char *name, struct params *params,
 		     int paramwid, struct params *rets)
 {
 	int first, n;
+	struct params *p;
 
-	bwritef(output, "void\n%s·%s(", package, name);
+	bwritef(output, "void\n");
+	if(!contains(name, "·"))
+		bwritef(output, "%s·", package);
+	bwritef(output, "%s(", name);
+
 	first = 1;
 	write_params(params, &first);
 
@@ -518,6 +547,24 @@ write_6g_func_header(char *package, char *name, struct params *params,
 
 	write_params(rets, &first);
 	bwritef(output, ")\n{\n");
+	
+	for (p = rets; p != nil; p = p->next) {
+		if(streq(p->name, "..."))
+			continue;
+		if(streq(p->type, "Slice"))
+			bwritef(output, "\t%s.array = 0;\n\t%s.len = 0;\n\t%s.cap = 0;\n", p->name, p->name, p->name);
+		else if(streq(p->type, "String"))
+			bwritef(output, "\t%s.str = 0;\n\t%s.len = 0;\n", p->name, p->name);
+		else if(streq(p->type, "Eface"))
+			bwritef(output, "\t%s.type = 0;\n\t%s.data = 0;\n", p->name, p->name);
+		else if(streq(p->type, "Iface"))
+			bwritef(output, "\t%s.tab = 0;\n\t%s.data = 0;\n", p->name, p->name);
+		else if(streq(p->type, "Complex128"))
+			bwritef(output, "\t%s.real = 0;\n\t%s.imag = 0;\n", p->name, p->name);
+		else
+			bwritef(output, "\t%s = 0;\n", p->name);
+		bwritef(output, "\tFLUSH(&%s);\n", p->name);
+	}
 }
 
 /* Write a 6g function trailer.  */
@@ -527,7 +574,8 @@ write_6g_func_trailer(struct params *rets)
 	struct params *p;
 
 	for (p = rets; p != nil; p = p->next)
-		bwritef(output, "\tFLUSH(&%s);\n", p->name);
+		if(!streq(p->name, "..."))
+			bwritef(output, "\tFLUSH(&%s);\n", p->name);
 	bwritef(output, "}\n");
 }
 
@@ -726,6 +774,7 @@ process_file(void)
 void
 goc2c(char *goc, char *c)
 {
+	int i;
 	Buf in, out;
 	
 	binit(&in);
@@ -739,13 +788,15 @@ goc2c(char *goc, char *c)
 	if(!gcc) {
 		if(streq(goarch, "amd64")) {
 			type_table[Uintptr].size = 8;
-			type_table[Eface].size = 8+8;
-			type_table[String].size = 16;
 			if(use64bitint) {
 				type_table[Int].size = 8;
-				type_table[Uint].size = 8;
+			} else {
+				type_table[Int].size = 4;
 			}
-			type_table[Slice].size = 8+2*type_table[Int].size;
+			structround = 8;
+		} else if(streq(goarch, "amd64p32")) {
+			type_table[Uintptr].size = 4;
+			type_table[Int].size = 4;
 			structround = 8;
 		} else {
 			// NOTE: These are set in the initializer,
@@ -753,13 +804,22 @@ goc2c(char *goc, char *c)
 			// previous invocation of goc2c, so we have
 			// to restore them.
 			type_table[Uintptr].size = 4;
-			type_table[String].size = 8;
-			type_table[Slice].size = 16;
-			type_table[Eface].size = 4+4;
 			type_table[Int].size = 4;
-			type_table[Uint].size = 4;
 			structround = 4;
 		}
+
+		type_table[Uint].size = type_table[Int].size;
+		type_table[Slice].size = type_table[Uintptr].size+2*type_table[Int].size;
+		type_table[Eface].size = 2*type_table[Uintptr].size;
+		type_table[String].size = 2*type_table[Uintptr].size;
+
+		for(i=0; i<nelem(type_table); i++)
+			type_table[i].rnd = type_table[i].size;
+
+		type_table[String].rnd = type_table[Uintptr].rnd;
+		type_table[Slice].rnd = type_table[Uintptr].rnd;
+		type_table[Eface].rnd = type_table[Uintptr].rnd;
+		type_table[Complex128].rnd = type_table[Float64].rnd;
 	}
 
 	bprintf(&out, "// auto generated by go tool dist\n// goos=%s goarch=%s\n\n", goos, goarch);

@@ -6,6 +6,15 @@ enum {
 	thechar = '6',
 	BigEndian = 0,
 	CacheLineSize = 64,
+#ifdef GOOS_solaris
+	RuntimeGogoBytes = 80,
+#else
+#ifdef GOOS_windows
+	RuntimeGogoBytes = 80,
+#else
 	RuntimeGogoBytes = 64,
+#endif	// Windows
+#endif	// Solaris
+	PhysPageSize = 4096,
 	PCQuantum = 1
 };

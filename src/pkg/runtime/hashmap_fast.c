@@ -5,24 +5,23 @@
 // Fast hashmap lookup specialized to a specific key type.
 // Included by hashmap.c once for each specialized type.
 
-// Note that this code differs from hash_lookup in that
-// it returns a pointer to the result, not the result itself.
-// The returned pointer is only valid until the next GC
-// point, so the caller must dereference it before then.
-
 // +build ignore
+
+// Because this file is #included, it cannot be processed by goc2c,
+// so we have to handle the Go resuts ourselves.
 
 #pragma textflag NOSPLIT
 void
-HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, byte *value)
+HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, GoOutput base, ...)
 {
 	uintptr bucket, i;
 	Bucket *b;
 	KEYTYPE *k;
-	byte *v;
+	byte *v, **valueptr;
 	uint8 top;
 	int8 keymaybe;
 
+	valueptr = (byte**)&base;
 	if(debug) {
 		runtime·prints("runtime.mapaccess1_fastXXX: map=");
 		runtime·printpointer(h);
@@ -31,8 +30,7 @@ HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, byte *value)
 		runtime·prints("\n");
 	}
 	if(h == nil || h->count == 0) {
-		value = empty_value;
-		FLUSH(&value);
+		*valueptr = t->elem->zero;
 		return;
 	}
 	if(raceenabled)
@@ -45,26 +43,24 @@ HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, byte *value)
 		b = (Bucket*)h->buckets;
 		if(FASTKEY(key)) {
 			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-				if(b->tophash[i] == 0)
+				if(b->tophash[i] == Empty)
 					continue;
 				if(QUICK_NE(key, *k))
 					continue;
 				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
-					value = v;
-					FLUSH(&value);
+					*valueptr = v;
 					return;
 				}
 			}
 		} else {
 			keymaybe = -1;
 			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-				if(b->tophash[i] == 0)
+				if(b->tophash[i] == Empty)
 					continue;
 				if(QUICK_NE(key, *k))
 					continue;
 				if(QUICK_EQ(key, *k)) {
-					value = v;
-					FLUSH(&value);
+					*valueptr = v;
 					return;
 				}
 				if(MAYBE_EQ(key, *k)) {
@@ -82,8 +78,7 @@ HASH_LOOKUP1(MapType *t, Hmap *h, KEYTYPE key, byte *value)
 			if(keymaybe >= 0) {
 				k = (KEYTYPE*)b->data + keymaybe;
 				if(SLOW_EQ(key, *k)) {
-					value = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
-					FLUSH(&value);
+					*valueptr = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
 					return;
 				}
 			}
@@ -93,8 +88,8 @@ dohash:
 		bucket = h->hash0;
 		HASHFUNC(&bucket, sizeof(KEYTYPE), &key);
 		top = bucket >> (sizeof(uintptr)*8 - 8);
-		if(top == 0)
-			top = 1;
+		if(top < MinTopHash)
+			top += MinTopHash;
 		bucket &= (((uintptr)1 << h->B) - 1);
 		if(h->oldbuckets != nil) {
 			i = bucket & (((uintptr)1 << (h->B - 1)) - 1);
@@ -112,29 +107,30 @@ dohash:
 				if(QUICK_NE(key, *k))
 					continue;
 				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
-					value = v;
-					FLUSH(&value);
+					*valueptr = v;
 					return;
 				}
 			}
 			b = b->overflow;
 		} while(b != nil);
 	}
-	value = empty_value;
-	FLUSH(&value);
+	*valueptr = t->elem->zero;
 }
 
 #pragma textflag NOSPLIT
 void
-HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, byte *value, bool res)
+HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, GoOutput base, ...)
 {
 	uintptr bucket, i;
 	Bucket *b;
 	KEYTYPE *k;
-	byte *v;
+	byte *v, **valueptr;
 	uint8 top;
 	int8 keymaybe;
+	bool *okptr;
 
+	valueptr = (byte**)&base;
+	okptr = (bool*)(valueptr+1);
 	if(debug) {
 		runtime·prints("runtime.mapaccess2_fastXXX: map=");
 		runtime·printpointer(h);
@@ -143,10 +139,8 @@ HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, byte *value, bool res)
 		runtime·prints("\n");
 	}
 	if(h == nil || h->count == 0) {
-		value = empty_value;
-		res = false;
-		FLUSH(&value);
-		FLUSH(&res);
+		*valueptr = t->elem->zero;
+		*okptr = false;
 		return;
 	}
 	if(raceenabled)
@@ -159,30 +153,26 @@ HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, byte *value, bool res)
 		b = (Bucket*)h->buckets;
 		if(FASTKEY(key)) {
 			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-				if(b->tophash[i] == 0)
+				if(b->tophash[i] == Empty)
 					continue;
 				if(QUICK_NE(key, *k))
 					continue;
 				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
-					value = v;
-					res = true;
-					FLUSH(&value);
-					FLUSH(&res);
+					*valueptr = v;
+					*okptr = true;
 					return;
 				}
 			}
 		} else {
 			keymaybe = -1;
 			for(i = 0, k = (KEYTYPE*)b->data, v = (byte*)(k + BUCKETSIZE); i < BUCKETSIZE; i++, k++, v += h->valuesize) {
-				if(b->tophash[i] == 0)
+				if(b->tophash[i] == Empty)
 					continue;
 				if(QUICK_NE(key, *k))
 					continue;
 				if(QUICK_EQ(key, *k)) {
-					value = v;
-					res = true;
-					FLUSH(&value);
-					FLUSH(&res);
+					*valueptr = v;
+					*okptr = true;
 					return;
 				}
 				if(MAYBE_EQ(key, *k)) {
@@ -200,10 +190,8 @@ HASH_LOOKUP2(MapType *t, Hmap *h, KEYTYPE key, byte *value, bool res)
 			if(keymaybe >= 0) {
 				k = (KEYTYPE*)b->data + keymaybe;
 				if(SLOW_EQ(key, *k)) {
-					value = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
-					res = true;
-					FLUSH(&value);
-					FLUSH(&res);
+					*valueptr = (byte*)((KEYTYPE*)b->data + BUCKETSIZE) + keymaybe * h->valuesize;
+					*okptr = true;
 					return;
 				}
 			}
@@ -213,8 +201,8 @@ dohash:
 		bucket = h->hash0;
 		HASHFUNC(&bucket, sizeof(KEYTYPE), &key);
 		top = bucket >> (sizeof(uintptr)*8 - 8);
-		if(top == 0)
-			top = 1;
+		if(top < MinTopHash)
+			top += MinTopHash;
 		bucket &= (((uintptr)1 << h->B) - 1);
 		if(h->oldbuckets != nil) {
 			i = bucket & (((uintptr)1 << (h->B - 1)) - 1);
@@ -232,18 +220,14 @@ dohash:
 				if(QUICK_NE(key, *k))
 					continue;
 				if(QUICK_EQ(key, *k) || SLOW_EQ(key, *k)) {
-					value = v;
-					res = true;
-					FLUSH(&value);
-					FLUSH(&res);
+					*valueptr = v;
+					*okptr = true;
 					return;
 				}
 			}
 			b = b->overflow;
 		} while(b != nil);
 	}
-	value = empty_value;
-	res = false;
-	FLUSH(&value);
-	FLUSH(&res);
+	*valueptr = t->elem->zero;
+	*okptr = false;
 }

@@ -188,6 +188,7 @@ runtime·osinit(void)
 void
 runtime·get_random_data(byte **rnd, int32 *rnd_len)
 {
+	#pragma dataflag NOPTR
 	static byte urandom_data[HashRandomBytes];
 	int32 fd;
 	fd = runtime·open("/dev/urandom", 0 /* O_RDONLY */, 0);
@@ -237,9 +238,12 @@ runtime·unminit(void)
 void
 runtime·sigpanic(void)
 {
+	if(!runtime·canpanic(g))
+		runtime·throw("unexpected signal during runtime execution");
+
 	switch(g->sig) {
 	case SIGBUS:
-		if(g->sigcode0 == BUS_ADRERR && g->sigcode1 < 0x1000) {
+		if(g->sigcode0 == BUS_ADRERR && g->sigcode1 < 0x1000 || g->paniconfault) {
 			if(g->sigpc == 0)
 				runtime·panicstring("call of nil func value");
 			runtime·panicstring("invalid memory address or nil pointer dereference");
@@ -247,7 +251,7 @@ runtime·sigpanic(void)
 		runtime·printf("unexpected fault address %p\n", g->sigcode1);
 		runtime·throw("fault");
 	case SIGSEGV:
-		if((g->sigcode0 == 0 || g->sigcode0 == SEGV_MAPERR || g->sigcode0 == SEGV_ACCERR) && g->sigcode1 < 0x1000) {
+		if((g->sigcode0 == 0 || g->sigcode0 == SEGV_MAPERR || g->sigcode0 == SEGV_ACCERR) && g->sigcode1 < 0x1000 || g->paniconfault) {
 			if(g->sigpc == 0)
 				runtime·panicstring("call of nil func value");
 			runtime·panicstring("invalid memory address or nil pointer dereference");
@@ -325,4 +329,10 @@ runtime·signalstack(byte *p, int32 n)
 	if(p == nil)
 		st.ss_flags = SS_DISABLE;
 	runtime·sigaltstack(&st, nil);
+}
+
+void
+runtime·unblocksignals(void)
+{
+	runtime·sigprocmask(SIG_SETMASK, &sigset_none, nil);
 }

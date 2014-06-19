@@ -75,10 +75,14 @@ TEXT _sfloat(SB), NOSPLIT, $64-0 // 4 arg + 14*4 saved regs + cpsr
 	MOVW	m_locks(m), R1
 	ADD	$1, R1
 	MOVW	R1, m_locks(m)
+	MOVW	$1, R1
+	MOVW	R1, m_softfloat(m)
 	BL	runtime·_sfloat2(SB)
 	MOVW	m_locks(m), R1
 	SUB	$1, R1
 	MOVW	R1, m_locks(m)
+	MOVW	$0, R1
+	MOVW	R1, m_softfloat(m)
 	MOVW	R0, 0(R13)
 	MOVW	64(R13), R1
 	WORD	$0xe128f001	// msr cpsr_f, r1
@@ -255,7 +259,7 @@ TEXT _div(SB),NOSPLIT,$16
 d0:
 	BL  	udiv<>(SB)  		/* none/both neg */
 	MOVW	R(q), R(TMP)
-	B		out
+	B		out1
 d1:
 	CMP 	$0, R(q)
 	BGE 	d0
@@ -263,7 +267,12 @@ d1:
 d2:
 	BL  	udiv<>(SB)  		/* one neg */
 	RSB		$0, R(q), R(TMP)
-	B   	out
+out1:
+	MOVW	4(R13), R(q)
+	MOVW	8(R13), R(r)
+	MOVW	12(R13), R(s)
+	MOVW	16(R13), R(M)
+	RET
 
 TEXT _mod(SB),NOSPLIT,$16
 	MOVW	R(q), 4(R13)

@@ -8,6 +8,12 @@
 
 int	thechar	= '8';
 char*	thestring	= "386";
+LinkArch*	thelinkarch = &link386;
+
+void
+linkarchinit(void)
+{
+}
 
 vlong MAXWIDTH = (1LL<<32) - 1;
 
@@ -28,6 +34,7 @@ betypeinit(void)
 {
 	widthptr = 4;
 	widthint = 4;
+	widthreg = 4;
 
 	zprog.link = P;
 	zprog.as = AGOK;
@@ -36,5 +43,5 @@ betypeinit(void)
 	zprog.from.scale = 0;
 	zprog.to = zprog.from;
 
-	listinit();
+	listinit8();
 }

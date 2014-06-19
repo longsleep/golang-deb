@@ -46,7 +46,7 @@ clearp(Prog *p)
 	p->from.index = D_NONE;
 	p->to.type = D_NONE;
 	p->to.index = D_NONE;
-	p->loc = pcloc;
+	p->pc = pcloc;
 	pcloc++;
 }
 
@@ -136,7 +136,7 @@ patch(Prog *p, Prog *to)
 	if(p->to.type != D_BRANCH)
 		fatal("patch: not a branch");
 	p->to.u.branch = to;
-	p->to.offset = to->loc;
+	p->to.offset = to->pc;
 }
 
 Prog*
@@ -160,12 +160,7 @@ newplist(void)
 {
 	Plist *pl;
 
-	pl = mal(sizeof(*pl));
-	if(plist == nil)
-		plist = pl;
-	else
-		plast->link = pl;
-	plast = pl;
+	pl = linknewplist(ctxt);
 
 	pc = mal(sizeof(*pc));
 	clearp(pc);
@@ -198,8 +193,8 @@ ggloblnod(Node *nam)
 
 	p = gins(AGLOBL, nam, N);
 	p->lineno = nam->lineno;
-	p->from.gotype = ngotype(nam);
-	p->to.sym = S;
+	p->from.sym->gotype = linksym(ngotype(nam));
+	p->to.sym = nil;
 	p->to.type = D_CONST;
 	p->to.offset = nam->type->width;
 	if(nam->readonly)
@@ -216,7 +211,7 @@ gtrack(Sym *s)
 	p = gins(AUSEFIELD, N, N);
 	p->from.type = D_EXTERN;
 	p->from.index = D_NONE;
-	p->from.sym = s;
+	p->from.sym = linksym(s);
 }
 
 void
@@ -237,7 +232,7 @@ ggloblsym(Sym *s, int32 width, int dupok, int rodata)
 	p = gins(AGLOBL, N, N);
 	p->from.type = D_EXTERN;
 	p->from.index = D_NONE;
-	p->from.sym = s;
+	p->from.sym = linksym(s);
 	p->to.type = D_CONST;
 	p->to.index = D_NONE;
 	p->to.offset = width;
@@ -272,7 +267,7 @@ afunclit(Addr *a, Node *n)
 	if(a->type == D_ADDR && a->index == D_EXTERN) {
 		a->type = D_EXTERN;
 		a->index = D_NONE;
-		a->sym = n->sym;
+		a->sym = linksym(n->sym);
 	}
 }
 
@@ -301,6 +296,11 @@ ginit(void)
 
 	for(i=0; i<nelem(resvd); i++)
 		reg[resvd[i]]++;
+	
+	if(nacl) {
+		reg[D_BP]++;
+		reg[D_R15]++;
+	}
 }
 
 void
@@ -310,6 +310,11 @@ gclean(void)
 
 	for(i=0; i<nelem(resvd); i++)
 		reg[resvd[i]]--;
+	if(nacl) {
+		reg[D_BP]--;
+		reg[D_R15]--;
+	}
+
 
 	for(i=D_AX; i<=D_R15; i++)
 		if(reg[i])
@@ -457,6 +462,7 @@ Node*
 nodarg(Type *t, int fp)
 {
 	Node *n;
+	NodeList *l;
 	Type *first;
 	Iter savet;
 
@@ -477,6 +483,14 @@ nodarg(Type *t, int fp)
 
 	if(t->etype != TFIELD)
 		fatal("nodarg: not field %T", t);
+	
+	if(fp == 1) {
+		for(l=curfn->dcl; l; l=l->next) {
+			n = l->n;
+			if((n->class == PPARAM || n->class == PPARAMOUT) && !isblanksym(t->sym) && n->sym == t->sym)
+				return n;
+		}
+	}
 
 	n = nod(ONAME, N, N);
 	n->type = t->type;
@@ -525,7 +539,16 @@ gconreg(int as, vlong c, int reg)
 {
 	Node nr;
 
-	nodreg(&nr, types[TINT64], reg);
+	switch(as) {
+	case AADDL:
+	case AMOVL:
+	case ALEAL:
+		nodreg(&nr, types[TINT32], reg);
+		break;
+	default:
+		nodreg(&nr, types[TINT64], reg);
+	}
+
 	ginscon(as, c, &nr);
 }
 
@@ -538,10 +561,18 @@ ginscon(int as, vlong c, Node *n2)
 {
 	Node n1, ntmp;
 
-	nodconst(&n1, types[TINT64], c);
+	switch(as) {
+	case AADDL:
+	case AMOVL:
+	case ALEAL:
+		nodconst(&n1, types[TINT32], c);
+		break;
+	default:
+		nodconst(&n1, types[TINT64], c);
+	}
 
 	if(as != AMOVQ && (c < -(1LL<<31) || c >= 1LL<<31)) {
-		// cannot have 64-bit immediokate in ADD, etc.
+		// cannot have 64-bit immediate in ADD, etc.
 		// instead, MOV into register first.
 		regalloc(&ntmp, types[TINT64], N);
 		gins(AMOVQ, &n1, &ntmp);
@@ -1098,10 +1129,12 @@ fixlargeoffset(Node *n)
 void
 naddr(Node *n, Addr *a, int canemitcode)
 {
+	Sym *s;
+
 	a->scale = 0;
 	a->index = D_NONE;
 	a->type = D_NONE;
-	a->gotype = S;
+	a->gotype = nil;
 	a->node = N;
 	a->width = 0;
 	if(n == N)
@@ -1119,7 +1152,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 
 	case OREGISTER:
 		a->type = n->val.u.reg;
-		a->sym = S;
+		a->sym = nil;
 		break;
 
 //	case OINDEX:
@@ -1144,7 +1177,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 
 	case OINDREG:
 		a->type = n->val.u.reg+D_INDIR;
-		a->sym = n->sym;
+		a->sym = linksym(n->sym);
 		a->offset = n->xoffset;
 		if(a->offset != (int32)a->offset)
 			yyerror("offset %lld too large for OINDREG", a->offset);
@@ -1156,20 +1189,22 @@ naddr(Node *n, Addr *a, int canemitcode)
 		a->etype = simtype[n->left->type->etype];
 		a->width = n->left->type->width;
 		a->offset = n->xoffset;
-		a->sym = n->left->sym;
+		a->sym = linksym(n->left->sym);
 		a->type = D_PARAM;
 		a->node = n->left->orig;
 		break;
 	
 	case OCLOSUREVAR:
+		if(!curfn->needctxt)
+			fatal("closurevar without needctxt");
 		a->type = D_DX+D_INDIR;
-		a->sym = S;
+		a->sym = nil;
 		a->offset = n->xoffset;
 		break;
 	
 	case OCFUNC:
 		naddr(n->left, a, canemitcode);
-		a->sym = n->left->sym;
+		a->sym = linksym(n->left->sym);
 		break;
 
 	case ONAME:
@@ -1177,17 +1212,17 @@ naddr(Node *n, Addr *a, int canemitcode)
 		if(n->type != T)
 			a->etype = simtype[n->type->etype];
 		a->offset = n->xoffset;
-		a->sym = n->sym;
+		s = n->sym;
 		a->node = n->orig;
 		//if(a->node >= (Node*)&n)
 		//	fatal("stack node");
-		if(a->sym == S)
-			a->sym = lookup(".noname");
+		if(s == S)
+			s = lookup(".noname");
 		if(n->method) {
 			if(n->type != T)
 			if(n->type->sym != S)
 			if(n->type->sym->pkg != nil)
-				a->sym = pkglookup(a->sym->name, n->type->sym->pkg);
+				s = pkglookup(s->name, n->type->sym->pkg);
 		}
 
 		switch(n->class) {
@@ -1207,9 +1242,10 @@ naddr(Node *n, Addr *a, int canemitcode)
 			a->index = D_EXTERN;
 			a->type = D_ADDR;
 			a->width = widthptr;
-			a->sym = funcsym(a->sym);
+			s = funcsym(s);			
 			break;
 		}
+		a->sym = linksym(s);
 		break;
 
 	case OLITERAL:
@@ -1223,7 +1259,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 			break;
 		case CTINT:
 		case CTRUNE:
-			a->sym = S;
+			a->sym = nil;
 			a->type = D_CONST;
 			a->offset = mpgetfix(n->val.u.xval);
 			break;
@@ -1231,12 +1267,12 @@ naddr(Node *n, Addr *a, int canemitcode)
 			datagostring(n->val.u.sval, a);
 			break;
 		case CTBOOL:
-			a->sym = S;
+			a->sym = nil;
 			a->type = D_CONST;
 			a->offset = n->val.u.bval;
 			break;
 		case CTNIL:
-			a->sym = S;
+			a->sym = nil;
 			a->type = D_CONST;
 			a->offset = 0;
 			break;
@@ -1273,7 +1309,7 @@ naddr(Node *n, Addr *a, int canemitcode)
 		naddr(n->left, a, canemitcode);
 		if(a->type == D_CONST && a->offset == 0)
 			break;	// ptr(nil)
-		a->etype = simtype[TUINTPTR];
+		a->etype = simtype[tptr];
 		a->offset += Array_array;
 		a->width = widthptr;
 		break;
@@ -1506,12 +1542,14 @@ optoas(int op, Type *t)
 	case CASE(OADD, TINT32):
 	case CASE(OADD, TUINT32):
 	case CASE(OADD, TPTR32):
+	case CASE(OADDPTR, TPTR32):
 		a = AADDL;
 		break;
 
 	case CASE(OADD, TINT64):
 	case CASE(OADD, TUINT64):
 	case CASE(OADD, TPTR64):
+	case CASE(OADDPTR, TPTR64):
 		a = AADDQ;
 		break;
 
@@ -2042,7 +2080,7 @@ odot:
 	for(i=1; i<o; i++) {
 		if(oary[i] >= 0)
 			fatal("can't happen");
-		gins(AMOVQ, &n1, reg);
+		gins(movptr, &n1, reg);
 		cgen_checknil(reg);
 		n1.xoffset = -(oary[i]+1);
 	}
@@ -2254,7 +2292,7 @@ oindex_const_sudo:
 	if(reg->op == OEMPTY)
 		regalloc(reg, types[tptr], N);
 
-	p1 = gins(AMOVQ, N, reg);
+	p1 = gins(movptr, N, reg);
 	p1->from = *a;
 
 	n2 = *reg;

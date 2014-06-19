@@ -43,12 +43,15 @@ func TestCflags(t *testing.T)              { testCflags(t) }
 func Test5337(t *testing.T)                { test5337(t) }
 func Test5548(t *testing.T)                { test5548(t) }
 func Test5603(t *testing.T)                { test5603(t) }
+func Test6833(t *testing.T)                { test6833(t) }
 func Test3250(t *testing.T)                { test3250(t) }
 func TestCallbackStack(t *testing.T)       { testCallbackStack(t) }
 func TestFpVar(t *testing.T)               { testFpVar(t) }
 func Test4339(t *testing.T)                { test4339(t) }
 func Test6390(t *testing.T)                { test6390(t) }
 func Test5986(t *testing.T)                { test5986(t) }
+func Test7665(t *testing.T)                { test7665(t) }
 func TestNaming(t *testing.T)              { testNaming(t) }
+func Test7560(t *testing.T)                { test7560(t) }
 
 func BenchmarkCgoCall(b *testing.B) { benchCgoCall(b) }

@@ -27,19 +27,19 @@
 
 static vlong abbrevo;
 static vlong abbrevsize;
-static Sym*  abbrevsym;
+static LSym*  abbrevsym;
 static vlong abbrevsympos;
 static vlong lineo;
 static vlong linesize;
-static Sym*  linesym;
+static LSym*  linesym;
 static vlong linesympos;
 static vlong infoo;	// also the base for DWDie->offs and reference attributes.
 static vlong infosize;
-static Sym*  infosym;
+static LSym*  infosym;
 static vlong infosympos;
 static vlong frameo;
 static vlong framesize;
-static Sym*  framesym;
+static LSym*  framesym;
 static vlong framesympos;
 static vlong pubnameso;
 static vlong pubnamessize;
@@ -50,19 +50,19 @@ static vlong arangessize;
 static vlong gdbscripto;
 static vlong gdbscriptsize;
 
-static Sym *infosec;
+static LSym *infosec;
 static vlong inforeloco;
 static vlong inforelocsize;
 
-static Sym *arangessec;
+static LSym *arangessec;
 static vlong arangesreloco;
 static vlong arangesrelocsize;
 
-static Sym *linesec;
+static LSym *linesec;
 static vlong linereloco;
 static vlong linerelocsize;
 
-static Sym *framesec;
+static LSym *framesec;
 static vlong framereloco;
 static vlong framerelocsize;
 
@@ -594,7 +594,7 @@ find_or_diag(DWDie *die, char* name)
 }
 
 static void
-adddwarfrel(Sym* sec, Sym* sym, vlong offsetbase, int siz, vlong addend)
+adddwarfrel(LSym* sec, LSym* sym, vlong offsetbase, int siz, vlong addend)
 {
 	Reloc *r;
 
@@ -603,7 +603,7 @@ adddwarfrel(Sym* sec, Sym* sym, vlong offsetbase, int siz, vlong addend)
 	r->xsym = sym;
 	r->off = cpos() - offsetbase;
 	r->siz = siz;
-	r->type = D_ADDR;
+	r->type = R_ADDR;
 	r->add = addend;
 	r->xadd = addend;
 	if(iself && thechar == '6')
@@ -639,8 +639,8 @@ putattr(int abbrev, int form, int cls, vlong value, char *data)
 	switch(form) {
 	case DW_FORM_addr:	// address
 		if(linkmode == LinkExternal) {
-			value -= ((Sym*)data)->value;
-			adddwarfrel(infosec, (Sym*)data, infoo, PtrSize, value);
+			value -= ((LSym*)data)->value;
+			adddwarfrel(infosec, (LSym*)data, infoo, PtrSize, value);
 			break;
 		}
 		addrput(value);
@@ -651,8 +651,8 @@ putattr(int abbrev, int form, int cls, vlong value, char *data)
 			cput(1+PtrSize);
 			cput(DW_OP_addr);
 			if(linkmode == LinkExternal) {
-				value -= ((Sym*)data)->value;
-				adddwarfrel(infosec, (Sym*)data, infoo, PtrSize, value);
+				value -= ((LSym*)data)->value;
+				adddwarfrel(infosec, (LSym*)data, infoo, PtrSize, value);
 				break;
 			}
 			addrput(value);
@@ -847,7 +847,7 @@ newmemberoffsetattr(DWDie *die, int32 offs)
 // GDB doesn't like DW_FORM_addr for DW_AT_location, so emit a
 // location expression that evals to a const.
 static void
-newabslocexprattr(DWDie *die, vlong addr, Sym *sym)
+newabslocexprattr(DWDie *die, vlong addr, LSym *sym)
 {
 	newattr(die, DW_AT_location, DW_CLS_ADDRESS, addr, (char*)sym);
 }
@@ -864,12 +864,12 @@ enum {
 static DWDie* defptrto(DWDie *dwtype);	// below
 
 // Lookup predefined types
-static Sym*
+static LSym*
 lookup_or_diag(char *n)
 {
-	Sym *s;
+	LSym *s;
 
-	s = rlookup(n, 0);
+	s = linkrlookup(ctxt, n, 0);
 	if (s == nil || s->size == 0) {
 		diag("dwarf: missing type: %s", n);
 		errorexit();
@@ -904,10 +904,10 @@ dotypedef(DWDie *parent, char *name, DWDie *def)
 
 // Define gotype, for composite ones recurse into constituents.
 static DWDie*
-defgotype(Sym *gotype)
+defgotype(LSym *gotype)
 {
 	DWDie *die, *fld;
-	Sym *s;
+	LSym *s;
 	char *name, *f;
 	uint8 kind;
 	vlong bytesize;
@@ -1099,20 +1099,28 @@ defptrto(DWDie *dwtype)
 }
 
 // Copies src's children into dst. Copies attributes by value.
-// DWAttr.data is copied as pointer only.
+// DWAttr.data is copied as pointer only.  If except is one of
+// the top-level children, it will not be copied.
 static void
-copychildren(DWDie *dst, DWDie *src)
+copychildrenexcept(DWDie *dst, DWDie *src, DWDie *except)
 {
 	DWDie *c;
 	DWAttr *a;
 
 	for (src = src->child; src != nil; src = src->link) {
+		if(src == except)
+			continue;
 		c = newdie(dst, src->abbrev, getattr(src, DW_AT_name)->data);
 		for (a = src->attr; a != nil; a = a->link)
 			newattr(c, a->atr, a->cls, a->value, a->data);
-		copychildren(c, src);
+		copychildrenexcept(c, src, nil);
 	}
 	reverselist(&dst->child);
+}
+static void
+copychildren(DWDie *dst, DWDie *src)
+{
+	copychildrenexcept(dst, src, nil);
 }
 
 // Search children (assumed to have DW_TAG_member) for the one named
@@ -1253,7 +1261,10 @@ synthesizemaptypes(DWDie *die)
 			      mkinternaltypename("bucket",
 						 getattr(keytype, DW_AT_name)->data,
 						 getattr(valtype, DW_AT_name)->data));
-		copychildren(dwhb, bucket);
+		// Copy over all fields except the field "data" from the generic bucket.
+		// "data" will be replaced with keys/values below.
+		copychildrenexcept(dwhb, bucket, find(bucket, "data"));
+		
 		fld = newdie(dwhb, DW_ABRV_STRUCTFIELD, "keys");
 		newrefattr(fld, DW_AT_type, dwhk);
 		newmemberoffsetattr(fld, BucketSize + PtrSize);
@@ -1335,7 +1346,7 @@ synthesizechantypes(DWDie *die)
 
 // For use with pass.c::genasmsym
 static void
-defdwsymb(Sym* sym, char *s, int t, vlong v, vlong size, int ver, Sym *gotype)
+defdwsymb(LSym* sym, char *s, int t, vlong v, vlong size, int ver, LSym *gotype)
 {
 	DWDie *dv, *dt;
 
@@ -1371,284 +1382,37 @@ defdwsymb(Sym* sym, char *s, int t, vlong v, vlong size, int ver, Sym *gotype)
 		newrefattr(dv, DW_AT_type, dt);
 }
 
-// TODO(lvd) For now, just append them all to the first compilation
-// unit (that should be main), in the future distribute them to the
-// appropriate compilation units.
 static void
 movetomodule(DWDie *parent)
 {
 	DWDie *die;
 
-	for (die = dwroot.child->child; die->link != nil; die = die->link) /* nix */;
+	die = dwroot.child->child;
+	while(die->link != nil)
+		die = die->link;
 	die->link = parent->child;
 }
 
-/*
- * Filename fragments for the line history stack.
- */
-
-static char **ftab;
-static int ftabsize;
-
-void
-dwarfaddfrag(int n, char *frag)
-{
-	int s;
-
-	if (n >= ftabsize) {
-		s = ftabsize;
-		ftabsize = 1 + n + (n >> 2);
-		ftab = erealloc(ftab, ftabsize * sizeof(ftab[0]));
-		memset(ftab + s, 0, (ftabsize - s) * sizeof(ftab[0]));
-	}
-
-	if (*frag == '<')
-		frag++;
-	ftab[n] = frag;
-}
-
-// Returns a malloc'ed string, piecewise copied from the ftab.
-static char *
-decodez(char *s)
-{
-	int len, o;
-	char *ss, *f;
-	char *r, *rb, *re;
-
-	len = 0;
-	ss = s + 1;	// first is 0
-	while((o = ((uint8)ss[0] << 8) | (uint8)ss[1]) != 0) {
-		if (o < 0 || o >= ftabsize) {
-			diag("dwarf: corrupt z entry");
-			return 0;
-		}
-		f = ftab[o];
-		if (f == nil) {
-			diag("dwarf: corrupt z entry");
-			return 0;
-		}
-		len += strlen(f) + 1;	// for the '/'
-		ss += 2;
-	}
-
-	if (len == 0)
-		return 0;
-
-	r = malloc(len + 1);
-	if(r == nil) {
-		diag("out of memory");
-		errorexit();
-	}
-	rb = r;
-	re = rb + len + 1;
-
-	s++;
-	while((o = ((uint8)s[0] << 8) | (uint8)s[1]) != 0) {
-		f = ftab[o];
-		if (rb == r || rb[-1] == '/')
-			rb = seprint(rb, re, "%s", f);
-		else
-			rb = seprint(rb, re, "/%s", f);
-		s += 2;
-	}
-	return r;
-}
-
-/*
- * The line history itself
- */
-
-static char **histfile;	   // [0] holds "<eof>", DW_LNS_set_file arguments must be > 0.
-static int  histfilesize;
-static int  histfilecap;
-
+// If the pcln table contains runtime/string.goc, use that to set gdbscript path.
 static void
-clearhistfile(void)
+finddebugruntimepath(LSym *s)
 {
 	int i;
+	char *p;
+	LSym *f;
+	
+	if(gdbscript[0] != '\0')
+		return;
 
-	// [0] holds "<eof>"
-	for (i = 1; i < histfilesize; i++)
-		free(histfile[i]);
-	histfilesize = 0;
-}
-
-static int
-addhistfile(char *zentry)
-{
-	char *fname;
-
-	if (histfilesize == histfilecap) {
-		histfilecap = 2 * histfilecap + 2;
-		histfile = erealloc(histfile, histfilecap * sizeof(char*));
-	}
-	if (histfilesize == 0)
-		histfile[histfilesize++] = "<eof>";
-
-	fname = decodez(zentry);
-//	print("addhistfile %d: %s\n", histfilesize, fname);
-	if (fname == 0)
-		return -1;
-
-	// Don't fill with duplicates (check only top one).
-	if (strcmp(fname, histfile[histfilesize-1]) == 0) {
-		free(fname);
-		return histfilesize - 1;
-	}
-
-	histfile[histfilesize++] = fname;
-	return histfilesize - 1;
-}
-
-// if the histfile stack contains ..../runtime/runtime_defs.go
-// use that to set gdbscript
-static void
-finddebugruntimepath(void)
-{
-	int i, l;
-	char *c;
-
-	for (i = 1; i < histfilesize; i++) {
-		if ((c = strstr(histfile[i], "runtime/zruntime_defs")) != nil) {
-			l = c - histfile[i];
-			memmove(gdbscript, histfile[i], l);
-			memmove(gdbscript + l, "runtime/runtime-gdb.py", strlen("runtime/runtime-gdb.py") + 1);
+	for(i=0; i<s->pcln->nfile; i++) {
+		f = s->pcln->file[i];
+		if((p = strstr(f->name, "runtime/string.goc")) != nil) {
+			*p = '\0';
+			snprint(gdbscript, sizeof gdbscript, "%sruntime/runtime-gdb.py", f->name);
+			*p = 'r';
 			break;
 		}
 	}
-}
-
-// Go's runtime C sources are sane, and Go sources nest only 1 level,
-// so a handful would be plenty, if it weren't for the fact that line
-// directives can push an unlimited number of them.
-static struct {
-	int file;
-	vlong line;
-} *includestack;
-static int includestacksize;
-static int includetop;
-static vlong absline;
-
-typedef struct Linehist Linehist;
-struct Linehist {
-	Linehist *link;
-	vlong absline;
-	vlong line;
-	int file;
-};
-
-static Linehist *linehist;
-
-static void
-checknesting(void)
-{
-	if (includetop < 0) {
-		diag("dwarf: corrupt z stack");
-		errorexit();
-	}
-	if (includetop >= includestacksize) {
-		includestacksize += 1;
-		includestacksize <<= 2;
-//		print("checknesting: growing to %d\n", includestacksize);
-		includestack = erealloc(includestack, includestacksize * sizeof *includestack);	       
-	}
-}
-
-/*
- * Return false if the a->link chain contains no history, otherwise
- * returns true and finds z and Z entries in the Auto list (of a
- * Prog), and resets the history stack
- */
-static int
-inithist(Auto *a)
-{
-	Linehist *lh;
-
-	for (; a; a = a->link)
-		if (a->type == D_FILE)
-			break;
-	if (a==nil)
-		return 0;
-
-	// We have a new history.  They are guaranteed to come completely
-	// at the beginning of the compilation unit.
-	if (a->aoffset != 1) {
-		diag("dwarf: stray 'z' with offset %d", a->aoffset);
-		return 0;
-	}
-
-	// Clear the history.
-	clearhistfile();
-	includetop = 0;
-	checknesting();
-	includestack[includetop].file = 0;
-	includestack[includetop].line = -1;
-	absline = 0;
-	while (linehist != nil) {
-		lh = linehist->link;
-		free(linehist);
-		linehist = lh;
-	}
-
-	// Construct the new one.
-	for (; a; a = a->link) {
-		if (a->type == D_FILE) {  // 'z'
-			int f = addhistfile(a->asym->name);
-			if (f < 0) {	// pop file
-				includetop--;
-				checknesting();
-			} else {	// pushed a file (potentially same)
-				includestack[includetop].line += a->aoffset - absline;
-				includetop++;
-				checknesting();
-				includestack[includetop].file = f;
-				includestack[includetop].line = 1;
-			}
-			absline = a->aoffset;
-		} else if (a->type == D_FILE1) {  // 'Z'
-			// We could just fixup the current
-			// linehist->line, but there doesn't appear to
-			// be a guarantee that every 'Z' is preceded
-			// by its own 'z', so do the safe thing and
-			// update the stack and push a new Linehist
-			// entry
-			includestack[includetop].line =	 a->aoffset;
-		} else
-			continue;
-		if (linehist == 0 || linehist->absline != absline) {
-			Linehist* lh = malloc(sizeof *lh);
-			if(lh == nil) {
-				diag("out of memory");
-				errorexit();
-			}
-			lh->link = linehist;
-			lh->absline = absline;
-			linehist = lh;
-		}
-		linehist->file = includestack[includetop].file;
-		linehist->line = includestack[includetop].line;
-	}
-	return 1;
-}
-
-static Linehist *
-searchhist(vlong absline)
-{
-	Linehist *lh;
-
-	for (lh = linehist; lh; lh = lh->link)
-		if (lh->absline <= absline)
-			break;
-	return lh;
-}
-
-static int
-guesslang(char *s)
-{
-	if(strlen(s) >= 3 && strcmp(s+strlen(s)-3, ".go") == 0)
-		return DW_LANG_Go;
-
-	return DW_LANG_C;
 }
 
 /*
@@ -1659,7 +1423,7 @@ guesslang(char *s)
 enum {
 	LINE_BASE = -1,
 	LINE_RANGE = 4,
-	OPCODE_BASE = 5
+	OPCODE_BASE = 10
 };
 
 static void
@@ -1719,7 +1483,7 @@ mkvarname(char* name, int da)
 
 // flush previous compilation unit.
 static void
-flushunit(DWDie *dwinfo, vlong pc, Sym *pcsym, vlong unitstart, int32 header_length)
+flushunit(DWDie *dwinfo, vlong pc, LSym *pcsym, vlong unitstart, int32 header_length)
 {
 	vlong here;
 
@@ -1744,147 +1508,129 @@ flushunit(DWDie *dwinfo, vlong pc, Sym *pcsym, vlong unitstart, int32 header_len
 static void
 writelines(void)
 {
-	Prog *q;
-	Sym *s, *epcs;
+	LSym *s, *epcs;
 	Auto *a;
 	vlong unitstart, headerend, offs;
-	vlong pc, epc, lc, llc, lline;
-	int currfile;
-	int i, lang, da, dt;
-	Linehist *lh;
+	vlong pc, epc;
+	int i, lang, da, dt, line, file;
 	DWDie *dwinfo, *dwfunc, *dwvar, **dws;
 	DWDie *varhash[HASHSIZE];
 	char *n, *nn;
+	Pciter pcfile, pcline;
+	LSym **files, *f;
 
 	if(linesec == S)
-		linesec = lookup(".dwarfline", 0);
+		linesec = linklookup(ctxt, ".dwarfline", 0);
 	linesec->nr = 0;
 
 	unitstart = -1;
 	headerend = -1;
-	pc = 0;
 	epc = 0;
 	epcs = S;
-	lc = 1;
-	llc = 1;
-	currfile = -1;
 	lineo = cpos();
 	dwinfo = nil;
+	
+	flushunit(dwinfo, epc, epcs, unitstart, headerend - unitstart - 10);
+	unitstart = cpos();
+	
+	lang = DW_LANG_Go;
+	
+	s = ctxt->textp;
 
-	for(cursym = textp; cursym != nil; cursym = cursym->next) {
-		s = cursym;
-		if(s->text == P)
-			continue;
+	dwinfo = newdie(&dwroot, DW_ABRV_COMPUNIT, estrdup("go"));
+	newattr(dwinfo, DW_AT_language, DW_CLS_CONSTANT,lang, 0);
+	newattr(dwinfo, DW_AT_stmt_list, DW_CLS_PTR, unitstart - lineo, 0);
+	newattr(dwinfo, DW_AT_low_pc, DW_CLS_ADDRESS, s->value, (char*)s);
 
-		// Look for history stack.  If we find one,
-		// we're entering a new compilation unit
+	// Write .debug_line Line Number Program Header (sec 6.2.4)
+	// Fields marked with (*) must be changed for 64-bit dwarf
+	LPUT(0);   // unit_length (*), will be filled in by flushunit.
+	WPUT(2);   // dwarf version (appendix F)
+	LPUT(0);   // header_length (*), filled in by flushunit.
+	// cpos == unitstart + 4 + 2 + 4
+	cput(1);   // minimum_instruction_length
+	cput(1);   // default_is_stmt
+	cput(LINE_BASE);     // line_base
+	cput(LINE_RANGE);    // line_range
+	cput(OPCODE_BASE);   // opcode_base
+	cput(0);   // standard_opcode_lengths[1]
+	cput(1);   // standard_opcode_lengths[2]
+	cput(1);   // standard_opcode_lengths[3]
+	cput(1);   // standard_opcode_lengths[4]
+	cput(1);   // standard_opcode_lengths[5]
+	cput(0);   // standard_opcode_lengths[6]
+	cput(0);   // standard_opcode_lengths[7]
+	cput(0);   // standard_opcode_lengths[8]
+	cput(1);   // standard_opcode_lengths[9]
+	cput(0);   // include_directories  (empty)
 
-		if (inithist(s->autom)) {
-			flushunit(dwinfo, epc, epcs, unitstart, headerend - unitstart - 10);
-			unitstart = cpos();
+	files = emallocz(ctxt->nhistfile*sizeof files[0]);
+	for(f = ctxt->filesyms; f != nil; f = f->next)
+		files[f->value-1] = f;
 
-			if(debug['v'] > 1) {
-				print("dwarf writelines found %s\n", histfile[1]);
-				Linehist* lh;
-				for (lh = linehist; lh; lh = lh->link)
-					print("\t%8lld: [%4lld]%s\n",
-					      lh->absline, lh->line, histfile[lh->file]);
-			}
+	for(i=0; i<ctxt->nhistfile; i++) {
+		strnput(files[i]->name, strlen(files[i]->name) + 4);
+		// 4 zeros: the string termination + 3 fields.
+	}
 
-			lang = guesslang(histfile[1]);
-			finddebugruntimepath();
+	cput(0);   // terminate file_names.
+	headerend = cpos();
 
-			dwinfo = newdie(&dwroot, DW_ABRV_COMPUNIT, estrdup(histfile[1]));
-			newattr(dwinfo, DW_AT_language, DW_CLS_CONSTANT,lang, 0);
-			newattr(dwinfo, DW_AT_stmt_list, DW_CLS_PTR, unitstart - lineo, 0);
-			newattr(dwinfo, DW_AT_low_pc, DW_CLS_ADDRESS, s->text->pc, (char*)s);
+	cput(0);  // start extended opcode
+	uleb128put(1 + PtrSize);
+	cput(DW_LNE_set_address);
 
-			// Write .debug_line Line Number Program Header (sec 6.2.4)
-			// Fields marked with (*) must be changed for 64-bit dwarf
-			LPUT(0);   // unit_length (*), will be filled in by flushunit.
-			WPUT(2);   // dwarf version (appendix F)
-			LPUT(0);   // header_length (*), filled in by flushunit.
-			// cpos == unitstart + 4 + 2 + 4
-			cput(1);   // minimum_instruction_length
-			cput(1);   // default_is_stmt
-			cput(LINE_BASE);     // line_base
-			cput(LINE_RANGE);    // line_range
-			cput(OPCODE_BASE);   // opcode_base (we only use 1..4)
-			cput(0);   // standard_opcode_lengths[1]
-			cput(1);   // standard_opcode_lengths[2]
-			cput(1);   // standard_opcode_lengths[3]
-			cput(1);   // standard_opcode_lengths[4]
-			cput(0);   // include_directories  (empty)
+	pc = s->value;
+	line = 1;
+	file = 1;
+	if(linkmode == LinkExternal)
+		adddwarfrel(linesec, s, lineo, PtrSize, 0);
+	else
+		addrput(pc);
 
-			for (i=1; i < histfilesize; i++) {
-				strnput(histfile[i], strlen(histfile[i]) + 4);
-				// 4 zeros: the string termination + 3 fields.
-			}
-
-			cput(0);   // terminate file_names.
-			headerend = cpos();
-
-			pc = s->text->pc;
-			epc = pc;
-			epcs = s;
-			currfile = 1;
-			lc = 1;
-			llc = 1;
-
-			cput(0);  // start extended opcode
-			uleb128put(1 + PtrSize);
-			cput(DW_LNE_set_address);
-
-			if(linkmode == LinkExternal)
-				adddwarfrel(linesec, s, lineo, PtrSize, 0);
-			else
-				addrput(pc);
-		}
-		if(s->text == nil)
-			continue;
-
-		if (unitstart < 0) {
-			diag("dwarf: reachable code before seeing any history: %P", s->text);
-			continue;
-		}
+	for(ctxt->cursym = ctxt->textp; ctxt->cursym != nil; ctxt->cursym = ctxt->cursym->next) {
+		s = ctxt->cursym;
 
 		dwfunc = newdie(dwinfo, DW_ABRV_FUNCTION, s->name);
 		newattr(dwfunc, DW_AT_low_pc, DW_CLS_ADDRESS, s->value, (char*)s);
 		epc = s->value + s->size;
+		epcs = s;
 		newattr(dwfunc, DW_AT_high_pc, DW_CLS_ADDRESS, epc, (char*)s);
 		if (s->version == 0)
 			newattr(dwfunc, DW_AT_external, DW_CLS_FLAG, 1, 0);
 
-		if(s->text->link == nil)
+		if(s->pcln == nil)
 			continue;
 
-		for(q = s->text; q != P; q = q->link) {
-			lh = searchhist(q->line);
-			if (lh == nil) {
-				diag("dwarf: corrupt history or bad absolute line: %P", q);
+		finddebugruntimepath(s);
+
+		pciterinit(ctxt, &pcfile, &s->pcln->pcfile);
+		pciterinit(ctxt, &pcline, &s->pcln->pcline);
+		epc = pc;
+		while(!pcfile.done && !pcline.done) {
+			if(epc - s->value >= pcfile.nextpc) {
+				pciternext(&pcfile);
+				continue;
+			}
+			if(epc - s->value >= pcline.nextpc) {
+				pciternext(&pcline);
 				continue;
 			}
 
-			if (lh->file < 1) {  // 0 is the past-EOF entry.
-				// diag("instruction with line number past EOF in %s: %P", histfile[1], q);
-				continue;
-			}
-
-			lline = lh->line + q->line - lh->absline;
-			if (debug['v'] > 1)
-				print("%6llux %s[%lld] %P\n", (vlong)q->pc, histfile[lh->file], lline, q);
-
-			if (q->line == lc)
-				continue;
-			if (currfile != lh->file) {
-				currfile = lh->file;
+			if(file != pcfile.value) {
 				cput(DW_LNS_set_file);
-				uleb128put(currfile);
+				uleb128put(pcfile.value);
+				file = pcfile.value;
 			}
-			putpclcdelta(q->pc - pc, lline - llc);
-			pc  = q->pc;
-			lc  = q->line;
-			llc = lline;
+			putpclcdelta(s->value + pcline.pc - pc, pcline.value - line);
+
+			pc = s->value + pcline.pc;
+			line = pcline.value;
+			if(pcfile.nextpc < pcline.nextpc)
+				epc = pcfile.nextpc;
+			else
+				epc = pcline.nextpc;
+			epc += s->value;
 		}
 
 		da = 0;
@@ -1892,11 +1638,11 @@ writelines(void)
 		memset(varhash, 0, sizeof varhash);
 		for(a = s->autom; a; a = a->link) {
 			switch (a->type) {
-			case D_AUTO:
+			case A_AUTO:
 				dt = DW_ABRV_AUTO;
 				offs = a->aoffset - PtrSize;
 				break;
-			case D_PARAM:
+			case A_PARAM:
 				dt = DW_ABRV_PARAM;
 				offs = a->aoffset;
 				break;
@@ -1970,12 +1716,12 @@ putpccfadelta(vlong deltapc, vlong cfa)
 static void
 writeframes(void)
 {
-	Prog *p, *q;
-	Sym *s;
-	vlong fdeo, fdesize, pad, cfa, pc;
+	LSym *s;
+	vlong fdeo, fdesize, pad;
+	Pciter pcsp;
 
 	if(framesec == S)
-		framesec = lookup(".dwarfframe", 0);
+		framesec = linklookup(ctxt, ".dwarfframe", 0);
 	framesec->nr = 0;
 	frameo = cpos();
 
@@ -2003,9 +1749,9 @@ writeframes(void)
 	}
 	strnput("", pad);
 
-	for(cursym = textp; cursym != nil; cursym = cursym->next) {
-		s = cursym;
-		if(s->text == nil)
+	for(ctxt->cursym = ctxt->textp; ctxt->cursym != nil; ctxt->cursym = ctxt->cursym->next) {
+		s = ctxt->cursym;
+		if(s->pcln == nil)
 			continue;
 
 		fdeo = cpos();
@@ -2015,17 +1761,8 @@ writeframes(void)
 		addrput(0);	// initial location
 		addrput(0);	// address range
 
-		cfa = PtrSize;	// CFA starts at sp+PtrSize
-		p = s->text;
-		pc = p->pc;
-
-		for(q = p; q->link != P; q = q->link) {
-			if (q->spadj == 0)
-				continue;
-			cfa += q->spadj;
-			putpccfadelta(q->link->pc - pc, cfa);
-			pc = q->link->pc;
-		}
+		for(pciterinit(ctxt, &pcsp, &s->pcln->pcsp); !pcsp.done; pciternext(&pcsp))
+			putpccfadelta(pcsp.nextpc - pcsp.pc, PtrSize + pcsp.value);
 
 		fdesize = cpos() - fdeo - 4;	// exclude the length field.
 		pad = rnd(fdesize, PtrSize) - fdesize;
@@ -2041,7 +1778,7 @@ writeframes(void)
 		}
 		else {
 			LPUT(0);
-			addrput(p->pc);
+			addrput(s->value);
 		}
 		addrput(s->size);
 		cseek(fdeo + 4 + fdesize);
@@ -2067,11 +1804,11 @@ writeinfo(void)
 
 	fwdcount = 0;
 	if (infosec == S)
-		infosec = lookup(".dwarfinfo", 0);
+		infosec = linklookup(ctxt, ".dwarfinfo", 0);
 	infosec->nr = 0;
 
 	if(arangessec == S)
-		arangessec = lookup(".dwarfaranges", 0);
+		arangessec = linklookup(ctxt, ".dwarfaranges", 0);
 	arangessec->nr = 0;
 
 	for (compunit = dwroot.child; compunit; compunit = compunit->link) {
@@ -2204,7 +1941,7 @@ writearanges(void)
 		strnput("", headersize - (4+2+4+1+1));	// align to PtrSize
 
 		if(linkmode == LinkExternal)
-			adddwarfrel(arangessec, (Sym*)b->data, sectionstart, PtrSize, b->value-((Sym*)b->data)->value);
+			adddwarfrel(arangessec, (LSym*)b->data, sectionstart, PtrSize, b->value-((LSym*)b->data)->value);
 		else
 			addrput(b->value);
 
@@ -2239,7 +1976,7 @@ align(vlong size)
 }
 
 static vlong
-writedwarfreloc(Sym* s)
+writedwarfreloc(LSym* s)
 {
 	int i;
 	vlong start;
@@ -2408,7 +2145,7 @@ enum
 vlong elfstrdbg[NElfStrDbg];
 
 void
-dwarfaddshstrings(Sym *shstrtab)
+dwarfaddshstrings(LSym *shstrtab)
 {
 	if(debug['w'])  // disable dwarf
 		return;
@@ -2438,16 +2175,16 @@ dwarfaddshstrings(Sym *shstrtab)
 			elfstrdbg[ElfStrRelDebugFrame] = addstring(shstrtab, ".rel.debug_frame");
 		}
 
-		infosym = lookup(".debug_info", 0);
+		infosym = linklookup(ctxt, ".debug_info", 0);
 		infosym->hide = 1;
 
-		abbrevsym = lookup(".debug_abbrev", 0);
+		abbrevsym = linklookup(ctxt, ".debug_abbrev", 0);
 		abbrevsym->hide = 1;
 
-		linesym = lookup(".debug_line", 0);
+		linesym = linklookup(ctxt, ".debug_line", 0);
 		linesym->hide = 1;
 
-		framesym = lookup(".debug_frame", 0);
+		framesym = linklookup(ctxt, ".debug_frame", 0);
 		framesym->hide = 1;
 	}
 }
@@ -2616,31 +2353,37 @@ dwarfaddmachoheaders(void)
 	ms = newMachoSeg("__DWARF", nsect);
 	ms->fileoffset = fakestart;
 	ms->filesize = abbrevo-fakestart;
+	ms->vaddr = ms->fileoffset + segdata.vaddr - segdata.fileoff;
 
 	msect = newMachoSect(ms, "__debug_abbrev", "__DWARF");
 	msect->off = abbrevo;
 	msect->size = abbrevsize;
+	msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 	ms->filesize += msect->size;
 
 	msect = newMachoSect(ms, "__debug_line", "__DWARF");
 	msect->off = lineo;
 	msect->size = linesize;
+	msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 	ms->filesize += msect->size;
 
 	msect = newMachoSect(ms, "__debug_frame", "__DWARF");
 	msect->off = frameo;
 	msect->size = framesize;
+	msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 	ms->filesize += msect->size;
 
 	msect = newMachoSect(ms, "__debug_info", "__DWARF");
 	msect->off = infoo;
 	msect->size = infosize;
+	msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 	ms->filesize += msect->size;
 
 	if (pubnamessize > 0) {
 		msect = newMachoSect(ms, "__debug_pubnames", "__DWARF");
 		msect->off = pubnameso;
 		msect->size = pubnamessize;
+		msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 		ms->filesize += msect->size;
 	}
 
@@ -2648,6 +2391,7 @@ dwarfaddmachoheaders(void)
 		msect = newMachoSect(ms, "__debug_pubtypes", "__DWARF");
 		msect->off = pubtypeso;
 		msect->size = pubtypessize;
+		msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 		ms->filesize += msect->size;
 	}
 
@@ -2655,6 +2399,7 @@ dwarfaddmachoheaders(void)
 		msect = newMachoSect(ms, "__debug_aranges", "__DWARF");
 		msect->off = arangeso;
 		msect->size = arangessize;
+		msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 		ms->filesize += msect->size;
 	}
 
@@ -2663,6 +2408,7 @@ dwarfaddmachoheaders(void)
 		msect = newMachoSect(ms, "__debug_gdb_scripts", "__DWARF");
 		msect->off = gdbscripto;
 		msect->size = gdbscriptsize;
+		msect->addr = msect->off + segdata.vaddr - segdata.fileoff;
 		ms->filesize += msect->size;
 	}
 }

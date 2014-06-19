@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// TODO(rsc): Rewrite all nn(SP) references into name+(nn-8)(FP)
+// so that go vet can check that they are correct.
+
 package syscall
 
 import "unsafe"
@@ -132,7 +135,15 @@ func Setrlimit(resource int, rlim *Rlimit) (err error) {
 
 // Underlying system call writes to newoffset via pointer.
 // Implemented in assembly to avoid allocation.
-func Seek(fd int, offset int64, whence int) (newoffset int64, err error)
+func seek(fd int, offset int64, whence int) (newoffset int64, err Errno)
+
+func Seek(fd int, offset int64, whence int) (newoffset int64, err error) {
+	newoffset, errno := seek(fd, offset, whence)
+	if errno != 0 {
+		return 0, errno
+	}
+	return newoffset, nil
+}
 
 // Vsyscalls on amd64.
 //sysnb	Gettimeofday(tv *Timeval) (err error)
@@ -212,7 +223,7 @@ func socketpair(domain int, typ int, flags int, fd *[2]int32) (err error) {
 	return
 }
 
-func bind(s int, addr uintptr, addrlen _Socklen) (err error) {
+func bind(s int, addr unsafe.Pointer, addrlen _Socklen) (err error) {
 	_, e := socketcall(_BIND, uintptr(s), uintptr(addr), uintptr(addrlen), 0, 0, 0)
 	if e != 0 {
 		err = e
@@ -220,7 +231,7 @@ func bind(s int, addr uintptr, addrlen _Socklen) (err error) {
 	return
 }
 
-func connect(s int, addr uintptr, addrlen _Socklen) (err error) {
+func connect(s int, addr unsafe.Pointer, addrlen _Socklen) (err error) {
 	_, e := socketcall(_CONNECT, uintptr(s), uintptr(addr), uintptr(addrlen), 0, 0, 0)
 	if e != 0 {
 		err = e
@@ -236,7 +247,7 @@ func socket(domain int, typ int, proto int) (fd int, err error) {
 	return
 }
 
-func getsockopt(s int, level int, name int, val uintptr, vallen *_Socklen) (err error) {
+func getsockopt(s int, level int, name int, val unsafe.Pointer, vallen *_Socklen) (err error) {
 	_, e := socketcall(_GETSOCKOPT, uintptr(s), uintptr(level), uintptr(name), uintptr(val), uintptr(unsafe.Pointer(vallen)), 0)
 	if e != 0 {
 		err = e
@@ -244,8 +255,8 @@ func getsockopt(s int, level int, name int, val uintptr, vallen *_Socklen) (err 
 	return
 }
 
-func setsockopt(s int, level int, name int, val uintptr, vallen uintptr) (err error) {
-	_, e := socketcall(_SETSOCKOPT, uintptr(s), uintptr(level), uintptr(name), val, vallen, 0)
+func setsockopt(s int, level int, name int, val unsafe.Pointer, vallen uintptr) (err error) {
+	_, e := socketcall(_SETSOCKOPT, uintptr(s), uintptr(level), uintptr(name), uintptr(val), vallen, 0)
 	if e != 0 {
 		err = e
 	}
@@ -264,12 +275,12 @@ func recvfrom(s int, p []byte, flags int, from *RawSockaddrAny, fromlen *_Sockle
 	return
 }
 
-func sendto(s int, p []byte, flags int, to uintptr, addrlen _Socklen) (err error) {
+func sendto(s int, p []byte, flags int, to unsafe.Pointer, addrlen _Socklen) (err error) {
 	var base uintptr
 	if len(p) > 0 {
 		base = uintptr(unsafe.Pointer(&p[0]))
 	}
-	_, e := socketcall(_SENDTO, uintptr(s), base, uintptr(len(p)), uintptr(flags), to, uintptr(addrlen))
+	_, e := socketcall(_SENDTO, uintptr(s), base, uintptr(len(p)), uintptr(flags), uintptr(to), uintptr(addrlen))
 	if e != 0 {
 		err = e
 	}
@@ -284,8 +295,8 @@ func recvmsg(s int, msg *Msghdr, flags int) (n int, err error) {
 	return
 }
 
-func sendmsg(s int, msg *Msghdr, flags int) (err error) {
-	_, e := socketcall(_SENDMSG, uintptr(s), uintptr(unsafe.Pointer(msg)), uintptr(flags), 0, 0, 0)
+func sendmsg(s int, msg *Msghdr, flags int) (n int, err error) {
+	n, e := socketcall(_SENDMSG, uintptr(s), uintptr(unsafe.Pointer(msg)), uintptr(flags), 0, 0, 0)
 	if e != 0 {
 		err = e
 	}

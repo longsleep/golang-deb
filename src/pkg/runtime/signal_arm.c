@@ -46,15 +46,12 @@ runtime·sighandler(int32 sig, Siginfo *info, void *ctxt, G *gp)
 	bool crash;
 
 	if(sig == SIGPROF) {
-		runtime·sigprof((uint8*)SIG_PC(info, ctxt), (uint8*)SIG_SP(info, ctxt), (uint8*)SIG_LR(info, ctxt), gp);
+		runtime·sigprof((uint8*)SIG_PC(info, ctxt), (uint8*)SIG_SP(info, ctxt), (uint8*)SIG_LR(info, ctxt), gp, m);
 		return;
 	}
 
 	t = &runtime·sigtab[sig];
 	if(SIG_CODE0(info, ctxt) != SI_USER && (t->flags & SigPanic)) {
-		if(gp == nil || gp == m->g0)
-			goto Throw;
-
 		// Make it look like a call to the signal func.
 		// Have to pass arguments out of band since
 		// augmenting the stack frame would break
@@ -92,7 +89,6 @@ runtime·sighandler(int32 sig, Siginfo *info, void *ctxt, G *gp)
 	if(!(t->flags & SigThrow))
 		return;
 
-Throw:
 	m->throwing = 1;
 	m->caughtsig = gp;
 	if(runtime·panicking)	// traceback already printed
@@ -112,6 +108,7 @@ Throw:
 	runtime·printf("\n");
 
 	if(runtime·gotraceback(&crash)){
+		runtime·goroutineheader(gp);
 		runtime·traceback(SIG_PC(info, ctxt), SIG_SP(info, ctxt), SIG_LR(info, ctxt), gp);
 		runtime·tracebackothers(gp);
 		runtime·printf("\n");

@@ -81,6 +81,10 @@ TEXT runtime·plan9_semrelease(SB),NOSPLIT,$0
 	
 TEXT runtime·rfork(SB),NOSPLIT,$0
 	MOVL    $19, AX // rfork
+	MOVL	stack+8(SP), CX
+	MOVL	mm+12(SP), BX	// m
+	MOVL	gg+16(SP), DX	// g
+	MOVL	fn+20(SP), SI	// fn
 	INT     $64
 
 	// In parent, return.
@@ -88,13 +92,7 @@ TEXT runtime·rfork(SB),NOSPLIT,$0
 	JEQ	2(PC)
 	RET
 
-	// In child on old stack.
-	MOVL	mm+12(SP), BX	// m
-	MOVL	gg+16(SP), DX	// g
-	MOVL	fn+20(SP), SI	// fn
-
 	// set SP to be on the new child stack
-	MOVL	stack+8(SP), CX
 	MOVL	CX, SP
 
 	// Initialize m, g.
@@ -102,8 +100,9 @@ TEXT runtime·rfork(SB),NOSPLIT,$0
 	MOVL	DX, g(AX)
 	MOVL	BX, m(AX)
 
-	// Initialize AX from TOS struct.
-	MOVL	procid(AX), AX
+	// Initialize procid from TOS struct.
+	// TODO: Be explicit and insert a new MOVL _tos(SB), AX here.
+	MOVL	48(AX), AX // procid
 	MOVL	AX, m_procid(BX)	// save pid as m->procid
 	
 	CALL	runtime·stackcheck(SB)	// smashes AX, CX

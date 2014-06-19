@@ -111,6 +111,8 @@ walkrange(Node *n)
 	Node *hb;  // hidden bool
 	Node *a, *v1, *v2;	// not hidden aggregate, val 1, 2
 	Node *fn, *tmp;
+	Node *keyname, *valname;
+	Node *key, *val;
 	NodeList *body, *init;
 	Type *th, *t;
 	int lno;
@@ -120,34 +122,23 @@ walkrange(Node *n)
 
 	a = n->right;
 	lno = setlineno(a);
-	if(t->etype == TSTRING && !eqtype(t, types[TSTRING])) {
-		a = nod(OCONV, n->right, N);
-		a->type = types[TSTRING];
-	}
 
 	v1 = n->list->n;
 	v2 = N;
-	if(n->list->next)
+	if(n->list->next && !isblank(n->list->next->n))
 		v2 = n->list->next->n;
 	// n->list has no meaning anymore, clear it
 	// to avoid erroneous processing by racewalk.
 	n->list = nil;
 	hv2 = N;
 
-	if(v2 == N && t->etype == TARRAY) {
-		// will have just one reference to argument.
-		// no need to make a potentially expensive copy.
-		ha = a;
-	} else {
-		ha = temp(a->type);
-		init = list(init, nod(OAS, ha, a));
-	}
-
 	switch(t->etype) {
 	default:
 		fatal("walkrange");
 
 	case TARRAY:
+		// orderstmt arranged for a copy of the array/slice variable if needed.
+		ha = a;
 		hv1 = temp(types[TINT]);
 		hn = temp(types[TINT]);
 		hp = nil;
@@ -162,8 +153,7 @@ walkrange(Node *n)
 		}
 
 		n->ntest = nod(OLT, hv1, hn);
-		n->nincr = nod(OASOP, hv1, nodintconst(1));
-		n->nincr->etype = OADD;
+		n->nincr = nod(OAS, hv1, nod(OADD, hv1, nodintconst(1)));
 		if(v2 == N)
 			body = list1(nod(OAS, v1, hv1));
 		else {
@@ -171,54 +161,70 @@ walkrange(Node *n)
 			a->list = list(list1(v1), v2);
 			a->rlist = list(list1(hv1), nod(OIND, hp, N));
 			body = list1(a);
-
+			
+			// Advance pointer as part of increment.
+			// We used to advance the pointer before executing the loop body,
+			// but doing so would make the pointer point past the end of the
+			// array during the final iteration, possibly causing another unrelated
+			// piece of memory not to be garbage collected until the loop finished.
+			// Advancing during the increment ensures that the pointer p only points
+			// pass the end of the array during the final "p++; i++; if(i >= len(x)) break;",
+			// after which p is dead, so it cannot confuse the collector.
 			tmp = nod(OADD, hp, nodintconst(t->type->width));
 			tmp->type = hp->type;
 			tmp->typecheck = 1;
 			tmp->right->type = types[tptr];
 			tmp->right->typecheck = 1;
-			body = list(body, nod(OAS, hp, tmp));
+			a = nod(OAS, hp, tmp);
+			typecheck(&a, Etop);
+			n->nincr->ninit = list1(a);
 		}
 		break;
 
 	case TMAP:
-		th = typ(TARRAY);
-		th->type = ptrto(types[TUINT8]);
-		// see ../../pkg/runtime/hashmap.c:/hash_iter
-		// Size of hash_iter in # of pointers.
-		th->bound = 11;
-		hit = temp(th);
+		// orderstmt allocated the iterator for us.
+		// we only use a once, so no copy needed.
+		ha = a;
+		th = hiter(t);
+		hit = n->alloc;
+		hit->type = th;
+		n->left = N;
+		keyname = newname(th->type->sym);  // depends on layout of iterator struct.  See reflect.c:hiter
+		valname = newname(th->type->down->sym); // ditto
 
 		fn = syslook("mapiterinit", 1);
 		argtype(fn, t->down);
 		argtype(fn, t->type);
 		argtype(fn, th);
 		init = list(init, mkcall1(fn, T, nil, typename(t), ha, nod(OADDR, hit, N)));
-		n->ntest = nod(ONE, nod(OINDEX, hit, nodintconst(0)), nodnil());
+		n->ntest = nod(ONE, nod(ODOT, hit, keyname), nodnil());
 
 		fn = syslook("mapiternext", 1);
 		argtype(fn, th);
 		n->nincr = mkcall1(fn, T, nil, nod(OADDR, hit, N));
 
+		key = nod(ODOT, hit, keyname);
+		key = nod(OIND, key, N);
 		if(v2 == N) {
-			fn = syslook("mapiter1", 1);
-			argtype(fn, th);
-			argtype(fn, t->down);
-			a = nod(OAS, v1, mkcall1(fn, t->down, nil, nod(OADDR, hit, N)));
+			a = nod(OAS, v1, key);
 		} else {
-			fn = syslook("mapiter2", 1);
-			argtype(fn, th);
-			argtype(fn, t->down);
-			argtype(fn, t->type);
+			val = nod(ODOT, hit, valname);
+			val = nod(OIND, val, N);
 			a = nod(OAS2, N, N);
 			a->list = list(list1(v1), v2);
-			a->rlist = list1(mkcall1(fn, getoutargx(fn->type), nil, nod(OADDR, hit, N)));
+			a->rlist = list(list1(key), val);
 		}
 		body = list1(a);
 		break;
 
 	case TCHAN:
+		// orderstmt arranged for a copy of the channel variable.
+		ha = a;
+		n->ntest = N;
+		
 		hv1 = temp(t->type);
+		if(haspointers(t->type))
+			init = list(init, nod(OAS, hv1, N));
 		hb = temp(types[TBOOL]);
 
 		n->ntest = nod(ONE, hb, nodbool(0));
@@ -231,6 +237,9 @@ walkrange(Node *n)
 		break;
 
 	case TSTRING:
+		// orderstmt arranged for a copy of the string variable.
+		ha = a;
+
 		ohv1 = temp(types[TINT]);
 
 		hv1 = temp(types[TINT]);

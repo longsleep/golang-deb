@@ -347,6 +347,119 @@ func TestRaceChanSendSelectClose(t *testing.T) {
 	<-compl
 }
 
+func TestRaceSelectReadWriteAsync(t *testing.T) {
+	done := make(chan bool)
+	x := 0
+	c1 := make(chan int, 10)
+	c2 := make(chan int, 10)
+	c3 := make(chan int)
+	c2 <- 1
+	go func() {
+		select {
+		case c1 <- x: // read of x races with...
+		case c3 <- 1:
+		}
+		done <- true
+	}()
+	select {
+	case x = <-c2: // ... write to x here
+	case c3 <- 1:
+	}
+	<-done
+}
+
+func TestRaceSelectReadWriteSync(t *testing.T) {
+	done := make(chan bool)
+	x := 0
+	c1 := make(chan int)
+	c2 := make(chan int)
+	c3 := make(chan int)
+	// make c1 and c2 ready for communication
+	go func() {
+		<-c1
+	}()
+	go func() {
+		c2 <- 1
+	}()
+	go func() {
+		select {
+		case c1 <- x: // read of x races with...
+		case c3 <- 1:
+		}
+		done <- true
+	}()
+	select {
+	case x = <-c2: // ... write to x here
+	case c3 <- 1:
+	}
+	<-done
+}
+
+func TestNoRaceSelectReadWriteAsync(t *testing.T) {
+	done := make(chan bool)
+	x := 0
+	c1 := make(chan int)
+	c2 := make(chan int)
+	go func() {
+		select {
+		case c1 <- x: // read of x does not race with...
+		case c2 <- 1:
+		}
+		done <- true
+	}()
+	select {
+	case x = <-c1: // ... write to x here
+	case c2 <- 1:
+	}
+	<-done
+}
+
+func TestRaceChanReadWriteAsync(t *testing.T) {
+	done := make(chan bool)
+	c1 := make(chan int, 10)
+	c2 := make(chan int, 10)
+	c2 <- 10
+	x := 0
+	go func() {
+		c1 <- x // read of x races with...
+		done <- true
+	}()
+	x = <-c2 // ... write to x here
+	<-done
+}
+
+func TestRaceChanReadWriteSync(t *testing.T) {
+	done := make(chan bool)
+	c1 := make(chan int)
+	c2 := make(chan int)
+	// make c1 and c2 ready for communication
+	go func() {
+		<-c1
+	}()
+	go func() {
+		c2 <- 10
+	}()
+	x := 0
+	go func() {
+		c1 <- x // read of x races with...
+		done <- true
+	}()
+	x = <-c2 // ... write to x here
+	<-done
+}
+
+func TestNoRaceChanReadWriteAsync(t *testing.T) {
+	done := make(chan bool)
+	c1 := make(chan int, 10)
+	x := 0
+	go func() {
+		c1 <- x // read of x does not race with...
+		done <- true
+	}()
+	x = <-c1 // ... write to x here
+	<-done
+}
+
 func TestNoRaceProducerConsumerUnbuffered(t *testing.T) {
 	type Task struct {
 		f    func()
@@ -454,20 +567,6 @@ func TestRaceChanCloseLen(t *testing.T) {
 	v = 2
 }
 
-func TestRaceChanSameCell(t *testing.T) {
-	c := make(chan int, 1)
-	v := 0
-	go func() {
-		v = 1
-		c <- 42
-		<-c
-	}()
-	time.Sleep(1e7)
-	c <- 43
-	<-c
-	_ = v
-}
-
 func TestRaceChanCloseSend(t *testing.T) {
 	compl := make(chan bool, 1)
 	c := make(chan int, 10)
@@ -477,4 +576,84 @@ func TestRaceChanCloseSend(t *testing.T) {
 	}()
 	c <- 0
 	<-compl
+}
+
+func TestNoRaceChanMutex(t *testing.T) {
+	done := make(chan struct{})
+	mtx := make(chan struct{}, 1)
+	data := 0
+	go func() {
+		mtx <- struct{}{}
+		data = 42
+		<-mtx
+		done <- struct{}{}
+	}()
+	mtx <- struct{}{}
+	data = 43
+	<-mtx
+	<-done
+}
+
+func TestNoRaceSelectMutex(t *testing.T) {
+	done := make(chan struct{})
+	mtx := make(chan struct{}, 1)
+	aux := make(chan bool)
+	data := 0
+	go func() {
+		select {
+		case mtx <- struct{}{}:
+		case <-aux:
+		}
+		data = 42
+		select {
+		case <-mtx:
+		case <-aux:
+		}
+		done <- struct{}{}
+	}()
+	select {
+	case mtx <- struct{}{}:
+	case <-aux:
+	}
+	data = 43
+	select {
+	case <-mtx:
+	case <-aux:
+	}
+	<-done
+}
+
+func TestRaceChanSem(t *testing.T) {
+	done := make(chan struct{})
+	mtx := make(chan bool, 2)
+	data := 0
+	go func() {
+		mtx <- true
+		data = 42
+		<-mtx
+		done <- struct{}{}
+	}()
+	mtx <- true
+	data = 43
+	<-mtx
+	<-done
+}
+
+func TestNoRaceChanWaitGroup(t *testing.T) {
+	const N = 10
+	chanWg := make(chan bool, N/2)
+	data := make([]int, N)
+	for i := 0; i < N; i++ {
+		chanWg <- true
+		go func(i int) {
+			data[i] = 42
+			<-chanWg
+		}(i)
+	}
+	for i := 0; i < cap(chanWg); i++ {
+		chanWg <- true
+	}
+	for i := 0; i < N; i++ {
+		_ = data[i]
+	}
 }

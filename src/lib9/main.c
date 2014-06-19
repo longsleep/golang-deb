@@ -1,3 +1,5 @@
+// +build !plan9
+
 /*
 Plan 9 from User Space src/lib9/main.c
 http://code.swtch.com/plan9port/src/tip/src/lib9/main.c
@@ -50,8 +52,8 @@ main(int argc, char **argv)
 	// don't display the crash dialog
 	DWORD mode = SetErrorMode(SEM_NOGPFAULTERRORBOX);
 	SetErrorMode(mode | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-	argv0 = argv[0];
 #endif
+	argv0 = argv[0];
 	p9main(argc, argv);
 	exits("main");
 	return 99;

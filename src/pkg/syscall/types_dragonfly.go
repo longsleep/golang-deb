@@ -18,6 +18,7 @@ package syscall
 #include <dirent.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <termios.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/event.h>
@@ -96,10 +97,6 @@ type Rlimit C.struct_rlimit
 type _Gid_t C.gid_t
 
 // Files
-
-const (
-	F_DUPFD_CLOEXEC = 0 // not supported
-)
 
 const ( // Directory mode bits
 	S_IFMT   = C.S_IFMT
@@ -239,3 +236,7 @@ type BpfProgram C.struct_bpf_program
 type BpfInsn C.struct_bpf_insn
 
 type BpfHdr C.struct_bpf_hdr
+
+// Terminal handling
+
+type Termios C.struct_termios

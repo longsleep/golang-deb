@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 #include "runtime.h"
+#include "stack.h"
 #include "arch_GOARCH.h"
 #include "../../cmd/ld/textflag.h"
 
@@ -10,13 +11,12 @@ enum {
 	maxround = sizeof(uintptr),
 };
 
-/*
- * We assume that all architectures turn faults and the like
- * into apparent calls to runtime.sigpanic.  If we see a "call"
- * to runtime.sigpanic, we do not back up the PC to find the
- * line number of the CALL instruction, because there is no CALL.
- */
-void	runtime·sigpanic(void);
+// Keep a cached value to make gotraceback fast,
+// since we call it on every call to gentraceback.
+// The cached value is a uint32 in which the low bit
+// is the "crash" setting and the top 31 bits are the
+// gotraceback value.
+static uint32 traceback_cache = ~(uint32)0;
 
 // The GOTRACEBACK environment variable controls the
 // behavior of a Go program that is crashing and exiting.
@@ -28,18 +28,28 @@ int32
 runtime·gotraceback(bool *crash)
 {
 	byte *p;
+	uint32 x;
 
 	if(crash != nil)
 		*crash = false;
-	p = runtime·getenv("GOTRACEBACK");
-	if(p == nil || p[0] == '\0')
-		return 1;	// default is on
-	if(runtime·strcmp(p, (byte*)"crash") == 0) {
-		if(crash != nil)
-			*crash = true;
-		return 2;	// extra information
+	if(m->traceback != 0)
+		return m->traceback;
+	x = runtime·atomicload(&traceback_cache);
+	if(x == ~(uint32)0) {
+		p = runtime·getenv("GOTRACEBACK");
+		if(p == nil)
+			p = (byte*)"";
+		if(p[0] == '\0')
+			x = 1<<1;
+		else if(runtime·strcmp(p, (byte*)"crash") == 0)
+			x = (2<<1) | 1;
+		else
+			x = runtime·atoi(p)<<1;	
+		runtime·atomicstore(&traceback_cache, x);
 	}
-	return runtime·atoi(p);
+	if(crash != nil)
+		*crash = x&1;
+	return x>>1;
 }
 
 int32
@@ -87,6 +97,7 @@ runtime·args(int32 c, uint8 **v)
 }
 
 int32 runtime·isplan9;
+int32 runtime·issolaris;
 int32 runtime·iswindows;
 
 // Information about what cpu features are available.
@@ -127,16 +138,8 @@ runtime·goenvs_unix(void)
 	syscall·envs.array = (byte*)s;
 	syscall·envs.len = n;
 	syscall·envs.cap = n;
-}
 
-void
-runtime·getgoroot(String out)
-{
-	byte *p;
-
-	p = runtime·getenv("GOROOT");
-	out = runtime·gostringnocopy(p);
-	FLUSH(&out);
+	traceback_cache = ~(uint32)0;
 }
 
 int32
@@ -273,62 +276,9 @@ runtime·check(void)
 		runtime·throw("float32nan3");
 
 	TestAtomic64();
-}
 
-void
-runtime·Caller(intgo skip, uintptr retpc, String retfile, intgo retline, bool retbool)
-{
-	Func *f, *g;
-	uintptr pc;
-	uintptr rpc[2];
-
-	/*
-	 * Ask for two PCs: the one we were asked for
-	 * and what it called, so that we can see if it
-	 * "called" sigpanic.
-	 */
-	retpc = 0;
-	if(runtime·callers(1+skip-1, rpc, 2) < 2) {
-		retfile = runtime·emptystring;
-		retline = 0;
-		retbool = false;
-	} else if((f = runtime·findfunc(rpc[1])) == nil) {
-		retfile = runtime·emptystring;
-		retline = 0;
-		retbool = true;  // have retpc at least
-	} else {
-		retpc = rpc[1];
-		pc = retpc;
-		g = runtime·findfunc(rpc[0]);
-		if(pc > f->entry && (g == nil || g->entry != (uintptr)runtime·sigpanic))
-			pc--;
-		retline = runtime·funcline(f, pc, &retfile);
-		retbool = true;
-	}
-	FLUSH(&retpc);
-	FLUSH(&retfile);
-	FLUSH(&retline);
-	FLUSH(&retbool);
-}
-
-void
-runtime·Callers(intgo skip, Slice pc, intgo retn)
-{
-	// runtime.callers uses pc.array==nil as a signal
-	// to print a stack trace.  Pick off 0-length pc here
-	// so that we don't let a nil pc slice get to it.
-	if(pc.len == 0)
-		retn = 0;
-	else
-		retn = runtime·callers(skip, (uintptr*)pc.array, pc.len);
-	FLUSH(&retn);
-}
-
-void
-runtime·FuncForPC(uintptr pc, void *retf)
-{
-	retf = runtime·findfunc(pc);
-	FLUSH(&retf);
+	if(FixedStack != runtime·round2(FixedStack))
+		runtime·throw("FixedStack is not power-of-2");
 }
 
 uint32
@@ -374,22 +324,18 @@ runtime·tickspersecond(void)
 	return res;
 }
 
-void
-runtime∕pprof·runtime_cyclesPerSecond(int64 res)
-{
-	res = runtime·tickspersecond();
-	FLUSH(&res);
-}
-
 DebugVars	runtime·debug;
 
 static struct {
 	int8*	name;
 	int32*	value;
 } dbgvar[] = {
+	{"allocfreetrace", &runtime·debug.allocfreetrace},
+	{"efence", &runtime·debug.efence},
 	{"gctrace", &runtime·debug.gctrace},
-	{"schedtrace", &runtime·debug.schedtrace},
+	{"gcdead", &runtime·debug.gcdead},
 	{"scheddetail", &runtime·debug.scheddetail},
+	{"schedtrace", &runtime·debug.schedtrace},
 };
 
 void

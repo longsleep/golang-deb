@@ -38,9 +38,11 @@ static ProgInfo progtable[ALAST] = {
 	[ATEXT]=	{Pseudo},
 	[AFUNCDATA]=	{Pseudo},
 	[APCDATA]=	{Pseudo},
-	[AUNDEF]=	{OK},
+	[AUNDEF]=	{Break},
 	[AUSEFIELD]=	{OK},
 	[ACHECKNIL]=	{LeftRead},
+	[AVARDEF]=	{Pseudo | RightWrite},
+	[AVARKILL]=	{Pseudo | RightWrite},
 
 	// NOP is an internal no-op that also stands
 	// for USED and SET annotations, not the Intel opcode.
@@ -142,6 +144,7 @@ static ProgInfo progtable[ALAST] = {
 
 	[AJMP]=		{Jump | Break | KillCarry},
 
+	[ALEAL]=	{LeftAddr | RightWrite},
 	[ALEAQ]=	{LeftAddr | RightWrite},
 
 	[AMOVBLSX]=	{SizeL | LeftRead | RightWrite | Conv},
@@ -167,6 +170,7 @@ static ProgInfo progtable[ALAST] = {
 	[AMOVSL]=	{OK, DI|SI, DI|SI},
 	[AMOVSQ]=	{OK, DI|SI, DI|SI},
 	[AMOVSW]=	{OK, DI|SI, DI|SI},
+	[ADUFFCOPY]=	{OK, DI|SI, DI|SI|CX},
 
 	[AMOVSD]=	{SizeD | LeftRead | RightWrite | Move},
 	[AMOVSS]=	{SizeF | LeftRead | RightWrite | Move},
@@ -254,6 +258,7 @@ static ProgInfo progtable[ALAST] = {
 	[ASTOSL]=	{OK, AX|DI, DI},
 	[ASTOSQ]=	{OK, AX|DI, DI},
 	[ASTOSW]=	{OK, AX|DI, DI},
+	[ADUFFZERO]=	{OK, AX|DI, DI},
 
 	[ASUBB]=	{SizeB | LeftRead | RightRdwr | SetCarry},
 	[ASUBL]=	{SizeL | LeftRead | RightRdwr | SetCarry},

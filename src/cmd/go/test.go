@@ -72,6 +72,10 @@ In addition to the build flags, the flags handled by 'go test' itself are:
 	    Install packages that are dependencies of the test.
 	    Do not run the test.
 
+	-exec xprog
+	    Run the test binary using xprog. The behavior is the same as
+	    in 'go run'. See 'go help run' for details.
+
 The test binary also accepts flags that control execution of the test; these
 flags are also accessible by 'go test'.  See 'go help testflag' for details.
 
@@ -133,7 +137,8 @@ control the execution of any test:
 
 	-covermode set,count,atomic
 	    Set the mode for coverage analysis for the package[s]
-	    being tested. The default is "set".
+	    being tested. The default is "set" unless -race is enabled,
+	    in which case it is "atomic".
 	    The values:
 		set: bool: does this statement run?
 		count: int: how many times does this statement run?
@@ -168,9 +173,7 @@ control the execution of any test:
 	    Enable more precise (and expensive) memory profiles by setting
 	    runtime.MemProfileRate.  See 'godoc runtime MemProfileRate'.
 	    To profile all memory allocations, use -test.memprofilerate=1
-	    and set the environment variable GOGC=off to disable the
-	    garbage collector, provided the test can run in the available
-	    memory without garbage collection.
+	    and pass --alloc_space flag to the pprof tool.
 
 	-outputdir directory
 	    Place output files from profiling in the specified directory,
@@ -273,7 +276,6 @@ var (
 	testCoverPkgs    []*Package // -coverpkg flag
 	testProfile      bool       // some profiling flag
 	testNeedBinary   bool       // profile needs to keep binary around
-	testI            bool       // -i flag
 	testV            bool       // -v flag
 	testFiles        []string   // -file flag(s)  TODO: not respected
 	testTimeout      string     // -timeout flag
@@ -294,6 +296,8 @@ var testMainDeps = map[string]bool{
 func runTest(cmd *Command, args []string) {
 	var pkgArgs []string
 	pkgArgs, testArgs = testFlags(args)
+
+	findExecCmd() // initialize cached result
 
 	raceInit()
 	pkgs := packagesForBuild(pkgArgs)
@@ -334,7 +338,7 @@ func runTest(cmd *Command, args []string) {
 	var b builder
 	b.init()
 
-	if testI {
+	if buildI {
 		buildV = testV
 
 		deps := make(map[string]bool)
@@ -411,7 +415,11 @@ func runTest(cmd *Command, args []string) {
 			p.Stale = true // rebuild
 			p.fake = true  // do not warn about rebuild
 			p.coverMode = testCoverMode
-			p.coverVars = declareCoverVars(p.ImportPath, p.GoFiles...)
+			var coverFiles []string
+			coverFiles = append(coverFiles, p.GoFiles...)
+			coverFiles = append(coverFiles, p.CgoFiles...)
+			coverFiles = append(coverFiles, p.TestGoFiles...)
+			p.coverVars = declareCoverVars(p.ImportPath, coverFiles...)
 		}
 	}
 
@@ -516,7 +524,7 @@ func contains(x []string, s string) bool {
 
 func (b *builder) test(p *Package) (buildAction, runAction, printAction *action, err error) {
 	if len(p.TestGoFiles)+len(p.XTestGoFiles) == 0 {
-		build := &action{p: p}
+		build := b.action(modeBuild, modeBuild, p)
 		run := &action{p: p, deps: []*action{build}}
 		print := &action{f: (*builder).notest, p: p, deps: []*action{run}}
 		return build, run, print, nil
@@ -530,16 +538,31 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 
 	var imports, ximports []*Package
 	var stk importStack
-	stk.push(p.ImportPath + "_test")
+	stk.push(p.ImportPath + " (test)")
 	for _, path := range p.TestImports {
 		p1 := loadImport(path, p.Dir, &stk, p.build.TestImportPos[path])
 		if p1.Error != nil {
 			return nil, nil, nil, p1.Error
 		}
+		if contains(p1.Deps, p.ImportPath) {
+			// Same error that loadPackage returns (via reusePackage) in pkg.go.
+			// Can't change that code, because that code is only for loading the
+			// non-test copy of a package.
+			err := &PackageError{
+				ImportStack:   testImportStack(stk[0], p1, p.ImportPath),
+				Err:           "import cycle not allowed in test",
+				isImportCycle: true,
+			}
+			return nil, nil, nil, err
+		}
 		imports = append(imports, p1)
 	}
+	stk.pop()
+	stk.push(p.ImportPath + "_test")
+	pxtestNeedsPtest := false
 	for _, path := range p.XTestImports {
 		if path == p.ImportPath {
+			pxtestNeedsPtest = true
 			continue
 		}
 		p1 := loadImport(path, p.Dir, &stk, p.build.XTestImportPos[path])
@@ -618,7 +641,10 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 
 		if localCover {
 			ptest.coverMode = testCoverMode
-			ptest.coverVars = declareCoverVars(ptest.ImportPath, ptest.GoFiles...)
+			var coverFiles []string
+			coverFiles = append(coverFiles, ptest.GoFiles...)
+			coverFiles = append(coverFiles, ptest.CgoFiles...)
+			ptest.coverVars = declareCoverVars(ptest.ImportPath, coverFiles...)
 		}
 	} else {
 		ptest = p
@@ -637,10 +663,13 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 			build: &build.Package{
 				ImportPos: p.build.XTestImportPos,
 			},
-			imports: append(ximports, ptest),
+			imports: ximports,
 			pkgdir:  testDir,
 			fake:    true,
 			Stale:   true,
+		}
+		if pxtestNeedsPtest {
+			pxtest.imports = append(pxtest.imports, ptest)
 		}
 	}
 
@@ -651,21 +680,20 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 		GoFiles:    []string{"_testmain.go"},
 		ImportPath: "testmain",
 		Root:       p.Root,
-		imports:    []*Package{ptest},
 		build:      &build.Package{Name: "main"},
 		pkgdir:     testDir,
 		fake:       true,
 		Stale:      true,
-	}
-	if pxtest != nil {
-		pmain.imports = append(pmain.imports, pxtest)
+		omitDWARF:  !testC && !testNeedBinary,
 	}
 
 	// The generated main also imports testing and regexp.
 	stk.push("testmain")
 	for dep := range testMainDeps {
-		if ptest.ImportPath != dep {
-			p1 := loadImport("testing", "", &stk, nil)
+		if dep == ptest.ImportPath {
+			pmain.imports = append(pmain.imports, ptest)
+		} else {
+			p1 := loadImport(dep, "", &stk, nil)
 			if p1.Error != nil {
 				return nil, nil, nil, p1.Error
 			}
@@ -687,6 +715,21 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 		}
 	}
 
+	// Do initial scan for metadata needed for writing _testmain.go
+	// Use that metadata to update the list of imports for package main.
+	// The list of imports is used by recompileForTest and by the loop
+	// afterward that gathers t.Cover information.
+	t, err := loadTestFuncs(ptest)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if t.NeedTest || ptest.coverMode != "" {
+		pmain.imports = append(pmain.imports, ptest)
+	}
+	if t.NeedXtest {
+		pmain.imports = append(pmain.imports, pxtest)
+	}
+
 	if ptest != p && localCover {
 		// We have made modifications to the package p being tested
 		// and are rebuilding p (as ptest), writing it to the testDir tree.
@@ -703,7 +746,15 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 		recompileForTest(pmain, p, ptest, testDir)
 	}
 
-	if err := writeTestmain(filepath.Join(testDir, "_testmain.go"), pmain, ptest); err != nil {
+	for _, cp := range pmain.imports {
+		if len(cp.coverVars) > 0 {
+			t.Cover = append(t.Cover, coverInfo{cp, cp.coverVars})
+		}
+	}
+
+	// writeTestmain writes _testmain.go. This must happen after recompileForTest,
+	// because recompileForTest modifies XXX.
+	if err := writeTestmain(filepath.Join(testDir, "_testmain.go"), t); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -711,7 +762,7 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 
 	if ptest != p {
 		a := b.action(modeBuild, modeBuild, ptest)
-		a.objdir = testDir + string(filepath.Separator)
+		a.objdir = testDir + string(filepath.Separator) + "_obj_test" + string(filepath.Separator)
 		a.objpkg = ptestObj
 		a.target = ptestObj
 		a.link = false
@@ -719,7 +770,7 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 
 	if pxtest != nil {
 		a := b.action(modeBuild, modeBuild, pxtest)
-		a.objdir = testDir + string(filepath.Separator)
+		a.objdir = testDir + string(filepath.Separator) + "_obj_xtest" + string(filepath.Separator)
 		a.objpkg = buildToolchain.pkgpath(testDir, pxtest)
 		a.target = a.objpkg
 	}
@@ -763,6 +814,24 @@ func (b *builder) test(p *Package) (buildAction, runAction, printAction *action,
 	}
 
 	return pmainAction, runAction, printAction, nil
+}
+
+func testImportStack(top string, p *Package, target string) []string {
+	stk := []string{top, p.ImportPath}
+Search:
+	for p.ImportPath != target {
+		for _, p1 := range p.imports {
+			if p1.ImportPath == target || contains(p1.Deps, target) {
+				stk = append(stk, p1.ImportPath)
+				p = p1
+				continue Search
+			}
+		}
+		// Can't happen, but in case it does...
+		stk = append(stk, "<lost path to cycle>")
+		break
+	}
+	return stk
 }
 
 func recompileForTest(pmain, preal, ptest *Package, testDir string) {
@@ -836,7 +905,7 @@ func declareCoverVars(importPath string, files ...string) map[string]*CoverVar {
 
 // runTest is the action for running a test binary.
 func (b *builder) runTest(a *action) error {
-	args := stringList(a.deps[0].target, testArgs)
+	args := stringList(findExecCmd(), a.deps[0].target, testArgs)
 	a.testOutput = new(bytes.Buffer)
 
 	if buildN || buildX {
@@ -1007,31 +1076,26 @@ type coverInfo struct {
 	Vars    map[string]*CoverVar
 }
 
-// writeTestmain writes the _testmain.go file for package p to
-// the file named out.
-func writeTestmain(out string, pmain, p *Package) error {
-	var cover []coverInfo
-	for _, cp := range pmain.imports {
-		if len(cp.coverVars) > 0 {
-			cover = append(cover, coverInfo{cp, cp.coverVars})
-		}
-	}
-
+// loadTestFuncs returns the testFuncs describing the tests that will be run.
+func loadTestFuncs(ptest *Package) (*testFuncs, error) {
 	t := &testFuncs{
-		Package: p,
-		Cover:   cover,
+		Package: ptest,
 	}
-	for _, file := range p.TestGoFiles {
-		if err := t.load(filepath.Join(p.Dir, file), "_test", &t.NeedTest); err != nil {
-			return err
+	for _, file := range ptest.TestGoFiles {
+		if err := t.load(filepath.Join(ptest.Dir, file), "_test", &t.NeedTest); err != nil {
+			return nil, err
 		}
 	}
-	for _, file := range p.XTestGoFiles {
-		if err := t.load(filepath.Join(p.Dir, file), "_xtest", &t.NeedXtest); err != nil {
-			return err
+	for _, file := range ptest.XTestGoFiles {
+		if err := t.load(filepath.Join(ptest.Dir, file), "_xtest", &t.NeedXtest); err != nil {
+			return nil, err
 		}
 	}
+	return t, nil
+}
 
+// writeTestmain writes the _testmain.go file for t to the file named out.
+func writeTestmain(out string, t *testFuncs) error {
 	f, err := os.Create(out)
 	if err != nil {
 		return err

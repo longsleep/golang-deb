@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 #include	<bio.h>
+#include	<link.h>
 
 #undef OAPPEND
 
@@ -31,7 +32,6 @@ enum
 	STRINGSZ	= 200,
 	MAXALIGN	= 7,
 	UINF		= 100,
-	HISTSZ		= 10,
 
 	PRIME1		= 3,
 
@@ -129,6 +129,10 @@ struct	Val
 	} u;
 };
 
+// prevent incompatible type signatures between libgc and 8g on Plan 9
+#pragma incomplete struct Array
+
+typedef	struct	Array	Array;
 typedef	struct	Bvec	Bvec;
 typedef	struct	Pkg Pkg;
 typedef	struct	Sym	Sym;
@@ -190,6 +194,8 @@ struct	Type
 	// TMAP
 	Type*	bucket;		// internal type representing a hash bucket
 	Type*	hmap;		// internal type representing a Hmap (map header object)
+	Type*	hiter;		// internal type representing hash iterator state
+	Type*	map;		// link from the above 3 internal types back to the map type.
 
 	int32	maplineno;	// first use of TFORW as map key
 	int32	embedlineno;	// first use of TFORW as embedded type
@@ -230,8 +236,10 @@ enum
 	EscNone,
 	EscReturn,
 	EscNever,
-	EscBits = 4,
+	EscBits = 3,
 	EscMask = (1<<EscBits) - 1,
+	EscContentEscapes = 1<<EscBits, // value obtained by indirect of parameter escapes to some returned result
+	EscReturnBits = EscBits+1,
 };
 
 struct	Node
@@ -277,6 +285,7 @@ struct	Node
 	schar	likely; // likeliness of if statement
 	uchar	hasbreak;	// has break statement
 	uchar	needzero; // if it contains pointers, needs to be zeroed on function entry
+	uchar	needctxt;	// function uses context register (has closure variables)
 	uint	esc;		// EscXXX
 	int	funcdepth;
 
@@ -392,6 +401,7 @@ struct	Sym
 	int32	block;		// blocknumber to catch redeclaration
 	int32	lastlineno;	// last declaration for diagnostic
 	Pkg*	origpkg;	// original package for . import
+	LSym*	lsym;
 };
 #define	S	((Sym*)0)
 
@@ -420,16 +430,6 @@ struct	Iter
 	Node*	n;
 };
 
-typedef	struct	Hist	Hist;
-struct	Hist
-{
-	Hist*	link;
-	char*	name;
-	int32	line;
-	int32	offset;
-};
-#define	H	((Hist*)0)
-
 // Node ops.
 enum
 {
@@ -447,11 +447,13 @@ enum
 	OSUB,	// x - y
 	OOR,	// x | y
 	OXOR,	// x ^ y
+	OADDPTR,	// ptr + uintptr, inserted by compiler only, used to avoid unsafe type changes during codegen
 	OADDSTR,	// s + "foo"
 	OADDR,	// &x
 	OANDAND,	// b0 && b1
 	OAPPEND,	// append
 	OARRAYBYTESTR,	// string(bytes)
+	OARRAYBYTESTRTMP, // string(bytes) ephemeral
 	OARRAYRUNESTR,	// string(runes)
 	OSTRARRAYBYTE,	// []byte(s)
 	OSTRARRAYRUNE,	// []rune(s)
@@ -506,7 +508,7 @@ enum
 	OKEY,	// The x:3 in t{x:3, y:4}, the 1:2 in a[1:2], the 2:20 in [3]int{2:20}, etc.
 	OPARAM,	// The on-stack copy of a parameter or return value that escapes.
 	OLEN,	// len
-	OMAKE,	// make, typechecking may convert to a more specfic OMAKEXXX.
+	OMAKE,	// make, typechecking may convert to a more specific OMAKEXXX.
 	OMAKECHAN,	// make(chan int)
 	OMAKEMAP,	// make(map[string]int)
 	OMAKESLICE,	// make([]int, 0)
@@ -528,7 +530,7 @@ enum
 	OPRINTN,	// println
 	OPAREN,	// (x)
 	OSEND,	// c <- x
-	OSLICE,	// v[1:2], typechecking may convert to a more specfic OSLICEXXX.
+	OSLICE,	// v[1:2], typechecking may convert to a more specific OSLICEXXX.
 	OSLICEARR,	// a[1:2]
 	OSLICESTR,	// s[1:2]
 	OSLICE3,	// v[1:2:3], typechecking may convert to OSLICE3ARR.
@@ -583,6 +585,7 @@ enum
 	OCLOSUREVAR, // variable reference at beginning of closure function
 	OCFUNC,	// reference to c function pointer (not go func value)
 	OCHECKNIL, // emit code to ensure pointer/interface not nil
+	OVARKILL, // variable is dead
 
 	// arch-specific registers
 	OREGISTER,	// a register, such as AX.
@@ -724,6 +727,7 @@ struct	Var
 {
 	vlong	offset;
 	Node*	node;
+	Var*	nextinnode;
 	int	width;
 	char	name;
 	char	etype;
@@ -804,9 +808,6 @@ struct	Magic
 	int	ua;	// output - adder
 };
 
-typedef struct	Prog Prog;
-#pragma incomplete Prog
-
 struct	Label
 {
 	uchar	used;
@@ -859,9 +860,6 @@ EXTERN	Io	pushedio;
 EXTERN	int32	lexlineno;
 EXTERN	int32	lineno;
 EXTERN	int32	prevlineno;
-EXTERN	char*	pathname;
-EXTERN	Hist*	hist;
-EXTERN	Hist*	ehist;
 
 EXTERN	char*	infile;
 EXTERN	char*	outfile;
@@ -870,6 +868,7 @@ EXTERN	int	nerrors;
 EXTERN	int	nsavederrors;
 EXTERN	int	nsyntaxerrors;
 EXTERN	int	safemode;
+EXTERN	int	nolocalimports;
 EXTERN	char	namebuf[NSYMB];
 EXTERN	char	lexbuf[NSYMB];
 EXTERN	char	litbuf[NSYMB];
@@ -950,7 +949,6 @@ EXTERN	Node*	lasttype;
 EXTERN	vlong	maxarg;
 EXTERN	vlong	stksize;		// stack size for current frame
 EXTERN	vlong	stkptrsize;		// prefix of stack containing pointers
-EXTERN	vlong	stkzerosize;		// prefix of stack that must be zeroed on entry
 EXTERN	int32	blockgen;		// max block number
 EXTERN	int32	block;			// current block number
 EXTERN	int	hasdefer;		// flag that curfn has defer statetment
@@ -959,12 +957,14 @@ EXTERN	Node*	curfn;
 
 EXTERN	int	widthptr;
 EXTERN	int	widthint;
+EXTERN	int	widthreg;
 
 EXTERN	Node*	typesw;
 EXTERN	Node*	nblank;
 
 extern	int	thechar;
 extern	char*	thestring;
+extern	LinkArch*	thelinkarch;
 EXTERN	int  	use_sse;
 
 EXTERN	char*	hunk;
@@ -980,10 +980,17 @@ EXTERN	char*	flag_installsuffix;
 EXTERN	int	flag_race;
 EXTERN	int	flag_largemodel;
 EXTERN	int	noescape;
+EXTERN	int	debuglive;
+EXTERN	Link*	ctxt;
 
 EXTERN	int	nointerface;
 EXTERN	int	fieldtrack_enabled;
 EXTERN	int	precisestack_enabled;
+EXTERN	int	writearchive;
+
+EXTERN	Biobuf	bstdout;
+
+EXTERN	int	nacl;
 
 /*
  *	y.tab.c
@@ -1000,6 +1007,18 @@ void	dowidth(Type *t);
 void	resumecheckwidth(void);
 vlong	rnd(vlong o, vlong r);
 void	typeinit(void);
+
+/*
+ *	array.c
+ */
+Array*	arraynew(int32 capacity, int32 size);
+void	arrayfree(Array *array);
+int32	arraylength(Array *array);
+void*	arrayget(Array *array, int32 index);
+void	arrayset(Array *array, int32 index, void *element);
+void	arrayadd(Array *array, void *element);
+int32	arrayindexof(Array* array, void *element);
+void	arraysort(Array* array, int (*cmp)(const void*, const void*));
 
 /*
  *	bits.c
@@ -1019,11 +1038,19 @@ int	bset(Bits a, uint n);
  *	bv.c
  */
 Bvec*	bvalloc(int32 n);
-void	bvset(Bvec *bv, int32 i);
-void	bvres(Bvec *bv, int32 i);
+void	bvandnot(Bvec *dst, Bvec *src1, Bvec *src2);
+int	bvcmp(Bvec *bv1, Bvec *bv2);
+void	bvcopy(Bvec *dst, Bvec *src);
+Bvec*	bvconcat(Bvec *src1, Bvec *src2);
 int	bvget(Bvec *bv, int32 i);
 int	bvisempty(Bvec *bv);
-int	bvcmp(Bvec *bv1, Bvec *bv2);
+void	bvnot(Bvec *bv);
+void	bvor(Bvec *dst, Bvec *src1, Bvec *src2);
+void	bvand(Bvec *dst, Bvec *src1, Bvec *src2);
+void	bvprint(Bvec *bv);
+void	bvreset(Bvec *bv, int32 i);
+void	bvresetall(Bvec *bv);
+void	bvset(Bvec *bv, int32 i);
 
 /*
  *	closure.c
@@ -1173,7 +1200,6 @@ char*	expstring(void);
 void	mkpackage(char* pkgname);
 void	unimportfile(void);
 int32	yylex(void);
-extern	int	windows;
 extern	int	yylast;
 extern	int	yyprev;
 
@@ -1230,17 +1256,19 @@ void	mpxorfixfix(Mpint *a, Mpint *b);
 void	mpaddfltflt(Mpflt *a, Mpflt *b);
 void	mpdivfltflt(Mpflt *a, Mpflt *b);
 double	mpgetflt(Mpflt *a);
+double	mpgetflt32(Mpflt *a);
 void	mpmovecflt(Mpflt *a, double c);
 void	mpmulfltflt(Mpflt *a, Mpflt *b);
 void	mpnegflt(Mpflt *a);
 void	mpnorm(Mpflt *a);
+void	mpsetexp(Mpflt *a, int exp);
 int	mptestflt(Mpflt *a);
 int	sigfig(Mpflt *a);
 
 /*
  *	obj.c
  */
-void	Bputname(Biobuf *b, Sym *s);
+void	Bputname(Biobuf *b, LSym *s);
 int	duint16(Sym *s, int off, uint16 v);
 int	duint32(Sym *s, int off, uint32 v);
 int	duint64(Sym *s, int off, uint64 v);
@@ -1248,8 +1276,9 @@ int	duint8(Sym *s, int off, uint8 v);
 int	duintptr(Sym *s, int off, uint64 v);
 int	dsname(Sym *s, int off, char *dat, int ndat);
 void	dumpobj(void);
-void	ieeedtod(uint64 *ieee, double native);
 Sym*	stringsym(char*, int);
+void	slicebytes(Node*, char*, int);
+LSym*	linksym(Sym*);
 
 /*
  *	order.c
@@ -1274,6 +1303,7 @@ Sym*	tracksym(Type *t);
 Sym*	typesymprefix(char *prefix, Type *t);
 int	haspointers(Type *t);
 void	usefield(Node*);
+Type*	hiter(Type* t);
 
 /*
  *	select.c
@@ -1434,32 +1464,21 @@ void	walkstmt(Node **np);
 void	walkstmtlist(NodeList *l);
 Node*	conv(Node*, Type*);
 int	candiscard(Node*);
+Node*	outervalue(Node*);
 
 /*
- *	arch-specific ggen.c/gsubr.c/gobj.c/pgen.c
+ *	arch-specific ggen.c/gsubr.c/gobj.c/pgen.c/plive.c
  */
 #define	P	((Prog*)0)
-
-typedef	struct	Plist	Plist;
-struct	Plist
-{
-	Node*	name;
-	Prog*	firstpc;
-	int	recur;
-	Plist*	link;
-};
-
-EXTERN	Plist*	plist;
-EXTERN	Plist*	plast;
 
 EXTERN	Prog*	continpc;
 EXTERN	Prog*	breakpc;
 EXTERN	Prog*	pc;
 EXTERN	Prog*	firstpc;
-EXTERN	Prog*	retpc;
 
 EXTERN	Node*	nodfp;
 EXTERN	int	disable_checknil;
+EXTERN	vlong	zerosize;
 
 int	anyregalloc(void);
 void	betypeinit(void);
@@ -1474,59 +1493,52 @@ void	cgen_checknil(Node*);
 void	cgen_ret(Node *n);
 void	clearfat(Node *n);
 void	compile(Node*);
-void	defframe(Prog*, Bvec*);
+void	defframe(Prog*);
 int	dgostringptr(Sym*, int off, char *str);
 int	dgostrlitptr(Sym*, int off, Strlit*);
 int	dstringptr(Sym *s, int off, char *str);
 int	dsymptr(Sym *s, int off, Sym *x, int xoff);
 int	duintxx(Sym *s, int off, uint64 v, int wid);
 void	dumpdata(void);
-void	dumpfuncs(void);
 void	fixautoused(Prog*);
 void	gdata(Node*, Node*, int);
 void	gdatacomplex(Node*, Mpcplx*);
 void	gdatastring(Node*, Strlit*);
 void	ggloblnod(Node *nam);
 void	ggloblsym(Sym *s, int32 width, int dupok, int rodata);
+void	gvardef(Node*);
+void	gvarkill(Node*);
 Prog*	gjmp(Prog*);
 void	gused(Node*);
 void	movelarge(NodeList*);
 int	isfat(Type*);
+void	linkarchinit(void);
+void	liveness(Node*, Prog*, Sym*, Sym*);
 void	markautoused(Prog*);
 Plist*	newplist(void);
 Node*	nodarg(Type*, int);
 void	nopout(Prog*);
 void	patch(Prog*, Prog*);
 Prog*	unpatch(Prog*);
-void	zfile(Biobuf *b, char *p, int n);
-void	zhist(Biobuf *b, int line, vlong offset);
-void	zname(Biobuf *b, Sym *s, int t);
 
-#pragma	varargck	type	"A"	int
 #pragma	varargck	type	"B"	Mpint*
-#pragma	varargck	type	"D"	Addr*
-#pragma	varargck	type	"lD"	Addr*
 #pragma	varargck	type	"E"	int
 #pragma	varargck	type	"E"	uint
 #pragma	varargck	type	"F"	Mpflt*
 #pragma	varargck	type	"H"	NodeList*
 #pragma	varargck	type	"J"	Node*
-#pragma	varargck	type	"lL"	int
-#pragma	varargck	type	"lL"	uint
-#pragma	varargck	type	"L"	int
-#pragma	varargck	type	"L"	uint
+#pragma	varargck	type	"lL"	int32
+#pragma	varargck	type	"L"	int32
 #pragma	varargck	type	"N"	Node*
 #pragma	varargck	type	"lN"	Node*
+#pragma	varargck	type	"O"	int
 #pragma	varargck	type	"O"	uint
-#pragma	varargck	type	"P"	Prog*
 #pragma	varargck	type	"Q"	Bits
-#pragma	varargck	type	"R"	int
 #pragma	varargck	type	"S"	Sym*
-#pragma	varargck	type	"lS"	Sym*
+#pragma	varargck	type	"lS"	LSym*
 #pragma	varargck	type	"T"	Type*
 #pragma	varargck	type	"lT"	Type*
 #pragma	varargck	type	"V"	Val*
-#pragma	varargck	type	"Y"	char*
 #pragma	varargck	type	"Z"	Strlit*
 
 /*

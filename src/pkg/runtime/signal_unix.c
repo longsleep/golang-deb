@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin dragonfly freebsd linux openbsd netbsd
+// +build darwin dragonfly freebsd linux netbsd openbsd solaris
 
 #include "runtime.h"
 #include "defs_GOOS_GOARCH.h"
@@ -113,6 +113,7 @@ runtime·crash(void)
 		return;
 #endif
 
+	runtime·unblocksignals();
 	runtime·setsig(SIGABRT, SIG_DFL, false);
 	runtime·raise(SIGABRT);
 }

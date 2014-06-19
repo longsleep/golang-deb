@@ -40,6 +40,7 @@ static int
 putelfstr(char *s)
 {
 	int off, n;
+	char *p, *q;
 
 	if(elfstrsize == 0 && s[0] != 0) {
 		// first entry must be empty string
@@ -54,6 +55,21 @@ putelfstr(char *s)
 	off = elfstrsize;
 	elfstrsize += n;
 	memmove(elfstrdat+off, s, n);
+	// replace "·" as ".", because DTrace cannot handle it.
+	p = strstr(s, "·");
+	if(p != nil) {
+		p = q = elfstrdat+off;
+		while (*q != '\0') {
+			if((uchar)*q == 0xc2 && (uchar)*(q+1) == 0xb7) {
+				q += 2;
+				*p++ = '.';
+				elfstrsize--;
+			} else {
+				*p++ = *q++;
+			}
+		}
+		*p = '\0';
+	}
 	return off;
 }
 
@@ -86,10 +102,10 @@ static int numelfsym = 1; // 0 is reserved
 static int elfbind;
 
 static void
-putelfsym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
+putelfsym(LSym *x, char *s, int t, vlong addr, vlong size, int ver, LSym *go)
 {
 	int bind, type, off;
-	Sym *xo;
+	LSym *xo;
 
 	USED(go);
 	switch(t) {
@@ -109,12 +125,12 @@ putelfsym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
 	while(xo->outer != nil)
 		xo = xo->outer;
 	if(xo->sect == nil) {
-		cursym = x;
+		ctxt->cursym = x;
 		diag("missing section in putelfsym");
 		return;
 	}
 	if(xo->sect->elfsect == nil) {
-		cursym = x;
+		ctxt->cursym = x;
 		diag("missing ELF section in putelfsym");
 		return;
 	}
@@ -143,7 +159,7 @@ putelfsym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
 }
 
 void
-putelfsectionsym(Sym* s, int shndx)
+putelfsectionsym(LSym* s, int shndx)
 {
 	putelfsyment(0, 0, 0, (STB_LOCAL<<4)|STT_SECTION, shndx, 0);
 	s->elfsym = numelfsym++;
@@ -170,7 +186,8 @@ putelfsymshndx(vlong sympos, int shndx)
 void
 asmelfsym(void)
 {
-	Sym *s;
+	LSym *s;
+	char *name;
 
 	// the first symbol entry is reserved
 	putelfsyment(0, 0, 0, (STB_LOCAL<<4)|STT_NOTYPE, 0, 0);
@@ -181,9 +198,9 @@ asmelfsym(void)
 	genasmsym(putelfsym);
 	
 	if(linkmode == LinkExternal && HEADTYPE != Hopenbsd) {
-		s = lookup("runtime.tlsgm", 0);
+		s = linklookup(ctxt, "runtime.tlsgm", 0);
 		if(s->sect == nil) {
-			cursym = nil;
+			ctxt->cursym = nil;
 			diag("missing section for %s", s->name);
 			errorexit();
 		}
@@ -195,16 +212,20 @@ asmelfsym(void)
 	elfglobalsymndx = numelfsym;
 	genasmsym(putelfsym);
 	
-	for(s=allsym; s!=S; s=s->allsym) {
-		if(s->type != SHOSTOBJ)
+	for(s=ctxt->allsym; s!=S; s=s->allsym) {
+		if(s->type != SHOSTOBJ && !(s->type == SDYNIMPORT && s->reachable))
 			continue;
-		putelfsyment(putelfstr(s->name), 0, 0, (STB_GLOBAL<<4)|STT_NOTYPE, 0, 0);
+		if(s->type == SDYNIMPORT)
+			name = s->extname;
+		else
+			name = s->name;
+		putelfsyment(putelfstr(name), 0, 0, (STB_GLOBAL<<4)|STT_NOTYPE, 0, 0);
 		s->elfsym = numelfsym++;
 	}
 }
 
 static void
-putplan9sym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
+putplan9sym(LSym *x, char *s, int t, vlong addr, vlong size, int ver, LSym *go)
 {
 	int i, l;
 
@@ -226,7 +247,7 @@ putplan9sym(Sym *x, char *s, int t, vlong addr, vlong size, int ver, Sym *go)
 	case 'Z':
 	case 'm':
 		l = 4;
-		if(HEADTYPE == Hplan9x64 && !debug['8']) {
+		if(HEADTYPE == Hplan9 && thechar == '6' && !debug['8']) {
 			lputb(addr>>32);
 			l = 8;
 		}
@@ -263,48 +284,7 @@ asmplan9sym(void)
 	genasmsym(putplan9sym);
 }
 
-static Sym *symt;
-
-static void
-scput(int b)
-{
-	uchar *p;
-
-	symgrow(symt, symt->size+1);
-	p = symt->p + symt->size;
-	*p = b;
-	symt->size++;
-}
-
-static void
-slputb(int32 v)
-{
-	uchar *p;
-
-	symgrow(symt, symt->size+4);
-	p = symt->p + symt->size;
-	*p++ = v>>24;
-	*p++ = v>>16;
-	*p++ = v>>8;
-	*p = v;
-	symt->size += 4;
-}
-
-static void
-slputl(int32 v)
-{
-	uchar *p;
-
-	symgrow(symt, symt->size+4);
-	p = symt->p + symt->size;
-	*p++ = v;
-	*p++ = v>>8;
-	*p++ = v>>16;
-	*p = v>>24;
-	symt->size += 4;
-}
-
-static void (*slput)(int32);
+static LSym *symt;
 
 void
 wputl(ushort w)
@@ -352,112 +332,10 @@ vputl(uint64 v)
 	lputl(v >> 32);
 }
 
-// Emit symbol table entry.
-// The table format is described at the top of ../../pkg/runtime/symtab.c.
-void
-putsymb(Sym *s, char *name, int t, vlong v, vlong size, int ver, Sym *typ)
-{
-	int i, f, c;
-	vlong v1;
-	Reloc *rel;
-
-	USED(size);
-
-	// type byte
-	if('A' <= t && t <= 'Z')
-		c = t - 'A' + (ver ? 26 : 0);
-	else if('a' <= t && t <= 'z')
-		c = t - 'a' + 26;
-	else {
-		diag("invalid symbol table type %c", t);
-		errorexit();
-		return;
-	}
-	
-	if(s != nil)
-		c |= 0x40; // wide value
-	if(typ != nil)
-		c |= 0x80; // has go type
-	scput(c);
-
-	// value
-	if(s != nil) {
-		// full width
-		rel = addrel(symt);
-		rel->siz = PtrSize;
-		rel->sym = s;
-		rel->type = D_ADDR;
-		rel->off = symt->size;
-		if(PtrSize == 8)
-			slput(0);
-		slput(0);
-	} else {
-		// varint
-		if(v < 0) {
-			diag("negative value in symbol table: %s %lld", name, v);
-			errorexit();
-		}
-		v1 = v;
-		while(v1 >= 0x80) {
-			scput(v1 | 0x80);
-			v1 >>= 7;
-		}
-		scput(v1);
-	}
-
-	// go type if present
-	if(typ != nil) {
-		if(!typ->reachable)
-			diag("unreachable type %s", typ->name);
-		rel = addrel(symt);
-		rel->siz = PtrSize;
-		rel->sym = typ;
-		rel->type = D_ADDR;
-		rel->off = symt->size;
-		if(PtrSize == 8)
-			slput(0);
-		slput(0);
-	}
-	
-	// name	
-	if(t == 'f')
-		name++;
-
-	if(t == 'Z' || t == 'z') {
-		scput(name[0]);
-		for(i=1; name[i] != 0 || name[i+1] != 0; i += 2) {
-			scput(name[i]);
-			scput(name[i+1]);
-		}
-		scput(0);
-		scput(0);
-	} else {
-		for(i=0; name[i]; i++)
-			scput(name[i]);
-		scput(0);
-	}
-
-	if(debug['n']) {
-		if(t == 'z' || t == 'Z') {
-			Bprint(&bso, "%c %.8llux ", t, v);
-			for(i=1; name[i] != 0 || name[i+1] != 0; i+=2) {
-				f = ((name[i]&0xff) << 8) | (name[i+1]&0xff);
-				Bprint(&bso, "/%x", f);
-			}
-			Bprint(&bso, "\n");
-			return;
-		}
-		if(ver)
-			Bprint(&bso, "%c %.8llux %s<%d> %s\n", t, v, name, ver, typ ? typ->name : "");
-		else
-			Bprint(&bso, "%c %.8llux %s %s\n", t, v, name, typ ? typ->name : "");
-	}
-}
-
 void
 symtab(void)
 {
-	Sym *s, *symtype, *symtypelink, *symgostring, *symgofunc;
+	LSym *s, *symtype, *symtypelink, *symgostring, *symgofunc;
 
 	dosymtype();
 
@@ -482,40 +360,40 @@ symtab(void)
 	xdefine("esymtab", SRODATA, 0);
 
 	// garbage collection symbols
-	s = lookup("gcdata", 0);
+	s = linklookup(ctxt, "gcdata", 0);
 	s->type = SRODATA;
 	s->size = 0;
 	s->reachable = 1;
 	xdefine("egcdata", SRODATA, 0);
 
-	s = lookup("gcbss", 0);
+	s = linklookup(ctxt, "gcbss", 0);
 	s->type = SRODATA;
 	s->size = 0;
 	s->reachable = 1;
 	xdefine("egcbss", SRODATA, 0);
 
 	// pseudo-symbols to mark locations of type, string, and go string data.
-	s = lookup("type.*", 0);
+	s = linklookup(ctxt, "type.*", 0);
 	s->type = STYPE;
 	s->size = 0;
 	s->reachable = 1;
 	symtype = s;
 
-	s = lookup("go.string.*", 0);
+	s = linklookup(ctxt, "go.string.*", 0);
 	s->type = SGOSTRING;
 	s->size = 0;
 	s->reachable = 1;
 	symgostring = s;
 	
-	s = lookup("go.func.*", 0);
+	s = linklookup(ctxt, "go.func.*", 0);
 	s->type = SGOFUNC;
 	s->size = 0;
 	s->reachable = 1;
 	symgofunc = s;
 	
-	symtypelink = lookup("typelink", 0);
+	symtypelink = linklookup(ctxt, "typelink", 0);
 
-	symt = lookup("symtab", 0);
+	symt = linklookup(ctxt, "symtab", 0);
 	symt->type = SSYMTAB;
 	symt->size = 0;
 	symt->reachable = 1;
@@ -524,7 +402,7 @@ symtab(void)
 	// within a type they sort by size, so the .* symbols
 	// just defined above will be first.
 	// hide the specific symbols.
-	for(s = allsym; s != S; s = s->allsym) {
+	for(s = ctxt->allsym; s != S; s = s->allsym) {
 		if(!s->reachable || s->special || s->type != SRODATA)
 			continue;
 		if(strncmp(s->name, "type.", 5) == 0) {
@@ -547,32 +425,12 @@ symtab(void)
 			s->hide = 1;
 			s->outer = symgofunc;
 		}
+		if(strncmp(s->name, "gcargs.", 7) == 0 || strncmp(s->name, "gclocals.", 9) == 0 || strncmp(s->name, "gclocals·", 10) == 0) {
+			s->type = SGOFUNC;
+			s->hide = 1;
+			s->outer = symgofunc;
+			s->align = 4;
+			liveness += (s->size+s->align-1)&~(s->align-1);
+		}
 	}
-
-	if(debug['s'])
-		return;
-
-	switch(thechar) {
-	default:
-		diag("unknown architecture %c", thechar);
-		errorexit();
-	case '5':
-	case '6':
-	case '8':
-		// little-endian symbol table
-		slput = slputl;
-		break;
-	case 'v':
-		// big-endian symbol table
-		slput = slputb;
-		break;
-	}
-	// new symbol table header.
-	slput(0xfffffffd);
-	scput(0);
-	scput(0);
-	scput(0);
-	scput(PtrSize);
-
-	genasmsym(putsymb);
 }

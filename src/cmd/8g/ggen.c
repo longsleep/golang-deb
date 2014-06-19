@@ -9,61 +9,100 @@
 #include "gg.h"
 #include "opt.h"
 
-static Prog* appendp(Prog*, int, int, int32, int, int32);
+static Prog *appendpp(Prog*, int, int, vlong, int, vlong);
+static Prog *zerorange(Prog *p, vlong frame, vlong lo, vlong hi, uint32 *ax);
 
 void
-defframe(Prog *ptxt, Bvec *bv)
+defframe(Prog *ptxt)
 {
-	uint32 frame;
+	uint32 frame, ax;
 	Prog *p;
-	int i, j;
+	vlong lo, hi;
+	NodeList *l;
+	Node *n;
 
 	// fill in argument size
 	ptxt->to.offset2 = rnd(curfn->type->argwid, widthptr);
 
 	// fill in final stack size
-	if(stksize > maxstksize)
-		maxstksize = stksize;
-	frame = rnd(maxstksize+maxarg, widthptr);
+	frame = rnd(stksize+maxarg, widthptr);
 	ptxt->to.offset = frame;
-	maxstksize = 0;
-
-	// insert code to clear pointered part of the frame,
-	// so that garbage collector only sees initialized values
+	
+	// insert code to zero ambiguously live variables
+	// so that the garbage collector only sees initialized values
 	// when it looks for pointers.
 	p = ptxt;
-	if(stkzerosize >= 8*widthptr) {
-		p = appendp(p, AMOVL, D_CONST, 0, D_AX, 0);
-		p = appendp(p, AMOVL, D_CONST, stkzerosize/widthptr, D_CX, 0);
-		p = appendp(p, ALEAL, D_SP+D_INDIR, frame-stkzerosize, D_DI, 0);
-		p = appendp(p, AREP, D_NONE, 0, D_NONE, 0);
-		appendp(p, ASTOSL, D_NONE, 0, D_NONE, 0);
-	} else {
-		j = (stkptrsize - stkzerosize)/widthptr * 2;
-		for(i=0; i<stkzerosize; i+=widthptr) {
-			if(bvget(bv, j) || bvget(bv, j+1))
-				p = appendp(p, AMOVL, D_CONST, 0, D_SP+D_INDIR, frame-stkzerosize+i);
-			j += 2;
+	hi = 0;
+	lo = hi;
+	ax = 0;
+	for(l=curfn->dcl; l != nil; l = l->next) {
+		n = l->n;
+		if(!n->needzero)
+			continue;
+		if(n->class != PAUTO)
+			fatal("needzero class %d", n->class);
+		if(n->type->width % widthptr != 0 || n->xoffset % widthptr != 0 || n->type->width == 0)
+			fatal("var %lN has size %d offset %d", n, (int)n->type->width, (int)n->xoffset);
+		if(lo != hi && n->xoffset + n->type->width == lo - 2*widthptr) {
+			// merge with range we already have
+			lo = n->xoffset;
+			continue;
 		}
+		// zero old range
+		p = zerorange(p, frame, lo, hi, &ax);
+
+		// set new range
+		hi = n->xoffset + n->type->width;
+		lo = n->xoffset;
 	}
+	// zero final range
+	zerorange(p, frame, lo, hi, &ax);
 }
 
 static Prog*
-appendp(Prog *p, int as, int ftype, int32 foffset, int ttype, int32 toffset)
+zerorange(Prog *p, vlong frame, vlong lo, vlong hi, uint32 *ax)
+{
+	vlong cnt, i;
+
+	cnt = hi - lo;
+	if(cnt == 0)
+		return p;
+	if(*ax == 0) {
+		p = appendpp(p, AMOVL, D_CONST, 0, D_AX, 0);
+		*ax = 1;
+	}
+	if(cnt <= 4*widthreg) {
+		for(i = 0; i < cnt; i += widthreg) {
+			p = appendpp(p, AMOVL, D_AX, 0, D_SP+D_INDIR, frame+lo+i);
+		}
+	} else if(!nacl && cnt <= 128*widthreg) {
+		p = appendpp(p, ALEAL, D_SP+D_INDIR, frame+lo, D_DI, 0);
+		p = appendpp(p, ADUFFZERO, D_NONE, 0, D_ADDR, 1*(128-cnt/widthreg));
+		p->to.sym = linksym(pkglookup("duffzero", runtimepkg));
+	} else {
+		p = appendpp(p, AMOVL, D_CONST, cnt/widthreg, D_CX, 0);
+		p = appendpp(p, ALEAL, D_SP+D_INDIR, frame+lo, D_DI, 0);
+		p = appendpp(p, AREP, D_NONE, 0, D_NONE, 0);
+		p = appendpp(p, ASTOSL, D_NONE, 0, D_NONE, 0);
+	}
+	return p;
+}
+
+static Prog*	
+appendpp(Prog *p, int as, int ftype, vlong foffset, int ttype, vlong toffset)	
 {
 	Prog *q;
-	
-	q = mal(sizeof(*q));
-	clearp(q);
-	q->as = as;
-	q->lineno = p->lineno;
-	q->from.type = ftype;
-	q->from.offset = foffset;
-	q->to.type = ttype;
-	q->to.offset = toffset;
-	q->link = p->link;
-	p->link = q;
-	return q;
+	q = mal(sizeof(*q));	
+	clearp(q);	
+	q->as = as;	
+	q->lineno = p->lineno;	
+	q->from.type = ftype;	
+	q->from.offset = foffset;	
+	q->to.type = ttype;	
+	q->to.offset = toffset;	
+	q->link = p->link;	
+	p->link = q;	
+	return q;	
 }
 
 // Sweep the prog list to mark any used nodes.
@@ -71,13 +110,13 @@ void
 markautoused(Prog* p)
 {
 	for (; p; p = p->link) {
-		if (p->as == ATYPE)
+		if (p->as == ATYPE || p->as == AVARDEF || p->as == AVARKILL)
 			continue;
 
-		if (p->from.type == D_AUTO && p->from.node)
+		if (p->from.node)
 			p->from.node->used = 1;
 
-		if (p->to.type == D_AUTO && p->to.node)
+		if (p->to.node)
 			p->to.node->used = 1;
 	}
 }
@@ -91,6 +130,16 @@ fixautoused(Prog* p)
 	for (lp=&p; (p=*lp) != P; ) {
 		if (p->as == ATYPE && p->from.node && p->from.type == D_AUTO && !p->from.node->used) {
 			*lp = p->link;
+			continue;
+		}
+		if ((p->as == AVARDEF || p->as == AVARKILL) && p->to.node && !p->to.node->used) {
+			// Cannot remove VARDEF instruction, because - unlike TYPE handled above -
+			// VARDEFs are interspersed with other code, and a jump might be using the
+			// VARDEF as a target. Replace with a no-op instead. A later pass will remove
+			// the no-ops.
+			p->to.type = D_NONE;
+			p->to.node = N;
+			p->as = ANOP;
 			continue;
 		}
 
@@ -109,6 +158,7 @@ clearfat(Node *nl)
 {
 	uint32 w, c, q;
 	Node n1;
+	Prog *p;
 
 	/* clear a fat object */
 	if(debug['g'])
@@ -126,21 +176,22 @@ clearfat(Node *nl)
 	agen(nl, &n1);
 	gconreg(AMOVL, 0, D_AX);
 
-	if(q >= 4) {
+	if(q > 128 || (q >= 4 && nacl)) {
 		gconreg(AMOVL, q, D_CX);
 		gins(AREP, N, N);	// repeat
 		gins(ASTOSL, N, N);	// STOL AL,*(DI)+
+	} else if(q >= 4) {
+		p = gins(ADUFFZERO, N, N);
+		p->to.type = D_ADDR;
+		p->to.sym = linksym(pkglookup("duffzero", runtimepkg));
+		// 1 and 128 = magic constants: see ../../pkg/runtime/asm_386.s
+		p->to.offset = 1*(128-q);
 	} else
 	while(q > 0) {
 		gins(ASTOSL, N, N);	// STOL AL,*(DI)+
 		q--;
 	}
 
-	if(c >= 4) {
-		gconreg(AMOVL, c, D_CX);
-		gins(AREP, N, N);	// repeat
-		gins(ASTOSB, N, N);	// STOB AL,*(DI)+
-	} else
 	while(c > 0) {
 		gins(ASTOSB, N, N);	// STOB AL,*(DI)+
 		c--;
@@ -236,7 +287,9 @@ ginscall(Node *f, int proc)
 		if(proc == 2) {
 			nodreg(&reg, types[TINT64], D_AX);
 			gins(ATESTL, &reg, &reg);
-			patch(gbranch(AJNE, T, -1), retpc);
+			p = gbranch(AJEQ, T, +1);
+			cgen_ret(N);
+			patch(p, pc);
 		}
 		break;
 	}
@@ -437,15 +490,15 @@ cgen_ret(Node *n)
 {
 	Prog *p;
 
-	genlist(n->list);		// copy out args
-	if(retpc) {
-		gjmp(retpc);
-		return;
-	}
+	if(n != N)
+		genlist(n->list);		// copy out args
+	if(hasdefer)
+		ginscall(deferreturn, 0);
+	genlist(curfn->exit);
 	p = gins(ARET, N, N);
-	if(n->op == ORETJMP) {
+	if(n != N && n->op == ORETJMP) {
 		p->to.type = D_EXTERN;
-		p->to.sym = n->left->sym;
+		p->to.sym = linksym(n->left->sym);
 	}
 }
 
@@ -663,6 +716,18 @@ dodiv(int op, Node *nl, Node *nr, Node *res, Node *ax, Node *dx)
 	gmove(&t2, &n1);
 	gmove(&t1, ax);
 	p2 = P;
+	if(nacl) {
+		// Native Client does not relay the divide-by-zero trap
+		// to the executing program, so we must insert a check
+		// for ourselves.
+		nodconst(&n4, t, 0);
+		gins(optoas(OCMP, t), &n1, &n4);
+		p1 = gbranch(optoas(ONE, t), T, +1);
+		if(panicdiv == N)
+			panicdiv = sysfunc("panicdivide");
+		ginscall(panicdiv, -1);
+		patch(p1, pc);
+	}
 	if(check) {
 		nodconst(&n4, t, -1);
 		gins(optoas(OCMP, t), &n1, &n4);
@@ -1246,8 +1311,8 @@ expandchecks(Prog *firstp)
 		p->link = p1;
 		p1->lineno = p->lineno;
 		p2->lineno = p->lineno;
-		p1->loc = 9999;
-		p2->loc = 9999;
+		p1->pc = 9999;
+		p2->pc = 9999;
 		p->as = ACMPL;
 		p->to.type = D_CONST;
 		p->to.offset = 0;

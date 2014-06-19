@@ -16,6 +16,7 @@
 package reflect
 
 import (
+	"runtime"
 	"strconv"
 	"sync"
 	"unsafe"
@@ -252,6 +253,7 @@ type rtype struct {
 	string        *string        // string form; unnecessary but undeniably useful
 	*uncommonType                // (relatively) uncommon fields
 	ptrToThis     *rtype         // type for pointer to this type, if used in binary or has methods
+	zero          unsafe.Pointer // pointer to zero value
 }
 
 // Method on non-interface type
@@ -477,6 +479,8 @@ func (t *rtype) FieldAlign() int { return int(t.fieldAlign) }
 
 func (t *rtype) Kind() Kind { return Kind(t.kind & kindMask) }
 
+func (t *rtype) pointers() bool { return t.kind&kindNoPointers == 0 }
+
 func (t *rtype) common() *rtype { return t }
 
 func (t *uncommonType) Method(i int) (m Method) {
@@ -495,7 +499,7 @@ func (t *uncommonType) Method(i int) (m Method) {
 	mt := p.typ
 	m.Type = mt
 	fn := unsafe.Pointer(&p.tfn)
-	m.Func = Value{mt, fn, fl}
+	m.Func = Value{mt, fn, 0, fl}
 	m.Index = i
 	return
 }
@@ -1089,6 +1093,7 @@ func (t *rtype) ptrTo() *rtype {
 
 	p.uncommonType = nil
 	p.ptrToThis = nil
+	p.zero = unsafe.Pointer(&make([]byte, p.size)[0])
 	p.elem = t
 
 	if t.kind&kindNoPointers != 0 {
@@ -1475,6 +1480,7 @@ func ChanOf(dir ChanDir, t Type) Type {
 	ch.elem = typ
 	ch.uncommonType = nil
 	ch.ptrToThis = nil
+	ch.zero = unsafe.Pointer(&make([]byte, ch.size)[0])
 
 	ch.gc = unsafe.Pointer(&chanGC{
 		width: ch.size,
@@ -1534,6 +1540,14 @@ func MapOf(key, elem Type) Type {
 	mt.hmap = hMapOf(mt.bucket)
 	mt.uncommonType = nil
 	mt.ptrToThis = nil
+	mt.zero = unsafe.Pointer(&make([]byte, mt.size)[0])
+	mt.gc = unsafe.Pointer(&ptrGC{
+		width:  unsafe.Sizeof(uintptr(0)),
+		op:     _GC_PTR,
+		off:    0,
+		elemgc: mt.hmap.gc,
+		end:    _GC_END,
+	})
 
 	// INCORRECT. Uncomment to check that TestMapOfGC and TestMapOfGCValues
 	// fail when mt.gc is wrong.
@@ -1565,6 +1579,10 @@ func bucketOf(ktyp, etyp *rtype) *rtype {
 	offset := _BUCKETSIZE * unsafe.Sizeof(uint8(0))                // topbits
 	gc = append(gc, _GC_PTR, offset, 0 /*self pointer set below*/) // overflow
 	offset += ptrsize
+
+	if runtime.GOARCH == "amd64p32" {
+		offset += 4
+	}
 
 	// keys
 	if ktyp.kind&kindNoPointers == 0 {
@@ -1709,6 +1727,7 @@ func SliceOf(t Type) Type {
 	slice.elem = typ
 	slice.uncommonType = nil
 	slice.ptrToThis = nil
+	slice.zero = unsafe.Pointer(&make([]byte, slice.size)[0])
 
 	if typ.size == 0 {
 		slice.gc = unsafe.Pointer(&sliceEmptyGCProg)
@@ -1778,6 +1797,7 @@ func arrayOf(count int, elem Type) Type {
 	// TODO: array.gc
 	array.uncommonType = nil
 	array.ptrToThis = nil
+	array.zero = unsafe.Pointer(&make([]byte, array.size)[0])
 	array.len = uintptr(count)
 	array.slice = slice.(*rtype)
 
@@ -1794,4 +1814,113 @@ func toType(t *rtype) Type {
 		return nil
 	}
 	return t
+}
+
+type layoutKey struct {
+	t    *rtype // function signature
+	rcvr *rtype // receiver type, or nil if none
+}
+
+type layoutType struct {
+	t         *rtype
+	argSize   uintptr // size of arguments
+	retOffset uintptr // offset of return values.
+}
+
+var layoutCache struct {
+	sync.RWMutex
+	m map[layoutKey]layoutType
+}
+
+// funcLayout computes a struct type representing the layout of the
+// function arguments and return values for the function type t.
+// If rcvr != nil, rcvr specifies the type of the receiver.
+// The returned type exists only for GC, so we only fill out GC relevant info.
+// Currently, that's just size and the GC program.  We also fill in
+// the name for possible debugging use.
+func funcLayout(t *rtype, rcvr *rtype) (frametype *rtype, argSize, retOffset uintptr) {
+	if t.Kind() != Func {
+		panic("reflect: funcLayout of non-func type")
+	}
+	if rcvr != nil && rcvr.Kind() == Interface {
+		panic("reflect: funcLayout with interface receiver " + rcvr.String())
+	}
+	k := layoutKey{t, rcvr}
+	layoutCache.RLock()
+	if x := layoutCache.m[k]; x.t != nil {
+		layoutCache.RUnlock()
+		return x.t, x.argSize, x.retOffset
+	}
+	layoutCache.RUnlock()
+	layoutCache.Lock()
+	if x := layoutCache.m[k]; x.t != nil {
+		layoutCache.Unlock()
+		return x.t, x.argSize, x.retOffset
+	}
+
+	tt := (*funcType)(unsafe.Pointer(t))
+
+	// compute gc program for arguments
+	gc := make([]uintptr, 1) // first entry is size, filled in at the end
+	offset := uintptr(0)
+	if rcvr != nil {
+		// Reflect uses the "interface" calling convention for
+		// methods, where receivers take one word of argument
+		// space no matter how big they actually are.
+		if rcvr.size > ptrSize {
+			// we pass a pointer to the receiver.
+			gc = append(gc, _GC_PTR, offset, uintptr(rcvr.gc))
+		} else if rcvr.pointers() {
+			// rcvr is a one-word pointer object.  Its gc program
+			// is just what we need here.
+			gc = appendGCProgram(gc, rcvr)
+		}
+		offset += ptrSize
+	}
+	for _, arg := range tt.in {
+		offset = align(offset, uintptr(arg.align))
+		if arg.pointers() {
+			gc = append(gc, _GC_REGION, offset, arg.size, uintptr(arg.gc))
+		}
+		offset += arg.size
+	}
+	argSize = offset
+	if runtime.GOARCH == "amd64p32" {
+		offset = align(offset, 8)
+	}
+	offset = align(offset, ptrSize)
+	retOffset = offset
+	for _, res := range tt.out {
+		offset = align(offset, uintptr(res.align))
+		if res.pointers() {
+			gc = append(gc, _GC_REGION, offset, res.size, uintptr(res.gc))
+		}
+		offset += res.size
+	}
+	gc = append(gc, _GC_END)
+	gc[0] = offset
+
+	// build dummy rtype holding gc program
+	x := new(rtype)
+	x.size = offset
+	x.gc = unsafe.Pointer(&gc[0])
+	var s string
+	if rcvr != nil {
+		s = "methodargs(" + *rcvr.string + ")(" + *t.string + ")"
+	} else {
+		s = "funcargs(" + *t.string + ")"
+	}
+	x.string = &s
+
+	// cache result for future callers
+	if layoutCache.m == nil {
+		layoutCache.m = make(map[layoutKey]layoutType)
+	}
+	layoutCache.m[k] = layoutType{
+		t:         x,
+		argSize:   argSize,
+		retOffset: retOffset,
+	}
+	layoutCache.Unlock()
+	return x, argSize, retOffset
 }
