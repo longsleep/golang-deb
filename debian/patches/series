@@ -1,1 +1,3 @@
 0001-backport-delete-whole-line.patch
+0002-archive-tar-reuse-temporary-buffer-in-writeHeader.patch
+0003-archive-tar-reuse-temporary-buffer-in-readHeader.patch

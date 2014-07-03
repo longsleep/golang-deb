@@ -1,0 +1,33 @@
+Description: archive/tar: reuse temporary buffer in writeHeader
+Author: Cristian Staretu <unclejacksons@gmail.com>
+Last-Update: 2014-07-03
+Forwarded: not-needed
+Origin: vendor, https://code.google.com/p/go/source/detail?r=837348e418f33fc7a242f56dbe2feff829532526#
+
+---
+
+diff -r c5f72a685e25 -r 837348e418f3 src/pkg/archive/tar/writer.go
+--- a/src/pkg/archive/tar/writer.go	Wed Jul 02 15:28:57 2014 -0700
++++ b/src/pkg/archive/tar/writer.go	Thu Jul 03 09:40:53 2014 +1000
+@@ -37,8 +37,9 @@
+ 	nb         int64 // number of unwritten bytes for current file entry
+ 	pad        int64 // amount of padding to write after current file entry
+ 	closed     bool
+-	usedBinary bool // whether the binary numeric field extension was used
+-	preferPax  bool // use pax header instead of binary numeric header
++	usedBinary bool            // whether the binary numeric field extension was used
++	preferPax  bool            // use pax header instead of binary numeric header
++	hdrBuff    [blockSize]byte // buffer to use in writeHeader
+ }
+ 
+ // NewWriter creates a new Writer writing to w.
+@@ -160,7 +161,8 @@
+ 	// subsecond time resolution, but for now let's just capture
+ 	// too long fields or non ascii characters
+ 
+-	header := make([]byte, blockSize)
++	header := tw.hdrBuff[:]
++	copy(header, zeroBlock)
+ 	s := slicer(header)
+ 
+ 	// keep a reference to the filename to allow to overwrite it later if we detect that we can use ustar longnames instead of pax
