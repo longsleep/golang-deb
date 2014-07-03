@@ -142,6 +142,13 @@ GOROOT_FINAL := $(libexecdir)
 GOBIN := $(CURDIR)$(bindir)
 GOARM :=
 
+# Always use the 387 floating point unit instead of sse2. This is important to
+# ensure that the binaries we build (both when compiling golang on the buildds
+# and when users cross-compile for 386) can actually run on older CPUs (where
+# old means e.g. an AMD Athlon XP 2400+). See http://bugs.debian.org/753160 and
+# https://code.google.com/p/go/issues/detail?id=8152
+GO386 := 387
+
 DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
 DEB_HOST_ARCH_OS := $(shell dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)
 DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
@@ -199,6 +206,6 @@ else
     $(error unrecognized instruction set $(DEB_HOST_ARCH_CPU)!)
 endif
 
-export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS
+export GOROOT GOROOT_FINAL GOOS GOARCH GOARM GOBIN GOHOSTARCH GOHOSTOS GO386
 
 .PHONY: build clean install binary-arch binary-indep binary
