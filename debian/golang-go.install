@@ -2,3 +2,4 @@ bin/go /usr/bin
 bin/gofmt /usr/bin
 pkg/obj /usr/lib/go/pkg/
 pkg/tool /usr/lib/go/pkg/
+VERSION /usr/lib/go/

@@ -1,8 +1,9 @@
 golang (2:1.3-3) unstable; urgency=medium
 
   * don’t depend on emacs23, depend on emacs instead (Closes: #754013)
+  * install include/ in golang-src, VERSION in golang-go (Closes: #693186)
 
- -- Michael Stapelberg <stapelberg@debian.org>  Mon, 07 Jul 2014 07:53:04 +0200
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 07 Jul 2014 08:30:50 +0200
 
 golang (2:1.3-2) unstable; urgency=medium
 
