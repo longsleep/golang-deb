@@ -1,2 +1,2 @@
 version=3
-http://code.google.com/p/go/wiki/Downloads .*/go([0-9.]*)\.src\.tar\.gz
+http://golang.org/dl/ .*/go([0-9.]*)\.src\.tar\.gz
