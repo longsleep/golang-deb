@@ -1,0 +1,82 @@
+Description: archive/tar: fix writing of pax headers
+Author: Cristian Staretu <unclejacksons@gmail.com>
+Last-Update: 2014-07-16
+Forwarded: not-needed
+Origin: vendor, https://code.google.com/p/go/source/detail?r=1b17b3426e3c281a973d2d7bbf235b936d6a0942
+
+---
+
+diff -r 278365dff593 -r 1b17b3426e3c src/pkg/archive/tar/writer.go
+--- a/src/pkg/archive/tar/writer.go
++++ b/src/pkg/archive/tar/writer.go
+@@ -39,7 +39,8 @@
+ 	closed     bool
+ 	usedBinary bool            // whether the binary numeric field extension was used
+ 	preferPax  bool            // use pax header instead of binary numeric header
+-	hdrBuff    [blockSize]byte // buffer to use in writeHeader
++	hdrBuff    [blockSize]byte // buffer to use in writeHeader when writing a regular header
++	paxHdrBuff [blockSize]byte // buffer to use in writeHeader when writing a pax header
+ }
+ 
+ // NewWriter creates a new Writer writing to w.
+@@ -161,7 +162,17 @@
+ 	// subsecond time resolution, but for now let's just capture
+ 	// too long fields or non ascii characters
+ 
+-	header := tw.hdrBuff[:]
++	var header []byte
++
++	// We need to select which scratch buffer to use carefully,
++	// since this method is called recursively to write PAX headers.
++	// If allowPax is true, this is the non-recursive call, and we will use hdrBuff.
++	// If allowPax is false, we are being called by writePAXHeader, and hdrBuff is
++	// already being used by the non-recursive call, so we must use paxHdrBuff.
++	header = tw.hdrBuff[:]
++	if !allowPax {
++		header = tw.paxHdrBuff[:]
++	}
+ 	copy(header, zeroBlock)
+ 	s := slicer(header)
+ 
+diff -r 278365dff593 -r 1b17b3426e3c src/pkg/archive/tar/writer_test.go
+--- a/src/pkg/archive/tar/writer_test.go
++++ b/src/pkg/archive/tar/writer_test.go
+@@ -454,3 +454,38 @@
+ 		t.Fatal("Couldn't recover long name")
+ 	}
+ }
++
++func TestValidTypeflagWithPAXHeader(t *testing.T) {
++	var buffer bytes.Buffer
++	tw := NewWriter(&buffer)
++
++	fileName := strings.Repeat("ab", 100)
++
++	hdr := &Header{
++		Name:     fileName,
++		Size:     4,
++		Typeflag: 0,
++	}
++	if err := tw.WriteHeader(hdr); err != nil {
++		t.Fatalf("Failed to write header: %s", err)
++	}
++	if _, err := tw.Write([]byte("fooo")); err != nil {
++		t.Fatalf("Failed to write the file's data: %s", err)
++	}
++	tw.Close()
++
++	tr := NewReader(&buffer)
++
++	for {
++		header, err := tr.Next()
++		if err == io.EOF {
++			break
++		}
++		if err != nil {
++			t.Fatalf("Failed to read header: %s", err)
++		}
++		if header.Typeflag != 0 {
++			t.Fatalf("Typeflag should've been 0, found %d", header.Typeflag)
++		}
++	}
++}
