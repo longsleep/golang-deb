@@ -1,9 +1,17 @@
-golang (2:1.3.2-2) UNRELEASED; urgency=medium
+golang (2:1.3.3-1) UNRELEASED; urgency=medium
 
+  * New upstream version (https://code.google.com/p/go/source/list?name=go1.3.3)
+    - time: removed from tests now obsolete assumption about Australian tz
+      abbreviations
+    - net: temporarily skip TestAcceptIgnoreSomeErrors
+    - runtime: hide cgocallback_gofunc calling cgocallbackg from linker
+    - runtime: fix GOTRACEBACK reading on Windows, Plan 9
+    - nacltest.bash: unset GOROOT
+    - cmd/5l, cmd/6l, cmd/8l: fix nacl binary corruption bug
   * Add Paul and myself as uploaders. Many, many thanks to Michael for his work
     so far on this package (and hopefully more to come).
 
- -- Tianon Gravi <admwiggin@gmail.com>  Tue, 25 Nov 2014 23:30:11 -0700
+ -- Tianon Gravi <admwiggin@gmail.com>  Wed, 26 Nov 2014 06:32:21 +0000
 
 golang (2:1.3.2-1) unstable; urgency=medium
 

@@ -1,2 +1,4 @@
 version=3
-http://golang.org/dl/ .*/go([0-9.]*)\.src\.tar\.gz
+opts=\
+uversionmangle=s/(\d)[_\.\-\+]?((RC|rc|pre|dev|beta|alpha)\d*)$/$1~$2/,\
+ http://golang.org/dl/ .*/go(\d\S*)\.src\.tar\.gz
