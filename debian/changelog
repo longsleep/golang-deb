@@ -1,3 +1,10 @@
+golang (2:1.3.2-2) UNRELEASED; urgency=medium
+
+  * Add Paul and myself as uploaders. Many, many thanks to Michael for his work
+    so far on this package (and hopefully more to come).
+
+ -- Tianon Gravi <admwiggin@gmail.com>  Tue, 25 Nov 2014 23:30:11 -0700
+
 golang (2:1.3.2-1) unstable; urgency=medium
 
   * New upstream version
