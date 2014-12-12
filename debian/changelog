@@ -1,4 +1,4 @@
-golang (2:1.3.3-1) UNRELEASED; urgency=medium
+golang (2:1.3.3-1) unstable; urgency=medium
 
   * New upstream version (https://code.google.com/p/go/source/list?name=go1.3.3)
     - time: removed from tests now obsolete assumption about Australian tz
@@ -11,7 +11,7 @@ golang (2:1.3.3-1) UNRELEASED; urgency=medium
   * Add Paul and myself as uploaders. Many, many thanks to Michael for his work
     so far on this package (and hopefully more to come).
 
- -- Tianon Gravi <admwiggin@gmail.com>  Wed, 26 Nov 2014 06:32:21 +0000
+ -- Tianon Gravi <admwiggin@gmail.com>  Fri, 12 Dec 2014 16:11:02 -0500
 
 golang (2:1.3.2-1) unstable; urgency=medium
 
