@@ -101,29 +101,3 @@ Description: Go programming language compiler - metapackage
  .
  This package is a metapackage that, when installed, guarantees
  that (most of) a full Go development environment is installed.
-
-Package: golang-mode
-Architecture: all
-Depends: ${misc:Depends}, emacs | emacsen, emacsen-common (>= 2.0.8)
-Conflicts: emacsen-common (<< 2.0.0)
-Suggests: golang-go
-Description: Go programming language - mode for GNU Emacs
- This package provides a GNU Emacs major mode for editing code in
- Google's Go programming language.
-
-Package: kate-syntax-go
-Architecture: all
-Depends: ${misc:Depends}, kate
-Suggests: golang-go
-Description: Go programming language - Kate highlighting syntax files
- This package provides syntax files for the Kate editor for editing code
- in Google's Go programming language.
-
-Package: vim-syntax-go
-Architecture: all
-Depends: ${misc:Depends}, vim
-Recommends: vim-addon-manager
-Suggests: golang-go
-Description: Go programming language - Vim highlighting syntax files
- This package provides syntax files for the Vim editor for editing code
- in Google's Go programming language.

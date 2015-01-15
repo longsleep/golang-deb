@@ -1,5 +1,0 @@
-misc/vim/ftdetect/*.vim /usr/share/vim/addons/ftdetect/
-misc/vim/syntax/*.vim /usr/share/vim/addons/syntax/
-misc/vim/ftplugin/go/*.vim /usr/share/vim/addons/ftplugin/go/
-misc/vim/indent/*.vim /usr/share/vim/addons/indent/
-debian/vim-registry/*.yaml /usr/share/vim/registry/

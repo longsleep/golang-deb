@@ -1,8 +1,0 @@
-addon: go-syntax
-description: "Addon to highlight Google's Go"
-files:
-  - syntax/go.vim
-  - ftdetect/gofiletype.vim
-  - ftplugin/go/fmt.vim
-  - ftplugin/go/import.vim
-  - indent/go.vim

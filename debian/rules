@@ -73,7 +73,7 @@ override_dh_install:
 	done
 	dh_install --fail-missing
 	# Remove .syso files of the race detector; it is not used yet and the files are arch-dependent.
-	find $(CURDIR)/debian/golang-src/usr/share/go/src/pkg/runtime/race -type f -name '*.syso' -delete
+	find $(CURDIR)/debian/golang-src/usr/share/go/src/runtime/race -type f -name '*.syso' -delete
 	# Remove Plan9 rc(1) scripts
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name "*.rc" -delete
 	# Remove empty /usr/share/go/src from golang-go, it is provided by golang-src
