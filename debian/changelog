@@ -1,4 +1,4 @@
-golang (2:1.4-1) experimental; urgency=low
+golang (2:1.4.1-1) experimental; urgency=low
 
   * New upstream version (https://golang.org/doc/go1.4)
     - all editor support files have been removed from misc/ upstream upstream,
