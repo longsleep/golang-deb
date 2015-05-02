@@ -10,7 +10,7 @@ Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-golang/golang.git
 Vcs-Git: git://anonscm.debian.org/pkg-golang/golang.git
 Build-Depends: debhelper (>= 7.4.10), bison, ed, mawk | awk, perl, netbase
 Build-Depends-Indep: po-debconf
-Standards-Version: 3.9.3
+Standards-Version: 3.9.6
 Homepage: http://golang.org/
 
 Package: golang-go
