@@ -19,8 +19,15 @@ case "$1" in
 		rm -f $conffile
 		rmdir /etc/golang || true
 	fi
-	# Very ugly hack to set timestamps same as /usr/bin/go
-	find /usr/lib/go/pkg -exec touch -r /usr/bin/go {} \;
+	# Very ugly hack to set timestamps same as /usr/lib/go/bin/go
+	find /usr/lib/go/pkg -exec touch -r /usr/lib/go/bin/go {} \;
+	# Setup alternatives
+	# Priority: base of 100 + go version; 1.4.2 = 100 + 42)
+	go=$(/usr/lib/go/bin/go version | awk '{ gsub(/^go1|[.]/, "", $3); print $3 }')
+	priority=$(( 100 + $go ))
+	update-alternatives \
+		--install /usr/bin/go go /usr/lib/go/bin/go $priority \
+		--slave /usr/bin/gofmt gofmt /usr/lib/go/bin/gofmt
 	;;
     *)
 	;;
