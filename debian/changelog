@@ -1,3 +1,10 @@
+golang (2:1.4.2-1) UNRELEASED; urgency=low
+
+  * New upstream version
+    (https://golang.org/doc/devel/release.html#go1.4.minor)
+
+ -- Tianon Gravi <admwiggin@gmail.com>  Sat, 02 May 2015 16:04:02 +0000
+
 golang (2:1.4.1-1~exp1) experimental; urgency=low
 
   * New upstream version (https://golang.org/doc/go1.4)
