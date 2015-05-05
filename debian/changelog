@@ -1,8 +1,8 @@
-golang (2:1.4.2-3) UNRELEASED; urgency=medium
+golang (2:1.4.2-3) unstable; urgency=medium
 
   * Add missing "prerm" for our new alternatives (thanks piuparts).
 
- -- Tianon Gravi <admwiggin@gmail.com>  Tue, 05 May 2015 23:25:05 +0000
+ -- Tianon Gravi <admwiggin@gmail.com>  Tue, 05 May 2015 17:38:37 -0600
 
 golang (2:1.4.2-2) unstable; urgency=medium
 
