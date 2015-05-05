@@ -1,4 +1,4 @@
-golang (2:1.4.2-2) UNRELEASED; urgency=medium
+golang (2:1.4.2-2) unstable; urgency=medium
 
   * Move "go" and "gofmt" into "/usr/lib/go" and use alternatives to provide
     appropriate symlinks (Closes: #779503, #782301).
@@ -6,7 +6,7 @@ golang (2:1.4.2-2) UNRELEASED; urgency=medium
   * Add "go get" VCS options to Suggests for golang-go (bzr, git, mercurial,
     subversion).
 
- -- Tianon Gravi <admwiggin@gmail.com>  Sat, 02 May 2015 22:39:22 +0000
+ -- Tianon Gravi <admwiggin@gmail.com>  Tue, 05 May 2015 00:37:53 -0600
 
 golang (2:1.4.2-1) unstable; urgency=medium
 
