@@ -1,23 +1,54 @@
-Source: https://go.googlecode.com/hg/
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: golang
+Source: https://github.com/golang/go
 
 Files: *
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
-Files: include/*, src/lib9/*, src/libbio/*, src/pkg/runtime/386/*,
- src/libmach/*, src/pkg/runtime/arm/vlop.s, src/pkg/runtime/arm/vlrt.c,
- src/pkg/runtime/arm/memset.s, src/pkg/runtime/arm/memmove.s,
- src/pkg/runtime/amd64/memmove.s, src/pkg/runtime/amd64/memmove.s,
- src/pkg/math/fltasm_amd64.s, src/cmd/6c/txt.c, src/cmd/gopack/ar.c,
- src/cmd/ld/lib.[ch], src/cmd/6a/a.[yh], src/cmd/6a/lex.c,
- src/cmd/5g/gobj.c, src/cmd/5g/list.c, src/cmd/5g/gsubr.c,
- src/cmd/5g/opt.h, src/cmd/8c/*, src/cmd/goyacc/goyacc.go,
- src/cmd/5l/*, src/cmd/6g/reg.c, src/cmd/6g/gobj.c,
- src/cmd/6g/peep.c, src/cmd/6g/list.c, src/cmd/6g/gsubr.c,
- src/cmd/6g/opt.c, src/cmd/8l/*, src/cmd/nm/nm.c,
- src/cmd/gc/bits.c, src/cmd/cc/*, src/cmd/5a/*, src/cmd/8g/reg.c,
- src/cmd/8g/gobj.c, src/cmd/8g/peep.c, src/cmd/8g/list.c,
- src/cmd/8g/gsubr.c, src/cmd/8g/opt.h, src/cmd/5c/*, src/cmd/6l/*,
+Files: include/*
+ src/lib9/*
+ src/libbio/*
+ src/runtime/386/*
+ src/libmach/*
+ src/runtime/arm/vlop.s
+ src/runtime/arm/vlrt.c
+ src/runtime/arm/memset.s
+ src/runtime/arm/memmove.s
+ src/runtime/amd64/memmove.s
+ src/runtime/amd64/memmove.s
+ src/math/fltasm_amd64.s
+ src/cmd/6c/txt.c
+ src/cmd/gopack/ar.c
+ src/cmd/ld/lib.[ch]
+ src/cmd/6a/a.[yh]
+ src/cmd/6a/lex.c
+ src/cmd/5g/gobj.c
+ src/cmd/5g/list.c
+ src/cmd/5g/gsubr.c
+ src/cmd/5g/opt.h
+ src/cmd/8c/*
+ src/cmd/goyacc/goyacc.go
+ src/cmd/5l/*
+ src/cmd/6g/reg.c
+ src/cmd/6g/gobj.c
+ src/cmd/6g/peep.c
+ src/cmd/6g/list.c
+ src/cmd/6g/gsubr.c
+ src/cmd/6g/opt.c
+ src/cmd/8l/*
+ src/cmd/nm/nm.c
+ src/cmd/gc/bits.c
+ src/cmd/cc/*
+ src/cmd/5a/*
+ src/cmd/8g/reg.c
+ src/cmd/8g/gobj.c
+ src/cmd/8g/peep.c
+ src/cmd/8g/list.c
+ src/cmd/8g/gsubr.c
+ src/cmd/8g/opt.h
+ src/cmd/5c/*
+ src/cmd/6l/*
  src/cmd/8a/*
 Origin: Plan 9 from User Space include/, src/lib9/, src/libmach/
         Inferno utils/include/, utils/libmach/, utils/6c/, utils/iar/,
@@ -34,22 +65,42 @@ Copyright: © 1994-1999 Lucent Technologies Inc.  All rights reserved.
            Portions © 2009 The Go Authors.  All rights reserved.
 License: X11
 
-Files: src/lib9/goos.c, src/lib9/win32.c, src/lib9/Makefile,
- src/pkg/runtime/386/asm.s, src/pkg/runtime/386/closure.c,
- src/pkg/runtime/arm/asm.s, src/pkg/runtime/arm/closure.c,
- src/pkg/runtime/arm/cas5.s, src/libmach/fakeobj.c,
- src/libmach/macho.h, src/cmd/6c/doc.go, src/cmd/6c/Makefile,
- src/cmd/8c/doc.go, src/cmd/8c/Makefile, src/cmd/5l/doc.go,
- src/cmd/5l/softfloat.c, src/cmd/5l/Makefile, src/cmd/8l/doc.go,
- src/cmd/8l/Makefile, src/cmd/cc/doc.go, src/cmd/cc/Makefile,
- src/cmd/5a/doc.go, src/cmd/5a/Makefile, src/cmd/5c/doc.go,
- src/cmd/5c/Makefile, src/cmd/6l/doc.go, src/cmd/6l/Makefile,
- src/cmd/8a/doc.go, src/cmd/8a/Makefile
+Files: src/lib9/goos.c
+ src/lib9/win32.c
+ src/lib9/Makefile
+ src/runtime/386/asm.s
+ src/runtime/386/closure.c
+ src/runtime/arm/asm.s
+ src/runtime/arm/closure.c
+ src/runtime/arm/cas5.s
+ src/libmach/fakeobj.c
+ src/libmach/macho.h
+ src/cmd/6c/doc.go
+ src/cmd/6c/Makefile
+ src/cmd/8c/doc.go
+ src/cmd/8c/Makefile
+ src/cmd/5l/doc.go
+ src/cmd/5l/softfloat.c
+ src/cmd/5l/Makefile
+ src/cmd/8l/doc.go
+ src/cmd/8l/Makefile
+ src/cmd/cc/doc.go
+ src/cmd/cc/Makefile
+ src/cmd/5a/doc.go
+ src/cmd/5a/Makefile
+ src/cmd/5c/doc.go
+ src/cmd/5c/Makefile
+ src/cmd/6l/doc.go
+ src/cmd/6l/Makefile
+ src/cmd/8a/doc.go
+ src/cmd/8a/Makefile
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
-Files: include/fmt.h, src/lib9/utf/*, src/lib9/fmt/*,
- src/pkg/runtime/rune.c
+Files: include/fmt.h
+ src/lib9/utf/*
+ src/lib9/fmt/*
+ src/runtime/rune.c
 Copyright: © 1998-2002 by Lucent Technologies.
            Portions © 2004 Google Inc.
            Portions © 2009 The Go Authors.  All rights reserved.
@@ -91,36 +142,39 @@ Notes:
  It's convenient to have a copy here because we need just the one
  Perl script, not all the C++ libraries that surround it.
 
-Files: src/pkg/runtime/tiny/bootblock
+Files: src/runtime/tiny/bootblock
 Origin: Xv6 rev3
 Copyright: © 2006-2009 Frans Kaashoek, Robert Morris, Russ Cox,
                        Massachusetts Institute of Technology
 License: X11
 
-Files: src/pkg/debug/dwarf/testdata/typedef.macho,
- src/pkg/debug/dwarf/testdata/typedef.elf
-Source: src/pkg/debug/dwarf/testdata/typedef.c
+Files: src/debug/dwarf/testdata/typedef.macho
+ src/debug/dwarf/testdata/typedef.elf
+Source: src/debug/dwarf/testdata/typedef.c
 Copyright: © 2009, The Go Authors.  All rights reserved.
 License: Go
 
-Files: src/pkg/debug/macho/testdata/gcc-amd64-darwin-exec-debug,
- src/pkg/debug/macho/testdata/gcc-386-darwin-exec,
- src/pkg/debug/macho/testdata/gcc-amd64-darwin-exec,
- src/pkg/debug/elf/testdata/go-relocation-test-gcc424-x86-64.o,
- src/pkg/debug/elf/testdata/gcc-amd64-linux-exec,
- src/pkg/debug/elf/testdata/go-relocation-test-gcc441-x86.o,
- src/pkg/debug/elf/testdata/gcc-386-freebsd-exec,
- src/pkg/debug/elf/testdata/go-relocation-test-gcc441-x86-64.o
+Files: src/debug/macho/testdata/gcc-amd64-darwin-exec-debug
+ src/debug/macho/testdata/gcc-386-darwin-exec
+ src/debug/macho/testdata/gcc-amd64-darwin-exec
+ src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.o
+ src/debug/elf/testdata/gcc-amd64-linux-exec
+ src/debug/elf/testdata/go-relocation-test-gcc441-x86.o
+ src/debug/elf/testdata/gcc-386-freebsd-exec
+ src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.o
 Source: ?
+Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
+License: Go
 
-Files: src/pkg/debug/elf/elf.go, src/cmd/ld/elf.h
+Files: src/debug/elf/elf.go
+ src/cmd/ld/elf.h
 Origin: FreeBSD src/sys/sys/elf{32,64,_common}.h, src/sys/*/include/elf.h
 Copyright: © 1996-1998 John D. Polstra.  All rights reserved.
            © 2001 David E. O'Brien
            Portions © 2009 The Go Authors.  All rights reserved.
 License: FreeBSD
 
-Files: src/pkg/math/log1p.go
+Files: src/math/log1p.go
 Origin: Translated and simplified from FreeBSD /usr/src/lib/msun/src/s_log1p.c
 Copyright: © 2010 The Go Authors. All rights reserved.
            Based on code © 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -138,20 +192,21 @@ License: Go
  software is freely granted, provided that this notice
  is preserved.
 
-Files: src/pkg/image/jpeg/idct.go
+Files: src/image/jpeg/idct.go
 Origin: Translated from idct.c in the MPEG-2 (ISO/IEC 13818-4)
          technical report video software verifier (mpeg2decode)
          version 960109
 Copyright: © 1996, MPEG Software Simulation Group. All Rights Reserved.
 License: MPEG
 
-Files: src/pkg/exp/spacewar/pdp1.go, src/pkg/exp/spacewar/spacewar.go
+Files: src/exp/spacewar/pdp1.go
+ src/exp/spacewar/spacewar.go
 Origin: Translated from the Java emulator pdp1.java in Spacewar!
 Copyright: © 1996 Barry Silverman, Brian Silverman, Vadim Gerasimov.
            Portions © 2009 The Go Authors.
 License: Spacewar!
 
-Files: src/pkg/exp/spacewar/code.go
+Files: src/exp/spacewar/code.go
 Origin: The original Spacewar!
 Copyright: See license
 License: PD
@@ -184,7 +239,8 @@ License: PD
       Brian Silverman
       Vadim Gerasimov
 
-Files: src/pkg/exp/4s/xs.go, src/pkg/exp/4s/data.go
+Files: src/exp/4s/xs.go
+ src/exp/4s/data.go
 Origin: Derived from Plan 9's /sys/src/games/xs.c
 Copyright: © 2003, Lucent Technologies Inc. and others. All Rights Reserved.
            Portions © 2009 The Go Authors.  All Rights Reserved.
@@ -201,12 +257,12 @@ Copyright: © 2003, Lucent Technologies Inc. and others. All Rights Reserved.
            Portions © 2009 The Go Authors.  All Rights Reserved.
 License: Plan9
 
-Files: src/pkg/html/testdata/webkit/*
+Files: src/html/testdata/webkit/*
 Origin: WebKit LayoutTests/html5lib/resources/
 Copyright: © 2009, Apple Inc. All rights reserved.
 License: WebKit
 
-Files: src/pkg/image/png/testdata/pngsuite/*
+Files: src/image/png/testdata/pngsuite/*
 Origin: libpng 1.2.40, contrib/pngsuite/*
 Copyright: © Willem van Schaik, 1999
 License: noderivs
@@ -230,11 +286,13 @@ Authors: contributed by The Go Authors.
                               modified by Michael Mellor)
 License: Shootout
 
-Files: test/garbage/tree.go, test/bench/*
+Files: test/garbage/tree.go
+ test/bench/*
 Copyright: Brent Fulgham
 License: Shootout
 
-Files: favicon.ico, doc/gopher/*
+Files: favicon.ico
+ doc/gopher/*
 Author: Renée French
 License: CC-BY-3.0
  The mascot and logo were designed by
@@ -253,10 +311,18 @@ License: CC-BY-3.0
  Except as noted, this content is licensed under Creative Commons
  Attribution 3.0
 
-Files: doc/htmlgen.go, doc/makehtml, doc/popups.js, doc/style.css,
- doc/Makefile, doc/codelab/wiki/Makefile, doc/prog.sh, doc/progs/*,
- doc/codewalk/codewalk.css, doc/codewalk/codewalk.js,
- doc/codewalk/urlpoll.go, doc/talks/io2010/*.go
+Files: doc/htmlgen.go
+ doc/makehtml
+ doc/popups.js
+ doc/style.css
+ doc/Makefile
+ doc/codelab/wiki/Makefile
+ doc/prog.sh
+ doc/progs/*
+ doc/codewalk/codewalk.css
+ doc/codewalk/codewalk.js
+ doc/codewalk/urlpoll.go
+ doc/talks/io2010/*.go
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
@@ -272,8 +338,10 @@ License: W3C
 
 Files: debian/*
 Copyright: 2010 Ivan Wong <ivanwyc@gmail.com>
-           2010-2013 Ondřej Surý <ondrej@debian.org>
-           2013 Michael Stapelberg <stapelberg@debian.org>
+           2010 Ondřej Surý <ondrej@debian.org>
+           2012 Michael Stapelberg <stapelberg@debian.org>
+           2014 Canonical Ltd
+           2014 Tianon Gravi <admwiggin@gmail.com>
 License: Go
 
 License: Go
