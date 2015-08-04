@@ -2,8 +2,6 @@
 # This file is in the public domain.
 # You may freely use, modify, distribute, and relicense it.
 
-PACKAGE = golang
-
 libexecdir := /usr/lib/go
 datadir := /usr/share/go
 bindir := /bin
@@ -29,7 +27,7 @@ else
 endif
 
 override_dh_compress:
-	dh_compress -Xusr/share/doc/$(PACKAGE)-doc/html -Xusr/share/doc/$(PACKAGE)-doc/godoc
+	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
 
 override_dh_install:
 	# Install the native runtime/cgo.a to the golang-go package.
@@ -49,8 +47,6 @@ override_dh_install:
 	find $(CURDIR)/debian/golang-src/usr/share/go/src -type f -name "*.rc" -delete
 	# Remove empty /usr/share/go/src from golang-go, it is provided by golang-src
 	find $(CURDIR)/debian/golang-go/usr/share/go/src -type d -delete
-	# Subsequently, /usr/share/go is empty, too, so remove
-	find $(CURDIR)/debian/golang-go/usr/share/go -type d -delete
 	# Touch built and installed files and directories to have same timestamp
 	touch $(CURDIR)/debian/golang-go/usr/lib/go/pkg
 	find $(CURDIR)/debian/golang-go/usr/lib/go/pkg -exec touch -r $(CURDIR)/debian/golang-go/usr/lib/go/pkg {} \;

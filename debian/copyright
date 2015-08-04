@@ -162,7 +162,7 @@ Files: src/debug/macho/testdata/gcc-amd64-darwin-exec-debug
  src/debug/elf/testdata/go-relocation-test-gcc441-x86.o
  src/debug/elf/testdata/gcc-386-freebsd-exec
  src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.o
-Source: ?
+Source: src/debug/elf/testdata/hello.c
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
