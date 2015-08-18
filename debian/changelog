@@ -12,7 +12,7 @@ golang (2:1.5~rc1-1) UNRELEASED; urgency=low
     - Fixes for CVE-2015-5739, CVE-2015-5740, CVE-2015-5741 (Closes: #795106)
   * Sync debian/copyright with the Ubuntu delta. (thanks doko!)
 
- -- Tianon Gravi <admwiggin@gmail.com>  Wed, 22 Jul 2015 21:55:56 -0700
+ -- Tianon Gravi <tianon@debian.org>  Wed, 22 Jul 2015 21:55:56 -0700
 
 golang (2:1.4.2-3) unstable; urgency=medium
 

@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Go Compiler Team <pkg-golang-devel@lists.alioth.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
-           Tianon Gravi <admwiggin@gmail.com>
+           Tianon Gravi <tianon@debian.org>
 Vcs-Browser: https://anonscm.debian.org/cgit/pkg-golang/golang.git
 Vcs-Git: git://anonscm.debian.org/pkg-golang/golang.git
 Build-Depends: debhelper (>= 7.4.10), bison, ed, mawk | awk, perl, netbase,
