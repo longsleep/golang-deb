@@ -36,6 +36,7 @@ syntax of package template.  The default output is equivalent to -f
         Name          string // package name
         Doc           string // package documentation string
         Target        string // install path
+        Shlib         string // the shared library that contains this package (only set when -linkshared)
         Goroot        bool   // is this package in the Go root?
         Standard      bool   // is this package part of the standard Go library?
         Stale         bool   // would 'go install' do anything for this package?
@@ -126,6 +127,7 @@ var listJson = cmdList.Flag.Bool("json", false, "")
 var nl = []byte{'\n'}
 
 func runList(cmd *Command, args []string) {
+	buildModeInit()
 	out := newTrackingWriter(os.Stdout)
 	defer out.w.Flush()
 
@@ -173,6 +175,10 @@ func runList(cmd *Command, args []string) {
 	}
 
 	for _, pkg := range load(args) {
+		// Show vendor-expanded paths in listing
+		pkg.TestImports = pkg.vendored(pkg.TestImports)
+		pkg.XTestImports = pkg.vendored(pkg.XTestImports)
+
 		do(pkg)
 	}
 }

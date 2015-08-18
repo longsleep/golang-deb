@@ -242,6 +242,7 @@ var jointests = []JoinTest{
 
 	// one parameter
 	{[]string{""}, ""},
+	{[]string{"/"}, "/"},
 	{[]string{"a"}, "a"},
 
 	// two parameters
@@ -249,10 +250,16 @@ var jointests = []JoinTest{
 	{[]string{"a", ""}, "a"},
 	{[]string{"", "b"}, "b"},
 	{[]string{"/", "a"}, "/a"},
+	{[]string{"/", "a/b"}, "/a/b"},
 	{[]string{"/", ""}, "/"},
+	{[]string{"//", "a"}, "/a"},
+	{[]string{"/a", "b"}, "/a/b"},
 	{[]string{"a/", "b"}, "a/b"},
 	{[]string{"a/", ""}, "a"},
 	{[]string{"", ""}, ""},
+
+	// three parameters
+	{[]string{"/", "a", "b"}, "/a/b"},
 }
 
 var winjointests = []JoinTest{
@@ -262,13 +269,17 @@ var winjointests = []JoinTest{
 	{[]string{`C:\`, `Windows`}, `C:\Windows`},
 	{[]string{`C:`, `Windows`}, `C:\Windows`},
 	{[]string{`\\host\share`, `foo`}, `\\host\share\foo`},
+	{[]string{`\\host\share\foo`}, `\\host\share\foo`},
 	{[]string{`//host/share`, `foo/bar`}, `\\host\share\foo\bar`},
-}
-
-// join takes a []string and passes it to Join.
-func join(elem []string, args ...string) string {
-	args = elem
-	return filepath.Join(args...)
+	{[]string{`\`}, `\`},
+	{[]string{`\`, ``}, `\`},
+	{[]string{`\`, `a`}, `\a`},
+	{[]string{`\\`, `a`}, `\a`},
+	{[]string{`\`, `a`, `b`}, `\a\b`},
+	{[]string{`\\`, `a`, `b`}, `\a\b`},
+	{[]string{`\`, `\\a\b`, `c`}, `\a\b\c`},
+	{[]string{`\\a`, `b`, `c`}, `\a\b\c`},
+	{[]string{`\\a\`, `b`, `c`}, `\a\b\c`},
 }
 
 func TestJoin(t *testing.T) {
@@ -276,8 +287,9 @@ func TestJoin(t *testing.T) {
 		jointests = append(jointests, winjointests...)
 	}
 	for _, test := range jointests {
-		if p := join(test.elem); p != filepath.FromSlash(test.path) {
-			t.Errorf("join(%q) = %q, want %q", test.elem, p, test.path)
+		expected := filepath.FromSlash(test.path)
+		if p := filepath.Join(test.elem...); p != expected {
+			t.Errorf("join(%q) = %q, want %q", test.elem, p, expected)
 		}
 	}
 }
@@ -387,7 +399,34 @@ func mark(path string, info os.FileInfo, err error, errors *[]error, clear bool)
 	return nil
 }
 
+func chtmpdir(t *testing.T) (restore func()) {
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal("chtmpdir: %v", err)
+	}
+	d, err := ioutil.TempDir("", "test")
+	if err != nil {
+		t.Fatal("chtmpdir: %v", err)
+	}
+	if err := os.Chdir(d); err != nil {
+		t.Fatal("chtmpdir: %v", err)
+	}
+	return func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal("chtmpdir: %v", err)
+		}
+		os.RemoveAll(d)
+	}
+}
+
 func TestWalk(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		switch runtime.GOARCH {
+		case "arm", "arm64":
+			restore := chtmpdir(t)
+			defer restore()
+		}
+	}
 	makeTree(t)
 	errors := make([]error, 0, 10)
 	clear := true
@@ -468,6 +507,35 @@ func touch(t *testing.T, name string) {
 	}
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWalkSkipDirOnFile(t *testing.T) {
+	td, err := ioutil.TempDir("", "walktest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(td)
+
+	if err := os.MkdirAll(filepath.Join(td, "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, filepath.Join(td, "dir/foo1"))
+	touch(t, filepath.Join(td, "dir/foo2"))
+
+	sawFoo2 := false
+	filepath.Walk(td, func(path string, info os.FileInfo, err error) error {
+		if strings.HasSuffix(path, "foo2") {
+			sawFoo2 = true
+		}
+		if strings.HasSuffix(path, "foo1") {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+
+	if sawFoo2 {
+		t.Errorf("SkipDir on file foo1 did not block processing of foo2")
 	}
 }
 
@@ -996,7 +1064,13 @@ func TestDriveLetterInEvalSymlinks(t *testing.T) {
 	}
 }
 
-func TestBug3486(t *testing.T) { // http://code.google.com/p/go/issues/detail?id=3486
+func TestBug3486(t *testing.T) { // https://golang.org/issue/3486
+	if runtime.GOOS == "darwin" {
+		switch runtime.GOARCH {
+		case "arm", "arm64":
+			t.Skipf("skipping on %s/%s", runtime.GOOS, runtime.GOARCH)
+		}
+	}
 	root, err := filepath.EvalSymlinks(runtime.GOROOT() + "/test")
 	if err != nil {
 		t.Fatal(err)

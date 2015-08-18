@@ -6,7 +6,8 @@
 // /usr/src/sys/kern/syscalls.master for syscall numbers.
 //
 
-#include "zasm_GOOS_GOARCH.h"
+#include "go_asm.h"
+#include "go_tls.h"
 #include "textflag.h"
 
 #define	CLOCK_MONOTONIC	$3
@@ -30,24 +31,32 @@ TEXT runtime·exit1(SB),NOSPLIT,$8
 TEXT runtime·open(SB),NOSPLIT,$-4
 	MOVL	$5, AX
 	INT	$0x80
+	JAE	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
-TEXT runtime·close(SB),NOSPLIT,$-4
+TEXT runtime·closefd(SB),NOSPLIT,$-4
 	MOVL	$6, AX
 	INT	$0x80
+	JAE	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+4(FP)
 	RET
 
 TEXT runtime·read(SB),NOSPLIT,$-4
 	MOVL	$3, AX
 	INT	$0x80
+	JAE	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
 TEXT runtime·write(SB),NOSPLIT,$-4
 	MOVL	$4, AX			// sys_write
 	INT	$0x80
+	JAE	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
@@ -72,6 +81,17 @@ TEXT runtime·usleep(SB),NOSPLIT,$24
 
 TEXT runtime·raise(SB),NOSPLIT,$12
 	MOVL	$299, AX		// sys_getthrid
+	INT	$0x80
+	MOVL	$0, 0(SP)
+	MOVL	AX, 4(SP)		// arg 1 - pid
+	MOVL	sig+0(FP), AX
+	MOVL	AX, 8(SP)		// arg 2 - signum
+	MOVL	$37, AX			// sys_kill
+	INT	$0x80
+	RET
+
+TEXT runtime·raiseproc(SB),NOSPLIT,$12
+	MOVL	$20, AX			// sys_getpid
 	INT	$0x80
 	MOVL	$0, 0(SP)
 	MOVL	AX, 4(SP)		// arg 1 - pid
@@ -186,7 +206,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$44
 	MOVL	BX, 0(SP)
 	MOVL	$runtime·badsignal(SB), AX
 	CALL	AX
-	JMP 	sigtramp_ret
+	JMP 	ret
 
 	// save g
 	MOVL	DI, 20(SP)
@@ -212,7 +232,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$44
 	MOVL	20(SP), BX
 	MOVL	BX, g(CX)
 
-sigtramp_ret:
+ret:
 	// call sigreturn
 	MOVL	context+8(FP), AX
 	MOVL	$0, 0(SP)		// syscall gap
@@ -316,9 +336,9 @@ TEXT runtime·setldt(SB),NOSPLIT,$4
 	RET
 
 TEXT runtime·settls(SB),NOSPLIT,$8
-	// adjust for ELF: wants to use -8(GS) and -4(GS) for g and m
+	// adjust for ELF: wants to use -4(GS) for g
 	MOVL	tlsbase+0(FP), CX
-	ADDL	$8, CX
+	ADDL	$4, CX
 	MOVL	$0, 0(SP)		// syscall gap
 	MOVL	CX, 4(SP)		// arg 1 - tcb
 	MOVL	$329, AX		// sys___set_tcb

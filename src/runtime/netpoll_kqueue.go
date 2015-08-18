@@ -25,7 +25,7 @@ func netpollinit() {
 	kq = kqueue()
 	if kq < 0 {
 		println("netpollinit: kqueue failed with", -kq)
-		gothrow("netpollinit: kqueue failed")
+		throw("netpollinit: kqueue failed")
 	}
 	closeonexec(kq)
 }
@@ -57,14 +57,14 @@ func netpollclose(fd uintptr) int32 {
 }
 
 func netpollarm(pd *pollDesc, mode int) {
-	gothrow("unused")
+	throw("unused")
 }
 
 // Polls for ready network connections.
 // Returns list of goroutines that become runnable.
-func netpoll(block bool) (gp *g) {
+func netpoll(block bool) *g {
 	if kq == -1 {
-		return
+		return nil
 	}
 	var tp *timespec
 	var ts timespec
@@ -81,6 +81,7 @@ retry:
 		}
 		goto retry
 	}
+	var gp guintptr
 	for i := 0; i < int(n); i++ {
 		ev := &events[i]
 		var mode int32
@@ -91,11 +92,11 @@ retry:
 			mode += 'w'
 		}
 		if mode != 0 {
-			netpollready((**g)(noescape(unsafe.Pointer(&gp))), (*pollDesc)(unsafe.Pointer(ev.udata)), mode)
+			netpollready(&gp, (*pollDesc)(unsafe.Pointer(ev.udata)), mode)
 		}
 	}
-	if block && gp == nil {
+	if block && gp == 0 {
 		goto retry
 	}
-	return gp
+	return gp.ptr()
 }
