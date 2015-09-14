@@ -1,11 +1,11 @@
-golang (2:1.4.2-4) UNRELEASED; urgency=high
+golang (2:1.4.2-4) unstable; urgency=high
 
-  * Apply backported CVE fixes.
+  * Apply backported CVE fixes (Closes: #795106).
     - CVE-2015-5739: Invalid headers are parsed as valid headers
     - CVE-2015-5740: RFC 7230 3.3.3 4 violation
     - CVE-2015-5741: other discoveries of security-relevant RFC 7230 violations
 
- -- Tianon Gravi <tianon@debian.org>  Mon, 14 Sep 2015 12:09:53 -0700
+ -- Tianon Gravi <tianon@debian.org>  Mon, 14 Sep 2015 12:27:57 -0700
 
 golang (2:1.4.2-3) unstable; urgency=medium
 
