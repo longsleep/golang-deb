@@ -4,7 +4,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// https://golang.org/issue/3351
+// http://code.google.com/p/go/issues/detail?id=3351
 
 package main
 

@@ -2,12 +2,20 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build !math_big_pure_go
-
 #include "textflag.h"
 
 // This file provides fast assembly versions for the elementary
 // arithmetic operations on vectors implemented in arith.go.
+
+// Literal instruction for MOVQ $0, CX.
+// (MOVQ $0, reg is translated to XORQ reg, reg and clears CF.)
+#define ZERO_CX BYTE $0x48; \
+		BYTE $0xc7; \
+		BYTE $0xc1; \
+		BYTE $0x00; \
+		BYTE $0x00; \
+		BYTE $0x00; \
+		BYTE $0x00
 
 // func mulWW(x, y Word) (z1, z0 Word)
 TEXT ·mulWW(SB),NOSPLIT,$0
@@ -27,11 +35,6 @@ TEXT ·divWW(SB),NOSPLIT,$0
 	MOVQ DX, r+32(FP)
 	RET
 
-// The carry bit is saved with SBBQ Rx, Rx: if the carry was set, Rx is -1, otherwise it is 0.
-// It is restored with ADDQ Rx, Rx: if Rx was -1 the carry is set, otherwise it is cleared.
-// This is faster than using rotate instructions.
-//
-// CAUTION: Note that MOVQ $0, Rx is translated to XORQ Rx, Rx which clears the carry bit!
 
 // func addVV(z, x, y []Word) (c Word)
 TEXT ·addVV(SB),NOSPLIT,$0
@@ -49,7 +52,7 @@ TEXT ·addVV(SB),NOSPLIT,$0
 
 U1:	// n >= 0
 	// regular loop body unrolled 4x
-	ADDQ CX, CX		// restore CF
+	RCRQ $1, CX		// CF = c
 	MOVQ 0(R8)(SI*8), R11
 	MOVQ 8(R8)(SI*8), R12
 	MOVQ 16(R8)(SI*8), R13
@@ -62,7 +65,7 @@ U1:	// n >= 0
 	MOVQ R12, 8(R10)(SI*8)
 	MOVQ R13, 16(R10)(SI*8)
 	MOVQ R14, 24(R10)(SI*8)
-	SBBQ CX, CX		// save CF
+	RCLQ $1, CX		// c = CF
 
 	ADDQ $4, SI		// i += 4
 	SUBQ $4, DI		// n -= 4
@@ -72,18 +75,17 @@ V1:	ADDQ $4, DI		// n += 4
 	JLE E1			// if n <= 0 goto E1
 
 L1:	// n > 0
-	ADDQ CX, CX		// restore CF
+	RCRQ $1, CX		// CF = c
 	MOVQ 0(R8)(SI*8), R11
 	ADCQ 0(R9)(SI*8), R11
 	MOVQ R11, 0(R10)(SI*8)
-	SBBQ CX, CX		// save CF
+	RCLQ $1, CX		// c = CF
 
 	ADDQ $1, SI		// i++
 	SUBQ $1, DI		// n--
 	JG L1			// if n > 0 goto L1
 
-E1:	NEGQ CX
-	MOVQ CX, c+72(FP)	// return c
+E1:	MOVQ CX, c+72(FP)	// return c
 	RET
 
 
@@ -104,7 +106,7 @@ TEXT ·subVV(SB),NOSPLIT,$0
 
 U2:	// n >= 0
 	// regular loop body unrolled 4x
-	ADDQ CX, CX		// restore CF
+	RCRQ $1, CX		// CF = c
 	MOVQ 0(R8)(SI*8), R11
 	MOVQ 8(R8)(SI*8), R12
 	MOVQ 16(R8)(SI*8), R13
@@ -117,7 +119,7 @@ U2:	// n >= 0
 	MOVQ R12, 8(R10)(SI*8)
 	MOVQ R13, 16(R10)(SI*8)
 	MOVQ R14, 24(R10)(SI*8)
-	SBBQ CX, CX		// save CF
+	RCLQ $1, CX		// c = CF
 
 	ADDQ $4, SI		// i += 4
 	SUBQ $4, DI		// n -= 4
@@ -127,18 +129,17 @@ V2:	ADDQ $4, DI		// n += 4
 	JLE E2			// if n <= 0 goto E2
 
 L2:	// n > 0
-	ADDQ CX, CX		// restore CF
+	RCRQ $1, CX		// CF = c
 	MOVQ 0(R8)(SI*8), R11
 	SBBQ 0(R9)(SI*8), R11
 	MOVQ R11, 0(R10)(SI*8)
-	SBBQ CX, CX		// save CF
+	RCLQ $1, CX		// c = CF
 
 	ADDQ $1, SI		// i++
 	SUBQ $1, DI		// n--
 	JG L2			// if n > 0 goto L2
 
-E2:	NEGQ CX
-	MOVQ CX, c+72(FP)	// return c
+E2:	MOVQ CX, c+72(FP)	// return c
 	RET
 
 
@@ -162,11 +163,11 @@ U3:	// n >= 0
 	MOVQ 16(R8)(SI*8), R13
 	MOVQ 24(R8)(SI*8), R14
 	ADDQ CX, R11
+	ZERO_CX
 	ADCQ $0, R12
 	ADCQ $0, R13
 	ADCQ $0, R14
-	SBBQ CX, CX		// save CF
-	NEGQ CX
+	SETCS CX		// c = CF
 	MOVQ R11, 0(R10)(SI*8)
 	MOVQ R12, 8(R10)(SI*8)
 	MOVQ R13, 16(R10)(SI*8)
@@ -182,8 +183,8 @@ V3:	ADDQ $4, DI		// n += 4
 L3:	// n > 0
 	ADDQ 0(R8)(SI*8), CX
 	MOVQ CX, 0(R10)(SI*8)
-	SBBQ CX, CX		// save CF
-	NEGQ CX
+	ZERO_CX
+	RCLQ $1, CX		// c = CF
 
 	ADDQ $1, SI		// i++
 	SUBQ $1, DI		// n--
@@ -200,7 +201,7 @@ TEXT ·subVW(SB),NOSPLIT,$0
 	MOVQ x+24(FP), R8
 	MOVQ y+48(FP), CX	// c = y
 	MOVQ z+0(FP), R10
-
+	
 	MOVQ $0, SI		// i = 0
 
 	// s/JL/JMP/ below to disable the unrolled loop
@@ -214,11 +215,11 @@ U4:	// n >= 0
 	MOVQ 16(R8)(SI*8), R13
 	MOVQ 24(R8)(SI*8), R14
 	SUBQ CX, R11
+	ZERO_CX
 	SBBQ $0, R12
 	SBBQ $0, R13
 	SBBQ $0, R14
-	SBBQ CX, CX		// save CF
-	NEGQ CX
+	SETCS CX		// c = CF
 	MOVQ R11, 0(R10)(SI*8)
 	MOVQ R12, 8(R10)(SI*8)
 	MOVQ R13, 16(R10)(SI*8)
@@ -235,8 +236,8 @@ L4:	// n > 0
 	MOVQ 0(R8)(SI*8), R11
 	SUBQ CX, R11
 	MOVQ R11, 0(R10)(SI*8)
-	SBBQ CX, CX		// save CF
-	NEGQ CX
+	ZERO_CX
+	RCLQ $1, CX		// c = CF
 
 	ADDQ $1, SI		// i++
 	SUBQ $1, DI		// n--
@@ -305,7 +306,7 @@ L9:	MOVQ AX, DX		// w = w1
 	SHRQ CX, DX:AX		// w>>s | w1<<ŝ
 	MOVQ DX, (R10)(BX*8)	// z[i] = w>>s | w1<<ŝ
 	ADDQ $1, BX		// i++
-
+	
 E9:	CMPQ BX, R11
 	JL L9			// i < n-1
 
@@ -351,34 +352,6 @@ TEXT ·addMulVVW(SB),NOSPLIT,$0
 	MOVQ z_len+8(FP), R11
 	MOVQ $0, BX		// i = 0
 	MOVQ $0, CX		// c = 0
-	MOVQ R11, R12
-	ANDQ $-2, R12
-	CMPQ R11, $2
-	JAE A6
-	JMP E6
-
-A6:
-	MOVQ (R8)(BX*8), AX
-	MULQ R9
-	ADDQ (R10)(BX*8), AX
-	ADCQ $0, DX
-	ADDQ CX, AX
-	ADCQ $0, DX
-	MOVQ DX, CX
-	MOVQ AX, (R10)(BX*8)
-
-	MOVQ (8)(R8)(BX*8), AX
-	MULQ R9
-	ADDQ (8)(R10)(BX*8), AX
-	ADCQ $0, DX
-	ADDQ CX, AX
-	ADCQ $0, DX
-	MOVQ DX, CX
-	MOVQ AX, (8)(R10)(BX*8)
-
-	ADDQ $2, BX
-	CMPQ BX, R12
-	JL A6
 	JMP E6
 
 L6:	MOVQ (R8)(BX*8), AX

@@ -6,6 +6,15 @@ package runtime
 
 import "unsafe"
 
+func getenv(s *byte) *byte {
+	val := gogetenv(gostringnocopy(s))
+	if val == "" {
+		return nil
+	}
+	// Strings found in environment are NUL-terminated.
+	return &bytes(val)[0]
+}
+
 var tracebackbuf [128]byte
 
 func gogetenv(key string) string {
@@ -23,14 +32,14 @@ func gogetenv(key string) string {
 	}
 	n := seek(fd, 0, 2)
 	if n <= 0 {
-		closefd(fd)
+		close(fd)
 		return ""
 	}
 
 	p := make([]byte, n)
 
 	r := pread(fd, unsafe.Pointer(&p[0]), int32(n), 0)
-	closefd(fd)
+	close(fd)
 	if r < 0 {
 		return ""
 	}
@@ -45,6 +54,3 @@ func gogetenv(key string) string {
 	sp.len = int(r)
 	return s
 }
-
-var _cgo_setenv unsafe.Pointer   // pointer to C function
-var _cgo_unsetenv unsafe.Pointer // pointer to C function

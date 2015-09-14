@@ -11,7 +11,6 @@ package cgosotest
 #cgo dragonfly LDFLAGS: -L. -l cgosotest
 #cgo freebsd LDFLAGS: -L. -l cgosotest
 #cgo openbsd LDFLAGS: -L. -l cgosotest
-#cgo solaris LDFLAGS: -L. -lcgosotest
 #cgo netbsd LDFLAGS: -L. libcgosotest.so
 #cgo darwin LDFLAGS: -L. libcgosotest.dylib
 #cgo windows LDFLAGS: -L. libcgosotest.dll

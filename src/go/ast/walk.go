@@ -361,7 +361,8 @@ func Walk(v Visitor, node Node) {
 		}
 
 	default:
-		panic(fmt.Sprintf("ast.Walk: unexpected node type %T", n))
+		fmt.Printf("ast.Walk: unexpected node type %T", n)
+		panic("ast.Walk")
 	}
 
 	v.Visit(nil)
@@ -378,8 +379,7 @@ func (f inspector) Visit(node Node) Visitor {
 
 // Inspect traverses an AST in depth-first order: It starts by calling
 // f(node); node must not be nil. If f returns true, Inspect invokes f
-// recursively for each of the non-nil children of node, followed by a
-// call of f(nil).
+// for all the non-nil children of node, recursively.
 //
 func Inspect(node Node, f func(Node) bool) {
 	Walk(inspector(f), node)

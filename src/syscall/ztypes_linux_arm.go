@@ -1,8 +1,6 @@
 // Created by cgo -godefs - DO NOT EDIT
 // cgo -godefs types_linux.go
 
-// +build arm,linux
-
 package syscall
 
 const (
@@ -563,9 +561,7 @@ type EpollEvent struct {
 }
 
 const (
-	_AT_FDCWD            = -0x64
-	_AT_REMOVEDIR        = 0x200
-	_AT_SYMLINK_NOFOLLOW = 0x100
+	_AT_FDCWD = -0x64
 )
 
 type Termios struct {

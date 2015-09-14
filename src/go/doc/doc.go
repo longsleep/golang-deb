@@ -18,8 +18,7 @@ type Package struct {
 	Imports    []string
 	Filenames  []string
 	Notes      map[string][]*Note
-
-	// Deprecated: For backward compatibility Bugs is still populated,
+	// DEPRECATED. For backward compatibility Bugs is still populated,
 	// but all new code should use Notes instead.
 	Bugs []string
 

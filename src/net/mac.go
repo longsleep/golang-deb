@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// MAC address manipulations
+
 package net
+
+import "errors"
 
 const hexDigit = "0123456789abcdef"
 
@@ -78,5 +82,5 @@ func ParseMAC(s string) (hw HardwareAddr, err error) {
 	return hw, nil
 
 error:
-	return nil, &AddrError{Err: "invalid MAC address", Addr: s}
+	return nil, errors.New("invalid MAC address: " + s)
 }

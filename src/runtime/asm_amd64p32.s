@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "funcdata.h"
 #include "textflag.h"
 
@@ -73,7 +72,7 @@ ok:
 	CALL	runtime·schedinit(SB)
 
 	// create a new goroutine to start program
-	MOVL	$runtime·mainPC(SB), AX	// entry
+	MOVL	$runtime·main·f(SB), AX	// entry
 	MOVL	$0, 0(SP)
 	MOVL	AX, 4(SP)
 	CALL	runtime·newproc(SB)
@@ -84,8 +83,8 @@ ok:
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
-DATA	runtime·mainPC+0(SB)/4,$runtime·main(SB)
-GLOBL	runtime·mainPC(SB),RODATA,$4
+DATA	runtime·main·f+0(SB)/4,$runtime·main(SB)
+GLOBL	runtime·main·f(SB),RODATA,$4
 
 TEXT runtime·breakpoint(SB),NOSPLIT,$0-0
 	INT $3
@@ -165,42 +164,55 @@ TEXT runtime·mcall(SB), NOSPLIT, $0-4
 	JMP	AX
 	RET
 
-// systemstack_switch is a dummy routine that systemstack leaves at the bottom
+// switchtoM is a dummy routine that onM leaves at the bottom
 // of the G stack.  We need to distinguish the routine that
 // lives at the bottom of the G stack from the one that lives
-// at the top of the system stack because the one at the top of
-// the system stack terminates the stack walk (see topofstack()).
-TEXT runtime·systemstack_switch(SB), NOSPLIT, $0-0
+// at the top of the M stack because the one at the top of
+// the M stack terminates the stack walk (see topofstack()).
+TEXT runtime·switchtoM(SB), NOSPLIT, $0-0
 	RET
 
-// func systemstack(fn func())
-TEXT runtime·systemstack(SB), NOSPLIT, $0-4
+// func onM_signalok(fn func())
+TEXT runtime·onM_signalok(SB), NOSPLIT, $0-4
+	get_tls(CX)
+	MOVL	g(CX), AX	// AX = g
+	MOVL	g_m(AX), BX	// BX = m
+	MOVL	m_gsignal(BX), DX	// DX = gsignal
+	CMPL	AX, DX
+	JEQ	ongsignal
+	JMP	runtime·onM(SB)
+
+ongsignal:
+	MOVL	fn+0(FP), DI	// DI = fn
+	MOVL	DI, DX
+	MOVL	0(DI), DI
+	CALL	DI
+	RET
+
+// func onM(fn func())
+TEXT runtime·onM(SB), NOSPLIT, $0-4
 	MOVL	fn+0(FP), DI	// DI = fn
 	get_tls(CX)
 	MOVL	g(CX), AX	// AX = g
 	MOVL	g_m(AX), BX	// BX = m
 
-	MOVL	m_gsignal(BX), DX	// DX = gsignal
-	CMPL	AX, DX
-	JEQ	noswitch
-
 	MOVL	m_g0(BX), DX	// DX = g0
 	CMPL	AX, DX
-	JEQ	noswitch
+	JEQ	onm
 
 	MOVL	m_curg(BX), R8
 	CMPL	AX, R8
-	JEQ	switch
+	JEQ	oncurg
 	
 	// Not g0, not curg. Must be gsignal, but that's not allowed.
 	// Hide call from linker nosplit analysis.
-	MOVL	$runtime·badsystemstack(SB), AX
+	MOVL	$runtime·badonm(SB), AX
 	CALL	AX
 
-switch:
+oncurg:
 	// save our state in g->sched.  Pretend to
-	// be systemstack_switch if the G stack is scanned.
-	MOVL	$runtime·systemstack_switch(SB), SI
+	// be switchtoM if the G stack is scanned.
+	MOVL	$runtime·switchtoM(SB), SI
 	MOVL	SI, (g_sched+gobuf_pc)(AX)
 	MOVL	SP, (g_sched+gobuf_sp)(AX)
 	MOVL	AX, (g_sched+gobuf_g)(AX)
@@ -224,7 +236,7 @@ switch:
 	MOVL	$0, (g_sched+gobuf_sp)(AX)
 	RET
 
-noswitch:
+onm:
 	// already on m stack, just call directly
 	MOVL	DI, DX
 	MOVL	0(DI), DI
@@ -289,25 +301,8 @@ TEXT runtime·morestack_noctxt(SB),NOSPLIT,$0
 	MOVL	$0, DX
 	JMP	runtime·morestack(SB)
 
-TEXT runtime·stackBarrier(SB),NOSPLIT,$0
-	// We came here via a RET to an overwritten return PC.
-	// AX may be live. Other registers are available.
-
-	// Get the original return PC, g.stkbar[g.stkbarPos].savedLRVal.
-	get_tls(CX)
-	MOVL	g(CX), CX
-	MOVL	(g_stkbar+slice_array)(CX), DX
-	MOVL	g_stkbarPos(CX), BX
-	IMULL	$stkbar__size, BX	// Too big for SIB.
-	ADDL	DX, BX
-	MOVL	stkbar_savedLRVal(BX), BX
-	// Record that this stack barrier was hit.
-	ADDL	$1, g_stkbarPos(CX)
-	// Jump to the original return PC.
-	JMP	BX
-
 // reflectcall: call a function with the given argument list
-// func call(argtype *_type, f *FuncVal, arg *byte, argsize, retoffset uint32).
+// func call(f *FuncVal, arg *byte, argsize, retoffset uint32).
 // we don't have variable-sized frames, so we use a small number
 // of constant-sized-frame functions to encode a few bits of size in the pc.
 // Caution: ugly multiline assembly macros in your future!
@@ -319,11 +314,8 @@ TEXT runtime·stackBarrier(SB),NOSPLIT,$0
 	JMP	AX
 // Note: can't just "JMP NAME(SB)" - bad inlining results.
 
-TEXT reflect·call(SB), NOSPLIT, $0-0
-	JMP	·reflectcall(SB)
-
-TEXT ·reflectcall(SB), NOSPLIT, $0-20
-	MOVLQZX argsize+12(FP), CX
+TEXT ·reflectcall(SB), NOSPLIT, $0-16
+	MOVLQZX argsize+8(FP), CX
 	DISPATCH(runtime·call16, 16)
 	DISPATCH(runtime·call32, 32)
 	DISPATCH(runtime·call64, 64)
@@ -355,36 +347,26 @@ TEXT ·reflectcall(SB), NOSPLIT, $0-20
 	JMP	AX
 
 #define CALLFN(NAME,MAXSIZE)			\
-TEXT NAME(SB), WRAPPER, $MAXSIZE-20;		\
+TEXT NAME(SB), WRAPPER, $MAXSIZE-16;		\
 	NO_LOCAL_POINTERS;			\
 	/* copy arguments to stack */		\
-	MOVL	argptr+8(FP), SI;		\
-	MOVL	argsize+12(FP), CX;		\
+	MOVL	argptr+4(FP), SI;		\
+	MOVL	argsize+8(FP), CX;		\
 	MOVL	SP, DI;				\
 	REP;MOVSB;				\
 	/* call function */			\
-	MOVL	f+4(FP), DX;			\
+	MOVL	f+0(FP), DX;			\
 	MOVL	(DX), AX;			\
 	CALL	AX;				\
 	/* copy return values back */		\
-	MOVL	argptr+8(FP), DI;		\
-	MOVL	argsize+12(FP), CX;		\
-	MOVL	retoffset+16(FP), BX;		\
+	MOVL	argptr+4(FP), DI;		\
+	MOVL	argsize+8(FP), CX;		\
+	MOVL	retoffset+12(FP), BX;		\
 	MOVL	SP, SI;				\
 	ADDL	BX, DI;				\
 	ADDL	BX, SI;				\
 	SUBL	BX, CX;				\
 	REP;MOVSB;				\
-	/* execute write barrier updates */	\
-	MOVL	argtype+0(FP), DX;		\
-	MOVL	argptr+8(FP), DI;		\
-	MOVL	argsize+12(FP), CX;		\
-	MOVL	retoffset+16(FP), BX;		\
-	MOVL	DX, 0(SP);			\
-	MOVL	DI, 4(SP);			\
-	MOVL	CX, 8(SP);			\
-	MOVL	BX, 12(SP);			\
-	CALL	runtime·callwritebarrier(SB);	\
 	RET
 
 CALLFN(·call16, 16)
@@ -428,7 +410,12 @@ TEXT runtime·cas(SB), NOSPLIT, $0-17
 	MOVL	new+8(FP), CX
 	LOCK
 	CMPXCHGL	CX, 0(BX)
-	SETEQ	ret+16(FP)
+	JZ 4(PC)
+	MOVL	$0, AX
+	MOVB	AX, ret+16(FP)
+	RET
+	MOVL	$1, AX
+	MOVB	AX, ret+16(FP)
 	RET
 
 TEXT runtime·casuintptr(SB), NOSPLIT, $0-17
@@ -457,7 +444,13 @@ TEXT runtime·cas64(SB), NOSPLIT, $0-25
 	MOVQ	new+16(FP), CX
 	LOCK
 	CMPXCHGQ	CX, 0(BX)
-	SETEQ	ret+24(FP)
+	JNZ	cas64_fail
+	MOVL	$1, AX
+	MOVB	AX, ret+24(FP)
+	RET
+cas64_fail:
+	MOVL	$0, AX
+	MOVB	AX, ret+24(FP)
 	RET
 
 // bool casp(void **val, void *old, void *new)
@@ -467,13 +460,18 @@ TEXT runtime·cas64(SB), NOSPLIT, $0-25
 //		return 1;
 //	} else
 //		return 0;
-TEXT runtime·casp1(SB), NOSPLIT, $0-17
+TEXT runtime·casp(SB), NOSPLIT, $0-17
 	MOVL	ptr+0(FP), BX
 	MOVL	old+4(FP), AX
 	MOVL	new+8(FP), CX
 	LOCK
 	CMPXCHGL	CX, 0(BX)
-	SETEQ	ret+16(FP)
+	JZ 4(PC)
+	MOVL	$0, AX
+	MOVB	AX, ret+16(FP)
+	RET
+	MOVL	$1, AX
+	MOVB	AX, ret+16(FP)
 	RET
 
 // uint32 xadd(uint32 volatile *val, int32 delta)
@@ -500,9 +498,6 @@ TEXT runtime·xadd64(SB), NOSPLIT, $0-24
 	MOVQ	AX, ret+16(FP)
 	RET
 
-TEXT runtime·xadduintptr(SB), NOSPLIT, $0-12
-	JMP	runtime·xadd(SB)
-
 TEXT runtime·xchg(SB), NOSPLIT, $0-12
 	MOVL	ptr+0(FP), BX
 	MOVL	new+4(FP), AX
@@ -517,7 +512,7 @@ TEXT runtime·xchg64(SB), NOSPLIT, $0-24
 	MOVQ	AX, ret+16(FP)
 	RET
 
-TEXT runtime·xchgp1(SB), NOSPLIT, $0-12
+TEXT runtime·xchgp(SB), NOSPLIT, $0-12
 	MOVL	ptr+0(FP), BX
 	MOVL	new+4(FP), AX
 	XCHGL	AX, 0(BX)
@@ -535,7 +530,7 @@ again:
 	JNZ	again
 	RET
 
-TEXT runtime·atomicstorep1(SB), NOSPLIT, $0-8
+TEXT runtime·atomicstorep(SB), NOSPLIT, $0-8
 	MOVL	ptr+0(FP), BX
 	MOVL	val+4(FP), AX
 	XCHGL	AX, 0(BX)
@@ -561,19 +556,6 @@ TEXT runtime·atomicor8(SB), NOSPLIT, $0-5
 	ORB	AX, 0(BX)
 	RET
 
-// void	runtime·atomicand8(byte volatile*, byte);
-TEXT runtime·atomicand8(SB), NOSPLIT, $0-5
-	MOVL	ptr+0(FP), BX
-	MOVB	val+4(FP), AX
-	LOCK
-	ANDB	AX, 0(BX)
-	RET
-
-TEXT ·publicationBarrier(SB),NOSPLIT,$0-0
-	// Stores are already ordered on x86, so this is just a
-	// compile barrier.
-	RET
-
 // void jmpdefer(fn, sp);
 // called from deferreturn.
 // 1. pop the caller
@@ -587,9 +569,15 @@ TEXT runtime·jmpdefer(SB), NOSPLIT, $0-8
 	MOVL	0(DX), BX
 	JMP	BX	// but first run the deferred function
 
-// func asmcgocall(fn, arg unsafe.Pointer) int32
+// asmcgocall(void(*fn)(void*), void *arg)
 // Not implemented.
-TEXT runtime·asmcgocall(SB),NOSPLIT,$0-12
+TEXT runtime·asmcgocall(SB),NOSPLIT,$0-8
+	MOVL	0, AX
+	RET
+
+// asmcgocall(void(*fn)(void*), void *arg)
+// Not implemented.
+TEXT runtime·asmcgocall_errno(SB),NOSPLIT,$0-12
 	MOVL	0, AX
 	RET
 
@@ -632,34 +620,32 @@ TEXT runtime·memclr(SB),NOSPLIT,$0-8
 	STOSB
 	RET
 
-TEXT runtime·getcallerpc(SB),NOSPLIT,$8-12
+TEXT runtime·getcallerpc(SB),NOSPLIT,$0-12
 	MOVL	argp+0(FP),AX		// addr of first arg
 	MOVL	-8(AX),AX		// get calling pc
-	CMPL	AX, runtime·stackBarrierPC(SB)
-	JNE	nobar
-	// Get original return PC.
-	CALL	runtime·nextBarrierPC(SB)
-	MOVL	0(SP), AX
-nobar:
 	MOVL	AX, ret+8(FP)
 	RET
 
-TEXT runtime·setcallerpc(SB),NOSPLIT,$8-8
+TEXT runtime·gogetcallerpc(SB),NOSPLIT,$0-12
+	MOVL	p+0(FP),AX		// addr of first arg
+	MOVL	-8(AX),AX		// get calling pc
+	MOVL	AX, ret+8(FP)
+	RET
+
+TEXT runtime·setcallerpc(SB),NOSPLIT,$0-8
 	MOVL	argp+0(FP),AX		// addr of first arg
 	MOVL	pc+4(FP), BX		// pc to set
-	MOVL	-8(AX), CX
-	CMPL	CX, runtime·stackBarrierPC(SB)
-	JEQ	setbar
 	MOVQ	BX, -8(AX)		// set calling pc
-	RET
-setbar:
-	// Set the stack barrier return PC.
-	MOVL	BX, 0(SP)
-	CALL	runtime·setNextBarrierPC(SB)
 	RET
 
 TEXT runtime·getcallersp(SB),NOSPLIT,$0-12
 	MOVL	argp+0(FP), AX
+	MOVL	AX, ret+8(FP)
+	RET
+
+// func gogetcallersp(p unsafe.Pointer) uintptr
+TEXT runtime·gogetcallersp(SB),NOSPLIT,$0-12
+	MOVL	p+0(FP),AX		// addr of first arg
 	MOVL	AX, ret+8(FP)
 	RET
 
@@ -669,23 +655,6 @@ TEXT runtime·cputicks(SB),NOSPLIT,$0-0
 	SHLQ	$32, DX
 	ADDQ	DX, AX
 	MOVQ	AX, ret+0(FP)
-	RET
-
-// memhash_varlen(p unsafe.Pointer, h seed) uintptr
-// redirects to memhash(p, h, size) using the size
-// stored in the closure.
-TEXT runtime·memhash_varlen(SB),NOSPLIT,$24-12
-	GO_ARGS
-	NO_LOCAL_POINTERS
-	MOVL	p+0(FP), AX
-	MOVL	h+4(FP), BX
-	MOVL	4(DX), CX
-	MOVL	AX, 0(SP)
-	MOVL	BX, 4(SP)
-	MOVL	CX, 8(SP)
-	CALL	runtime·memhash(SB)
-	MOVL	16(SP), AX
-	MOVL	AX, ret+8(FP)
 	RET
 
 // hash function using AES hardware instructions
@@ -718,36 +687,26 @@ TEXT runtime·memeq(SB),NOSPLIT,$0-17
 	MOVB	AX, ret+16(FP)
 	RET
 
-// memequal_varlen(a, b unsafe.Pointer) bool
-TEXT runtime·memequal_varlen(SB),NOSPLIT,$0-9
-	MOVL    a+0(FP), SI
-	MOVL    b+4(FP), DI
-	CMPL    SI, DI
-	JEQ     eq
-	MOVL    4(DX), BX    // compiler stores size at offset 4 in the closure
-	CALL    runtime·memeqbody(SB)
-	MOVB    AX, ret+8(FP)
-	RET
-eq:
-	MOVB    $1, ret+8(FP)
-	RET
-
 // eqstring tests whether two strings are equal.
-// The compiler guarantees that strings passed
-// to eqstring have equal length.
 // See runtime_test.go:eqstring_generic for
 // equivalent Go code.
 TEXT runtime·eqstring(SB),NOSPLIT,$0-17
+	MOVL	s1len+4(FP), AX
+	MOVL	s2len+12(FP), BX
+	CMPL	AX, BX
+	JNE	different
 	MOVL	s1str+0(FP), SI
 	MOVL	s2str+8(FP), DI
 	CMPL	SI, DI
 	JEQ	same
-	MOVL	s1len+4(FP), BX
 	CALL	runtime·memeqbody(SB)
 	MOVB	AX, v+16(FP)
 	RET
 same:
 	MOVB	$1, v+16(FP)
+	RET
+different:
+	MOVB	$0, v+16(FP)
 	RET
 
 // a in SI
@@ -857,13 +816,13 @@ TEXT runtime·cmpstring(SB),NOSPLIT,$0-20
 	MOVL	AX, ret+16(FP)
 	RET
 
-TEXT bytes·Compare(SB),NOSPLIT,$0-28
+TEXT runtime·cmpbytes(SB),NOSPLIT,$0-28
 	MOVL	s1+0(FP), SI
 	MOVL	s1+4(FP), BX
 	MOVL	s2+12(FP), DI
 	MOVL	s2+16(FP), DX
 	CALL	runtime·cmpbody(SB)
-	MOVL	AX, res+24(FP)
+	MOVQ	AX, res+24(FP)
 	RET
 
 // input:
@@ -875,29 +834,29 @@ TEXT bytes·Compare(SB),NOSPLIT,$0-28
 //   AX = 1/0/-1
 TEXT runtime·cmpbody(SB),NOSPLIT,$0-0
 	CMPQ	SI, DI
-	JEQ	allsame
+	JEQ	cmp_allsame
 	CMPQ	BX, DX
 	MOVQ	DX, R8
 	CMOVQLT	BX, R8 // R8 = min(alen, blen) = # of bytes to compare
 	CMPQ	R8, $8
-	JB	small
+	JB	cmp_small
 
-loop:
+cmp_loop:
 	CMPQ	R8, $16
-	JBE	_0through16
+	JBE	cmp_0through16
 	MOVOU	(SI), X0
 	MOVOU	(DI), X1
 	PCMPEQB X0, X1
 	PMOVMSKB X1, AX
 	XORQ	$0xffff, AX	// convert EQ to NE
-	JNE	diff16	// branch if at least one byte is not equal
+	JNE	cmp_diff16	// branch if at least one byte is not equal
 	ADDQ	$16, SI
 	ADDQ	$16, DI
 	SUBQ	$16, R8
-	JMP	loop
+	JMP	cmp_loop
 	
 	// AX = bit mask of differences
-diff16:
+cmp_diff16:
 	BSFQ	AX, BX	// index of first byte that differs
 	XORQ	AX, AX
 	ADDQ	BX, SI
@@ -909,23 +868,23 @@ diff16:
 	RET
 
 	// 0 through 16 bytes left, alen>=8, blen>=8
-_0through16:
+cmp_0through16:
 	CMPQ	R8, $8
-	JBE	_0through8
+	JBE	cmp_0through8
 	MOVQ	(SI), AX
 	MOVQ	(DI), CX
 	CMPQ	AX, CX
-	JNE	diff8
-_0through8:
+	JNE	cmp_diff8
+cmp_0through8:
 	ADDQ	R8, SI
 	ADDQ	R8, DI
 	MOVQ	-8(SI), AX
 	MOVQ	-8(DI), CX
 	CMPQ	AX, CX
-	JEQ	allsame
+	JEQ	cmp_allsame
 
 	// AX and CX contain parts of a and b that differ.
-diff8:
+cmp_diff8:
 	BSWAPQ	AX	// reverse order of bytes
 	BSWAPQ	CX
 	XORQ	AX, CX
@@ -936,46 +895,46 @@ diff8:
 	RET
 
 	// 0-7 bytes in common
-small:
+cmp_small:
 	LEAQ	(R8*8), CX	// bytes left -> bits left
 	NEGQ	CX		//  - bits lift (== 64 - bits left mod 64)
-	JEQ	allsame
+	JEQ	cmp_allsame
 
 	// load bytes of a into high bytes of AX
 	CMPB	SI, $0xf8
-	JA	si_high
+	JA	cmp_si_high
 	MOVQ	(SI), SI
-	JMP	si_finish
-si_high:
+	JMP	cmp_si_finish
+cmp_si_high:
 	ADDQ	R8, SI
 	MOVQ	-8(SI), SI
 	SHRQ	CX, SI
-si_finish:
+cmp_si_finish:
 	SHLQ	CX, SI
 
 	// load bytes of b in to high bytes of BX
 	CMPB	DI, $0xf8
-	JA	di_high
+	JA	cmp_di_high
 	MOVQ	(DI), DI
-	JMP	di_finish
-di_high:
+	JMP	cmp_di_finish
+cmp_di_high:
 	ADDQ	R8, DI
 	MOVQ	-8(DI), DI
 	SHRQ	CX, DI
-di_finish:
+cmp_di_finish:
 	SHLQ	CX, DI
 
 	BSWAPQ	SI	// reverse order of bytes
 	BSWAPQ	DI
 	XORQ	SI, DI	// find bit differences
-	JEQ	allsame
+	JEQ	cmp_allsame
 	BSRQ	DI, CX	// index of highest bit difference
 	SHRQ	CX, SI	// move a's bit to bottom
 	ANDQ	$1, SI	// mask bit
 	LEAQ	-1(SI*2), AX // 1/0 => +1/-1
 	RET
 
-allsame:
+cmp_allsame:
 	XORQ	AX, AX
 	XORQ	CX, CX
 	CMPQ	BX, DX
@@ -984,7 +943,7 @@ allsame:
 	LEAQ	-1(CX)(AX*2), AX	// 1,0,-1 result
 	RET
 
-TEXT bytes·IndexByte(SB),NOSPLIT,$0-20
+TEXT bytes·IndexByte(SB),NOSPLIT,$0
 	MOVL s+0(FP), SI
 	MOVL s_len+4(FP), BX
 	MOVB c+12(FP), AL
@@ -992,7 +951,7 @@ TEXT bytes·IndexByte(SB),NOSPLIT,$0-20
 	MOVL AX, ret+16(FP)
 	RET
 
-TEXT strings·IndexByte(SB),NOSPLIT,$0-20
+TEXT strings·IndexByte(SB),NOSPLIT,$0
 	MOVL s+0(FP), SI
 	MOVL s_len+4(FP), BX
 	MOVB c+8(FP), AL
@@ -1010,7 +969,7 @@ TEXT runtime·indexbytebody(SB),NOSPLIT,$0
 	MOVL SI, DI
 
 	CMPL BX, $16
-	JLT small
+	JLT indexbyte_small
 
 	// round up to first 16-byte boundary
 	TESTL $15, SI
@@ -1068,7 +1027,7 @@ failure:
 	RET
 
 // handle for lengths < 16
-small:
+indexbyte_small:
 	MOVL BX, CX
 	REPN; SCASB
 	JZ success
@@ -1126,26 +1085,3 @@ TEXT runtime·return0(SB), NOSPLIT, $0
 TEXT runtime·goexit(SB),NOSPLIT,$0-0
 	BYTE	$0x90	// NOP
 	CALL	runtime·goexit1(SB)	// does not return
-	// traceback from goexit1 must hit code range of goexit
-	BYTE	$0x90	// NOP
-
-TEXT runtime·prefetcht0(SB),NOSPLIT,$0-4
-	MOVL	addr+0(FP), AX
-	PREFETCHT0	(AX)
-	RET
-
-TEXT runtime·prefetcht1(SB),NOSPLIT,$0-4
-	MOVL	addr+0(FP), AX
-	PREFETCHT1	(AX)
-	RET
-
-
-TEXT runtime·prefetcht2(SB),NOSPLIT,$0-4
-	MOVL	addr+0(FP), AX
-	PREFETCHT2	(AX)
-	RET
-
-TEXT runtime·prefetchnta(SB),NOSPLIT,$0-4
-	MOVL	addr+0(FP), AX
-	PREFETCHNTA	(AX)
-	RET

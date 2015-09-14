@@ -167,24 +167,22 @@ func Dial(network, addr string, config *Config) (*Conn, error) {
 
 // LoadX509KeyPair reads and parses a public/private key pair from a pair of
 // files. The files must contain PEM encoded data.
-func LoadX509KeyPair(certFile, keyFile string) (Certificate, error) {
+func LoadX509KeyPair(certFile, keyFile string) (cert Certificate, err error) {
 	certPEMBlock, err := ioutil.ReadFile(certFile)
 	if err != nil {
-		return Certificate{}, err
+		return
 	}
 	keyPEMBlock, err := ioutil.ReadFile(keyFile)
 	if err != nil {
-		return Certificate{}, err
+		return
 	}
 	return X509KeyPair(certPEMBlock, keyPEMBlock)
 }
 
 // X509KeyPair parses a public/private key pair from a pair of
 // PEM encoded data.
-func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (Certificate, error) {
-	var cert Certificate
+func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (cert Certificate, err error) {
 	var certDERBlock *pem.Block
-	fail := func(err error) (Certificate, error) { return Certificate{}, err }
 	for {
 		certDERBlock, certPEMBlock = pem.Decode(certPEMBlock)
 		if certDERBlock == nil {
@@ -196,56 +194,62 @@ func X509KeyPair(certPEMBlock, keyPEMBlock []byte) (Certificate, error) {
 	}
 
 	if len(cert.Certificate) == 0 {
-		return fail(errors.New("crypto/tls: failed to parse certificate PEM data"))
+		err = errors.New("crypto/tls: failed to parse certificate PEM data")
+		return
 	}
 
 	var keyDERBlock *pem.Block
 	for {
 		keyDERBlock, keyPEMBlock = pem.Decode(keyPEMBlock)
 		if keyDERBlock == nil {
-			return fail(errors.New("crypto/tls: failed to parse key PEM data"))
+			err = errors.New("crypto/tls: failed to parse key PEM data")
+			return
 		}
 		if keyDERBlock.Type == "PRIVATE KEY" || strings.HasSuffix(keyDERBlock.Type, " PRIVATE KEY") {
 			break
 		}
 	}
 
-	var err error
 	cert.PrivateKey, err = parsePrivateKey(keyDERBlock.Bytes)
 	if err != nil {
-		return fail(err)
+		return
 	}
 
 	// We don't need to parse the public key for TLS, but we so do anyway
 	// to check that it looks sane and matches the private key.
 	x509Cert, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
-		return fail(err)
+		return
 	}
 
 	switch pub := x509Cert.PublicKey.(type) {
 	case *rsa.PublicKey:
 		priv, ok := cert.PrivateKey.(*rsa.PrivateKey)
 		if !ok {
-			return fail(errors.New("crypto/tls: private key type does not match public key type"))
+			err = errors.New("crypto/tls: private key type does not match public key type")
+			return
 		}
 		if pub.N.Cmp(priv.N) != 0 {
-			return fail(errors.New("crypto/tls: private key does not match public key"))
+			err = errors.New("crypto/tls: private key does not match public key")
+			return
 		}
 	case *ecdsa.PublicKey:
 		priv, ok := cert.PrivateKey.(*ecdsa.PrivateKey)
 		if !ok {
-			return fail(errors.New("crypto/tls: private key type does not match public key type"))
+			err = errors.New("crypto/tls: private key type does not match public key type")
+			return
 
 		}
 		if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
-			return fail(errors.New("crypto/tls: private key does not match public key"))
+			err = errors.New("crypto/tls: private key does not match public key")
+			return
 		}
 	default:
-		return fail(errors.New("crypto/tls: unknown public key algorithm"))
+		err = errors.New("crypto/tls: unknown public key algorithm")
+		return
 	}
 
-	return cert, nil
+	return
 }
 
 // Attempt to parse the given private key DER block. OpenSSL 0.9.8 generates

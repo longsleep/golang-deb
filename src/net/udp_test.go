@@ -7,164 +7,149 @@ package net
 import (
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
 
-type resolveUDPAddrTest struct {
-	network       string
-	litAddrOrName string
-	addr          *UDPAddr
-	err           error
-}
-
-var resolveUDPAddrTests = []resolveUDPAddrTest{
-	{"udp", "127.0.0.1:0", &UDPAddr{IP: IPv4(127, 0, 0, 1), Port: 0}, nil},
-	{"udp4", "127.0.0.1:65535", &UDPAddr{IP: IPv4(127, 0, 0, 1), Port: 65535}, nil},
-
-	{"udp", "[::1]:0", &UDPAddr{IP: ParseIP("::1"), Port: 0}, nil},
-	{"udp6", "[::1]:65535", &UDPAddr{IP: ParseIP("::1"), Port: 65535}, nil},
-
-	{"udp", "[::1%en0]:1", &UDPAddr{IP: ParseIP("::1"), Port: 1, Zone: "en0"}, nil},
-	{"udp6", "[::1%911]:2", &UDPAddr{IP: ParseIP("::1"), Port: 2, Zone: "911"}, nil},
-
-	{"", "127.0.0.1:0", &UDPAddr{IP: IPv4(127, 0, 0, 1), Port: 0}, nil}, // Go 1.0 behavior
-	{"", "[::1]:0", &UDPAddr{IP: ParseIP("::1"), Port: 0}, nil},         // Go 1.0 behavior
-
-	{"udp", ":12345", &UDPAddr{Port: 12345}, nil},
-
-	{"http", "127.0.0.1:0", nil, UnknownNetworkError("http")},
-}
-
 func TestResolveUDPAddr(t *testing.T) {
-	origTestHookLookupIP := testHookLookupIP
-	defer func() { testHookLookupIP = origTestHookLookupIP }()
-	testHookLookupIP = lookupLocalhost
-
-	for i, tt := range resolveUDPAddrTests {
-		addr, err := ResolveUDPAddr(tt.network, tt.litAddrOrName)
+	for _, tt := range resolveTCPAddrTests {
+		net := strings.Replace(tt.net, "tcp", "udp", -1)
+		addr, err := ResolveUDPAddr(net, tt.litAddrOrName)
 		if err != tt.err {
-			t.Errorf("#%d: %v", i, err)
-		} else if !reflect.DeepEqual(addr, tt.addr) {
-			t.Errorf("#%d: got %#v; want %#v", i, addr, tt.addr)
+			t.Fatalf("ResolveUDPAddr(%q, %q) failed: %v", net, tt.litAddrOrName, err)
 		}
-		if err != nil {
-			continue
+		if !reflect.DeepEqual(addr, (*UDPAddr)(tt.addr)) {
+			t.Fatalf("ResolveUDPAddr(%q, %q) = %#v, want %#v", net, tt.litAddrOrName, addr, tt.addr)
 		}
-		rtaddr, err := ResolveUDPAddr(addr.Network(), addr.String())
-		if err != nil {
-			t.Errorf("#%d: %v", i, err)
-		} else if !reflect.DeepEqual(rtaddr, addr) {
-			t.Errorf("#%d: got %#v; want %#v", i, rtaddr, addr)
+		if err == nil {
+			str := addr.String()
+			addr1, err := ResolveUDPAddr(net, str)
+			if err != nil {
+				t.Fatalf("ResolveUDPAddr(%q, %q) [from %q]: %v", net, str, tt.litAddrOrName, err)
+			}
+			if !reflect.DeepEqual(addr1, addr) {
+				t.Fatalf("ResolveUDPAddr(%q, %q) [from %q] = %#v, want %#v", net, str, tt.litAddrOrName, addr1, addr)
+			}
 		}
+	}
+}
+
+func TestReadFromUDP(t *testing.T) {
+	switch runtime.GOOS {
+	case "nacl", "plan9":
+		t.Skipf("skipping test on %q, see issue 8916", runtime.GOOS)
+	}
+
+	ra, err := ResolveUDPAddr("udp", "127.0.0.1:7")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	la, err := ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := ListenUDP("udp", la)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	_, err = c.WriteToUDP([]byte("a"), ra)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = c.SetDeadline(time.Now().Add(100 * time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := make([]byte, 1)
+	_, _, err = c.ReadFromUDP(b)
+	if err == nil {
+		t.Fatal("ReadFromUDP should fail")
+	} else if !isTimeout(err) {
+		t.Fatal(err)
 	}
 }
 
 func TestWriteToUDP(t *testing.T) {
 	switch runtime.GOOS {
 	case "plan9":
-		t.Skipf("not supported on %s", runtime.GOOS)
+		t.Skipf("skipping test on %q", runtime.GOOS)
 	}
 
-	c, err := ListenPacket("udp", "127.0.0.1:0")
+	l, err := ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Listen failed: %v", err)
 	}
-	defer c.Close()
+	defer l.Close()
 
-	testWriteToConn(t, c.LocalAddr().String())
-	testWriteToPacketConn(t, c.LocalAddr().String())
+	testWriteToConn(t, l.LocalAddr().String())
+	testWriteToPacketConn(t, l.LocalAddr().String())
 }
 
 func testWriteToConn(t *testing.T, raddr string) {
 	c, err := Dial("udp", raddr)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Dial failed: %v", err)
 	}
 	defer c.Close()
 
 	ra, err := ResolveUDPAddr("udp", raddr)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ResolveUDPAddr failed: %v", err)
 	}
 
-	b := []byte("CONNECTED-MODE SOCKET")
-	_, err = c.(*UDPConn).WriteToUDP(b, ra)
+	_, err = c.(*UDPConn).WriteToUDP([]byte("Connection-oriented mode socket"), ra)
 	if err == nil {
-		t.Fatal("should fail")
+		t.Fatal("WriteToUDP should fail")
 	}
 	if err != nil && err.(*OpError).Err != ErrWriteToConnected {
-		t.Fatalf("should fail as ErrWriteToConnected: %v", err)
+		t.Fatalf("WriteToUDP should fail as ErrWriteToConnected: %v", err)
 	}
-	_, err = c.(*UDPConn).WriteTo(b, ra)
+
+	_, err = c.(*UDPConn).WriteTo([]byte("Connection-oriented mode socket"), ra)
 	if err == nil {
-		t.Fatal("should fail")
+		t.Fatal("WriteTo should fail")
 	}
 	if err != nil && err.(*OpError).Err != ErrWriteToConnected {
-		t.Fatalf("should fail as ErrWriteToConnected: %v", err)
+		t.Fatalf("WriteTo should fail as ErrWriteToConnected: %v", err)
 	}
-	_, err = c.Write(b)
+
+	_, err = c.Write([]byte("Connection-oriented mode socket"))
 	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = c.(*UDPConn).WriteMsgUDP(b, nil, ra)
-	if err == nil {
-		t.Fatal("should fail")
-	}
-	if err != nil && err.(*OpError).Err != ErrWriteToConnected {
-		t.Fatalf("should fail as ErrWriteToConnected: %v", err)
-	}
-	_, _, err = c.(*UDPConn).WriteMsgUDP(b, nil, nil)
-	switch runtime.GOOS {
-	case "nacl", "windows": // see golang.org/issue/9252
-		t.Skipf("not implemented yet on %s", runtime.GOOS)
-	default:
-		if err != nil {
-			t.Fatal(err)
-		}
+		t.Fatalf("Write failed: %v", err)
 	}
 }
 
 func testWriteToPacketConn(t *testing.T, raddr string) {
 	c, err := ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ListenPacket failed: %v", err)
 	}
 	defer c.Close()
 
 	ra, err := ResolveUDPAddr("udp", raddr)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("ResolveUDPAddr failed: %v", err)
 	}
 
-	b := []byte("UNCONNECTED-MODE SOCKET")
-	_, err = c.(*UDPConn).WriteToUDP(b, ra)
+	_, err = c.(*UDPConn).WriteToUDP([]byte("Connection-less mode socket"), ra)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("WriteToUDP failed: %v", err)
 	}
-	_, err = c.WriteTo(b, ra)
+
+	_, err = c.WriteTo([]byte("Connection-less mode socket"), ra)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("WriteTo failed: %v", err)
 	}
-	_, err = c.(*UDPConn).Write(b)
+
+	_, err = c.(*UDPConn).Write([]byte("Connection-less mode socket"))
 	if err == nil {
-		t.Fatal("should fail")
-	}
-	_, _, err = c.(*UDPConn).WriteMsgUDP(b, nil, nil)
-	if err == nil {
-		t.Fatal("should fail")
-	}
-	if err != nil && err.(*OpError).Err != errMissingAddress {
-		t.Fatalf("should fail as errMissingAddress: %v", err)
-	}
-	_, _, err = c.(*UDPConn).WriteMsgUDP(b, nil, ra)
-	switch runtime.GOOS {
-	case "nacl", "windows": // see golang.org/issue/9252
-		t.Skipf("not implemented yet on %s", runtime.GOOS)
-	default:
-		if err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal("Write should fail")
 	}
 }
 
@@ -179,13 +164,13 @@ var udpConnLocalNameTests = []struct {
 
 func TestUDPConnLocalName(t *testing.T) {
 	if testing.Short() || !*testExternal {
-		t.Skip("avoid external network")
+		t.Skip("skipping test to avoid external network")
 	}
 
 	for _, tt := range udpConnLocalNameTests {
 		c, err := ListenUDP(tt.net, tt.laddr)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("ListenUDP failed: %v", err)
 		}
 		defer c.Close()
 		la := c.LocalAddr()
@@ -199,7 +184,7 @@ func TestUDPConnLocalAndRemoteNames(t *testing.T) {
 	for _, laddr := range []string{"", "127.0.0.1:0"} {
 		c1, err := ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("ListenUDP failed: %v", err)
 		}
 		defer c1.Close()
 
@@ -207,12 +192,12 @@ func TestUDPConnLocalAndRemoteNames(t *testing.T) {
 		if laddr != "" {
 			var err error
 			if la, err = ResolveUDPAddr("udp", laddr); err != nil {
-				t.Fatal(err)
+				t.Fatalf("ResolveUDPAddr failed: %v", err)
 			}
 		}
 		c2, err := DialUDP("udp", la, c1.LocalAddr().(*UDPAddr))
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("DialUDP failed: %v", err)
 		}
 		defer c2.Close()
 
@@ -235,37 +220,60 @@ func TestUDPConnLocalAndRemoteNames(t *testing.T) {
 
 func TestIPv6LinkLocalUnicastUDP(t *testing.T) {
 	if testing.Short() || !*testExternal {
-		t.Skip("avoid external network")
+		t.Skip("skipping test to avoid external network")
 	}
 	if !supportsIPv6 {
-		t.Skip("IPv6 is not supported")
+		t.Skip("ipv6 is not supported")
+	}
+	ifi := loopbackInterface()
+	if ifi == nil {
+		t.Skip("loopback interface not found")
+	}
+	laddr := ipv6LinkLocalUnicastAddr(ifi)
+	if laddr == "" {
+		t.Skip("ipv6 unicast address on loopback not found")
 	}
 
-	for i, tt := range ipv6LinkLocalUnicastUDPTests {
-		c1, err := ListenPacket(tt.network, tt.address)
+	type test struct {
+		net, addr  string
+		nameLookup bool
+	}
+	var tests = []test{
+		{"udp", "[" + laddr + "%" + ifi.Name + "]:0", false},
+		{"udp6", "[" + laddr + "%" + ifi.Name + "]:0", false},
+	}
+	// The first udp test fails on DragonFly - see issue 7473.
+	if runtime.GOOS == "dragonfly" {
+		tests = tests[1:]
+	}
+	switch runtime.GOOS {
+	case "darwin", "dragonfly", "freebsd", "openbsd", "netbsd":
+		tests = append(tests, []test{
+			{"udp", "[localhost%" + ifi.Name + "]:0", true},
+			{"udp6", "[localhost%" + ifi.Name + "]:0", true},
+		}...)
+	case "linux":
+		tests = append(tests, []test{
+			{"udp", "[ip6-localhost%" + ifi.Name + "]:0", true},
+			{"udp6", "[ip6-localhost%" + ifi.Name + "]:0", true},
+		}...)
+	}
+	for _, tt := range tests {
+		c1, err := ListenPacket(tt.net, tt.addr)
 		if err != nil {
 			// It might return "LookupHost returned no
 			// suitable address" error on some platforms.
-			t.Log(err)
+			t.Logf("ListenPacket failed: %v", err)
 			continue
 		}
-		ls, err := (&packetListener{PacketConn: c1}).newLocalServer()
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer ls.teardown()
-		ch := make(chan error, 1)
-		handler := func(ls *localPacketServer, c PacketConn) { packetTransponder(c, ch) }
-		if err := ls.buildup(handler); err != nil {
-			t.Fatal(err)
-		}
+		defer c1.Close()
 		if la, ok := c1.LocalAddr().(*UDPAddr); !ok || !tt.nameLookup && la.Zone == "" {
 			t.Fatalf("got %v; expected a proper address with zone identifier", la)
 		}
 
-		c2, err := Dial(tt.network, ls.PacketConn.LocalAddr().String())
+		c2, err := Dial(tt.net, c1.LocalAddr().String())
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Dial failed: %v", err)
 		}
 		defer c2.Close()
 		if la, ok := c2.LocalAddr().(*UDPAddr); !ok || !tt.nameLookup && la.Zone == "" {
@@ -276,88 +284,14 @@ func TestIPv6LinkLocalUnicastUDP(t *testing.T) {
 		}
 
 		if _, err := c2.Write([]byte("UDP OVER IPV6 LINKLOCAL TEST")); err != nil {
-			t.Fatal(err)
+			t.Fatalf("Conn.Write failed: %v", err)
 		}
 		b := make([]byte, 32)
-		if _, err := c2.Read(b); err != nil {
-			t.Fatal(err)
-		}
-
-		for err := range ch {
-			t.Errorf("#%d: %v", i, err)
-		}
-	}
-}
-
-func TestUDPZeroBytePayload(t *testing.T) {
-	switch runtime.GOOS {
-	case "nacl", "plan9":
-		t.Skipf("not supported on %s", runtime.GOOS)
-	}
-
-	c, err := newLocalPacketListener("udp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	for _, genericRead := range []bool{false, true} {
-		n, err := c.WriteTo(nil, c.LocalAddr())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
-			t.Errorf("got %d; want 0", n)
-		}
-		c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		var b [1]byte
-		if genericRead {
-			_, err = c.(Conn).Read(b[:])
+		if _, from, err := c1.ReadFrom(b); err != nil {
+			t.Fatalf("PacketConn.ReadFrom failed: %v", err)
 		} else {
-			_, _, err = c.ReadFrom(b[:])
-		}
-		switch err {
-		case nil: // ReadFrom succeeds
-		default: // Read may timeout, it depends on the platform
-			if nerr, ok := err.(Error); !ok || !nerr.Timeout() {
-				t.Fatal(err)
-			}
-		}
-	}
-}
-
-func TestUDPZeroByteBuffer(t *testing.T) {
-	switch runtime.GOOS {
-	case "nacl", "plan9":
-		t.Skipf("not supported on %s", runtime.GOOS)
-	}
-
-	c, err := newLocalPacketListener("udp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-
-	b := []byte("UDP ZERO BYTE BUFFER TEST")
-	for _, genericRead := range []bool{false, true} {
-		n, err := c.WriteTo(b, c.LocalAddr())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != len(b) {
-			t.Errorf("got %d; want %d", n, len(b))
-		}
-		c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		if genericRead {
-			_, err = c.(Conn).Read(nil)
-		} else {
-			_, _, err = c.ReadFrom(nil)
-		}
-		switch err {
-		case nil: // ReadFrom succeeds
-		default: // Read may timeout, it depends on the platform
-			if nerr, ok := err.(Error); (!ok || !nerr.Timeout()) && runtime.GOOS != "windows" { // Windows retruns WSAEMSGSIZ
-				t.Fatal(err)
+			if ra, ok := from.(*UDPAddr); !ok || !tt.nameLookup && ra.Zone == "" {
+				t.Fatalf("got %v; expected a proper address with zone identifier", ra)
 			}
 		}
 	}

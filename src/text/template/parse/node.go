@@ -145,7 +145,7 @@ type PipeNode struct {
 	NodeType
 	Pos
 	tr   *Tree
-	Line int             // The line number in the input. Deprecated: Kept for compatibility.
+	Line int             // The line number in the input (deprecated; kept for compatibility)
 	Decl []*VariableNode // Variable declarations in lexical order.
 	Cmds []*CommandNode  // The commands in lexical order.
 }
@@ -208,7 +208,7 @@ type ActionNode struct {
 	NodeType
 	Pos
 	tr   *Tree
-	Line int       // The line number in the input. Deprecated: Kept for compatibility.
+	Line int       // The line number in the input (deprecated; kept for compatibility)
 	Pipe *PipeNode // The pipeline in the action.
 }
 
@@ -592,11 +592,6 @@ func (t *Tree) newNumber(pos Pos, text string, typ itemType) (*NumberNode, error
 	} else {
 		f, err := strconv.ParseFloat(text, 64)
 		if err == nil {
-			// If we parsed it as a float but it looks like an integer,
-			// it's a huge number too large to fit in an int. Reject it.
-			if !strings.ContainsAny(text, ".eE") {
-				return nil, fmt.Errorf("integer overflow: %q", text)
-			}
 			n.IsFloat = true
 			n.Float64 = f
 			// If a floating-point extraction succeeded, extract the int if needed.
@@ -701,7 +696,7 @@ type elseNode struct {
 	NodeType
 	Pos
 	tr   *Tree
-	Line int // The line number in the input. Deprecated: Kept for compatibility.
+	Line int // The line number in the input (deprecated; kept for compatibility)
 }
 
 func (t *Tree) newElse(pos Pos, line int) *elseNode {
@@ -729,7 +724,7 @@ type BranchNode struct {
 	NodeType
 	Pos
 	tr       *Tree
-	Line     int       // The line number in the input. Deprecated: Kept for compatibility.
+	Line     int       // The line number in the input (deprecated; kept for compatibility)
 	Pipe     *PipeNode // The pipeline to be evaluated.
 	List     *ListNode // What to execute if the value is non-empty.
 	ElseList *ListNode // What to execute if the value is empty (nil if absent).
@@ -814,7 +809,7 @@ type TemplateNode struct {
 	NodeType
 	Pos
 	tr   *Tree
-	Line int       // The line number in the input. Deprecated: Kept for compatibility.
+	Line int       // The line number in the input (deprecated; kept for compatibility)
 	Name string    // The name of the template (unquoted).
 	Pipe *PipeNode // The command to evaluate as dot for the template.
 }

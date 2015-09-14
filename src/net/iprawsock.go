@@ -17,21 +17,13 @@ func (a *IPAddr) String() string {
 	if a == nil {
 		return "<nil>"
 	}
-	ip := ipEmptyString(a.IP)
 	if a.Zone != "" {
-		return ip + "%" + a.Zone
+		return a.IP.String() + "%" + a.Zone
 	}
-	return ip
+	return a.IP.String()
 }
 
-func (a *IPAddr) isWildcard() bool {
-	if a == nil || a.IP == nil {
-		return true
-	}
-	return a.IP.IsUnspecified()
-}
-
-func (a *IPAddr) opAddr() Addr {
+func (a *IPAddr) toAddr() Addr {
 	if a == nil {
 		return nil
 	}
@@ -54,9 +46,9 @@ func ResolveIPAddr(net, addr string) (*IPAddr, error) {
 	default:
 		return nil, UnknownNetworkError(net)
 	}
-	addrs, err := internetAddrList(afnet, addr, noDeadline)
+	a, err := resolveInternetAddr(afnet, addr, noDeadline)
 	if err != nil {
 		return nil, err
 	}
-	return addrs.first(isIPv4).(*IPAddr), nil
+	return a.toAddr().(*IPAddr), nil
 }

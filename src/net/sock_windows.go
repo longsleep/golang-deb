@@ -4,10 +4,7 @@
 
 package net
 
-import (
-	"os"
-	"syscall"
-)
+import "syscall"
 
 func maxListenerBacklog() int {
 	// TODO: Implement this
@@ -15,16 +12,13 @@ func maxListenerBacklog() int {
 	return syscall.SOMAXCONN
 }
 
-func sysSocket(family, sotype, proto int) (syscall.Handle, error) {
+func sysSocket(f, t, p int) (syscall.Handle, error) {
 	// See ../syscall/exec_unix.go for description of ForkLock.
 	syscall.ForkLock.RLock()
-	s, err := socketFunc(family, sotype, proto)
+	s, err := syscall.Socket(f, t, p)
 	if err == nil {
 		syscall.CloseOnExec(s)
 	}
 	syscall.ForkLock.RUnlock()
-	if err != nil {
-		return syscall.InvalidHandle, os.NewSyscallError("socket", err)
-	}
-	return s, nil
+	return s, err
 }

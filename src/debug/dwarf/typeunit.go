@@ -27,15 +27,21 @@ func (d *Data) parseTypes(name string, types []byte) error {
 	b := makeBuf(d, unknownFormat{}, name, 0, types)
 	for len(b.data) > 0 {
 		base := b.off
-		n, dwarf64 := b.unitLength()
-		if n != Offset(uint32(n)) {
-			b.error("type unit length overflow")
-			return b.err
+		dwarf64 := false
+		n := b.uint32()
+		if n == 0xffffffff {
+			n64 := b.uint64()
+			if n64 != uint64(uint32(n64)) {
+				b.error("type unit length overflow")
+				return b.err
+			}
+			n = uint32(n64)
+			dwarf64 = true
 		}
 		hdroff := b.off
-		vers := int(b.uint16())
+		vers := b.uint16()
 		if vers != 4 {
-			b.error("unsupported DWARF version " + strconv.Itoa(vers))
+			b.error("unsupported DWARF version " + strconv.Itoa(int(vers)))
 			return b.err
 		}
 		var ao uint32
@@ -49,7 +55,7 @@ func (d *Data) parseTypes(name string, types []byte) error {
 			}
 			ao = uint32(ao64)
 		}
-		atable, err := d.parseAbbrev(ao, vers)
+		atable, err := d.parseAbbrev(ao)
 		if err != nil {
 			return err
 		}
@@ -73,7 +79,7 @@ func (d *Data) parseTypes(name string, types []byte) error {
 			unit: unit{
 				base:   base,
 				off:    boff,
-				data:   b.bytes(int(n - (b.off - hdroff))),
+				data:   b.bytes(int(Offset(n) - (b.off - hdroff))),
 				atable: atable,
 				asize:  int(asize),
 				vers:   int(vers),
@@ -127,11 +133,6 @@ func (tur *typeUnitReader) Seek(off Offset) {
 		return
 	}
 	tur.b = makeBuf(tur.d, tur.tu, tur.tu.name, off, tur.tu.data[doff:])
-}
-
-// AddressSize returns the size in bytes of addresses in the current type unit.
-func (tur *typeUnitReader) AddressSize() int {
-	return tur.tu.unit.asize
 }
 
 // Next reads the next Entry from the type unit.

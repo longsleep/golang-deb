@@ -17,15 +17,18 @@ var (
 	svgClose = regexp.MustCompile(`</svg>`)
 )
 
-// Massage enhances the SVG output from DOT to provide better
+// Massage enhances the SVG output from DOT to provide bettern
 // panning inside a web browser. It uses the SVGPan library, which is
-// included directly.
-func Massage(in bytes.Buffer) string {
+// accessed through the svgPan URL.
+func Massage(in bytes.Buffer, svgPan string) string {
 	svg := string(in.Bytes())
 
 	// Work around for dot bug which misses quoting some ampersands,
 	// resulting on unparsable SVG.
 	svg = strings.Replace(svg, "&;", "&amp;;", -1)
+	if svgPan == "" {
+		return svg
+	}
 
 	//Dot's SVG output is
 	//
@@ -40,7 +43,8 @@ func Massage(in bytes.Buffer) string {
 	//
 	//    <svg width="100%" height="100%"
 	//     xmlns=...>
-	//    <script>...</script>
+	//    <script xlink:href=" ...$svgpan.. "/>
+
 	//    <g id="viewport" transform="translate(0,0)">
 	//    <g id="graph0" transform="...">
 	//    ...
@@ -56,7 +60,7 @@ func Massage(in bytes.Buffer) string {
 
 	if loc := graphId.FindStringIndex(svg); loc != nil {
 		svg = svg[:loc[0]] +
-			`<script type="text/ecmascript"><![CDATA[` + svgPanJS + `]]></script>` +
+			`<script xlink:href="` + svgPan + `"/>` +
 			`<g id="viewport" transform="scale(0.5,0.5) translate(0,0)">` +
 			svg[loc[0]:]
 	}

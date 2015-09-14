@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// https://golang.org/issue/6849.
+// http://golang.org/issue/6849.
 func TestPrimeSmall(t *testing.T) {
 	for n := 2; n < 10; n++ {
 		p, err := rand.Prime(rand.Reader, n)

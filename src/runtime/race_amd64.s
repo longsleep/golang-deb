@@ -4,8 +4,7 @@
 
 // +build race
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "funcdata.h"
 #include "textflag.h"
 
@@ -58,7 +57,6 @@ TEXT	runtime·racereadpc(SB), NOSPLIT, $0-24
 	MOVQ	addr+0(FP), RARG1
 	MOVQ	callpc+8(FP), RARG2
 	MOVQ	pc+16(FP), RARG3
-	ADDQ	$1, RARG3 // pc is function start, tsan wants return address
 	// void __tsan_read_pc(ThreadState *thr, void *addr, void *callpc, void *pc);
 	MOVQ	$__tsan_read_pc(SB), AX
 	JMP	racecalladdr<>(SB)
@@ -82,7 +80,6 @@ TEXT	runtime·racewritepc(SB), NOSPLIT, $0-24
 	MOVQ	addr+0(FP), RARG1
 	MOVQ	callpc+8(FP), RARG2
 	MOVQ	pc+16(FP), RARG3
-	ADDQ	$1, RARG3 // pc is function start, tsan wants return address
 	// void __tsan_write_pc(ThreadState *thr, void *addr, void *callpc, void *pc);
 	MOVQ	$__tsan_write_pc(SB), AX
 	JMP	racecalladdr<>(SB)
@@ -107,7 +104,6 @@ TEXT	runtime·racereadrangepc1(SB), NOSPLIT, $0-24
 	MOVQ	addr+0(FP), RARG1
 	MOVQ	size+8(FP), RARG2
 	MOVQ	pc+16(FP), RARG3
-	ADDQ	$1, RARG3 // pc is function start, tsan wants return address
 	// void __tsan_read_range(ThreadState *thr, void *addr, uintptr size, void *pc);
 	MOVQ	$__tsan_read_range(SB), AX
 	JMP	racecalladdr<>(SB)
@@ -132,7 +128,6 @@ TEXT	runtime·racewriterangepc1(SB), NOSPLIT, $0-24
 	MOVQ	addr+0(FP), RARG1
 	MOVQ	size+8(FP), RARG2
 	MOVQ	pc+16(FP), RARG3
-	ADDQ	$1, RARG3 // pc is function start, tsan wants return address
 	// void __tsan_write_range(ThreadState *thr, void *addr, uintptr size, void *pc);
 	MOVQ	$__tsan_write_range(SB), AX
 	JMP	racecalladdr<>(SB)
@@ -145,18 +140,18 @@ TEXT	racecalladdr<>(SB), NOSPLIT, $0-0
 	MOVQ	g_racectx(R14), RARG0	// goroutine context
 	// Check that addr is within [arenastart, arenaend) or within [racedatastart, racedataend).
 	CMPQ	RARG1, runtime·racearenastart(SB)
-	JB	data
+	JB	racecalladdr_data
 	CMPQ	RARG1, runtime·racearenaend(SB)
-	JB	call
-data:
+	JB	racecalladdr_call
+racecalladdr_data:
 	CMPQ	RARG1, runtime·racedatastart(SB)
-	JB	ret
+	JB	racecalladdr_ret
 	CMPQ	RARG1, runtime·racedataend(SB)
-	JAE	ret
-call:
+	JAE	racecalladdr_ret
+racecalladdr_call:
 	MOVQ	AX, AX		// w/o this 6a miscompiles this function
 	JMP	racecall<>(SB)
-ret:
+racecalladdr_ret:
 	RET
 
 // func runtime·racefuncenter(pc uintptr)
@@ -229,6 +224,9 @@ TEXT	sync∕atomic·StoreUint64(SB), NOSPLIT, $0-0
 TEXT	sync∕atomic·StoreUintptr(SB), NOSPLIT, $0-0
 	JMP	sync∕atomic·StoreInt64(SB)
 
+TEXT	sync∕atomic·StorePointer(SB), NOSPLIT, $0-0
+	JMP	sync∕atomic·StoreInt64(SB)
+
 // Swap
 TEXT	sync∕atomic·SwapInt32(SB), NOSPLIT, $0-0
 	MOVQ	$__tsan_go_atomic32_exchange(SB), AX
@@ -247,6 +245,9 @@ TEXT	sync∕atomic·SwapUint64(SB), NOSPLIT, $0-0
 	JMP	sync∕atomic·SwapInt64(SB)
 
 TEXT	sync∕atomic·SwapUintptr(SB), NOSPLIT, $0-0
+	JMP	sync∕atomic·SwapInt64(SB)
+
+TEXT	sync∕atomic·SwapPointer(SB), NOSPLIT, $0-0
 	JMP	sync∕atomic·SwapInt64(SB)
 
 // Add
@@ -273,6 +274,9 @@ TEXT	sync∕atomic·AddUint64(SB), NOSPLIT, $0-0
 TEXT	sync∕atomic·AddUintptr(SB), NOSPLIT, $0-0
 	JMP	sync∕atomic·AddInt64(SB)
 
+TEXT	sync∕atomic·AddPointer(SB), NOSPLIT, $0-0
+	JMP	sync∕atomic·AddInt64(SB)
+
 // CompareAndSwap
 TEXT	sync∕atomic·CompareAndSwapInt32(SB), NOSPLIT, $0-0
 	MOVQ	$__tsan_go_atomic32_compare_exchange(SB), AX
@@ -291,6 +295,9 @@ TEXT	sync∕atomic·CompareAndSwapUint64(SB), NOSPLIT, $0-0
 	JMP	sync∕atomic·CompareAndSwapInt64(SB)
 
 TEXT	sync∕atomic·CompareAndSwapUintptr(SB), NOSPLIT, $0-0
+	JMP	sync∕atomic·CompareAndSwapInt64(SB)
+
+TEXT	sync∕atomic·CompareAndSwapPointer(SB), NOSPLIT, $0-0
 	JMP	sync∕atomic·CompareAndSwapInt64(SB)
 
 // Generic atomic operation implementation.
@@ -359,9 +366,9 @@ TEXT	racecall<>(SB), NOSPLIT, $0-0
 	MOVQ	SP, R12		// callee-saved, preserved across the CALL
 	MOVQ	m_g0(R13), R10
 	CMPQ	R10, R14
-	JE	call	// already on g0
+	JE	racecall_cont	// already on g0
 	MOVQ	(g_sched+gobuf_sp)(R10), SP
-call:
+racecall_cont:
 	ANDQ	$~15, SP	// alignment for gcc ABI
 	CALL	AX
 	MOVQ	R12, SP
@@ -387,9 +394,8 @@ TEXT	runtime·racesymbolizethunk(SB), NOSPLIT, $56-8
 	MOVQ	g_m(R13), R13
 	MOVQ	m_g0(R13), R14
 	MOVQ	R14, g(R12)	// g = m->g0
-	PUSHQ	RARG0	// func arg
+	MOVQ	RARG0, 0(SP)	// func arg
 	CALL	runtime·racesymbolize(SB)
-	POPQ	R12
 	// All registers are smashed after Go code, reload.
 	get_tls(R12)
 	MOVQ	g(R12), R13

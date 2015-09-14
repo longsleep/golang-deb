@@ -139,19 +139,7 @@ var clipTests = []clipTest{
 		image.Pt(20, 0),
 		image.Pt(20, 0),
 	},
-	{
-		"clip sr and mr",
-		image.Rect(0, 0, 100, 100),
-		image.Rect(0, 0, 100, 100),
-		image.Rect(23, 23, 55, 86),
-		image.Rect(44, 44, 87, 58),
-		image.Pt(10, 10),
-		image.Pt(11, 11),
-		false,
-		image.Rect(33, 33, 45, 47),
-		image.Pt(43, 43),
-		image.Pt(44, 44),
-	},
+	// TODO(nigeltao): write more tests.
 }
 
 func TestClip(t *testing.T) {
@@ -161,12 +149,12 @@ func TestClip(t *testing.T) {
 	for _, c := range clipTests {
 		dst := dst0.SubImage(c.dr).(*image.RGBA)
 		src := src0.SubImage(c.sr).(*image.RGBA)
-		r, sp, mp := c.r, c.sp, c.mp
-		if c.nilMask {
-			clip(dst, &r, src, &sp, nil, nil)
-		} else {
-			clip(dst, &r, src, &sp, mask0.SubImage(c.mr), &mp)
+		var mask image.Image
+		if !c.nilMask {
+			mask = mask0.SubImage(c.mr)
 		}
+		r, sp, mp := c.r, c.sp, c.mp
+		clip(dst, &r, src, &sp, mask, &mp)
 
 		// Check that the actual results equal the expected results.
 		if !c.r0.Eq(r) {
@@ -185,17 +173,17 @@ func TestClip(t *testing.T) {
 		}
 
 		// Check that the clipped rectangle is contained by the dst / src / mask
-		// rectangles, in their respective coordinate spaces.
+		// rectangles, in their respective co-ordinate spaces.
 		if !r.In(c.dr) {
 			t.Errorf("%s: c.dr %v does not contain r %v", c.desc, c.dr, r)
 		}
-		// sr is r translated into src's coordinate space.
+		// sr is r translated into src's co-ordinate space.
 		sr := r.Add(c.sp.Sub(c.dr.Min))
 		if !sr.In(c.sr) {
 			t.Errorf("%s: c.sr %v does not contain sr %v", c.desc, c.sr, sr)
 		}
 		if !c.nilMask {
-			// mr is r translated into mask's coordinate space.
+			// mr is r translated into mask's co-ordinate space.
 			mr := r.Add(c.mp.Sub(c.dr.Min))
 			if !mr.In(c.mr) {
 				t.Errorf("%s: c.mr %v does not contain mr %v", c.desc, c.mr, mr)

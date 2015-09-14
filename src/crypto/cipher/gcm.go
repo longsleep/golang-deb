@@ -52,26 +52,14 @@ type gcmFieldElement struct {
 // gcm represents a Galois Counter Mode with a specific key. See
 // http://csrc.nist.gov/groups/ST/toolkit/BCM/documents/proposedmodes/gcm/gcm-revised-spec.pdf
 type gcm struct {
-	cipher    Block
-	nonceSize int
+	cipher Block
 	// productTable contains the first sixteen powers of the key, H.
-	// However, they are in bit reversed order. See NewGCMWithNonceSize.
+	// However, they are in bit reversed order. See NewGCM.
 	productTable [16]gcmFieldElement
 }
 
-// NewGCM returns the given 128-bit, block cipher wrapped in Galois Counter Mode
-// with the standard nonce length.
+// NewGCM returns the given 128-bit, block cipher wrapped in Galois Counter Mode.
 func NewGCM(cipher Block) (AEAD, error) {
-	return NewGCMWithNonceSize(cipher, gcmStandardNonceSize)
-}
-
-// NewGCMWithNonceSize returns the given 128-bit, block cipher wrapped in Galois
-// Counter Mode, which accepts nonces of the given length.
-//
-// Only use this function if you require compatibility with an existing
-// cryptosystem that uses non-standard nonce lengths. All other users should use
-// NewGCM, which is faster and more resistant to misuse.
-func NewGCMWithNonceSize(cipher Block, size int) (AEAD, error) {
 	if cipher.BlockSize() != gcmBlockSize {
 		return nil, errors.New("cipher: NewGCM requires 128-bit block cipher")
 	}
@@ -79,7 +67,7 @@ func NewGCMWithNonceSize(cipher Block, size int) (AEAD, error) {
 	var key [gcmBlockSize]byte
 	cipher.Encrypt(key[:], key[:])
 
-	g := &gcm{cipher: cipher, nonceSize: size}
+	g := &gcm{cipher: cipher}
 
 	// We precompute 16 multiples of |key|. However, when we do lookups
 	// into this table we'll be using bits from a field element and
@@ -101,13 +89,13 @@ func NewGCMWithNonceSize(cipher Block, size int) (AEAD, error) {
 }
 
 const (
-	gcmBlockSize         = 16
-	gcmTagSize           = 16
-	gcmStandardNonceSize = 12
+	gcmBlockSize = 16
+	gcmTagSize   = 16
+	gcmNonceSize = 12
 )
 
-func (g *gcm) NonceSize() int {
-	return g.nonceSize
+func (*gcm) NonceSize() int {
+	return gcmNonceSize
 }
 
 func (*gcm) Overhead() int {
@@ -115,13 +103,16 @@ func (*gcm) Overhead() int {
 }
 
 func (g *gcm) Seal(dst, nonce, plaintext, data []byte) []byte {
-	if len(nonce) != g.nonceSize {
+	if len(nonce) != gcmNonceSize {
 		panic("cipher: incorrect nonce length given to GCM")
 	}
+
 	ret, out := sliceForAppend(dst, len(plaintext)+gcmTagSize)
 
+	// See GCM spec, section 7.1.
 	var counter, tagMask [gcmBlockSize]byte
-	g.deriveCounter(&counter, nonce)
+	copy(counter[:], nonce)
+	counter[gcmBlockSize-1] = 1
 
 	g.cipher.Encrypt(tagMask[:], counter[:])
 	gcmInc32(&counter)
@@ -135,7 +126,7 @@ func (g *gcm) Seal(dst, nonce, plaintext, data []byte) []byte {
 var errOpen = errors.New("cipher: message authentication failed")
 
 func (g *gcm) Open(dst, nonce, ciphertext, data []byte) ([]byte, error) {
-	if len(nonce) != g.nonceSize {
+	if len(nonce) != gcmNonceSize {
 		panic("cipher: incorrect nonce length given to GCM")
 	}
 
@@ -145,8 +136,10 @@ func (g *gcm) Open(dst, nonce, ciphertext, data []byte) ([]byte, error) {
 	tag := ciphertext[len(ciphertext)-gcmTagSize:]
 	ciphertext = ciphertext[:len(ciphertext)-gcmTagSize]
 
+	// See GCM spec, section 7.1.
 	var counter, tagMask [gcmBlockSize]byte
-	g.deriveCounter(&counter, nonce)
+	copy(counter[:], nonce)
+	counter[gcmBlockSize-1] = 1
 
 	g.cipher.Encrypt(tagMask[:], counter[:])
 	gcmInc32(&counter)
@@ -205,7 +198,7 @@ var gcmReductionTable = []uint16{
 	0xe100, 0xfd20, 0xd940, 0xc560, 0x9180, 0x8da0, 0xa9c0, 0xb5e0,
 }
 
-// mul sets y to y*H, where H is the GCM key, fixed during NewGCMWithNonceSize.
+// mul sets y to y*H, where H is the GCM key, fixed during NewGCM.
 func (g *gcm) mul(y *gcmFieldElement) {
 	var z gcmFieldElement
 
@@ -226,7 +219,7 @@ func (g *gcm) mul(y *gcmFieldElement) {
 
 			// the values in |table| are ordered for
 			// little-endian bit positions. See the comment
-			// in NewGCMWithNonceSize.
+			// in NewGCM.
 			t := &g.productTable[word&0xf]
 
 			z.low ^= t.low
@@ -305,29 +298,6 @@ func (g *gcm) counterCrypt(out, in []byte, counter *[gcmBlockSize]byte) {
 		g.cipher.Encrypt(mask[:], counter[:])
 		gcmInc32(counter)
 		xorBytes(out, in, mask[:])
-	}
-}
-
-// deriveCounter computes the initial GCM counter state from the given nonce.
-// See NIST SP 800-38D, section 7.1. This assumes that counter is filled with
-// zeros on entry.
-func (g *gcm) deriveCounter(counter *[gcmBlockSize]byte, nonce []byte) {
-	// GCM has two modes of operation with respect to the initial counter
-	// state: a "fast path" for 96-bit (12-byte) nonces, and a "slow path"
-	// for nonces of other lengths. For a 96-bit nonce, the nonce, along
-	// with a four-byte big-endian counter starting at one, is used
-	// directly as the starting counter. For other nonce sizes, the counter
-	// is computed by passing it through the GHASH function.
-	if len(nonce) == gcmStandardNonceSize {
-		copy(counter[:], nonce)
-		counter[gcmBlockSize-1] = 1
-	} else {
-		var y gcmFieldElement
-		g.update(&y, nonce)
-		y.high ^= uint64(len(nonce)) * 8
-		g.mul(&y)
-		putUint64(counter[:8], y.low)
-		putUint64(counter[8:], y.high)
 	}
 }
 

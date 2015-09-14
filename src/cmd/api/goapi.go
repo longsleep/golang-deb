@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// +build api_tool
+
 // Binary api computes the exported API of a set of Go packages.
 package main
 
@@ -14,7 +16,6 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
-	"go/types"
 	"io"
 	"io/ioutil"
 	"log"
@@ -25,6 +26,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"code.google.com/p/go.tools/go/types"
 )
 
 // Flags
@@ -152,8 +155,7 @@ func main() {
 					// w.Import(name) will return nil
 					continue
 				}
-				pkg, _ := w.Import(name)
-				w.export(pkg)
+				w.export(w.Import(name))
 			}
 		}
 
@@ -203,8 +205,7 @@ func main() {
 	}
 	optional := fileFeatures(*nextFile)
 	exception := fileFeatures(*exceptFile)
-	fail = !compareAPI(bw, features, required, optional, exception,
-		*allowNew && strings.Contains(runtime.Version(), "devel"))
+	fail = !compareAPI(bw, features, required, optional, exception)
 }
 
 // export emits the exported package features.
@@ -240,7 +241,7 @@ func featureWithoutContext(f string) string {
 	return spaceParensRx.ReplaceAllString(f, "")
 }
 
-func compareAPI(w io.Writer, features, required, optional, exception []string, allowAdd bool) (ok bool) {
+func compareAPI(w io.Writer, features, required, optional, exception []string) (ok bool) {
 	ok = true
 
 	optionalSet := set(optional)
@@ -282,7 +283,7 @@ func compareAPI(w io.Writer, features, required, optional, exception []string, a
 				delete(optionalSet, newFeature)
 			} else {
 				fmt.Fprintf(w, "+%s\n", newFeature)
-				if !allowAdd {
+				if !*allowNew || !strings.Contains(runtime.Version(), "devel") {
 					ok = false // we're in lock-down mode for next release
 				}
 			}
@@ -355,16 +356,139 @@ var parsedFileCache = make(map[string]*ast.File)
 
 func (w *Walker) parseFile(dir, file string) (*ast.File, error) {
 	filename := filepath.Join(dir, file)
-	if f := parsedFileCache[filename]; f != nil {
+	f, _ := parsedFileCache[filename]
+	if f != nil {
 		return f, nil
 	}
 
-	f, err := parser.ParseFile(fset, filename, nil, 0)
-	if err != nil {
-		return nil, err
-	}
-	parsedFileCache[filename] = f
+	var err error
 
+	// generate missing context-dependent files.
+
+	if w.context != nil && file == fmt.Sprintf("zgoos_%s.go", w.context.GOOS) {
+		src := fmt.Sprintf("package runtime; const theGoos = `%s`", w.context.GOOS)
+		f, err = parser.ParseFile(fset, filename, src, 0)
+		if err != nil {
+			log.Fatalf("incorrect generated file: %s", err)
+		}
+	}
+
+	if w.context != nil && file == fmt.Sprintf("zgoarch_%s.go", w.context.GOARCH) {
+		src := fmt.Sprintf("package runtime; const theGoarch = `%s`", w.context.GOARCH)
+		f, err = parser.ParseFile(fset, filename, src, 0)
+		if err != nil {
+			log.Fatalf("incorrect generated file: %s", err)
+		}
+	}
+	if w.context != nil && file == fmt.Sprintf("zruntime_defs_%s_%s.go", w.context.GOOS, w.context.GOARCH) {
+		// Just enough to keep the api checker happy. Keep sorted.
+		src := "package runtime; type (" +
+			" _defer struct{};" +
+			" _func struct{};" +
+			" _panic struct{};" +
+			" _select struct{}; " +
+			" _type struct{};" +
+			" alg struct{};" +
+			" chantype struct{};" +
+			" context struct{};" + // windows
+			" eface struct{};" +
+			" epollevent struct{};" +
+			" funcval struct{};" +
+			" g struct{};" +
+			" gobuf struct{};" +
+			" hchan struct{};" +
+			" iface struct{};" +
+			" interfacetype struct{};" +
+			" itab struct{};" +
+			" keventt struct{};" +
+			" m struct{};" +
+			" maptype struct{};" +
+			" mcache struct{};" +
+			" mspan struct{};" +
+			" mutex struct{};" +
+			" note struct{};" +
+			" p struct{};" +
+			" parfor struct{};" +
+			" slicetype struct{};" +
+			" stkframe struct{};" +
+			" sudog struct{};" +
+			" timespec struct{};" +
+			" waitq struct{};" +
+			" wincallbackcontext struct{};" +
+			"); " +
+			"const (" +
+			" cb_max = 2000;" +
+			" _CacheLineSize = 64;" +
+			" _Gidle = 1;" +
+			" _Grunnable = 2;" +
+			" _Grunning = 3;" +
+			" _Gsyscall = 4;" +
+			" _Gwaiting = 5;" +
+			" _Gdead = 6;" +
+			" _Genqueue = 7;" +
+			" _Gcopystack = 8;" +
+			" _NSIG = 32;" +
+			" _FlagNoScan = iota;" +
+			" _FlagNoZero;" +
+			" _TinySize;" +
+			" _TinySizeClass;" +
+			" _MaxSmallSize;" +
+			" _PageShift;" +
+			" _PageSize;" +
+			" _PageMask;" +
+			" _BitsPerPointer;" +
+			" _BitsMask;" +
+			" _PointersPerByte;" +
+			" _MaxGCMask;" +
+			" _BitsDead;" +
+			" _BitsPointer;" +
+			" _MSpanInUse;" +
+			" _ConcurrentSweep;" +
+			" _KindBool;" +
+			" _KindInt;" +
+			" _KindInt8;" +
+			" _KindInt16;" +
+			" _KindInt32;" +
+			" _KindInt64;" +
+			" _KindUint;" +
+			" _KindUint8;" +
+			" _KindUint16;" +
+			" _KindUint32;" +
+			" _KindUint64;" +
+			" _KindUintptr;" +
+			" _KindFloat32;" +
+			" _KindFloat64;" +
+			" _KindComplex64;" +
+			" _KindComplex128;" +
+			" _KindArray;" +
+			" _KindChan;" +
+			" _KindFunc;" +
+			" _KindInterface;" +
+			" _KindMap;" +
+			" _KindPtr;" +
+			" _KindSlice;" +
+			" _KindString;" +
+			" _KindStruct;" +
+			" _KindUnsafePointer;" +
+			" _KindDirectIface;" +
+			" _KindGCProg;" +
+			" _KindNoPointers;" +
+			" _KindMask;" +
+			")"
+		f, err = parser.ParseFile(fset, filename, src, 0)
+		if err != nil {
+			log.Fatalf("incorrect generated file: %s", err)
+		}
+	}
+
+	if f == nil {
+		f, err = parser.ParseFile(fset, filename, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	parsedFileCache[filename] = f
 	return f, nil
 }
 
@@ -418,13 +542,13 @@ func tagKey(dir string, context *build.Context, tags []string) string {
 // for a package that is in the process of being imported.
 var importing types.Package
 
-func (w *Walker) Import(name string) (*types.Package, error) {
-	pkg := w.imported[name]
+func (w *Walker) Import(name string) (pkg *types.Package) {
+	pkg = w.imported[name]
 	if pkg != nil {
 		if pkg == &importing {
 			log.Fatalf("cycle importing package %q", name)
 		}
-		return pkg, nil
+		return pkg
 	}
 	w.imported[name] = &importing
 
@@ -448,7 +572,7 @@ func (w *Walker) Import(name string) (*types.Package, error) {
 			key = tagKey(dir, context, tags)
 			if pkg := pkgCache[key]; pkg != nil {
 				w.imported[name] = pkg
-				return pkg, nil
+				return pkg
 			}
 		}
 	}
@@ -456,7 +580,7 @@ func (w *Walker) Import(name string) (*types.Package, error) {
 	info, err := context.ImportDir(dir, 0)
 	if err != nil {
 		if _, nogo := err.(*build.NoGoError); nogo {
-			return nil, nil
+			return
 		}
 		log.Fatalf("pkg %q, dir %q: ScanDir: %v", name, dir, err)
 	}
@@ -470,6 +594,25 @@ func (w *Walker) Import(name string) (*types.Package, error) {
 	}
 
 	filenames := append(append([]string{}, info.GoFiles...), info.CgoFiles...)
+
+	// Certain files only exist when building for the specified context.
+	// Add them manually.
+	if name == "runtime" {
+		n := fmt.Sprintf("zgoos_%s.go", w.context.GOOS)
+		if !contains(filenames, n) {
+			filenames = append(filenames, n)
+		}
+
+		n = fmt.Sprintf("zgoarch_%s.go", w.context.GOARCH)
+		if !contains(filenames, n) {
+			filenames = append(filenames, n)
+		}
+
+		n = fmt.Sprintf("zruntime_defs_%s_%s.go", w.context.GOOS, w.context.GOARCH)
+		if !contains(filenames, n) {
+			filenames = append(filenames, n)
+		}
+	}
 
 	// Parse package files.
 	var files []*ast.File
@@ -485,7 +628,11 @@ func (w *Walker) Import(name string) (*types.Package, error) {
 	conf := types.Config{
 		IgnoreFuncBodies: true,
 		FakeImportC:      true,
-		Importer:         w,
+		Import: func(imports map[string]*types.Package, name string) (*types.Package, error) {
+			pkg := w.Import(name)
+			imports[name] = pkg
+			return pkg, nil
+		},
 	}
 	pkg, err = conf.Check(name, fset, files, nil)
 	if err != nil {
@@ -501,7 +648,7 @@ func (w *Walker) Import(name string) (*types.Package, error) {
 	}
 
 	w.imported[name] = pkg
-	return pkg, nil
+	return
 }
 
 // pushScope enters a new scope (walking a package, type, node, etc)
@@ -603,14 +750,12 @@ func (w *Walker) writeType(buf *bytes.Buffer, typ types.Type) {
 	case *types.Chan:
 		var s string
 		switch typ.Dir() {
-		case types.SendOnly:
+		case ast.SEND:
 			s = "chan<- "
-		case types.RecvOnly:
+		case ast.RECV:
 			s = "<-chan "
-		case types.SendRecv:
-			s = "chan "
 		default:
-			panic("unreachable")
+			s = "chan "
 		}
 		buf.WriteString(s)
 		w.writeType(buf, typ.Elem())
@@ -630,7 +775,7 @@ func (w *Walker) writeType(buf *bytes.Buffer, typ types.Type) {
 }
 
 func (w *Walker) writeSignature(buf *bytes.Buffer, sig *types.Signature) {
-	w.writeParams(buf, sig.Params(), sig.Variadic())
+	w.writeParams(buf, sig.Params(), sig.IsVariadic())
 	switch res := sig.Results(); res.Len() {
 	case 0:
 		// nothing to do
@@ -702,10 +847,10 @@ func (w *Walker) emitType(obj *types.TypeName) {
 
 	// emit methods with value receiver
 	var methodNames map[string]bool
-	vset := types.NewMethodSet(typ)
+	vset := typ.MethodSet()
 	for i, n := 0, vset.Len(); i < n; i++ {
 		m := vset.At(i)
-		if m.Obj().Exported() {
+		if m.Obj().IsExported() {
 			w.emitMethod(m)
 			if methodNames == nil {
 				methodNames = make(map[string]bool)
@@ -717,10 +862,10 @@ func (w *Walker) emitType(obj *types.TypeName) {
 	// emit methods with pointer receiver; exclude
 	// methods that we have emitted already
 	// (the method set of *T includes the methods of T)
-	pset := types.NewMethodSet(types.NewPointer(typ))
+	pset := types.NewPointer(typ).MethodSet()
 	for i, n := 0, pset.Len(); i < n; i++ {
 		m := pset.At(i)
-		if m.Obj().Exported() && !methodNames[m.Obj().Name()] {
+		if m.Obj().IsExported() && !methodNames[m.Obj().Name()] {
 			w.emitMethod(m)
 		}
 	}
@@ -733,7 +878,7 @@ func (w *Walker) emitStructType(name string, typ *types.Struct) {
 
 	for i := 0; i < typ.NumFields(); i++ {
 		f := typ.Field(i)
-		if !f.Exported() {
+		if !f.IsExported() {
 			continue
 		}
 		typ := f.Type()
@@ -750,10 +895,10 @@ func (w *Walker) emitIfaceType(name string, typ *types.Interface) {
 
 	var methodNames []string
 	complete := true
-	mset := types.NewMethodSet(typ)
+	mset := typ.MethodSet()
 	for i, n := 0, mset.Len(); i < n; i++ {
 		m := mset.At(i).Obj().(*types.Func)
-		if !m.Exported() {
+		if !m.IsExported() {
 			complete = false
 			continue
 		}
@@ -804,7 +949,7 @@ func (w *Walker) emitMethod(m *types.Selection) {
 		if p, _ := recv.(*types.Pointer); p != nil {
 			base = p.Elem()
 		}
-		if obj := base.(*types.Named).Obj(); !obj.Exported() {
+		if obj := base.(*types.Named).Obj(); !obj.IsExported() {
 			log.Fatalf("exported method with unexported receiver base type: %s", m)
 		}
 	}

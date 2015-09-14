@@ -16,4 +16,5 @@ func setMaxThreads(int) int
 
 // Implemented in package runtime.
 func readGCStats(*[]time.Duration)
+func enableGC(bool) bool
 func freeOSMemory()

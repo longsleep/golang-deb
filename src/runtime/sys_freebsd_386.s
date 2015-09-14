@@ -6,8 +6,7 @@
 // /usr/src/sys/kern/syscalls.master for syscall numbers.
 //
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "textflag.h"
 	
 TEXT runtime·sys_umtx_op(SB),NOSPLIT,$-4
@@ -62,32 +61,24 @@ TEXT runtime·exit1(SB),NOSPLIT,$-4
 TEXT runtime·open(SB),NOSPLIT,$-4
 	MOVL	$5, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
-TEXT runtime·closefd(SB),NOSPLIT,$-4
+TEXT runtime·close(SB),NOSPLIT,$-4
 	MOVL	$6, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+4(FP)
 	RET
 
 TEXT runtime·read(SB),NOSPLIT,$-4
 	MOVL	$3, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
 TEXT runtime·write(SB),NOSPLIT,$-4
 	MOVL	$4, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
@@ -109,18 +100,6 @@ TEXT runtime·raise(SB),NOSPLIT,$16
 	MOVL	sig+0(FP), AX
 	MOVL	AX, 8(SP)
 	MOVL	$433, AX
-	INT	$0x80
-	RET
-
-TEXT runtime·raiseproc(SB),NOSPLIT,$16
-	// getpid
-	MOVL	$20, AX
-	INT	$0x80
-	// kill(self, sig)
-	MOVL	AX, 4(SP)
-	MOVL	sig+0(FP), AX
-	MOVL	AX, 8(SP)
-	MOVL	$37, AX
 	INT	$0x80
 	RET
 
@@ -218,7 +197,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$44
 	MOVL	BX, 0(SP)
 	MOVL	$runtime·badsignal(SB), AX
 	CALL	AX
-	JMP 	ret
+	JMP 	sigtramp_ret
 
 	// save g
 	MOVL	DI, 20(SP)
@@ -244,7 +223,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$44
 	MOVL	20(SP), BX
 	MOVL	BX, g(CX)
 
-ret:
+sigtramp_ret:
 	// call sigreturn
 	MOVL	context+8(FP), AX
 	MOVL	$0, 0(SP)	// syscall gap
@@ -299,7 +278,7 @@ int i386_set_ldt(int, const union ldt_entry *, int);
 TEXT runtime·setldt(SB),NOSPLIT,$32
 	MOVL	address+4(FP), BX	// aka base
 	// see comment in sys_linux_386.s; freebsd is similar
-	ADDL	$0x4, BX
+	ADDL	$0x8, BX
 
 	// set up data_desc
 	LEAL	16(SP), AX	// struct data_desc
@@ -367,11 +346,10 @@ TEXT runtime·osyield(SB),NOSPLIT,$-4
 
 TEXT runtime·sigprocmask(SB),NOSPLIT,$16
 	MOVL	$0, 0(SP)		// syscall gap
-	MOVL	how+0(FP), AX		// arg 1 - how
-	MOVL	AX, 4(SP)
-	MOVL	new+4(FP), AX
+	MOVL	$3, 4(SP)		// arg 1 - how (SIG_SETMASK)
+	MOVL	new+0(FP), AX
 	MOVL	AX, 8(SP)		// arg 2 - set
-	MOVL	old+8(FP), AX
+	MOVL	old+4(FP), AX
 	MOVL	AX, 12(SP)		// arg 3 - oset
 	MOVL	$340, AX		// sys_sigprocmask
 	INT	$0x80

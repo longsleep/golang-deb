@@ -6,15 +6,14 @@
 // /usr/include/sys/syscall.h for syscall numbers.
 //
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "textflag.h"
 
 // This is needed by asm_amd64.s
 TEXT runtime·settls(SB),NOSPLIT,$8
 	RET
 
-// void libc_miniterrno(void *(*___errno)(void));
+// void libc·miniterrno(void *(*___errno)(void));
 //
 // Set the TLS errno pointer in M.
 //
@@ -41,7 +40,7 @@ TEXT runtime·nanotime1(SB),NOSPLIT,$0
 	SUBQ	$64, SP	// 16 bytes will do, but who knows in the future?
 	MOVQ	$3, DI	// CLOCK_REALTIME from <sys/time_impl.h>
 	MOVQ	SP, SI
-	LEAQ	libc_clock_gettime(SB), AX
+	MOVQ	libc·clock_gettime(SB), AX
 	CALL	AX
 	MOVQ	(SP), AX	// tv_sec from struct timespec
 	IMULQ	$1000000000, AX	// multiply into nanoseconds
@@ -54,7 +53,7 @@ TEXT runtime·nanotime1(SB),NOSPLIT,$0
 TEXT runtime·pipe1(SB),NOSPLIT,$0
 	SUBQ	$16, SP // 8 bytes will do, but stack has to be 16-byte alligned
 	MOVQ	SP, DI
-	LEAQ	libc_pipe(SB), AX
+	MOVQ	libc·pipe(SB), AX
 	CALL	AX
 	MOVL	0(SP), AX
 	MOVL	4(SP), DX
@@ -133,7 +132,7 @@ TEXT runtime·tstart_sysvicall(SB),NOSPLIT,$0
 	MOVQ	AX, (g_stack+stack_hi)(DX)
 	SUBQ	$(0x100000), AX		// stack size
 	MOVQ	AX, (g_stack+stack_lo)(DX)
-	ADDQ	$const__StackGuard, AX
+	ADDQ	$const_StackGuard, AX
 	MOVQ	AX, g_stackguard0(DX)
 	MOVQ	AX, g_stackguard1(DX)
 
@@ -288,24 +287,24 @@ TEXT runtime·usleep1(SB),NOSPLIT,$0
 	// Execute call on m->g0.
 	get_tls(R15)
 	CMPQ	R15, $0
-	JE	noswitch
+	JE	usleep1_noswitch
 
 	MOVQ	g(R15), R13
 	CMPQ	R13, $0
-	JE	noswitch
+	JE	usleep1_noswitch
 	MOVQ	g_m(R13), R13
 	CMPQ	R13, $0
-	JE	noswitch
+	JE	usleep1_noswitch
 	// TODO(aram): do something about the cpu profiler here.
 
 	MOVQ	m_g0(R13), R14
 	CMPQ	g(R15), R14
-	JNE	switch
+	JNE	usleep1_switch
 	// executing on m->g0 already
 	CALL	AX
 	RET
 
-switch:
+usleep1_switch:
 	// Switch to m->g0 stack and back.
 	MOVQ	(g_sched+gobuf_sp)(R14), R14
 	MOVQ	SP, -8(R14)
@@ -314,20 +313,20 @@ switch:
 	MOVQ	0(SP), SP
 	RET
 
-noswitch:
+usleep1_noswitch:
 	// Not a Go-managed thread. Do not switch stack.
 	CALL	AX
 	RET
 
 // Runs on OS stack. duration (in µs units) is in DI.
 TEXT runtime·usleep2(SB),NOSPLIT,$0
-	LEAQ	libc_usleep(SB), AX
+	MOVQ	libc·usleep(SB), AX
 	CALL	AX
 	RET
 
 // Runs on OS stack, called from runtime·osyield.
 TEXT runtime·osyield1(SB),NOSPLIT,$0
-	LEAQ	libc_sched_yield(SB), AX
+	MOVQ	libc·sched_yield(SB), AX
 	CALL	AX
 	RET
 

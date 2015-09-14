@@ -154,6 +154,20 @@ func splitQuoted(s string) (r []string, err error) {
 	return args, err
 }
 
+var safeBytes = []byte(`+-.,/0123456789:=ABCDEFGHIJKLMNOPQRSTUVWXYZ\_abcdefghijklmnopqrstuvwxyz`)
+
+func safeName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x80 && bytes.IndexByte(safeBytes, c) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // Translate rewrites f.AST, the original Go input, to remove
 // references to the imported package C, replacing them with
 // references to the equivalent Go types, functions, and variables.
@@ -197,10 +211,6 @@ func (p *Package) loadDefines(f *File) {
 		} else {
 			key = line[0:tabIndex]
 			val = strings.TrimSpace(line[tabIndex:])
-		}
-
-		if key == "__clang__" {
-			p.GccIsClang = true
 		}
 
 		if n := f.Name[key]; n != nil {
@@ -572,7 +582,7 @@ func (p *Package) mangleName(n *Name) {
 
 // rewriteRef rewrites all the C.xxx references in f.AST to refer to the
 // Go equivalents, now that we have figured out the meaning of all
-// the xxx.  In *godefs mode, rewriteRef replaces the names
+// the xxx.  In *godefs or *cdefs mode, rewriteRef replaces the names
 // with full definitions instead of mangled names.
 func (p *Package) rewriteRef(f *File) {
 	// Keep a list of all the functions, to remove the ones
@@ -663,13 +673,6 @@ func (p *Package) rewriteRef(f *File) {
 				expr = &ast.StarExpr{Star: (*r.Expr).Pos(), X: expr}
 			}
 
-		case "selector":
-			if r.Name.Kind == "var" {
-				expr = &ast.StarExpr{Star: (*r.Expr).Pos(), X: expr}
-			} else {
-				error_(r.Pos(), "only C variables allowed in selector expression", fixGo(r.Name.Go))
-			}
-
 		case "type":
 			if r.Name.Kind != "type" {
 				error_(r.Pos(), "expression C.%s used as type", fixGo(r.Name.Go))
@@ -685,7 +688,7 @@ func (p *Package) rewriteRef(f *File) {
 				error_(r.Pos(), "must call C.%s", fixGo(r.Name.Go))
 			}
 		}
-		if *godefs {
+		if *godefs || *cdefs {
 			// Substitute definition for mangled type name.
 			if id, ok := expr.(*ast.Ident); ok {
 				if t := typedef[id.Name]; t != nil {
@@ -743,10 +746,6 @@ func (p *Package) gccMachine() []string {
 		return []string{"-m32"}
 	case "arm":
 		return []string{"-marm"} // not thumb
-	case "s390":
-		return []string{"-m31"}
-	case "s390x":
-		return []string{"-m64"}
 	}
 	return nil
 }
@@ -766,7 +765,7 @@ func (p *Package) gccCmd() []string {
 		"-c",          // do not link
 		"-xc",         // input language is C
 	)
-	if p.GccIsClang {
+	if strings.Contains(c[0], "clang") {
 		c = append(c,
 			"-ferror-limit=0",
 			// Apple clang version 1.7 (tags/Apple/clang-77) (based on LLVM 2.9svn)
@@ -781,7 +780,7 @@ func (p *Package) gccCmd() []string {
 			// incorrectly typed unsigned long. We work around that
 			// by disabling the builtin functions (this is safe as
 			// it won't affect the actual compilation of the C code).
-			// See: https://golang.org/issue/6506.
+			// See: http://golang.org/issue/6506.
 			"-fno-builtin",
 		)
 	}
@@ -993,8 +992,8 @@ func (c *typeConv) Init(ptrSize, intSize int64) {
 	c.goVoid = c.Ident("_Ctype_void")
 
 	// Normally cgo translates void* to unsafe.Pointer,
-	// but for historical reasons -godefs uses *byte instead.
-	if *godefs {
+	// but for historical reasons -cdefs and -godefs use *byte instead.
+	if *cdefs || *godefs {
 		c.goVoidPtr = &ast.StarExpr{X: c.byte}
 	} else {
 		c.goVoidPtr = c.Ident("unsafe.Pointer")
@@ -1046,7 +1045,7 @@ func (tr *TypeRepr) String() string {
 	return fmt.Sprintf(tr.Repr, tr.FormatArgs...)
 }
 
-// Empty reports whether the result of String would be "".
+// Empty returns true if the result of String would be "".
 func (tr *TypeRepr) Empty() bool {
 	return len(tr.Repr) == 0
 }
@@ -1335,8 +1334,8 @@ func (c *typeConv) Type(dtype dwarf.Type, pos token.Pos) *Type {
 		// If sub.Go.Name is "_Ctype_struct_foo" or "_Ctype_union_foo" or "_Ctype_class_foo",
 		// use that as the Go form for this typedef too, so that the typedef will be interchangeable
 		// with the base type.
-		// In -godefs mode, do this for all typedefs.
-		if isStructUnionClass(sub.Go) || *godefs {
+		// In -godefs and -cdefs mode, do this for all typedefs.
+		if isStructUnionClass(sub.Go) || *godefs || *cdefs {
 			t.Go = sub.Go
 
 			if isStructUnionClass(sub.Go) {
@@ -1398,7 +1397,7 @@ func (c *typeConv) Type(dtype dwarf.Type, pos token.Pos) *Type {
 			name := c.Ident("_Ctype_" + s)
 			tt := *t
 			typedef[name.Name] = &tt
-			if !*godefs {
+			if !*godefs && !*cdefs {
 				t.Go = name
 			}
 		}
@@ -1544,16 +1543,14 @@ func (c *typeConv) intExpr(n int64) ast.Expr {
 }
 
 // Add padding of given size to fld.
-func (c *typeConv) pad(fld []*ast.Field, sizes []int64, size int64) ([]*ast.Field, []int64) {
+func (c *typeConv) pad(fld []*ast.Field, size int64) []*ast.Field {
 	n := len(fld)
 	fld = fld[0 : n+1]
 	fld[n] = &ast.Field{Names: []*ast.Ident{c.Ident("_")}, Type: c.Opaque(size)}
-	sizes = sizes[0 : n+1]
-	sizes[n] = size
-	return fld, sizes
+	return fld
 }
 
-// Struct conversion: return Go and (gc) C syntax for type.
+// Struct conversion: return Go and (6g) C syntax for type.
 func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.StructType, csyntax string, align int64) {
 	// Minimum alignment for a struct is 1 byte.
 	align = 1
@@ -1561,7 +1558,6 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 	var buf bytes.Buffer
 	buf.WriteString("struct {")
 	fld := make([]*ast.Field, 0, 2*len(dt.Field)+1) // enough for padding around every field
-	sizes := make([]int64, 0, 2*len(dt.Field)+1)
 	off := int64(0)
 
 	// Rename struct fields that happen to be named Go keywords into
@@ -1577,7 +1573,7 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 		used[f.Name] = true
 	}
 
-	if !*godefs {
+	if !*godefs && !*cdefs {
 		for cid, goid := range ident {
 			if token.Lookup(goid).IsKeyword() {
 				// Avoid keyword
@@ -1597,19 +1593,19 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 	anon := 0
 	for _, f := range dt.Field {
 		if f.ByteOffset > off {
-			fld, sizes = c.pad(fld, sizes, f.ByteOffset-off)
+			fld = c.pad(fld, f.ByteOffset-off)
 			off = f.ByteOffset
 		}
 
 		name := f.Name
 		ft := f.Type
 
-		// In godefs mode, if this field is a C11
+		// In godefs or cdefs mode, if this field is a C11
 		// anonymous union then treat the first field in the
 		// union as the field in the struct.  This handles
 		// cases like the glibc <sys/resource.h> file; see
 		// issue 6677.
-		if *godefs {
+		if *godefs || *cdefs {
 			if st, ok := f.Type.(*dwarf.StructType); ok && name == "" && st.Kind == "union" && len(st.Field) > 0 && !used[st.Field[0].Name] {
 				name = st.Field[0].Name
 				ident[name] = name
@@ -1639,12 +1635,14 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 			talign = size
 		}
 
-		if talign > 0 && f.ByteOffset%talign != 0 {
+		if talign > 0 && f.ByteOffset%talign != 0 && !*cdefs {
 			// Drop misaligned fields, the same way we drop integer bit fields.
 			// The goal is to make available what can be made available.
 			// Otherwise one bad and unneeded field in an otherwise okay struct
 			// makes the whole program not compile. Much of the time these
 			// structs are in system headers that cannot be corrected.
+			// Exception: In -cdefs mode, we use #pragma pack, so misaligned
+			// fields should still work.
 			continue
 		}
 		n := len(fld)
@@ -1655,8 +1653,6 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 			ident[name] = name
 		}
 		fld[n] = &ast.Field{Names: []*ast.Ident{c.Ident(ident[name])}, Type: tgo}
-		sizes = sizes[0 : n+1]
-		sizes[n] = size
 		off += size
 		buf.WriteString(t.C.String())
 		buf.WriteString(" ")
@@ -1667,29 +1663,16 @@ func (c *typeConv) Struct(dt *dwarf.StructType, pos token.Pos) (expr *ast.Struct
 		}
 	}
 	if off < dt.ByteSize {
-		fld, sizes = c.pad(fld, sizes, dt.ByteSize-off)
+		fld = c.pad(fld, dt.ByteSize-off)
 		off = dt.ByteSize
 	}
-
-	// If the last field in a non-zero-sized struct is zero-sized
-	// the compiler is going to pad it by one (see issue 9401).
-	// We can't permit that, because then the size of the Go
-	// struct will not be the same as the size of the C struct.
-	// Our only option in such a case is to remove the field,
-	// which means that it can not be referenced from Go.
-	for off > 0 && sizes[len(sizes)-1] == 0 {
-		n := len(sizes)
-		fld = fld[0 : n-1]
-		sizes = sizes[0 : n-1]
-	}
-
 	if off != dt.ByteSize {
 		fatalf("%s: struct size calculation error off=%d bytesize=%d", lineno(pos), off, dt.ByteSize)
 	}
 	buf.WriteString("}")
 	csyntax = buf.String()
 
-	if *godefs {
+	if *godefs || *cdefs {
 		godefsFields(fld)
 	}
 	expr = &ast.StructType{Fields: &ast.FieldList{List: fld}}
@@ -1724,7 +1707,9 @@ func godefsFields(fld []*ast.Field) {
 				n.Name = "Pad_cgo_" + strconv.Itoa(npad)
 				npad++
 			}
-			n.Name = upper(n.Name)
+			if !*cdefs {
+				n.Name = upper(n.Name)
+			}
 		}
 	}
 }
@@ -1736,6 +1721,9 @@ func godefsFields(fld []*ast.Field) {
 // package syscall's data structures, we drop a common prefix
 // (so sec, usec, which will get turned into Sec, Usec for exporting).
 func fieldPrefix(fld []*ast.Field) string {
+	if *cdefs {
+		return ""
+	}
 	prefix := ""
 	for _, f := range fld {
 		for _, n := range f.Names {

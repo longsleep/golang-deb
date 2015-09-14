@@ -87,9 +87,7 @@ includes_FreeBSD='
 includes_Linux='
 #define _LARGEFILE_SOURCE
 #define _LARGEFILE64_SOURCE
-#ifndef __LP64__
 #define _FILE_OFFSET_BITS 64
-#endif
 #define _GNU_SOURCE
 
 #include <bits/sockaddr.h>
@@ -122,14 +120,6 @@ includes_Linux='
 
 #ifndef MSG_FASTOPEN
 #define MSG_FASTOPEN    0x20000000
-#endif
-
-#ifndef PTRACE_GETREGS
-#define PTRACE_GETREGS	0xc
-#endif
-
-#ifndef PTRACE_SETREGS
-#define PTRACE_SETREGS	0xd
 #endif
 '
 
@@ -252,7 +242,6 @@ ccflags="$@"
 		$2 ~ /^(SIGEV_|SIGSTKSZ|SIGRT(MIN|MAX))/ {next}
 		$2 ~ /^(SCM_SRCRT)$/ {next}
 		$2 ~ /^(MAP_FAILED)$/ {next}
-		$2 ~ /^ELF_.*$/ {next}	# <asm/elf.h> contains ELF_ARCH, etc.
 
 		$2 !~ /^ETH_/ &&
 		$2 !~ /^EPROC_/ &&

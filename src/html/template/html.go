@@ -138,24 +138,21 @@ var htmlNospaceNormReplacementTable = []string{
 // and when badRunes is true, certain bad runes are allowed through unescaped.
 func htmlReplacer(s string, replacementTable []string, badRunes bool) string {
 	written, b := 0, new(bytes.Buffer)
-	r, w := rune(0), 0
-	for i := 0; i < len(s); i += w {
-		// Cannot use 'for range s' because we need to preserve the width
-		// of the runes in the input. If we see a decoding error, the input
-		// width will not be utf8.Runelen(r) and we will overrun the buffer.
-		r, w = utf8.DecodeRuneInString(s[i:])
+	for i, r := range s {
 		if int(r) < len(replacementTable) {
 			if repl := replacementTable[r]; len(repl) != 0 {
 				b.WriteString(s[written:i])
 				b.WriteString(repl)
-				written = i + w
+				// Valid as long as replacementTable doesn't
+				// include anything above 0x7f.
+				written = i + utf8.RuneLen(r)
 			}
 		} else if badRunes {
 			// No-op.
 			// IE does not allow these ranges in unquoted attrs.
 		} else if 0xfdd0 <= r && r <= 0xfdef || 0xfff0 <= r && r <= 0xffff {
 			fmt.Fprintf(b, "%s&#x%x;", s[written:i], r)
-			written = i + w
+			written = i + utf8.RuneLen(r)
 		}
 	}
 	if written == 0 {

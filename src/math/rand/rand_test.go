@@ -8,8 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
-	"runtime"
 	"testing"
 )
 
@@ -324,17 +322,10 @@ func TestExpTables(t *testing.T) {
 	}
 }
 
+// For issue 6721, the problem came after 7533753 calls, so check 10e6.
 func TestFloat32(t *testing.T) {
-	// For issue 6721, the problem came after 7533753 calls, so check 10e6.
-	num := int(10e6)
-	// But ARM5 floating point emulation is slow (Issue 10749), so
-	// do less for that builder:
-	if testing.Short() && runtime.GOARCH == "arm" && os.Getenv("GOARM") == "5" {
-		num /= 100 // 1.72 seconds instead of 172 seconds
-	}
-
 	r := New(NewSource(1))
-	for ct := 0; ct < num; ct++ {
+	for ct := 0; ct < 10e6; ct++ {
 		f := r.Float32()
 		if f >= 1 {
 			t.Fatal("Float32() should be in range [0,1). ct:", ct, "f:", f)

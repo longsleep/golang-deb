@@ -9,27 +9,24 @@
 
 package net
 
-import (
-	"os"
-	"syscall"
-)
+import "syscall"
 
 // Wrapper around the socket system call that marks the returned file
 // descriptor as nonblocking and close-on-exec.
 func sysSocket(family, sotype, proto int) (int, error) {
 	// See ../syscall/exec_unix.go for description of ForkLock.
 	syscall.ForkLock.RLock()
-	s, err := socketFunc(family, sotype, proto)
+	s, err := syscall.Socket(family, sotype, proto)
 	if err == nil {
 		syscall.CloseOnExec(s)
 	}
 	syscall.ForkLock.RUnlock()
 	if err != nil {
-		return -1, os.NewSyscallError("socket", err)
+		return -1, err
 	}
 	if err = syscall.SetNonblock(s, true); err != nil {
-		closeFunc(s)
-		return -1, os.NewSyscallError("setnonblock", err)
+		syscall.Close(s)
+		return -1, err
 	}
 	return s, nil
 }
@@ -42,16 +39,16 @@ func accept(s int) (int, syscall.Sockaddr, error) {
 	// because we have put fd.sysfd into non-blocking mode.
 	// However, a call to the File method will put it back into
 	// blocking mode. We can't take that risk, so no use of ForkLock here.
-	ns, sa, err := acceptFunc(s)
+	ns, sa, err := syscall.Accept(s)
 	if err == nil {
 		syscall.CloseOnExec(ns)
 	}
 	if err != nil {
-		return -1, nil, os.NewSyscallError("accept", err)
+		return -1, nil, err
 	}
 	if err = syscall.SetNonblock(ns, true); err != nil {
-		closeFunc(ns)
-		return -1, nil, os.NewSyscallError("setnonblock", err)
+		syscall.Close(ns)
+		return -1, nil, err
 	}
 	return ns, sa, nil
 }

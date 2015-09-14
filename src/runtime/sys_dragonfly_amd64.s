@@ -6,8 +6,7 @@
 // /usr/src/sys/kern/syscalls.master for syscall numbers.
 //
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "textflag.h"
 	
 TEXT runtime·sys_umtx_sleep(SB),NOSPLIT,$0
@@ -77,17 +76,13 @@ TEXT runtime·open(SB),NOSPLIT,$-8
 	MOVL	perm+12(FP), DX		// arg 3 mode
 	MOVL	$5, AX
 	SYSCALL
-	JCC	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+16(FP)
 	RET
 
-TEXT runtime·closefd(SB),NOSPLIT,$-8
+TEXT runtime·close(SB),NOSPLIT,$-8
 	MOVL	fd+0(FP), DI		// arg 1 fd
 	MOVL	$6, AX
 	SYSCALL
-	JCC	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+8(FP)
 	RET
 
@@ -97,8 +92,6 @@ TEXT runtime·read(SB),NOSPLIT,$-8
 	MOVL	n+16(FP), DX		// arg 3 count
 	MOVL	$3, AX
 	SYSCALL
-	JCC	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+24(FP)
 	RET
 
@@ -108,8 +101,6 @@ TEXT runtime·write(SB),NOSPLIT,$-8
 	MOVL	n+16(FP), DX		// arg 3 count
 	MOVL	$4, AX
 	SYSCALL
-	JCC	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+24(FP)
 	RET
 
@@ -125,18 +116,9 @@ TEXT runtime·raise(SB),NOSPLIT,$16
 	MOVL	$496, AX	// lwp_gettid
 	SYSCALL
 	MOVQ	$-1, DI		// arg 1 - pid
-	MOVQ	AX, SI		// arg 2 - tid
-	MOVL	sig+0(FP), DX	// arg 3 - signum
+	MOVQ	8(SP), DI	// arg 2 - tid
+	MOVL	sig+0(FP), SI	// arg 3 - signum
 	MOVL	$497, AX	// lwp_kill
-	SYSCALL
-	RET
-
-TEXT runtime·raiseproc(SB),NOSPLIT,$0
-	MOVL	$20, AX		// getpid
-	SYSCALL
-	MOVQ	AX, DI		// arg 1 - pid
-	MOVL	sig+0(FP), SI	// arg 2 - signum
-	MOVL	$37, AX		// kill
 	SYSCALL
 	RET
 
@@ -203,9 +185,9 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$64
 	MOVQ	R10, 40(SP)
 	
 	// g = m->signal
-	MOVQ	g_m(R10), AX
-	MOVQ	m_gsignal(AX), AX
-	MOVQ	AX, g(BX)
+	MOVQ	g_m(R10), BP
+	MOVQ	m_gsignal(BP), BP
+	MOVQ	BP, g(BX)
 	
 	MOVQ	DI, 0(SP)
 	MOVQ	SI, 8(SP)
@@ -281,7 +263,7 @@ TEXT runtime·usleep(SB),NOSPLIT,$16
 
 // set tls base to DI
 TEXT runtime·settls(SB),NOSPLIT,$16
-	ADDQ	$8, DI	// adjust for ELF: wants to use -8(FS) for g
+	ADDQ	$16, DI	// adjust for ELF: wants to use -16(FS) and -8(FS) for g and m
 	MOVQ	DI, 0(SP)
 	MOVQ	$16, 8(SP)
 	MOVQ	$0, DI			// arg 1 - which
@@ -316,9 +298,9 @@ TEXT runtime·osyield(SB),NOSPLIT,$-4
 	RET
 
 TEXT runtime·sigprocmask(SB),NOSPLIT,$0
-	MOVL	how+0(FP), DI		// arg 1 - how
-	MOVQ	new+8(FP), SI		// arg 2 - set
-	MOVQ	old+16(FP), DX		// arg 3 - oset
+	MOVL	$3, DI			// arg 1 - how (SIG_SETMASK)
+	MOVQ	new+0(FP), SI		// arg 2 - set
+	MOVQ	old+8(FP), DX		// arg 3 - oset
 	MOVL	$340, AX		// sys_sigprocmask
 	SYSCALL
 	JAE	2(PC)

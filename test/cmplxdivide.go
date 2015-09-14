@@ -5,7 +5,6 @@
 // license that can be found in the LICENSE file.
 
 // Driver for complex division table defined in cmplxdivide1.go
-// For details, see the comment at the top of in cmplxdivide.c.
 
 package main
 

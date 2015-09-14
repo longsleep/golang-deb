@@ -6,8 +6,7 @@
 // See http://fxr.watson.org/fxr/source/bsd/kern/syscalls.c?v=xnu-1228
 // or /usr/include/sys/syscall.h (on a Mac) for system call numbers.
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "textflag.h"
 
 // Exit the entire program (like C exit)
@@ -29,41 +28,28 @@ TEXT runtime·exit1(SB),NOSPLIT,$0
 TEXT runtime·open(SB),NOSPLIT,$0
 	MOVL	$5, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
-TEXT runtime·closefd(SB),NOSPLIT,$0
+TEXT runtime·close(SB),NOSPLIT,$0
 	MOVL	$6, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+4(FP)
 	RET
 
 TEXT runtime·read(SB),NOSPLIT,$0
 	MOVL	$3, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
 TEXT runtime·write(SB),NOSPLIT,$0
 	MOVL	$4, AX
 	INT	$0x80
-	JAE	2(PC)
-	MOVL	$-1, AX
 	MOVL	AX, ret+12(FP)
 	RET
 
-TEXT runtime·raise(SB),NOSPLIT,$0
-	// Ideally we'd send the signal to the current thread,
-	// not the whole process, but that's too hard on OS X.
-	JMP	runtime·raiseproc(SB)
-
-TEXT runtime·raiseproc(SB),NOSPLIT,$16
+TEXT runtime·raise(SB),NOSPLIT,$16
 	MOVL	$20, AX // getpid
 	INT	$0x80
 	MOVL	AX, 4(SP)	// pid
@@ -221,7 +207,8 @@ TEXT time·now(SB),NOSPLIT,$0
 	MOVL	DX, nsec+8(FP)
 	RET
 
-// func nanotime() int64
+// int64 nanotime(void) so really
+// void nanotime(int64 *nsec)
 TEXT runtime·nanotime(SB),NOSPLIT,$0
 	CALL	runtime·now(SB)
 	MOVL	AX, ret_lo+0(FP)
@@ -261,7 +248,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$40
 	MOVL	BX, 0(SP)
 	MOVL	$runtime·badsignal(SB), AX
 	CALL	AX
-	JMP 	ret
+	JMP 	sigtramp_ret
 
 	// save g
 	MOVL	DI, 20(SP)
@@ -288,7 +275,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$40
 	MOVL	20(SP), DI
 	MOVL	DI, g(CX)
 
-ret:
+sigtramp_ret:
 	// call sigreturn
 	MOVL	context+16(FP), CX
 	MOVL	style+4(FP), BX
@@ -327,32 +314,33 @@ TEXT runtime·usleep(SB),NOSPLIT,$32
 	INT	$0x80
 	RET
 
-// func bsdthread_create(stk, arg unsafe.Pointer, fn uintptr) int32
+// void bsdthread_create(void *stk, M *mp, G *gp, void (*fn)(void))
 // System call args are: func arg stack pthread flags.
 TEXT runtime·bsdthread_create(SB),NOSPLIT,$32
 	MOVL	$360, AX
 	// 0(SP) is where the caller PC would be; kernel skips it
-	MOVL	fn+8(FP), BX
+	MOVL	fn+12(FP), BX
 	MOVL	BX, 4(SP)	// func
-	MOVL	arg+4(FP), BX
+	MOVL	mm+4(FP), BX
 	MOVL	BX, 8(SP)	// arg
 	MOVL	stk+0(FP), BX
 	MOVL	BX, 12(SP)	// stack
-	MOVL    $0, 16(SP)      // pthread
+	MOVL	gg+8(FP), BX
+	MOVL	BX, 16(SP)	// pthread
 	MOVL	$0x1000000, 20(SP)	// flags = PTHREAD_START_CUSTOM
 	INT	$0x80
 	JAE	4(PC)
 	NEGL	AX
-	MOVL	AX, ret+12(FP)
+	MOVL	AX, ret+16(FP)
 	RET
 	MOVL	$0, AX
-	MOVL	AX, ret+12(FP)
+	MOVL	AX, ret+16(FP)
 	RET
 
 // The thread that bsdthread_create creates starts executing here,
 // because we registered this function using bsdthread_register
 // at startup.
-//	AX = "pthread" (= 0x0)
+//	AX = "pthread" (= g)
 //	BX = mach thread port
 //	CX = "func" (= fn)
 //	DX = "arg" (= m)
@@ -379,7 +367,6 @@ TEXT runtime·bsdthread_start(SB),NOSPLIT,$0
 
 	// Now segment is established.  Initialize m, g.
 	get_tls(BP)
-	MOVL    m_g0(DX), AX
 	MOVL	AX, g(BP)
 	MOVL	DX, g_m(AX)
 	MOVL	BX, m_procid(DX)	// m->procid = thread port (for debuggers)
@@ -388,7 +375,7 @@ TEXT runtime·bsdthread_start(SB),NOSPLIT,$0
 	CALL	runtime·exit1(SB)
 	RET
 
-// func bsdthread_register() int32
+// void bsdthread_register(void)
 // registers callbacks for threadstart (see bsdthread_create above
 // and wqthread and pthsize (not used).  returns 0 on success.
 TEXT runtime·bsdthread_register(SB),NOSPLIT,$40
@@ -447,35 +434,35 @@ TEXT runtime·mach_task_self(SB),NOSPLIT,$0
 // Mach provides trap versions of the semaphore ops,
 // instead of requiring the use of RPC.
 
-// func mach_semaphore_wait(sema uint32) int32
+// uint32 mach_semaphore_wait(uint32)
 TEXT runtime·mach_semaphore_wait(SB),NOSPLIT,$0
 	MOVL	$-36, AX
 	CALL	runtime·sysenter(SB)
 	MOVL	AX, ret+4(FP)
 	RET
 
-// func mach_semaphore_timedwait(sema, sec, nsec uint32) int32
+// uint32 mach_semaphore_timedwait(uint32, uint32, uint32)
 TEXT runtime·mach_semaphore_timedwait(SB),NOSPLIT,$0
 	MOVL	$-38, AX
 	CALL	runtime·sysenter(SB)
 	MOVL	AX, ret+12(FP)
 	RET
 
-// func mach_semaphore_signal(sema uint32) int32
+// uint32 mach_semaphore_signal(uint32)
 TEXT runtime·mach_semaphore_signal(SB),NOSPLIT,$0
 	MOVL	$-33, AX
 	CALL	runtime·sysenter(SB)
 	MOVL	AX, ret+4(FP)
 	RET
 
-// func mach_semaphore_signal_all(sema uint32) int32
+// uint32 mach_semaphore_signal_all(uint32)
 TEXT runtime·mach_semaphore_signal_all(SB),NOSPLIT,$0
 	MOVL	$-34, AX
 	CALL	runtime·sysenter(SB)
 	MOVL	AX, ret+4(FP)
 	RET
 
-// func setldt(entry int, address int, limit int)
+// setldt(int entry, int address, int limit)
 // entry and limit are ignored.
 TEXT runtime·setldt(SB),NOSPLIT,$32
 	MOVL	address+4(FP), BX	// aka base
@@ -522,7 +509,7 @@ TEXT runtime·sysctl(SB),NOSPLIT,$0
 	MOVL	AX, ret+24(FP)
 	RET
 
-// func kqueue() int32
+// int32 runtime·kqueue(void);
 TEXT runtime·kqueue(SB),NOSPLIT,$0
 	MOVL	$362, AX
 	INT	$0x80
@@ -531,7 +518,7 @@ TEXT runtime·kqueue(SB),NOSPLIT,$0
 	MOVL	AX, ret+0(FP)
 	RET
 
-// func kevent(kq int32, ch *keventt, nch int32, ev *keventt, nev int32, ts *timespec) int32
+// int32 runtime·kevent(int kq, Kevent *changelist, int nchanges, Kevent *eventlist, int nevents, Timespec *timeout);
 TEXT runtime·kevent(SB),NOSPLIT,$0
 	MOVL	$363, AX
 	INT	$0x80
@@ -540,7 +527,7 @@ TEXT runtime·kevent(SB),NOSPLIT,$0
 	MOVL	AX, ret+24(FP)
 	RET
 
-// func closeonexec(fd int32)
+// int32 runtime·closeonexec(int32 fd);
 TEXT runtime·closeonexec(SB),NOSPLIT,$32
 	MOVL	$92, AX  // fcntl
 	// 0(SP) is where the caller PC would be; kernel skips it

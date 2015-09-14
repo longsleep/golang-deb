@@ -215,10 +215,6 @@ func (c *Certificate) Verify(opts VerifyOptions) (chains [][]*Certificate, err e
 		return c.systemVerify(&opts)
 	}
 
-	if len(c.UnhandledCriticalExtensions) > 0 {
-		return nil, UnhandledCriticalExtension{}
-	}
-
 	if opts.Roots == nil {
 		opts.Roots = systemRootsPool()
 		if opts.Roots == nil {
@@ -327,9 +323,6 @@ nextIntermediate:
 }
 
 func matchHostnames(pattern, host string) bool {
-	host = strings.TrimSuffix(host, ".")
-	pattern = strings.TrimSuffix(pattern, ".")
-
 	if len(pattern) == 0 || len(host) == 0 {
 		return false
 	}
@@ -342,7 +335,7 @@ func matchHostnames(pattern, host string) bool {
 	}
 
 	for i, patternPart := range patternParts {
-		if i == 0 && patternPart == "*" {
+		if patternPart == "*" {
 			continue
 		}
 		if patternPart != hostParts[i] {

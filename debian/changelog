@@ -1,18 +1,3 @@
-golang (2:1.5-1) UNRELEASED; urgency=low
-
-  * Update to 1.5 upstream release (Closes: #796150).
-    - Compiler and runtime written entirely in Go.
-    - Concurrent garbage collector.
-    - GOMAXPROCS=runtime.NumCPU() by default.
-    - "internal" packages for all, not just core.
-    - Experimental "vendoring" support.
-    - Cross-compilation no longer requires a complete rebuild of the stdlib in
-      GOROOT, and thus the golang-go-GOHOST-GOARCH packages are removed.
-    - Fixes for CVE-2015-5739, CVE-2015-5740, CVE-2015-5741 (Closes: #795106).
-  * Sync debian/copyright with the Ubuntu delta. (thanks doko!)
-
- -- Tianon Gravi <tianon@debian.org>  Wed, 22 Jul 2015 21:55:56 -0700
-
 golang (2:1.4.2-3) unstable; urgency=medium
 
   * Add missing "prerm" for our new alternatives (thanks piuparts).

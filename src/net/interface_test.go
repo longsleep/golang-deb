@@ -6,7 +6,6 @@ package net
 
 import (
 	"reflect"
-	"runtime"
 	"testing"
 )
 
@@ -38,7 +37,12 @@ func ipv6LinkLocalUnicastAddr(ifi *Interface) string {
 		return ""
 	}
 	for _, ifa := range ifat {
-		if ifa, ok := ifa.(*IPNet); ok {
+		switch ifa := ifa.(type) {
+		case *IPAddr:
+			if ifa.IP.To4() == nil && ifa.IP.IsLinkLocalUnicast() {
+				return ifa.IP.String()
+			}
+		case *IPNet:
 			if ifa.IP.To4() == nil && ifa.IP.IsLinkLocalUnicast() {
 				return ifa.IP.String()
 			}
@@ -47,259 +51,161 @@ func ipv6LinkLocalUnicastAddr(ifi *Interface) string {
 	return ""
 }
 
-type routeStats struct {
-	loop  int // # of active loopback interfaces
-	other int // # of active other interfaces
-
-	uni4, uni6     int // # of active connected unicast, anycast routes
-	multi4, multi6 int // # of active connected multicast route clones
-}
-
 func TestInterfaces(t *testing.T) {
 	ift, err := Interfaces()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Interfaces failed: %v", err)
 	}
-	var stats routeStats
+	t.Logf("table: len/cap = %v/%v", len(ift), cap(ift))
+
 	for _, ifi := range ift {
 		ifxi, err := InterfaceByIndex(ifi.Index)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("InterfaceByIndex(%v) failed: %v", ifi.Index, err)
 		}
 		if !reflect.DeepEqual(ifxi, &ifi) {
-			t.Errorf("got %v; want %v", ifxi, ifi)
+			t.Fatalf("InterfaceByIndex(%v) = %v, want %v", ifi.Index, ifxi, ifi)
 		}
 		ifxn, err := InterfaceByName(ifi.Name)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("InterfaceByName(%q) failed: %v", ifi.Name, err)
 		}
 		if !reflect.DeepEqual(ifxn, &ifi) {
-			t.Errorf("got %v; want %v", ifxn, ifi)
+			t.Fatalf("InterfaceByName(%q) = %v, want %v", ifi.Name, ifxn, ifi)
 		}
 		t.Logf("%q: flags %q, ifindex %v, mtu %v", ifi.Name, ifi.Flags.String(), ifi.Index, ifi.MTU)
-		t.Logf("hardware address %q", ifi.HardwareAddr.String())
-		if ifi.Flags&FlagUp != 0 {
-			if ifi.Flags&FlagLoopback != 0 {
-				stats.loop++
-			} else {
-				stats.other++
-			}
-		}
-		n4, n6 := testInterfaceAddrs(t, &ifi)
-		stats.uni4 += n4
-		stats.uni6 += n6
-		n4, n6 = testInterfaceMulticastAddrs(t, &ifi)
-		stats.multi4 += n4
-		stats.multi6 += n6
-	}
-	switch runtime.GOOS {
-	case "nacl", "plan9", "solaris":
-	default:
-		// Test the existence of connected unicast routes for
-		// IPv4.
-		if supportsIPv4 && stats.loop+stats.other > 0 && stats.uni4 == 0 {
-			t.Errorf("num IPv4 unicast routes = 0; want >0; summary: %+v", stats)
-		}
-		// Test the existence of connected unicast routes for
-		// IPv6. We can assume the existence of ::1/128 when
-		// at least one looopback interface is installed.
-		if supportsIPv6 && stats.loop > 0 && stats.uni6 == 0 {
-			t.Errorf("num IPv6 unicast routes = 0; want >0; summary: %+v", stats)
-		}
-	}
-	switch runtime.GOOS {
-	case "dragonfly", "nacl", "netbsd", "openbsd", "plan9", "solaris":
-	default:
-		// Test the existence of connected multicast route
-		// clones for IPv4. Unlike IPv6, IPv4 multicast
-		// capability is not a mandatory feature, and so this
-		// test is disabled.
-		//if supportsIPv4 && stats.loop > 0 && stats.uni4 > 1 && stats.multi4 == 0 {
-		//	t.Errorf("num IPv4 multicast route clones = 0; want >0; summary: %+v", stats)
-		//}
-		// Test the existence of connected multicast route
-		// clones for IPv6. Some platform never uses loopback
-		// interface as the nexthop for multicast routing.
-		// We can assume the existence of connected multicast
-		// route clones when at least two connected unicast
-		// routes, ::1/128 and other, are installed.
-		if supportsIPv6 && stats.loop > 0 && stats.uni6 > 1 && stats.multi6 == 0 {
-			t.Errorf("num IPv6 multicast route clones = 0; want >0; summary: %+v", stats)
-		}
+		t.Logf("\thardware address %q", ifi.HardwareAddr.String())
+		testInterfaceAddrs(t, &ifi)
+		testInterfaceMulticastAddrs(t, &ifi)
 	}
 }
 
 func TestInterfaceAddrs(t *testing.T) {
-	ift, err := Interfaces()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stats routeStats
-	for _, ifi := range ift {
-		if ifi.Flags&FlagUp != 0 {
-			if ifi.Flags&FlagLoopback != 0 {
-				stats.loop++
-			} else {
-				stats.other++
-			}
-		}
-	}
 	ifat, err := InterfaceAddrs()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("InterfaceAddrs failed: %v", err)
 	}
-	stats.uni4, stats.uni6 = testAddrs(t, ifat)
-	// Test the existence of connected unicast routes for IPv4.
-	if supportsIPv4 && stats.loop+stats.other > 0 && stats.uni4 == 0 {
-		t.Errorf("num IPv4 unicast routes = 0; want >0; summary: %+v", stats)
-	}
-	// Test the existence of connected unicast routes for IPv6.
-	// We can assume the existence of ::1/128 when at least one
-	// looopback interface is installed.
-	if supportsIPv6 && stats.loop > 0 && stats.uni6 == 0 {
-		t.Errorf("num IPv6 unicast routes = 0; want >0; summary: %+v", stats)
-	}
+	t.Logf("table: len/cap = %v/%v", len(ifat), cap(ifat))
+	testAddrs(t, ifat)
 }
 
-func testInterfaceAddrs(t *testing.T, ifi *Interface) (naf4, naf6 int) {
+func testInterfaceAddrs(t *testing.T, ifi *Interface) {
 	ifat, err := ifi.Addrs()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Interface.Addrs failed: %v", err)
 	}
-	return testAddrs(t, ifat)
+	testAddrs(t, ifat)
 }
 
-func testInterfaceMulticastAddrs(t *testing.T, ifi *Interface) (nmaf4, nmaf6 int) {
+func testInterfaceMulticastAddrs(t *testing.T, ifi *Interface) {
 	ifmat, err := ifi.MulticastAddrs()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Interface.MulticastAddrs failed: %v", err)
 	}
-	return testMulticastAddrs(t, ifmat)
+	testMulticastAddrs(t, ifmat)
 }
 
-func testAddrs(t *testing.T, ifat []Addr) (naf4, naf6 int) {
+func testAddrs(t *testing.T, ifat []Addr) {
 	for _, ifa := range ifat {
 		switch ifa := ifa.(type) {
+		case *IPAddr:
+			if ifa == nil || ifa.IP == nil {
+				t.Errorf("\tunexpected value: %v, %v", ifa, ifa.IP)
+			} else {
+				t.Logf("\tinterface address %q", ifa.String())
+			}
 		case *IPNet:
-			if ifa == nil || ifa.IP == nil || ifa.IP.IsUnspecified() || ifa.IP.IsMulticast() || ifa.Mask == nil {
-				t.Errorf("unexpected value: %#v", ifa)
-				continue
-			}
-			prefixLen, maxPrefixLen := ifa.Mask.Size()
-			if ifa.IP.To4() != nil {
-				if 0 >= prefixLen || prefixLen > 8*IPv4len || maxPrefixLen != 8*IPv4len {
-					t.Errorf("unexpected prefix length: %v/%v", prefixLen, maxPrefixLen)
-					continue
+			if ifa == nil || ifa.IP == nil || ifa.Mask == nil {
+				t.Errorf("\tunexpected value: %v, %v, %v", ifa, ifa.IP, ifa.Mask)
+			} else {
+				_, prefixLen := ifa.Mask.Size()
+				if ifa.IP.To4() != nil && prefixLen != 8*IPv4len || ifa.IP.To16() != nil && ifa.IP.To4() == nil && prefixLen != 8*IPv6len {
+					t.Errorf("\tunexpected value: %v, %v, %v, %v", ifa, ifa.IP, ifa.Mask, prefixLen)
+				} else {
+					t.Logf("\tinterface address %q", ifa.String())
 				}
-				naf4++
-			} else if ifa.IP.To16() != nil {
-				if 0 >= prefixLen || prefixLen > 8*IPv6len || maxPrefixLen != 8*IPv6len {
-					t.Errorf("unexpected prefix length: %v/%v", prefixLen, maxPrefixLen)
-					continue
-				}
-				naf6++
 			}
-			t.Logf("interface address %q", ifa.String())
 		default:
-			t.Errorf("unexpected type: %T", ifa)
+			t.Errorf("\tunexpected type: %T", ifa)
 		}
 	}
-	return
 }
 
-func testMulticastAddrs(t *testing.T, ifmat []Addr) (nmaf4, nmaf6 int) {
+func testMulticastAddrs(t *testing.T, ifmat []Addr) {
 	for _, ifma := range ifmat {
 		switch ifma := ifma.(type) {
 		case *IPAddr:
-			if ifma == nil || ifma.IP == nil || ifma.IP.IsUnspecified() || !ifma.IP.IsMulticast() {
-				t.Errorf("unexpected value: %#v", ifma)
-				continue
+			if ifma == nil {
+				t.Errorf("\tunexpected value: %v", ifma)
+			} else {
+				t.Logf("\tjoined group address %q", ifma.String())
 			}
-			if ifma.IP.To4() != nil {
-				nmaf4++
-			} else if ifma.IP.To16() != nil {
-				nmaf6++
-			}
-			t.Logf("joined group address %q", ifma.String())
 		default:
-			t.Errorf("unexpected type: %T", ifma)
+			t.Errorf("\tunexpected type: %T", ifma)
 		}
 	}
-	return
 }
 
 func BenchmarkInterfaces(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
 	for i := 0; i < b.N; i++ {
 		if _, err := Interfaces(); err != nil {
-			b.Fatal(err)
+			b.Fatalf("Interfaces failed: %v", err)
 		}
 	}
 }
 
 func BenchmarkInterfaceByIndex(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
 	ifi := loopbackInterface()
 	if ifi == nil {
 		b.Skip("loopback interface not found")
 	}
 	for i := 0; i < b.N; i++ {
 		if _, err := InterfaceByIndex(ifi.Index); err != nil {
-			b.Fatal(err)
+			b.Fatalf("InterfaceByIndex failed: %v", err)
 		}
 	}
 }
 
 func BenchmarkInterfaceByName(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
 	ifi := loopbackInterface()
 	if ifi == nil {
 		b.Skip("loopback interface not found")
 	}
 	for i := 0; i < b.N; i++ {
 		if _, err := InterfaceByName(ifi.Name); err != nil {
-			b.Fatal(err)
+			b.Fatalf("InterfaceByName failed: %v", err)
 		}
 	}
 }
 
 func BenchmarkInterfaceAddrs(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
 	for i := 0; i < b.N; i++ {
 		if _, err := InterfaceAddrs(); err != nil {
-			b.Fatal(err)
+			b.Fatalf("InterfaceAddrs failed: %v", err)
 		}
 	}
 }
 
 func BenchmarkInterfacesAndAddrs(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
 	ifi := loopbackInterface()
 	if ifi == nil {
 		b.Skip("loopback interface not found")
 	}
 	for i := 0; i < b.N; i++ {
 		if _, err := ifi.Addrs(); err != nil {
-			b.Fatal(err)
+			b.Fatalf("Interface.Addrs failed: %v", err)
 		}
 	}
 }
 
 func BenchmarkInterfacesAndMulticastAddrs(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
 	ifi := loopbackInterface()
 	if ifi == nil {
 		b.Skip("loopback interface not found")
 	}
 	for i := 0; i < b.N; i++ {
 		if _, err := ifi.MulticastAddrs(); err != nil {
-			b.Fatal(err)
+			b.Fatalf("Interface.MulticastAddrs failed: %v", err)
 		}
 	}
 }

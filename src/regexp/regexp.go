@@ -7,9 +7,9 @@
 // The syntax of the regular expressions accepted is the same
 // general syntax used by Perl, Python, and other languages.
 // More precisely, it is the syntax accepted by RE2 and described at
-// https://golang.org/s/re2syntax, except for \C.
+// http://code.google.com/p/re2/wiki/Syntax, except for \C.
 // For an overview of the syntax, run
-//   go doc regexp/syntax
+//   godoc regexp/syntax
 //
 // The regexp implementation provided by this package is
 // guaranteed to run in time linear in the size of the input.
@@ -83,7 +83,7 @@ type Regexp struct {
 	// read-only after Compile
 	expr           string         // as passed to Compile
 	prog           *syntax.Prog   // compiled program
-	onepass        *onePassProg   // onepass program or nil
+	onepass        *onePassProg   // onpass program or nil
 	prefix         string         // required prefix in unanchored matches
 	prefixBytes    []byte         // prefix, as a []byte
 	prefixComplete bool           // prefix is the entire regexp

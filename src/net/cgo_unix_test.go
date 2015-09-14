@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // +build cgo,!netgo
-// +build darwin dragonfly freebsd linux netbsd openbsd solaris
+// +build darwin dragonfly freebsd linux netbsd openbsd
 
 package net
 
@@ -16,9 +16,9 @@ func TestCgoLookupIP(t *testing.T) {
 		t.Errorf("cgoLookupIP must not be a placeholder")
 	}
 	if err != nil {
-		t.Error(err)
+		t.Errorf("cgoLookupIP failed: %v", err)
 	}
 	if _, err := goLookupIP(host); err != nil {
-		t.Error(err)
+		t.Errorf("goLookupIP failed: %v", err)
 	}
 }

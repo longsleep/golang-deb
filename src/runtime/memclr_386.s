@@ -15,31 +15,31 @@ TEXT runtime·memclr(SB), NOSPLIT, $0-8
 	XORL	AX, AX
 
 	// MOVOU seems always faster than REP STOSL.
-tail:
+clr_tail:
 	TESTL	BX, BX
-	JEQ	_0
+	JEQ	clr_0
 	CMPL	BX, $2
-	JBE	_1or2
+	JBE	clr_1or2
 	CMPL	BX, $4
-	JBE	_3or4
+	JBE	clr_3or4
 	CMPL	BX, $8
-	JBE	_5through8
+	JBE	clr_5through8
 	CMPL	BX, $16
-	JBE	_9through16
+	JBE	clr_9through16
 	TESTL	$0x4000000, runtime·cpuid_edx(SB) // check for sse2
 	JEQ	nosse2
 	PXOR	X0, X0
 	CMPL	BX, $32
-	JBE	_17through32
+	JBE	clr_17through32
 	CMPL	BX, $64
-	JBE	_33through64
+	JBE	clr_33through64
 	CMPL	BX, $128
-	JBE	_65through128
+	JBE	clr_65through128
 	CMPL	BX, $256
-	JBE	_129through256
+	JBE	clr_129through256
 	// TODO: use branch table and BSR to make this just a single dispatch
 
-loop:
+clr_loop:
 	MOVOU	X0, 0(DI)
 	MOVOU	X0, 16(DI)
 	MOVOU	X0, 32(DI)
@@ -59,40 +59,40 @@ loop:
 	SUBL	$256, BX
 	ADDL	$256, DI
 	CMPL	BX, $256
-	JAE	loop
-	JMP	tail
+	JAE	clr_loop
+	JMP	clr_tail
 
-_1or2:
+clr_1or2:
 	MOVB	AX, (DI)
 	MOVB	AX, -1(DI)(BX*1)
 	RET
-_0:
+clr_0:
 	RET
-_3or4:
+clr_3or4:
 	MOVW	AX, (DI)
 	MOVW	AX, -2(DI)(BX*1)
 	RET
-_5through8:
+clr_5through8:
 	MOVL	AX, (DI)
 	MOVL	AX, -4(DI)(BX*1)
 	RET
-_9through16:
+clr_9through16:
 	MOVL	AX, (DI)
 	MOVL	AX, 4(DI)
 	MOVL	AX, -8(DI)(BX*1)
 	MOVL	AX, -4(DI)(BX*1)
 	RET
-_17through32:
+clr_17through32:
 	MOVOU	X0, (DI)
 	MOVOU	X0, -16(DI)(BX*1)
 	RET
-_33through64:
+clr_33through64:
 	MOVOU	X0, (DI)
 	MOVOU	X0, 16(DI)
 	MOVOU	X0, -32(DI)(BX*1)
 	MOVOU	X0, -16(DI)(BX*1)
 	RET
-_65through128:
+clr_65through128:
 	MOVOU	X0, (DI)
 	MOVOU	X0, 16(DI)
 	MOVOU	X0, 32(DI)
@@ -102,7 +102,7 @@ _65through128:
 	MOVOU	X0, -32(DI)(BX*1)
 	MOVOU	X0, -16(DI)(BX*1)
 	RET
-_129through256:
+clr_129through256:
 	MOVOU	X0, (DI)
 	MOVOU	X0, 16(DI)
 	MOVOU	X0, 32(DI)
@@ -126,5 +126,5 @@ nosse2:
 	REP
 	STOSL
 	ANDL	$3, BX
-	JNE	tail
+	JNE	clr_tail
 	RET

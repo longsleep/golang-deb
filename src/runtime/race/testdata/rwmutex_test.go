@@ -54,16 +54,13 @@ func TestNoRaceRWMutex(t *testing.T) {
 func TestRaceRWMutexMultipleReaders(t *testing.T) {
 	var mu sync.RWMutex
 	var x, y int64 = 0, 1
-	ch := make(chan bool, 4)
+	ch := make(chan bool, 3)
 	go func() {
 		mu.Lock()
 		defer mu.Unlock()
 		x = 2
 		ch <- true
 	}()
-	// Use three readers so that no matter what order they're
-	// scheduled in, two will be on the same side of the write
-	// lock above.
 	go func() {
 		mu.RLock()
 		y = x + 1
@@ -76,13 +73,6 @@ func TestRaceRWMutexMultipleReaders(t *testing.T) {
 		mu.RUnlock()
 		ch <- true
 	}()
-	go func() {
-		mu.RLock()
-		y = x + 3
-		mu.RUnlock()
-		ch <- true
-	}()
-	<-ch
 	<-ch
 	<-ch
 	<-ch
@@ -92,7 +82,7 @@ func TestRaceRWMutexMultipleReaders(t *testing.T) {
 func TestNoRaceRWMutexMultipleReaders(t *testing.T) {
 	var mu sync.RWMutex
 	x := int64(0)
-	ch := make(chan bool, 4)
+	ch := make(chan bool, 3)
 	go func() {
 		mu.Lock()
 		defer mu.Unlock()
@@ -113,14 +103,6 @@ func TestNoRaceRWMutexMultipleReaders(t *testing.T) {
 		mu.RUnlock()
 		ch <- true
 	}()
-	go func() {
-		mu.RLock()
-		y := x + 3
-		_ = y
-		mu.RUnlock()
-		ch <- true
-	}()
-	<-ch
 	<-ch
 	<-ch
 	<-ch

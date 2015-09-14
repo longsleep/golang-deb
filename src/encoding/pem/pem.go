@@ -10,10 +10,8 @@ package pem
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"io"
 	"sort"
-	"strings"
 )
 
 // A Block represents a PEM encoded structure.
@@ -112,37 +110,27 @@ func Decode(data []byte) (p *Block, rest []byte) {
 		}
 
 		// TODO(agl): need to cope with values that spread across lines.
-		key, val := line[:i], line[i+1:]
+		key, val := line[0:i], line[i+1:]
 		key = bytes.TrimSpace(key)
 		val = bytes.TrimSpace(val)
 		p.Headers[string(key)] = string(val)
 		rest = next
 	}
 
-	var endIndex int
-	// If there were no headers, the END line might occur
-	// immediately, without a leading newline.
-	if len(p.Headers) == 0 && bytes.HasPrefix(rest, pemEnd[1:]) {
-		endIndex = 0
-	} else {
-		endIndex = bytes.Index(rest, pemEnd)
-	}
-
-	if endIndex < 0 {
+	i := bytes.Index(rest, pemEnd)
+	if i < 0 {
 		return decodeError(data, rest)
 	}
+	base64Data := removeWhitespace(rest[0:i])
 
-	base64Data := removeWhitespace(rest[:endIndex])
 	p.Bytes = make([]byte, base64.StdEncoding.DecodedLen(len(base64Data)))
 	n, err := base64.StdEncoding.Decode(p.Bytes, base64Data)
 	if err != nil {
 		return decodeError(data, rest)
 	}
-	p.Bytes = p.Bytes[:n]
+	p.Bytes = p.Bytes[0:n]
 
-	// the -1 is because we might have only matched pemEnd without the
-	// leading newline if the PEM block was empty.
-	_, rest = getLine(rest[endIndex+len(pemEnd)-1:])
+	_, rest = getLine(rest[i+len(pemEnd):])
 
 	return
 }
@@ -183,8 +171,6 @@ type lineBreaker struct {
 	out  io.Writer
 }
 
-var nl = []byte{'\n'}
-
 func (l *lineBreaker) Write(b []byte) (n int, err error) {
 	if l.used+len(b) < pemLineLength {
 		copy(l.line[l.used:], b)
@@ -204,7 +190,7 @@ func (l *lineBreaker) Write(b []byte) (n int, err error) {
 		return
 	}
 
-	n, err = l.out.Write(nl)
+	n, err = l.out.Write([]byte{'\n'})
 	if err != nil {
 		return
 	}
@@ -218,7 +204,7 @@ func (l *lineBreaker) Close() (err error) {
 		if err != nil {
 			return
 		}
-		_, err = l.out.Write(nl)
+		_, err = l.out.Write([]byte{'\n'})
 	}
 
 	return
@@ -258,14 +244,11 @@ func Encode(out io.Writer, b *Block) error {
 		// For consistency of output, write other headers sorted by key.
 		sort.Strings(h)
 		for _, k := range h {
-			if strings.Contains(k, ":") {
-				return errors.New("pem: cannot encode a header key that contains a colon")
-			}
 			if err := writeHeader(out, k, b.Headers[k]); err != nil {
 				return err
 			}
 		}
-		if _, err := out.Write(nl); err != nil {
+		if _, err := out.Write([]byte{'\n'}); err != nil {
 			return err
 		}
 	}

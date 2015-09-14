@@ -48,10 +48,7 @@ type Response struct {
 	// The http Client and Transport guarantee that Body is always
 	// non-nil, even on responses without a body or responses with
 	// a zero-length body. It is the caller's responsibility to
-	// close Body. The default HTTP client's Transport does not
-	// attempt to reuse HTTP/1.0 or HTTP/1.1 TCP connections
-	// ("keep-alive") unless the Body is read to completion and is
-	// closed.
+	// close Body.
 	//
 	// The Body is automatically dechunked if the server replied
 	// with a "chunked" Transfer-Encoding.
@@ -93,8 +90,6 @@ func (r *Response) Cookies() []*Cookie {
 	return readSetCookies(r.Header)
 }
 
-// ErrNoLocation is returned by Response's Location method
-// when no Location header is present.
 var ErrNoLocation = errors.New("http: no Location header in response")
 
 // Location returns the URL of the response's "Location" header,
@@ -191,10 +186,8 @@ func (r *Response) ProtoAtLeast(major, minor int) bool {
 		r.ProtoMajor == major && r.ProtoMinor >= minor
 }
 
-// Write writes r to w in the HTTP/1.n server response format,
-// including the status line, headers, body, and optional trailer.
-//
-// This method consults the following fields of the response r:
+// Writes the response (header, body and trailer) in wire format. This method
+// consults the following fields of the response:
 //
 //  StatusCode
 //  ProtoMajor
@@ -206,7 +199,7 @@ func (r *Response) ProtoAtLeast(major, minor int) bool {
 //  ContentLength
 //  Header, values for non-canonical keys will have unpredictable behavior
 //
-// The Response Body is closed after it is sent.
+// Body is closed after it is sent.
 func (r *Response) Write(w io.Writer) error {
 	// Status line
 	text := r.Status

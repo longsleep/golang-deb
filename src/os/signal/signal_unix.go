@@ -14,7 +14,6 @@ import (
 // In assembly.
 func signal_disable(uint32)
 func signal_enable(uint32)
-func signal_ignore(uint32)
 func signal_recv() uint32
 
 func loop() {
@@ -51,8 +50,4 @@ func enableSignal(sig int) {
 
 func disableSignal(sig int) {
 	signal_disable(uint32(sig))
-}
-
-func ignoreSignal(sig int) {
-	signal_ignore(uint32(sig))
 }

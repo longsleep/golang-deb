@@ -115,7 +115,7 @@ func main() {
 	isfalse(ic != d)
 	isfalse(ie != e)
 
-	// gc used to let this go through as true.
+	// 6g used to let this go through as true.
 	var g uint64 = 123
 	var h int64 = 123
 	var ig interface{} = g

@@ -173,7 +173,6 @@ func (enc *Encoder) EncodeElement(v interface{}, start StartElement) error {
 }
 
 var (
-	begComment   = []byte("<!--")
 	endComment   = []byte("-->")
 	endProcInst  = []byte("?>")
 	endDirective = []byte(">")
@@ -192,7 +191,6 @@ var (
 // EncodeToken allows writing a ProcInst with Target set to "xml" only as the first token
 // in the stream.
 func (enc *Encoder) EncodeToken(t Token) error {
-
 	p := &enc.p
 	switch t := t.(type) {
 	case StartElement:
@@ -204,7 +202,7 @@ func (enc *Encoder) EncodeToken(t Token) error {
 			return err
 		}
 	case CharData:
-		escapeText(p, t, false)
+		EscapeText(p, t)
 	case Comment:
 		if bytes.Contains(t, endComment) {
 			return fmt.Errorf("xml: EncodeToken of Comment containing --> marker")
@@ -233,57 +231,14 @@ func (enc *Encoder) EncodeToken(t Token) error {
 		}
 		p.WriteString("?>")
 	case Directive:
-		if !isValidDirective(t) {
-			return fmt.Errorf("xml: EncodeToken of Directive containing wrong < or > markers")
+		if bytes.Contains(t, endDirective) {
+			return fmt.Errorf("xml: EncodeToken of Directive containing > marker")
 		}
 		p.WriteString("<!")
 		p.Write(t)
 		p.WriteString(">")
-	default:
-		return fmt.Errorf("xml: EncodeToken of invalid token type")
-
 	}
 	return p.cachedWriteError()
-}
-
-// isValidDirective reports whether dir is a valid directive text,
-// meaning angle brackets are matched, ignoring comments and strings.
-func isValidDirective(dir Directive) bool {
-	var (
-		depth     int
-		inquote   uint8
-		incomment bool
-	)
-	for i, c := range dir {
-		switch {
-		case incomment:
-			if c == '>' {
-				if n := 1 + i - len(endComment); n >= 0 && bytes.Equal(dir[n:i+1], endComment) {
-					incomment = false
-				}
-			}
-			// Just ignore anything in comment
-		case inquote != 0:
-			if c == inquote {
-				inquote = 0
-			}
-			// Just ignore anything within quotes
-		case c == '\'' || c == '"':
-			inquote = c
-		case c == '<':
-			if i+len(begComment) < len(dir) && bytes.Equal(dir[i:i+len(begComment)], begComment) {
-				incomment = true
-			} else {
-				depth++
-			}
-		case c == '>':
-			if depth == 0 {
-				return false
-			}
-			depth--
-		}
-	}
-	return depth == 0 && inquote == 0 && !incomment
 }
 
 // Flush flushes any buffered XML to the underlying writer.
@@ -769,9 +724,6 @@ func (p *printer) marshalStruct(tinfo *typeInfo, val reflect.Value) error {
 
 		switch finfo.flags & fMode {
 		case fCharData:
-			if err := s.trim(finfo.parents); err != nil {
-				return err
-			}
 			if vf.CanInterface() && vf.Type().Implements(textMarshalerType) {
 				data, err := vf.Interface().(encoding.TextMarshaler).MarshalText()
 				if err != nil {
@@ -815,9 +767,6 @@ func (p *printer) marshalStruct(tinfo *typeInfo, val reflect.Value) error {
 			continue
 
 		case fComment:
-			if err := s.trim(finfo.parents); err != nil {
-				return err
-			}
 			k := vf.Kind()
 			if !(k == reflect.String || k == reflect.Slice && vf.Type().Elem().Kind() == reflect.Uint8) {
 				return fmt.Errorf("xml: bad type for comment field of %s", val.Type())
@@ -945,7 +894,7 @@ func (s *parentStack) trim(parents []string) error {
 			return err
 		}
 	}
-	s.stack = s.stack[:split]
+	s.stack = parents[:split]
 	return nil
 }
 

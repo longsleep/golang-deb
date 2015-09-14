@@ -7,15 +7,13 @@ package os
 import (
 	"errors"
 	"runtime"
-	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
 func (p *Process) wait() (ps *ProcessState, err error) {
-	handle := atomic.LoadUintptr(&p.handle)
-	s, e := syscall.WaitForSingleObject(syscall.Handle(handle), syscall.INFINITE)
+	s, e := syscall.WaitForSingleObject(syscall.Handle(p.handle), syscall.INFINITE)
 	switch s {
 	case syscall.WAIT_OBJECT_0:
 		break
@@ -25,12 +23,12 @@ func (p *Process) wait() (ps *ProcessState, err error) {
 		return nil, errors.New("os: unexpected result from WaitForSingleObject")
 	}
 	var ec uint32
-	e = syscall.GetExitCodeProcess(syscall.Handle(handle), &ec)
+	e = syscall.GetExitCodeProcess(syscall.Handle(p.handle), &ec)
 	if e != nil {
 		return nil, NewSyscallError("GetExitCodeProcess", e)
 	}
 	var u syscall.Rusage
-	e = syscall.GetProcessTimes(syscall.Handle(handle), &u.CreationTime, &u.ExitTime, &u.KernelTime, &u.UserTime)
+	e = syscall.GetProcessTimes(syscall.Handle(p.handle), &u.CreationTime, &u.ExitTime, &u.KernelTime, &u.UserTime)
 	if e != nil {
 		return nil, NewSyscallError("GetProcessTimes", e)
 	}
@@ -55,8 +53,7 @@ func terminateProcess(pid, exitcode int) error {
 }
 
 func (p *Process) signal(sig Signal) error {
-	handle := atomic.LoadUintptr(&p.handle)
-	if handle == uintptr(syscall.InvalidHandle) {
+	if p.handle == uintptr(syscall.InvalidHandle) {
 		return syscall.EINVAL
 	}
 	if p.done() {
@@ -70,15 +67,14 @@ func (p *Process) signal(sig Signal) error {
 }
 
 func (p *Process) release() error {
-	handle := atomic.LoadUintptr(&p.handle)
-	if handle == uintptr(syscall.InvalidHandle) {
+	if p.handle == uintptr(syscall.InvalidHandle) {
 		return syscall.EINVAL
 	}
-	e := syscall.CloseHandle(syscall.Handle(handle))
+	e := syscall.CloseHandle(syscall.Handle(p.handle))
 	if e != nil {
 		return NewSyscallError("CloseHandle", e)
 	}
-	atomic.StoreUintptr(&p.handle, uintptr(syscall.InvalidHandle))
+	p.handle = uintptr(syscall.InvalidHandle)
 	// no need for a finalizer anymore
 	runtime.SetFinalizer(p, nil)
 	return nil

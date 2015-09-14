@@ -322,11 +322,11 @@ var limit = make(chan int, 3)
 
 func main() {
 	for _, w := range work {
-		go func(w func()) {
-			limit &lt;- 1
+		go func() {
+			limit <- 1
 			w()
-			&lt;-limit
-		}(w)
+			<-limit
+		}()
 	}
 	select{}
 }

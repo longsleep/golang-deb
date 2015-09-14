@@ -6,7 +6,6 @@ package http_test
 
 import (
 	"bufio"
-	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -18,7 +17,6 @@ import (
 )
 
 func TestNextProtoUpgrade(t *testing.T) {
-	defer afterTest(t)
 	ts := httptest.NewUnstartedServer(HandlerFunc(func(w ResponseWriter, r *Request) {
 		fmt.Fprintf(w, "path=%s,proto=", r.URL.Path)
 		if r.TLS != nil {
@@ -40,12 +38,12 @@ func TestNextProtoUpgrade(t *testing.T) {
 	ts.StartTLS()
 	defer ts.Close()
 
+	tr := newTLSTransport(t, ts)
+	defer tr.CloseIdleConnections()
+	c := &Client{Transport: tr}
+
 	// Normal request, without NPN.
 	{
-		tr := newTLSTransport(t, ts)
-		defer tr.CloseIdleConnections()
-		c := &Client{Transport: tr}
-
 		res, err := c.Get(ts.URL)
 		if err != nil {
 			t.Fatal(err)
@@ -62,17 +60,11 @@ func TestNextProtoUpgrade(t *testing.T) {
 	// Request to an advertised but unhandled NPN protocol.
 	// Server will hang up.
 	{
-		tr := newTLSTransport(t, ts)
+		tr.CloseIdleConnections()
 		tr.TLSClientConfig.NextProtos = []string{"unhandled-proto"}
-		defer tr.CloseIdleConnections()
-		c := &Client{Transport: tr}
-
-		res, err := c.Get(ts.URL)
+		_, err := c.Get(ts.URL)
 		if err == nil {
-			defer res.Body.Close()
-			var buf bytes.Buffer
-			res.Write(&buf)
-			t.Errorf("expected error on unhandled-proto request; got: %s", buf.Bytes())
+			t.Errorf("expected error on unhandled-proto request")
 		}
 	}
 

@@ -13,11 +13,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 var cmdGenerate = &Command{
@@ -62,12 +62,8 @@ Go generate sets several variables when it runs the generator:
 		The execution operating system (linux, windows, etc.)
 	$GOFILE
 		The base name of the file.
-	$GOLINE
-		The line number of the directive in the source file.
 	$GOPACKAGE
 		The name of the package of the file containing the directive.
-	$DOLLAR
-		A dollar sign.
 
 Other than variable substitution and quoted-string evaluation, no
 special processing such as "globbing" is performed on the command
@@ -110,10 +106,9 @@ The generator is run in the package's source directory.
 Go generate accepts one specific flag:
 
 	-run=""
-		if non-empty, specifies a regular expression to select
-		directives whose full original source text (excluding
-		any trailing spaces and final newline) matches the
-		expression.
+		TODO: This flag is unimplemented.
+		if non-empty, specifies a regular expression to
+		select directives whose command matches the expression.
 
 It also accepts the standard build flags -v, -n, and -x.
 The -v flag prints the names of packages and files as they are
@@ -125,10 +120,7 @@ For more about specifying packages, see 'go help packages'.
 	`,
 }
 
-var (
-	generateRunFlag string         // generate -run flag
-	generateRunRE   *regexp.Regexp // compiled expression for -run
-)
+var generateRunFlag string // generate -run flag
 
 func init() {
 	addBuildFlags(cmdGenerate)
@@ -136,13 +128,6 @@ func init() {
 }
 
 func runGenerate(cmd *Command, args []string) {
-	if generateRunFlag != "" {
-		var err error
-		generateRunRE, err = regexp.Compile(generateRunFlag)
-		if err != nil {
-			log.Fatalf("generate: %s", err)
-		}
-	}
 	// Even if the arguments are .go files, this loop suffices.
 	for _, pkg := range packages(args) {
 		for _, file := range pkg.gofiles {
@@ -178,7 +163,7 @@ type Generator struct {
 	file     string // base name of file.
 	pkg      string
 	commands map[string][]string
-	lineNum  int // current line number.
+	lineNum  int
 }
 
 // run runs the generators in the current file.
@@ -235,11 +220,6 @@ func (g *Generator) run() (ok bool) {
 
 		if !isGoGenerate(buf) {
 			continue
-		}
-		if generateRunFlag != "" {
-			if !generateRunRE.Match(bytes.TrimSpace(buf)) {
-				continue
-			}
 		}
 
 		words := g.split(string(buf))
@@ -326,7 +306,7 @@ Words:
 	}
 	// Substitute environment variables.
 	for i, word := range words {
-		words[i] = os.Expand(word, g.expandVar)
+		words[i] = g.expandEnv(word)
 	}
 	return words
 }
@@ -342,25 +322,38 @@ func (g *Generator) errorf(format string, args ...interface{}) {
 	panic(stop)
 }
 
-// expandVar expands the $XXX invocation in word. It is called
-// by os.Expand.
-func (g *Generator) expandVar(word string) string {
-	switch word {
-	case "GOARCH":
-		return buildContext.GOARCH
-	case "GOOS":
-		return buildContext.GOOS
-	case "GOFILE":
-		return g.file
-	case "GOLINE":
-		return fmt.Sprint(g.lineNum)
-	case "GOPACKAGE":
-		return g.pkg
-	case "DOLLAR":
-		return "$"
-	default:
-		return os.Getenv(word)
+// expandEnv expands any $XXX invocations in word.
+func (g *Generator) expandEnv(word string) string {
+	if !strings.ContainsRune(word, '$') {
+		return word
 	}
+	var buf bytes.Buffer
+	var w int
+	var r rune
+	for i := 0; i < len(word); i += w {
+		r, w = utf8.DecodeRuneInString(word[i:])
+		if r != '$' {
+			buf.WriteRune(r)
+			continue
+		}
+		w += g.identLength(word[i+w:])
+		envVar := word[i+1 : i+w]
+		var sub string
+		switch envVar {
+		case "GOARCH":
+			sub = runtime.GOARCH
+		case "GOOS":
+			sub = runtime.GOOS
+		case "GOFILE":
+			sub = g.file
+		case "GOPACKAGE":
+			sub = g.pkg
+		default:
+			sub = os.Getenv(envVar)
+		}
+		buf.WriteString(sub)
+	}
+	return buf.String()
 }
 
 // identLength returns the length of the identifier beginning the string.
@@ -402,7 +395,7 @@ func (g *Generator) exec(words []string) {
 		"GOFILE=" + g.file,
 		"GOPACKAGE=" + g.pkg,
 	}
-	cmd.Env = mergeEnvLists(env, origEnv)
+	cmd.Env = mergeEnvLists(env, os.Environ())
 	err := cmd.Run()
 	if err != nil {
 		g.errorf("running %q: %s", words[0], err)

@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-func checkPipeWrite(t *testing.T, w io.Writer, data []byte, c chan int) {
+func checkWrite(t *testing.T, w io.Writer, data []byte, c chan int) {
 	n, err := w.Write(data)
 	if err != nil {
-		t.Error(err)
+		t.Errorf("write: %v", err)
 	}
 	if n != len(data) {
 		t.Errorf("short write: %d != %d", n, len(data))
@@ -21,11 +21,11 @@ func checkPipeWrite(t *testing.T, w io.Writer, data []byte, c chan int) {
 	c <- 0
 }
 
-func checkPipeRead(t *testing.T, r io.Reader, data []byte, wantErr error) {
+func checkRead(t *testing.T, r io.Reader, data []byte, wantErr error) {
 	buf := make([]byte, len(data)+10)
 	n, err := r.Read(buf)
 	if err != wantErr {
-		t.Error(err)
+		t.Errorf("read: %v", err)
 		return
 	}
 	if n != len(data) || !bytes.Equal(buf[0:n], data) {
@@ -34,22 +34,23 @@ func checkPipeRead(t *testing.T, r io.Reader, data []byte, wantErr error) {
 	}
 }
 
-// TestPipe tests a simple read/write/close sequence.
+// Test a simple read/write/close sequence.
 // Assumes that the underlying io.Pipe implementation
 // is solid and we're just testing the net wrapping.
+
 func TestPipe(t *testing.T) {
 	c := make(chan int)
 	cli, srv := Pipe()
-	go checkPipeWrite(t, cli, []byte("hello, world"), c)
-	checkPipeRead(t, srv, []byte("hello, world"), nil)
+	go checkWrite(t, cli, []byte("hello, world"), c)
+	checkRead(t, srv, []byte("hello, world"), nil)
 	<-c
-	go checkPipeWrite(t, srv, []byte("line 2"), c)
-	checkPipeRead(t, cli, []byte("line 2"), nil)
+	go checkWrite(t, srv, []byte("line 2"), c)
+	checkRead(t, cli, []byte("line 2"), nil)
 	<-c
-	go checkPipeWrite(t, cli, []byte("a third line"), c)
-	checkPipeRead(t, srv, []byte("a third line"), nil)
+	go checkWrite(t, cli, []byte("a third line"), c)
+	checkRead(t, srv, []byte("a third line"), nil)
 	<-c
 	go srv.Close()
-	checkPipeRead(t, cli, nil, io.EOF)
+	checkRead(t, cli, nil, io.EOF)
 	cli.Close()
 }

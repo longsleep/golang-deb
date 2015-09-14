@@ -4,14 +4,8 @@
 
 package runtime
 
-import _ "unsafe" // for go:linkname
-
-//go:generate go run wincallback.go
-//go:generate go run mkduff.go
-
 var ticks struct {
 	lock mutex
-	pad  uint32 // ensure 8-byte alignment of val on 386
 	val  uint64
 }
 
@@ -44,11 +38,23 @@ func tickspersecond() int64 {
 	return r
 }
 
+func makeStringSlice(n int) []string {
+	return make([]string, n)
+}
+
+// TODO: Move to parfor.go when parfor.c becomes parfor.go.
+func parforalloc(nthrmax uint32) *parfor {
+	return &parfor{
+		thr:     &make([]parforthread, nthrmax)[0],
+		nthrmax: nthrmax,
+	}
+}
+
 var envs []string
 var argslice []string
 
-//go:linkname syscall_runtime_envs syscall.runtime_envs
-func syscall_runtime_envs() []string { return append([]string{}, envs...) }
+// called from syscall
+func runtime_envs() []string { return envs }
 
-//go:linkname os_runtime_args os.runtime_args
-func os_runtime_args() []string { return append([]string{}, argslice...) }
+// called from os
+func runtime_args() []string { return argslice }
