@@ -6,7 +6,8 @@
 // System calls and other sys.stuff for AMD64, Linux
 //
 
-#include "zasm_GOOS_GOARCH.h"
+#include "go_asm.h"
+#include "go_tls.h"
 #include "textflag.h"
 
 TEXT runtime·exit(SB),NOSPLIT,$0-4
@@ -27,13 +28,19 @@ TEXT runtime·open(SB),NOSPLIT,$0-20
 	MOVL	perm+12(FP), DX
 	MOVL	$2, AX			// syscall entry
 	SYSCALL
+	CMPQ	AX, $0xfffffffffffff001
+	JLS	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+16(FP)
 	RET
 
-TEXT runtime·close(SB),NOSPLIT,$0-12
+TEXT runtime·closefd(SB),NOSPLIT,$0-12
 	MOVL	fd+0(FP), DI
 	MOVL	$3, AX			// syscall entry
 	SYSCALL
+	CMPQ	AX, $0xfffffffffffff001
+	JLS	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+8(FP)
 	RET
 
@@ -43,6 +50,9 @@ TEXT runtime·write(SB),NOSPLIT,$0-28
 	MOVL	n+16(FP), DX
 	MOVL	$1, AX			// syscall entry
 	SYSCALL
+	CMPQ	AX, $0xfffffffffffff001
+	JLS	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+24(FP)
 	RET
 
@@ -52,6 +62,9 @@ TEXT runtime·read(SB),NOSPLIT,$0-28
 	MOVL	n+16(FP), DX
 	MOVL	$0, AX			// syscall entry
 	SYSCALL
+	CMPQ	AX, $0xfffffffffffff001
+	JLS	2(PC)
+	MOVL	$-1, AX
 	MOVL	AX, ret+24(FP)
 	RET
 
@@ -81,12 +94,27 @@ TEXT runtime·usleep(SB),NOSPLIT,$16
 	SYSCALL
 	RET
 
+TEXT runtime·gettid(SB),NOSPLIT,$0-4
+	MOVL	$186, AX	// syscall - gettid
+	SYSCALL
+	MOVL	AX, ret+0(FP)
+	RET
+
 TEXT runtime·raise(SB),NOSPLIT,$0
 	MOVL	$186, AX	// syscall - gettid
 	SYSCALL
 	MOVL	AX, DI	// arg 1 tid
 	MOVL	sig+0(FP), SI	// arg 2
 	MOVL	$200, AX	// syscall - tkill
+	SYSCALL
+	RET
+
+TEXT runtime·raiseproc(SB),NOSPLIT,$0
+	MOVL	$39, AX	// syscall - getpid
+	SYSCALL
+	MOVL	AX, DI	// arg 1 pid
+	MOVL	sig+0(FP), SI	// arg 2
+	MOVL	$62, AX	// syscall - kill
 	SYSCALL
 	RET
 
@@ -115,7 +143,7 @@ TEXT time·now(SB),NOSPLIT,$16
 	// That leaves 104 for the gettime code to use. Hope that's enough!
 	MOVQ	runtime·__vdso_clock_gettime_sym(SB), AX
 	CMPQ	AX, $0
-	JEQ	fallback_gtod
+	JEQ	fallback
 	MOVL	$0, DI // CLOCK_REALTIME
 	LEAQ	0(SP), SI
 	CALL	AX
@@ -124,7 +152,7 @@ TEXT time·now(SB),NOSPLIT,$16
 	MOVQ	AX, sec+0(FP)
 	MOVL	DX, nsec+8(FP)
 	RET
-fallback_gtod:
+fallback:
 	LEAQ	0(SP), DI
 	MOVQ	$0, SI
 	MOVQ	runtime·__vdso_gettimeofday_sym(SB), AX
@@ -141,7 +169,7 @@ TEXT runtime·nanotime(SB),NOSPLIT,$16
 	// See comment above in time.now.
 	MOVQ	runtime·__vdso_clock_gettime_sym(SB), AX
 	CMPQ	AX, $0
-	JEQ	fallback_gtod_nt
+	JEQ	fallback
 	MOVL	$1, DI // CLOCK_MONOTONIC
 	LEAQ	0(SP), SI
 	CALL	AX
@@ -153,7 +181,7 @@ TEXT runtime·nanotime(SB),NOSPLIT,$16
 	ADDQ	DX, AX
 	MOVQ	AX, ret+0(FP)
 	RET
-fallback_gtod_nt:
+fallback:
 	LEAQ	0(SP), DI
 	MOVQ	$0, SI
 	MOVQ	runtime·__vdso_gettimeofday_sym(SB), AX
@@ -190,37 +218,20 @@ TEXT runtime·rt_sigaction(SB),NOSPLIT,$0-36
 	MOVL	AX, ret+32(FP)
 	RET
 
-TEXT runtime·sigtramp(SB),NOSPLIT,$64
-	get_tls(BX)
-
-	// check that g exists
-	MOVQ	g(BX), R10
-	CMPQ	R10, $0
-	JNE	5(PC)
-	MOVQ	DI, 0(SP)
-	MOVQ	$runtime·badsignal(SB), AX
+TEXT runtime·sigfwd(SB),NOSPLIT,$0-32
+	MOVL	sig+8(FP), DI
+	MOVQ	info+16(FP), SI
+	MOVQ	ctx+24(FP), DX
+	MOVQ	fn+0(FP), AX
 	CALL	AX
 	RET
 
-	// save g
-	MOVQ	R10, 40(SP)
-
-	// g = m->gsignal
-	MOVQ	g_m(R10), BP
-	MOVQ	m_gsignal(BP), BP
-	MOVQ	BP, g(BX)
-
-	MOVQ	DI, 0(SP)
-	MOVQ	SI, 8(SP)
-	MOVQ	DX, 16(SP)
-	MOVQ	R10, 24(SP)
-
-	CALL	runtime·sighandler(SB)
-
-	// restore g
-	get_tls(BX)
-	MOVQ	40(SP), R10
-	MOVQ	R10, g(BX)
+TEXT runtime·sigtramp(SB),NOSPLIT,$24
+	MOVQ	DI, 0(SP)   // signum
+	MOVQ	SI, 8(SP)   // info
+	MOVQ	DX, 16(SP)  // ctx
+	MOVQ	$runtime·sigtrampgo(SB), AX
+	CALL AX
 	RET
 
 TEXT runtime·sigreturn(SB),NOSPLIT,$0
@@ -280,14 +291,16 @@ TEXT runtime·futex(SB),NOSPLIT,$0
 
 // int32 clone(int32 flags, void *stack, M *mp, G *gp, void (*fn)(void));
 TEXT runtime·clone(SB),NOSPLIT,$0
-	MOVL	flags+8(SP), DI
-	MOVQ	stack+16(SP), SI
+	MOVL	flags+0(FP), DI
+	MOVQ	stack+8(FP), SI
+	MOVQ	$0, DX
+	MOVQ	$0, R10
 
 	// Copy mp, gp, fn off parent stack for use by child.
 	// Careful: Linux system call clobbers CX and R11.
-	MOVQ	mm+24(SP), R8
-	MOVQ	gg+32(SP), R9
-	MOVQ	fn+40(SP), R12
+	MOVQ	mp+16(FP), R8
+	MOVQ	gp+24(FP), R9
+	MOVQ	fn+32(FP), R12
 
 	MOVL	$56, AX
 	SYSCALL
@@ -300,6 +313,12 @@ TEXT runtime·clone(SB),NOSPLIT,$0
 
 	// In child, on new stack.
 	MOVQ	SI, SP
+
+	// If g or m are nil, skip Go-related setup.
+	CMPQ	R8, $0    // m
+	JEQ	nog
+	CMPQ	R9, $0    // g
+	JEQ	nog
 
 	// Initialize m->procid to Linux tid
 	MOVL	$186, AX	// gettid
@@ -316,10 +335,11 @@ TEXT runtime·clone(SB),NOSPLIT,$0
 	MOVQ	R9, g(CX)
 	CALL	runtime·stackcheck(SB)
 
+nog:
 	// Call fn
 	CALL	R12
 
-	// It shouldn't return.  If it does, exit
+	// It shouldn't return.  If it does, exit that thread.
 	MOVL	$111, DI
 	MOVL	$60, AX
 	SYSCALL
@@ -337,7 +357,7 @@ TEXT runtime·sigaltstack(SB),NOSPLIT,$-8
 
 // set tls base to DI
 TEXT runtime·settls(SB),NOSPLIT,$32
-	ADDQ	$16, DI	// ELF wants to use -16(FS), -8(FS)
+	ADDQ	$8, DI	// ELF wants to use -8(FS)
 
 	MOVQ	DI, SI
 	MOVQ	$0x1002, DI	// ARCH_SET_FS
