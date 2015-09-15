@@ -1,4 +1,4 @@
-golang (2:1.5-1) UNRELEASED; urgency=low
+golang (2:1.5-1~exp1) UNRELEASED; urgency=low
 
   * Update to 1.5 upstream release (Closes: #796150).
     - Compiler and runtime written entirely in Go.
