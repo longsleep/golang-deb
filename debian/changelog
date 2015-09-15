@@ -1,5 +1,6 @@
 golang (2:1.5-1~exp1) UNRELEASED; urgency=low
 
+  * Upload to experimental.
   * Update to 1.5 upstream release (Closes: #796150).
     - Compiler and runtime written entirely in Go.
     - Concurrent garbage collector.
