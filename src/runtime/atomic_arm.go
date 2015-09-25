@@ -27,10 +27,6 @@ func xadd(val *uint32, delta int32) uint32 {
 	}
 }
 
-//go:noescape
-//go:linkname xadduintptr runtime.xadd
-func xadduintptr(ptr *uintptr, delta uintptr) uintptr
-
 //go:nosplit
 func xchg(addr *uint32, v uint32) uint32 {
 	for {
@@ -42,10 +38,10 @@ func xchg(addr *uint32, v uint32) uint32 {
 }
 
 //go:nosplit
-func xchgp1(addr unsafe.Pointer, v unsafe.Pointer) unsafe.Pointer {
+func xchgp(addr *unsafe.Pointer, v unsafe.Pointer) unsafe.Pointer {
 	for {
-		old := *(*unsafe.Pointer)(addr)
-		if casp1((*unsafe.Pointer)(addr), old, v) {
+		old := *addr
+		if casp(addr, old, v) {
 			return old
 		}
 	}
@@ -67,10 +63,10 @@ func atomicloadp(addr unsafe.Pointer) unsafe.Pointer {
 }
 
 //go:nosplit
-func atomicstorep1(addr unsafe.Pointer, v unsafe.Pointer) {
+func atomicstorep(addr unsafe.Pointer, v unsafe.Pointer) {
 	for {
 		old := *(*unsafe.Pointer)(addr)
-		if casp1((*unsafe.Pointer)(addr), old, v) {
+		if casp((*unsafe.Pointer)(addr), old, v) {
 			return
 		}
 	}
@@ -89,7 +85,7 @@ func atomicstore(addr *uint32, v uint32) {
 //go:nosplit
 func cas64(addr *uint64, old, new uint64) bool {
 	var ok bool
-	systemstack(func() {
+	onM(func() {
 		lock(addrLock(addr))
 		if *addr == old {
 			*addr = new
@@ -103,7 +99,7 @@ func cas64(addr *uint64, old, new uint64) bool {
 //go:nosplit
 func xadd64(addr *uint64, delta int64) uint64 {
 	var r uint64
-	systemstack(func() {
+	onM(func() {
 		lock(addrLock(addr))
 		r = *addr + uint64(delta)
 		*addr = r
@@ -115,7 +111,7 @@ func xadd64(addr *uint64, delta int64) uint64 {
 //go:nosplit
 func xchg64(addr *uint64, v uint64) uint64 {
 	var r uint64
-	systemstack(func() {
+	onM(func() {
 		lock(addrLock(addr))
 		r = *addr
 		*addr = v
@@ -127,7 +123,7 @@ func xchg64(addr *uint64, v uint64) uint64 {
 //go:nosplit
 func atomicload64(addr *uint64) uint64 {
 	var r uint64
-	systemstack(func() {
+	onM(func() {
 		lock(addrLock(addr))
 		r = *addr
 		unlock(addrLock(addr))
@@ -137,7 +133,7 @@ func atomicload64(addr *uint64) uint64 {
 
 //go:nosplit
 func atomicstore64(addr *uint64, v uint64) {
-	systemstack(func() {
+	onM(func() {
 		lock(addrLock(addr))
 		*addr = v
 		unlock(addrLock(addr))
@@ -153,22 +149,6 @@ func atomicor8(addr *uint8, v uint8) {
 	for {
 		old := *addr32
 		if cas(addr32, old, old|word) {
-			return
-		}
-	}
-}
-
-//go:nosplit
-func atomicand8(addr *uint8, v uint8) {
-	// Align down to 4 bytes and use 32-bit CAS.
-	uaddr := uintptr(unsafe.Pointer(addr))
-	addr32 := (*uint32)(unsafe.Pointer(uaddr &^ 3))
-	word := uint32(v) << ((uaddr & 3) * 8)    // little endian
-	mask := uint32(0xFF) << ((uaddr & 3) * 8) // little endian
-	word |= ^mask
-	for {
-		old := *addr32
-		if cas(addr32, old, old&word) {
 			return
 		}
 	}

@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var parseMACTests = []struct {
+var mactests = []struct {
 	in  string
 	out HardwareAddr
 	err string
@@ -36,18 +36,19 @@ var parseMACTests = []struct {
 	{"0123.4567.89AB.CDEF", HardwareAddr{1, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef}, ""},
 }
 
-func TestParseMAC(t *testing.T) {
-	match := func(err error, s string) bool {
-		if s == "" {
-			return err == nil
-		}
-		return err != nil && strings.Contains(err.Error(), s)
+func match(err error, s string) bool {
+	if s == "" {
+		return err == nil
 	}
+	return err != nil && strings.Contains(err.Error(), s)
+}
 
-	for i, tt := range parseMACTests {
+func TestMACParseString(t *testing.T) {
+	for i, tt := range mactests {
 		out, err := ParseMAC(tt.in)
 		if !reflect.DeepEqual(out, tt.out) || !match(err, tt.err) {
-			t.Errorf("ParseMAC(%q) = %v, %v, want %v, %v", tt.in, out, err, tt.out, tt.err)
+			t.Errorf("ParseMAC(%q) = %v, %v, want %v, %v", tt.in, out, err, tt.out,
+				tt.err)
 		}
 		if tt.err == "" {
 			// Verify that serialization works too, and that it round-trips.

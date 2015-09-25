@@ -87,11 +87,11 @@ type huffmanBitWriter struct {
 func newHuffmanBitWriter(w io.Writer) *huffmanBitWriter {
 	return &huffmanBitWriter{
 		w:               w,
-		literalFreq:     make([]int32, maxNumLit),
+		literalFreq:     make([]int32, maxLit),
 		offsetFreq:      make([]int32, offsetCodeCount),
-		codegen:         make([]uint8, maxNumLit+offsetCodeCount+1),
+		codegen:         make([]uint8, maxLit+offsetCodeCount+1),
 		codegenFreq:     make([]int32, codegenCodeCount),
-		literalEncoding: newHuffmanEncoder(maxNumLit),
+		literalEncoding: newHuffmanEncoder(maxLit),
 		offsetEncoding:  newHuffmanEncoder(offsetCodeCount),
 		codegenEncoding: newHuffmanEncoder(codegenCodeCount),
 	}

@@ -43,8 +43,7 @@ var faketime int64
 
 // time.now is implemented in assembly.
 
-// timeSleep puts the current goroutine to sleep for at least ns nanoseconds.
-//go:linkname timeSleep time.Sleep
+// Sleep puts the current goroutine to sleep for at least ns nanoseconds.
 func timeSleep(ns int64) {
 	if ns <= 0 {
 		return
@@ -56,11 +55,10 @@ func timeSleep(ns int64) {
 	t.arg = getg()
 	lock(&timers.lock)
 	addtimerLocked(t)
-	goparkunlock(&timers.lock, "sleep", traceEvGoSleep, 2)
+	goparkunlock(&timers.lock, "sleep")
 }
 
 // startTimer adds t to the timer heap.
-//go:linkname startTimer time.startTimer
 func startTimer(t *timer) {
 	if raceenabled {
 		racerelease(unsafe.Pointer(t))
@@ -70,7 +68,6 @@ func startTimer(t *timer) {
 
 // stopTimer removes t from the timer heap if it is there.
 // It returns true if t was removed, false if t wasn't even there.
-//go:linkname stopTimer time.stopTimer
 func stopTimer(t *timer) bool {
 	return deltimer(t)
 }
@@ -79,7 +76,7 @@ func stopTimer(t *timer) bool {
 
 // Ready the goroutine arg.
 func goroutineReady(arg interface{}, seq uintptr) {
-	goready(arg.(*g), 0)
+	goready(arg.(*g))
 }
 
 func addtimer(t *timer) {
@@ -108,7 +105,7 @@ func addtimerLocked(t *timer) {
 		}
 		if timers.rescheduling {
 			timers.rescheduling = false
-			goready(timers.gp, 0)
+			goready(timers.gp)
 		}
 	}
 	if !timers.created {
@@ -153,6 +150,7 @@ func deltimer(t *timer) bool {
 // If addtimer inserts a new earlier event, addtimer1 wakes timerproc early.
 func timerproc() {
 	timers.gp = getg()
+	timers.gp.issystem = true
 	for {
 		lock(&timers.lock)
 		timers.sleeping = false
@@ -199,7 +197,7 @@ func timerproc() {
 		if delta < 0 || faketime > 0 {
 			// No timers left - put goroutine to sleep.
 			timers.rescheduling = true
-			goparkunlock(&timers.lock, "timer goroutine (idle)", traceEvGoBlock, 1)
+			goparkunlock(&timers.lock, "timer goroutine (idle)")
 			continue
 		}
 		// At least one timer pending.  Sleep until then.
@@ -288,16 +286,4 @@ func siftdownTimer(i int) {
 		t[c].i = c
 		i = c
 	}
-}
-
-// Entry points for net, time to call nanotime.
-
-//go:linkname net_runtimeNano net.runtimeNano
-func net_runtimeNano() int64 {
-	return nanotime()
-}
-
-//go:linkname time_runtimeNano time.runtimeNano
-func time_runtimeNano() int64 {
-	return nanotime()
 }

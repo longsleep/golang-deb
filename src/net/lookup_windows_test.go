@@ -26,13 +26,12 @@ func toJson(v interface{}) string {
 
 func TestLookupMX(t *testing.T) {
 	if testing.Short() || !*testExternal {
-		t.Skip("avoid external network")
+		t.Skip("skipping test to avoid external network")
 	}
-
 	for _, server := range nslookupTestServers {
 		mx, err := LookupMX(server)
 		if err != nil {
-			t.Error(err)
+			t.Errorf("failed %s: %s", server, err)
 			continue
 		}
 		if len(mx) == 0 {
@@ -53,9 +52,8 @@ func TestLookupMX(t *testing.T) {
 
 func TestLookupCNAME(t *testing.T) {
 	if testing.Short() || !*testExternal {
-		t.Skip("avoid external network")
+		t.Skip("skipping test to avoid external network")
 	}
-
 	for _, server := range nslookupTestServers {
 		cname, err := LookupCNAME(server)
 		if err != nil {
@@ -78,9 +76,8 @@ func TestLookupCNAME(t *testing.T) {
 
 func TestLookupNS(t *testing.T) {
 	if testing.Short() || !*testExternal {
-		t.Skip("avoid external network")
+		t.Skip("skipping test to avoid external network")
 	}
-
 	for _, server := range nslookupTestServers {
 		ns, err := LookupNS(server)
 		if err != nil {
@@ -106,9 +103,8 @@ func TestLookupNS(t *testing.T) {
 
 func TestLookupTXT(t *testing.T) {
 	if testing.Short() || !*testExternal {
-		t.Skip("avoid external network")
+		t.Skip("skipping test to avoid external network")
 	}
-
 	for _, server := range nslookupTestServers {
 		txt, err := LookupTXT(server)
 		if err != nil {

@@ -167,18 +167,10 @@ func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 }
 
 // nextItem returns the next item from the input.
-// Called by the parser, not in the lexing goroutine.
 func (l *lexer) nextItem() item {
 	item := <-l.items
 	l.lastPos = item.pos
 	return item
-}
-
-// drain drains the output so the lexing goroutine will exit.
-// Called by the parser, not in the lexing goroutine.
-func (l *lexer) drain() {
-	for range l.items {
-	}
 }
 
 // lex creates a new scanner for the input string.
@@ -205,7 +197,6 @@ func (l *lexer) run() {
 	for l.state = lexText; l.state != nil; {
 		l.state = l.state(l)
 	}
-	close(l.items)
 }
 
 // state functions
@@ -322,12 +313,14 @@ func lexInsideAction(l *lexer) stateFn {
 	case r == '(':
 		l.emit(itemLeftParen)
 		l.parenDepth++
+		return lexInsideAction
 	case r == ')':
 		l.emit(itemRightParen)
 		l.parenDepth--
 		if l.parenDepth < 0 {
 			return l.errorf("unexpected right paren %#U", r)
 		}
+		return lexInsideAction
 	case r <= unicode.MaxASCII && unicode.IsPrint(r):
 		l.emit(itemChar)
 		return lexInsideAction
@@ -532,7 +525,7 @@ func lexRawQuote(l *lexer) stateFn {
 Loop:
 	for {
 		switch l.next() {
-		case eof:
+		case eof, '\n':
 			return l.errorf("unterminated raw quoted string")
 		case '`':
 			break Loop

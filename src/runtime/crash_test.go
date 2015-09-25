@@ -5,32 +5,25 @@
 package runtime_test
 
 import (
-	"fmt"
-	"internal/testenv"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"testing"
 	"text/template"
 )
 
+// testEnv excludes GODEBUG from the environment
+// to prevent its output from breaking tests that
+// are trying to parse other command output.
 func testEnv(cmd *exec.Cmd) *exec.Cmd {
 	if cmd.Env != nil {
 		panic("environment already set")
 	}
 	for _, env := range os.Environ() {
-		// Exclude GODEBUG from the environment to prevent its output
-		// from breaking tests that are trying to parse other command output.
 		if strings.HasPrefix(env, "GODEBUG=") {
-			continue
-		}
-		// Exclude GOTRACEBACK for the same reason.
-		if strings.HasPrefix(env, "GOTRACEBACK=") {
 			continue
 		}
 		cmd.Env = append(cmd.Env, env)
@@ -39,7 +32,10 @@ func testEnv(cmd *exec.Cmd) *exec.Cmd {
 }
 
 func executeTest(t *testing.T, templ string, data interface{}, extra ...string) string {
-	testenv.MustHaveGoBuild(t)
+	switch runtime.GOOS {
+	case "android", "nacl":
+		t.Skipf("skipping on %s", runtime.GOOS)
+	}
 
 	checkStaleRuntime(t)
 
@@ -66,14 +62,7 @@ func executeTest(t *testing.T, templ string, data interface{}, extra ...string) 
 	}
 
 	for i := 0; i < len(extra); i += 2 {
-		fname := extra[i]
-		contents := extra[i+1]
-		if d, _ := filepath.Split(fname); d != "" {
-			if err := os.Mkdir(filepath.Join(dir, d), 0755); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if err := ioutil.WriteFile(filepath.Join(dir, fname), []byte(contents), 0666); err != nil {
+		if err := ioutil.WriteFile(filepath.Join(dir, extra[i]), []byte(extra[i+1]), 0666); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -89,25 +78,14 @@ func executeTest(t *testing.T, templ string, data interface{}, extra ...string) 
 	return string(got)
 }
 
-var (
-	staleRuntimeOnce sync.Once // guards init of staleRuntimeErr
-	staleRuntimeErr  error
-)
-
 func checkStaleRuntime(t *testing.T) {
-	staleRuntimeOnce.Do(func() {
-		// 'go run' uses the installed copy of runtime.a, which may be out of date.
-		out, err := testEnv(exec.Command("go", "list", "-f", "{{.Stale}}", "runtime")).CombinedOutput()
-		if err != nil {
-			staleRuntimeErr = fmt.Errorf("failed to execute 'go list': %v\n%v", err, string(out))
-			return
-		}
-		if string(out) != "false\n" {
-			staleRuntimeErr = fmt.Errorf("Stale runtime.a. Run 'go install runtime'.")
-		}
-	})
-	if staleRuntimeErr != nil {
-		t.Fatal(staleRuntimeErr)
+	// 'go run' uses the installed copy of runtime.a, which may be out of date.
+	out, err := testEnv(exec.Command("go", "list", "-f", "{{.Stale}}", "runtime")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to execute 'go list': %v\n%v", err, string(out))
+	}
+	if string(out) != "false\n" {
+		t.Fatalf("Stale runtime.a. Run 'go install runtime'.")
 	}
 }
 
@@ -223,14 +201,6 @@ func TestMainGoroutineId(t *testing.T) {
 	want := "panic: test\n\ngoroutine 1 [running]:\n"
 	if !strings.HasPrefix(output, want) {
 		t.Fatalf("output does not start with %q:\n%s", want, output)
-	}
-}
-
-func TestNoHelperGoroutines(t *testing.T) {
-	output := executeTest(t, noHelperGoroutinesSource, nil)
-	matches := regexp.MustCompile(`goroutine [0-9]+ \[`).FindAllStringSubmatch(output, -1)
-	if len(matches) != 1 || matches[0][0] != "goroutine 1 [" {
-		t.Fatalf("want to see only goroutine 1, see:\n%s", output)
 	}
 }
 
@@ -448,22 +418,6 @@ func main() {
 }
 `
 
-const noHelperGoroutinesSource = `
-package main
-import (
-	"runtime"
-	"time"
-)
-func init() {
-	i := 0
-	runtime.SetFinalizer(&i, func(p *int) {})
-	time.AfterFunc(time.Hour, func() {})
-	panic("oops")
-}
-func main() {
-}
-`
-
 const breakpointSource = `
 package main
 import "runtime"
@@ -559,31 +513,3 @@ func TestRecoverBeforePanicAfterGoexit(t *testing.T) {
 	}()
 	runtime.Goexit()
 }
-
-func TestNetpollDeadlock(t *testing.T) {
-	output := executeTest(t, netpollDeadlockSource, nil)
-	want := "done\n"
-	if !strings.HasSuffix(output, want) {
-		t.Fatalf("output does not start with %q:\n%s", want, output)
-	}
-}
-
-const netpollDeadlockSource = `
-package main
-import (
-	"fmt"
-	"net"
-)
-func init() {
-	fmt.Println("dialing")
-	c, err := net.Dial("tcp", "localhost:14356")
-	if err == nil {
-		c.Close()
-	} else {
-		fmt.Println("error: ", err)
-	}
-}
-func main() {
-	fmt.Println("done")
-}
-`

@@ -53,7 +53,7 @@ const (
 	// Mask for the type bits. For regular files, none will be set.
 	ModeType = ModeDir | ModeSymlink | ModeNamedPipe | ModeSocket | ModeDevice
 
-	ModePerm FileMode = 0777 // Unix permission bits
+	ModePerm FileMode = 0777 // permission bits
 )
 
 func (m FileMode) String() string {

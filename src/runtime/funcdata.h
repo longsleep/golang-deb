@@ -3,10 +3,9 @@
 // license that can be found in the LICENSE file.
 
 // This file defines the IDs for PCDATA and FUNCDATA instructions
-// in Go binaries. It is included by assembly sources, so it must
-// be written using #defines.
-//
-// The Go compiler also #includes this file, for now.
+// in Go binaries. It is included by both C and assembly, so it must
+// be written using #defines. It is included by the runtime package
+// as well as the compilers.
 //
 // symtab.go also contains a copy of these constants.
 
@@ -51,7 +50,8 @@
 
 /*c2go
 enum {
-	PCDATA_StackMapIndex = 0,
+	PCDATA_ArgSize = 0,
+	PCDATA_StackMapIndex = 1,
 	FUNCDATA_ArgsPointerMaps = 0,
 	FUNCDATA_LocalsPointerMaps = 1,
 	FUNCDATA_DeadValueMaps = 2,

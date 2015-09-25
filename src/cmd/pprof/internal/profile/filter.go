@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 // Implements methods to filter samples from profiles.
-
 package profile
 
 import "regexp"

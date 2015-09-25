@@ -14,17 +14,18 @@ func toShort(path string) (string, error) {
 		return "", err
 	}
 	b := p // GetShortPathName says we can reuse buffer
-	n := uint32(len(b))
-	for {
+	n, err := syscall.GetShortPathName(&p[0], &b[0], uint32(len(b)))
+	if err != nil {
+		return "", err
+	}
+	if n > uint32(len(b)) {
+		b = make([]uint16, n)
 		n, err = syscall.GetShortPathName(&p[0], &b[0], uint32(len(b)))
 		if err != nil {
 			return "", err
 		}
-		if n <= uint32(len(b)) {
-			return syscall.UTF16ToString(b[:n]), nil
-		}
-		b = make([]uint16, n)
 	}
+	return syscall.UTF16ToString(b), nil
 }
 
 func toLong(path string) (string, error) {
@@ -33,17 +34,19 @@ func toLong(path string) (string, error) {
 		return "", err
 	}
 	b := p // GetLongPathName says we can reuse buffer
-	n := uint32(len(b))
-	for {
+	n, err := syscall.GetLongPathName(&p[0], &b[0], uint32(len(b)))
+	if err != nil {
+		return "", err
+	}
+	if n > uint32(len(b)) {
+		b = make([]uint16, n)
 		n, err = syscall.GetLongPathName(&p[0], &b[0], uint32(len(b)))
 		if err != nil {
 			return "", err
 		}
-		if n <= uint32(len(b)) {
-			return syscall.UTF16ToString(b[:n]), nil
-		}
-		b = make([]uint16, n)
 	}
+	b = b[:n]
+	return syscall.UTF16ToString(b), nil
 }
 
 func evalSymlinks(path string) (string, error) {

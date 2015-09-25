@@ -5,6 +5,8 @@
 package net
 
 import (
+	"errors"
+	"io"
 	"os"
 	"runtime"
 	"sync"
@@ -38,7 +40,7 @@ func sysInit() {
 	var d syscall.WSAData
 	e := syscall.WSAStartup(uint32(0x202), &d)
 	if e != nil {
-		initErr = os.NewSyscallError("wsastartup", e)
+		initErr = os.NewSyscallError("WSAStartup", e)
 	}
 	canCancelIO = syscall.LoadCancelIoEx() == nil
 	if syscall.LoadGetAddrInfo() == nil {
@@ -66,6 +68,10 @@ func sysInit() {
 			}
 		}
 	}
+}
+
+func closesocket(s syscall.Handle) error {
+	return syscall.Closesocket(s)
 }
 
 func canUseConnectEx(net string) bool {
@@ -153,7 +159,7 @@ func (s *ioSrv) ExecIO(o *operation, name string, submit func(o *operation) erro
 	// Notify runtime netpoll about starting IO.
 	err := fd.pd.Prepare(int(o.mode))
 	if err != nil {
-		return 0, err
+		return 0, &OpError{name, fd.net, fd.laddr, err}
 	}
 	// Start IO.
 	if canCancelIO {
@@ -176,7 +182,7 @@ func (s *ioSrv) ExecIO(o *operation, name string, submit func(o *operation) erro
 		// IO started, and we have to wait for its completion.
 		err = nil
 	default:
-		return 0, err
+		return 0, &OpError{name, fd.net, fd.laddr, err}
 	}
 	// Wait for our request to complete.
 	err = fd.pd.Wait(int(o.mode))
@@ -184,7 +190,7 @@ func (s *ioSrv) ExecIO(o *operation, name string, submit func(o *operation) erro
 		// All is good. Extract our IO results and return.
 		if o.errno != 0 {
 			err = syscall.Errno(o.errno)
-			return 0, err
+			return 0, &OpError{name, fd.net, fd.laddr, err}
 		}
 		return int(o.qty), nil
 	}
@@ -215,7 +221,7 @@ func (s *ioSrv) ExecIO(o *operation, name string, submit func(o *operation) erro
 		if err == syscall.ERROR_OPERATION_ABORTED { // IO Canceled
 			err = netpollErr
 		}
-		return 0, err
+		return 0, &OpError{name, fd.net, fd.laddr, err}
 	}
 	// We issued cancellation request. But, it seems, IO operation succeeded
 	// before cancellation request run. We need to treat IO operation as
@@ -297,7 +303,7 @@ func (fd *netFD) init() error {
 		size := uint32(unsafe.Sizeof(flag))
 		err := syscall.WSAIoctl(fd.sysfd, syscall.SIO_UDP_CONNRESET, (*byte)(unsafe.Pointer(&flag)), size, nil, 0, &ret, nil, 0)
 		if err != nil {
-			return os.NewSyscallError("wsaioctl", err)
+			return os.NewSyscallError("WSAIoctl", err)
 		}
 	}
 	fd.rop.mode = 'r'
@@ -331,7 +337,7 @@ func (fd *netFD) connect(la, ra syscall.Sockaddr, deadline time.Time) error {
 		defer fd.setWriteDeadline(noDeadline)
 	}
 	if !canUseConnectEx(fd.net) {
-		return os.NewSyscallError("connect", connectFunc(fd.sysfd, ra))
+		return syscall.Connect(fd.sysfd, ra)
 	}
 	// ConnectEx windows API requires an unconnected, previously bound socket.
 	if la == nil {
@@ -344,23 +350,20 @@ func (fd *netFD) connect(la, ra syscall.Sockaddr, deadline time.Time) error {
 			panic("unexpected type in connect")
 		}
 		if err := syscall.Bind(fd.sysfd, la); err != nil {
-			return os.NewSyscallError("bind", err)
+			return err
 		}
 	}
 	// Call ConnectEx API.
 	o := &fd.wop
 	o.sa = ra
 	_, err := wsrv.ExecIO(o, "ConnectEx", func(o *operation) error {
-		return connectExFunc(o.fd.sysfd, o.sa, nil, 0, nil, &o.o)
+		return syscall.ConnectEx(o.fd.sysfd, o.sa, nil, 0, nil, &o.o)
 	})
 	if err != nil {
-		if _, ok := err.(syscall.Errno); ok {
-			err = os.NewSyscallError("connectex", err)
-		}
 		return err
 	}
 	// Refresh socket properties.
-	return os.NewSyscallError("setsockopt", syscall.Setsockopt(fd.sysfd, syscall.SOL_SOCKET, syscall.SO_UPDATE_CONNECT_CONTEXT, (*byte)(unsafe.Pointer(&fd.sysfd)), int32(unsafe.Sizeof(fd.sysfd))))
+	return syscall.Setsockopt(fd.sysfd, syscall.SOL_SOCKET, syscall.SO_UPDATE_CONNECT_CONTEXT, (*byte)(unsafe.Pointer(&fd.sysfd)), int32(unsafe.Sizeof(fd.sysfd)))
 }
 
 func (fd *netFD) destroy() {
@@ -368,9 +371,9 @@ func (fd *netFD) destroy() {
 		return
 	}
 	// Poller may want to unregister fd in readiness notification mechanism,
-	// so this must be executed before closeFunc.
+	// so this must be executed before closesocket.
 	fd.pd.Close()
-	closeFunc(fd.sysfd)
+	closesocket(fd.sysfd)
 	fd.sysfd = syscall.InvalidHandle
 	// no need for a finalizer anymore
 	runtime.SetFinalizer(fd, nil)
@@ -440,7 +443,11 @@ func (fd *netFD) shutdown(how int) error {
 		return err
 	}
 	defer fd.decref()
-	return syscall.Shutdown(fd.sysfd, how)
+	err := syscall.Shutdown(fd.sysfd, how)
+	if err != nil {
+		return &OpError{"shutdown", fd.net, fd.laddr, err}
+	}
+	return nil
 }
 
 func (fd *netFD) closeRead() error {
@@ -461,17 +468,16 @@ func (fd *netFD) Read(buf []byte) (int, error) {
 	n, err := rsrv.ExecIO(o, "WSARecv", func(o *operation) error {
 		return syscall.WSARecv(o.fd.sysfd, &o.buf, 1, &o.qty, &o.flags, &o.o, nil)
 	})
+	if err == nil && n == 0 {
+		err = io.EOF
+	}
 	if raceenabled {
 		raceAcquire(unsafe.Pointer(&ioSync))
-	}
-	err = fd.eofError(n, err)
-	if _, ok := err.(syscall.Errno); ok {
-		err = os.NewSyscallError("wsarecv", err)
 	}
 	return n, err
 }
 
-func (fd *netFD) readFrom(buf []byte) (int, syscall.Sockaddr, error) {
+func (fd *netFD) readFrom(buf []byte) (n int, sa syscall.Sockaddr, err error) {
 	if len(buf) == 0 {
 		return 0, nil, nil
 	}
@@ -481,22 +487,18 @@ func (fd *netFD) readFrom(buf []byte) (int, syscall.Sockaddr, error) {
 	defer fd.readUnlock()
 	o := &fd.rop
 	o.InitBuf(buf)
-	n, err := rsrv.ExecIO(o, "WSARecvFrom", func(o *operation) error {
+	n, err = rsrv.ExecIO(o, "WSARecvFrom", func(o *operation) error {
 		if o.rsa == nil {
 			o.rsa = new(syscall.RawSockaddrAny)
 		}
 		o.rsan = int32(unsafe.Sizeof(*o.rsa))
 		return syscall.WSARecvFrom(o.fd.sysfd, &o.buf, 1, &o.qty, &o.flags, o.rsa, &o.rsan, &o.o, nil)
 	})
-	err = fd.eofError(n, err)
-	if _, ok := err.(syscall.Errno); ok {
-		err = os.NewSyscallError("wsarecvfrom", err)
-	}
 	if err != nil {
-		return n, nil, err
+		return 0, nil, err
 	}
-	sa, _ := o.rsa.Sockaddr()
-	return n, sa, nil
+	sa, _ = o.rsa.Sockaddr()
+	return
 }
 
 func (fd *netFD) Write(buf []byte) (int, error) {
@@ -509,13 +511,9 @@ func (fd *netFD) Write(buf []byte) (int, error) {
 	}
 	o := &fd.wop
 	o.InitBuf(buf)
-	n, err := wsrv.ExecIO(o, "WSASend", func(o *operation) error {
+	return wsrv.ExecIO(o, "WSASend", func(o *operation) error {
 		return syscall.WSASend(o.fd.sysfd, &o.buf, 1, &o.qty, 0, &o.o, nil)
 	})
-	if _, ok := err.(syscall.Errno); ok {
-		err = os.NewSyscallError("wsasend", err)
-	}
-	return n, err
 }
 
 func (fd *netFD) writeTo(buf []byte, sa syscall.Sockaddr) (int, error) {
@@ -529,27 +527,23 @@ func (fd *netFD) writeTo(buf []byte, sa syscall.Sockaddr) (int, error) {
 	o := &fd.wop
 	o.InitBuf(buf)
 	o.sa = sa
-	n, err := wsrv.ExecIO(o, "WSASendto", func(o *operation) error {
+	return wsrv.ExecIO(o, "WSASendto", func(o *operation) error {
 		return syscall.WSASendto(o.fd.sysfd, &o.buf, 1, &o.qty, 0, o.sa, &o.o, nil)
 	})
-	if _, ok := err.(syscall.Errno); ok {
-		err = os.NewSyscallError("wsasendto", err)
-	}
-	return n, err
 }
 
 func (fd *netFD) acceptOne(rawsa []syscall.RawSockaddrAny, o *operation) (*netFD, error) {
 	// Get new socket.
 	s, err := sysSocket(fd.family, fd.sotype, 0)
 	if err != nil {
-		return nil, err
+		return nil, &OpError{"socket", fd.net, fd.laddr, err}
 	}
 
 	// Associate our new socket with IOCP.
 	netfd, err := newFD(s, fd.family, fd.sotype, fd.net)
 	if err != nil {
-		closeFunc(s)
-		return nil, err
+		closesocket(s)
+		return nil, &OpError{"accept", fd.net, fd.laddr, err}
 	}
 	if err := netfd.init(); err != nil {
 		fd.Close()
@@ -564,9 +558,6 @@ func (fd *netFD) acceptOne(rawsa []syscall.RawSockaddrAny, o *operation) (*netFD
 	})
 	if err != nil {
 		netfd.Close()
-		if _, ok := err.(syscall.Errno); ok {
-			err = os.NewSyscallError("acceptex", err)
-		}
 		return nil, err
 	}
 
@@ -574,7 +565,7 @@ func (fd *netFD) acceptOne(rawsa []syscall.RawSockaddrAny, o *operation) (*netFD
 	err = syscall.Setsockopt(s, syscall.SOL_SOCKET, syscall.SO_UPDATE_ACCEPT_CONTEXT, (*byte)(unsafe.Pointer(&fd.sysfd)), int32(unsafe.Sizeof(fd.sysfd)))
 	if err != nil {
 		netfd.Close()
-		return nil, os.NewSyscallError("setsockopt", err)
+		return nil, &OpError{"Setsockopt", fd.net, fd.laddr, err}
 	}
 
 	return netfd, nil
@@ -600,11 +591,11 @@ func (fd *netFD) accept() (*netFD, error) {
 		// before AcceptEx could complete. These errors relate to new
 		// connection, not to AcceptEx, so ignore broken connection and
 		// try AcceptEx again for more connections.
-		nerr, ok := err.(*os.SyscallError)
+		operr, ok := err.(*OpError)
 		if !ok {
 			return nil, err
 		}
-		errno, ok := nerr.Err.(syscall.Errno)
+		errno, ok := operr.Err.(syscall.Errno)
 		if !ok {
 			return nil, err
 		}
@@ -628,17 +619,38 @@ func (fd *netFD) accept() (*netFD, error) {
 	return netfd, nil
 }
 
+func skipRawSocketTests() (skip bool, skipmsg string, err error) {
+	// From http://msdn.microsoft.com/en-us/library/windows/desktop/ms740548.aspx:
+	// Note: To use a socket of type SOCK_RAW requires administrative privileges.
+	// Users running Winsock applications that use raw sockets must be a member of
+	// the Administrators group on the local computer, otherwise raw socket calls
+	// will fail with an error code of WSAEACCES. On Windows Vista and later, access
+	// for raw sockets is enforced at socket creation. In earlier versions of Windows,
+	// access for raw sockets is enforced during other socket operations.
+	s, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, 0)
+	if err == syscall.WSAEACCES {
+		return true, "skipping test; no access to raw socket allowed", nil
+	}
+	if err != nil {
+		return true, "", err
+	}
+	defer syscall.Closesocket(s)
+	return false, "", nil
+}
+
 // Unimplemented functions.
 
 func (fd *netFD) dup() (*os.File, error) {
 	// TODO: Implement this
-	return nil, syscall.EWINDOWS
+	return nil, os.NewSyscallError("dup", syscall.EWINDOWS)
 }
 
+var errNoSupport = errors.New("address family not supported")
+
 func (fd *netFD) readMsg(p []byte, oob []byte) (n, oobn, flags int, sa syscall.Sockaddr, err error) {
-	return 0, 0, 0, nil, syscall.EWINDOWS
+	return 0, 0, 0, nil, errNoSupport
 }
 
 func (fd *netFD) writeMsg(p []byte, oob []byte, sa syscall.Sockaddr) (n int, oobn int, err error) {
-	return 0, 0, syscall.EWINDOWS
+	return 0, 0, errNoSupport
 }

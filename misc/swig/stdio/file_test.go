@@ -10,7 +10,7 @@ import "testing"
 // as expected.
 func TestRead(t *testing.T) {
 	f := Fopen("file_test.go", "r")
-	if f.Swigcptr() == 0 {
+	if f == nil {
 		t.Fatal("fopen failed")
 	}
 	if Fgetc(f) != '/' || Fgetc(f) != '/' || Fgetc(f) != ' ' || Fgetc(f) != 'C' {

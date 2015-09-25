@@ -9,15 +9,10 @@
 
 package main
 
-import "fmt"
-
 var tbd string
 var overwrite string = "dibs"
 
-var b bool
-var x int
-
 func main() {
-	fmt.Println(tbd)
-	fmt.Println(overwrite)
+	println(tbd)
+	println(overwrite)
 }

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build cgo,!netgo
-// +build darwin dragonfly freebsd
+// +build !netgo
+// +build darwin dragonfly freebsd solaris
 
 package net
 
@@ -12,4 +12,6 @@ package net
 */
 import "C"
 
-const cgoAddrInfoFlags = (C.AI_CANONNAME | C.AI_V4MAPPED | C.AI_ALL) & C.AI_MASK
+func cgoAddrInfoFlags() C.int {
+	return (C.AI_CANONNAME | C.AI_V4MAPPED | C.AI_ALL) & C.AI_MASK
+}

@@ -18,11 +18,18 @@ func (pd *pollDesc) Init(fd *netFD) error { pd.fd = fd; return nil }
 
 func (pd *pollDesc) Close() {}
 
-func (pd *pollDesc) Evict() {
+func (pd *pollDesc) Lock() {}
+
+func (pd *pollDesc) Unlock() {}
+
+func (pd *pollDesc) Wakeup() {}
+
+func (pd *pollDesc) Evict() bool {
 	pd.closing = true
 	if pd.fd != nil {
 		syscall.StopIO(pd.fd.sysfd)
 	}
+	return false
 }
 
 func (pd *pollDesc) Prepare(mode int) error {

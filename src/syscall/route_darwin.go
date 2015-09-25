@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Routing sockets and messages for Darwin
+
 package syscall
 
 import "unsafe"
@@ -31,37 +33,29 @@ type InterfaceMulticastAddrMessage struct {
 	Data   []byte
 }
 
-func (m *InterfaceMulticastAddrMessage) sockaddr() ([]Sockaddr, error) {
-	var sas [RTAX_MAX]Sockaddr
+const rtaIfmaMask = RTA_GATEWAY | RTA_IFP | RTA_IFA
+
+func (m *InterfaceMulticastAddrMessage) sockaddr() (sas []Sockaddr) {
+	if m.Header.Addrs&rtaIfmaMask == 0 {
+		return nil
+	}
 	b := m.Data[:]
-	for i := uint(0); i < RTAX_MAX && len(b) >= minRoutingSockaddrLen; i++ {
-		if m.Header.Addrs&(1<<i) == 0 {
+	for i := uint(0); i < RTAX_MAX; i++ {
+		if m.Header.Addrs&rtaIfmaMask&(1<<i) == 0 {
 			continue
 		}
 		rsa := (*RawSockaddr)(unsafe.Pointer(&b[0]))
-		switch rsa.Family {
-		case AF_LINK:
-			sa, err := parseSockaddrLink(b)
-			if err != nil {
-				return nil, err
+		switch i {
+		case RTAX_IFA:
+			sa, e := anyToSockaddr((*RawSockaddrAny)(unsafe.Pointer(rsa)))
+			if e != nil {
+				return nil
 			}
-			sas[i] = sa
-			b = b[rsaAlignOf(int(rsa.Len)):]
-		case AF_INET, AF_INET6:
-			sa, err := parseSockaddrInet(b, rsa.Family)
-			if err != nil {
-				return nil, err
-			}
-			sas[i] = sa
-			b = b[rsaAlignOf(int(rsa.Len)):]
-		default:
-			sa, l, err := parseLinkLayerAddr(b)
-			if err != nil {
-				return nil, err
-			}
-			sas[i] = sa
-			b = b[l:]
+			sas = append(sas, sa)
+		case RTAX_GATEWAY, RTAX_IFP:
+			// nothing to do
 		}
+		b = b[rsaAlignOf(int(rsa.Len)):]
 	}
-	return sas[:], nil
+	return sas
 }

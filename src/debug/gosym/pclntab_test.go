@@ -6,6 +6,7 @@ package gosym
 
 import (
 	"debug/elf"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -29,6 +30,10 @@ func dotest(self bool) bool {
 	if self && runtime.GOOS != "linux" {
 		return false
 	}
+	// Command below expects "sh", so Unix.
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		return false
+	}
 	if pclinetestBinary != "" {
 		return true
 	}
@@ -44,14 +49,9 @@ func dotest(self bool) bool {
 	// the resulting binary looks like it was built from pclinetest.s,
 	// but we have renamed it to keep it away from the go tool.
 	pclinetestBinary = filepath.Join(pclineTempDir, "pclinetest")
-	cmd := exec.Command("go", "tool", "asm", "-o", pclinetestBinary+".o", "pclinetest.asm")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		panic(err)
-	}
-	cmd = exec.Command("go", "tool", "link", "-H", "linux", "-E", "main",
-		"-o", pclinetestBinary, pclinetestBinary+".o")
+	command := fmt.Sprintf("go tool 6a -o %s.6 pclinetest.asm && go tool 6l -H linux -E main -o %s %s.6",
+		pclinetestBinary, pclinetestBinary, pclinetestBinary)
+	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -84,11 +84,7 @@ func crack(file string, t *testing.T) (*elf.File, *Table) {
 }
 
 func parse(file string, f *elf.File, t *testing.T) (*elf.File, *Table) {
-	s := f.Section(".gosymtab")
-	if s == nil {
-		t.Skip("no .gosymtab section")
-	}
-	symdat, err := s.Data()
+	symdat, err := f.Section(".gosymtab").Data()
 	if err != nil {
 		f.Close()
 		t.Fatalf("reading %s gosymtab: %v", file, err)

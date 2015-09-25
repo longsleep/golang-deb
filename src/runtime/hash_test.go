@@ -171,6 +171,9 @@ func TestSmhasherCyclic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping in short mode")
 	}
+	if !HaveGoodHash() {
+		t.Skip("fallback hash not good enough for this test")
+	}
 	r := rand.New(rand.NewSource(1234))
 	const REPEAT = 8
 	const N = 1000000
@@ -231,6 +234,9 @@ func setbits(h *HashSet, b []byte, i int, k int) {
 func TestSmhasherPermutation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping in short mode")
+	}
+	if !HaveGoodHash() {
+		t.Skip("fallback hash not good enough for this test")
 	}
 	permutation(t, []uint32{0, 1, 2, 3, 4, 5, 6, 7}, 8)
 	permutation(t, []uint32{0, 1 << 29, 2 << 29, 3 << 29, 4 << 29, 5 << 29, 6 << 29, 7 << 29}, 8)
@@ -398,6 +404,9 @@ func (k *IfaceKey) name() string {
 
 // Flipping a single bit of a key should flip each output bit with 50% probability.
 func TestSmhasherAvalanche(t *testing.T) {
+	if !HaveGoodHash() {
+		t.Skip("fallback hash not good enough for this test")
+	}
 	if testing.Short() {
 		t.Skip("Skipping in short mode")
 	}

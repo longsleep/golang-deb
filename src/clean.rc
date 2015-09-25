@@ -11,5 +11,4 @@ if(! test -x $GOTOOLDIR/dist){
 }
 
 $GOBIN/go clean -i std
-$GOBIN/go tool dist clean
-$GOBIN/go clean -i cmd
+$GOTOOLDIR/dist clean

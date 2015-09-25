@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "textflag.h"
 
 // setldt(int entry, int address, int limit)
@@ -52,7 +51,7 @@ TEXT runtime·seek(SB),NOSPLIT,$24
 	MOVL	$-1, ret_hi+20(FP)
 	RET
 
-TEXT runtime·closefd(SB),NOSPLIT,$0
+TEXT runtime·close(SB),NOSPLIT,$0
 	MOVL	$4, AX
 	INT	$64
 	MOVL	AX, ret+4(FP)

@@ -55,9 +55,7 @@ func TempFile(dir, prefix string) (f *os.File, err error) {
 		f, err = os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 		if os.IsExist(err) {
 			if nconflict++; nconflict > 10 {
-				randmu.Lock()
 				rand = reseed()
-				randmu.Unlock()
 			}
 			continue
 		}
@@ -84,9 +82,7 @@ func TempDir(dir, prefix string) (name string, err error) {
 		err = os.Mkdir(try, 0700)
 		if os.IsExist(err) {
 			if nconflict++; nconflict > 10 {
-				randmu.Lock()
 				rand = reseed()
-				randmu.Unlock()
 			}
 			continue
 		}

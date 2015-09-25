@@ -1,3 +1,5 @@
+// compile
+
 package main
 
 import (

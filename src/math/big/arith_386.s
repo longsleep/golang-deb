@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build !math_big_pure_go
-
 #include "textflag.h"
 
 // This file provides fast assembly versions for the elementary
@@ -39,16 +37,15 @@ TEXT ·addVV(SB),NOSPLIT,$0
 	JMP E1
 
 L1:	MOVL (SI)(BX*4), AX
-	ADDL DX, DX		// restore CF
+	RCRL $1, DX
 	ADCL (CX)(BX*4), AX
-	SBBL DX, DX		// save CF
+	RCLL $1, DX
 	MOVL AX, (DI)(BX*4)
 	ADDL $1, BX		// i++
 
 E1:	CMPL BX, BP		// i < n
 	JL L1
 
-	NEGL DX
 	MOVL DX, c+36(FP)
 	RET
 
@@ -65,16 +62,15 @@ TEXT ·subVV(SB),NOSPLIT,$0
 	JMP E2
 
 L2:	MOVL (SI)(BX*4), AX
-	ADDL DX, DX		// restore CF
+	RCRL $1, DX
 	SBBL (CX)(BX*4), AX
-	SBBL DX, DX		// save CF
+	RCLL $1, DX
 	MOVL AX, (DI)(BX*4)
 	ADDL $1, BX		// i++
 
 E2:	CMPL BX, BP		// i < n
 	JL L2
 
-	NEGL DX
 	MOVL DX, c+36(FP)
 	RET
 
@@ -90,8 +86,8 @@ TEXT ·addVW(SB),NOSPLIT,$0
 
 L3:	ADDL (SI)(BX*4), AX
 	MOVL AX, (DI)(BX*4)
-	SBBL AX, AX		// save CF
-	NEGL AX
+	RCLL $1, AX
+	ANDL $1, AX
 	ADDL $1, BX		// i++
 
 E3:	CMPL BX, BP		// i < n
@@ -110,11 +106,11 @@ TEXT ·subVW(SB),NOSPLIT,$0
 	MOVL $0, BX		// i = 0
 	JMP E4
 
-L4:	MOVL (SI)(BX*4), DX
+L4:	MOVL (SI)(BX*4), DX	// TODO(gri) is there a reverse SUBL?
 	SUBL AX, DX
 	MOVL DX, (DI)(BX*4)
-	SBBL AX, AX		// save CF
-	NEGL AX
+	RCLL $1, AX
+	ANDL $1, AX
 	ADDL $1, BX		// i++
 
 E4:	CMPL BX, BP		// i < n

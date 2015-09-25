@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Package strconv implements conversions to and from string representations
+// of basic data types.
 package strconv
 
 // decimal to binary floating point conversion.

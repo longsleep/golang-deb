@@ -70,7 +70,7 @@ func mulWW_g(x, y Word) (z1, z0 Word) {
 
 // z1<<_W + z0 = x*y + c
 func mulAddWWW_g(x, y, c Word) (z1, z0 Word) {
-	z1, zz0 := mulWW_g(x, y)
+	z1, zz0 := mulWW(x, y)
 	if z0 = zz0 + c; z0 < zz0 {
 		z1++
 	}
@@ -107,24 +107,9 @@ func log2(x Word) int {
 	return bitLen(x) - 1
 }
 
-// nlz returns the number of leading zeros in x.
-func nlz(x Word) uint {
+// Number of leading zeros in x.
+func leadingZeros(x Word) uint {
 	return uint(_W - bitLen(x))
-}
-
-// nlz64 returns the number of leading zeros in x.
-func nlz64(x uint64) uint {
-	switch _W {
-	case 32:
-		w := x >> 32
-		if w == 0 {
-			return 32 + nlz(Word(x))
-		}
-		return nlz(Word(w))
-	case 64:
-		return nlz(Word(x))
-	}
-	panic("unreachable")
 }
 
 // q = (u1<<_W + u0 - r)/y
@@ -134,7 +119,7 @@ func divWW_g(u1, u0, v Word) (q, r Word) {
 		return 1<<_W - 1, 1<<_W - 1
 	}
 
-	s := nlz(v)
+	s := leadingZeros(v)
 	v <<= s
 
 	vn1 := v >> _W2
@@ -169,81 +154,32 @@ func divWW_g(u1, u0, v Word) (q, r Word) {
 	return q1*_B2 + q0, (un21*_B2 + un0 - q0*v) >> s
 }
 
-// Keep for performance debugging.
-// Using addWW_g is likely slower.
-const use_addWW_g = false
-
-// The resulting carry c is either 0 or 1.
 func addVV_g(z, x, y []Word) (c Word) {
-	if use_addWW_g {
-		for i := range z {
-			c, z[i] = addWW_g(x[i], y[i], c)
-		}
-		return
-	}
-
-	for i, xi := range x[:len(z)] {
-		yi := y[i]
-		zi := xi + yi + c
-		z[i] = zi
-		// see "Hacker's Delight", section 2-12 (overflow detection)
-		c = (xi&yi | (xi|yi)&^zi) >> (_W - 1)
+	for i := range z {
+		c, z[i] = addWW_g(x[i], y[i], c)
 	}
 	return
 }
 
-// The resulting carry c is either 0 or 1.
 func subVV_g(z, x, y []Word) (c Word) {
-	if use_addWW_g {
-		for i := range z {
-			c, z[i] = subWW_g(x[i], y[i], c)
-		}
-		return
-	}
-
-	for i, xi := range x[:len(z)] {
-		yi := y[i]
-		zi := xi - yi - c
-		z[i] = zi
-		// see "Hacker's Delight", section 2-12 (overflow detection)
-		c = (yi&^xi | (yi|^xi)&zi) >> (_W - 1)
+	for i := range z {
+		c, z[i] = subWW_g(x[i], y[i], c)
 	}
 	return
 }
 
-// The resulting carry c is either 0 or 1.
 func addVW_g(z, x []Word, y Word) (c Word) {
-	if use_addWW_g {
-		c = y
-		for i := range z {
-			c, z[i] = addWW_g(x[i], c, 0)
-		}
-		return
-	}
-
 	c = y
-	for i, xi := range x[:len(z)] {
-		zi := xi + c
-		z[i] = zi
-		c = xi &^ zi >> (_W - 1)
+	for i := range z {
+		c, z[i] = addWW_g(x[i], c, 0)
 	}
 	return
 }
 
 func subVW_g(z, x []Word, y Word) (c Word) {
-	if use_addWW_g {
-		c = y
-		for i := range z {
-			c, z[i] = subWW_g(x[i], c, 0)
-		}
-		return
-	}
-
 	c = y
-	for i, xi := range x[:len(z)] {
-		zi := xi - c
-		z[i] = zi
-		c = (zi &^ xi) >> (_W - 1)
+	for i := range z {
+		c, z[i] = subWW_g(x[i], c, 0)
 	}
 	return
 }
@@ -286,7 +222,6 @@ func mulAddVWW_g(z, x []Word, y, r Word) (c Word) {
 	return
 }
 
-// TODO(gri) Remove use of addWW_g here and then we can remove addWW_g and subWW_g.
 func addMulVVW_g(z, x []Word, y Word) (c Word) {
 	for i := range z {
 		z1, z0 := mulAddWWW_g(x[i], y, z[i])

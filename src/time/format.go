@@ -39,9 +39,6 @@ import "errors"
 // offset for the UTC zone.  Thus:
 //	Z0700  Z or ±hhmm
 //	Z07:00 Z or ±hh:mm
-//
-// The executable example for time.Format demonstrates the working
-// of the layout string in detail and is a good reference.
 const (
 	ANSIC       = "Mon Jan _2 15:04:05 2006"
 	UnixDate    = "Mon Jan _2 15:04:05 MST 2006"
@@ -291,7 +288,7 @@ var longMonthNames = []string{
 	"December",
 }
 
-// match reports whether s1 and s2 match ignoring case.
+// match returns true if s1 and s2 match ignoring case.
 // It is assumed s1 and s2 are the same length.
 func match(s1, s2 string) bool {
 	for i := 0; i < len(s1); i++ {
@@ -318,34 +315,36 @@ func lookup(tab []string, val string) (int, string, error) {
 	return -1, val, errBad
 }
 
-// appendInt appends the decimal form of x to b and returns the result.
-// If the decimal form (excluding sign) is shorter than width, the result is padded with leading 0's.
+// appendUint appends the decimal form of x to b and returns the result.
+// If x is a single-digit number and pad != 0, appendUint inserts the pad byte
+// before the digit.
 // Duplicates functionality in strconv, but avoids dependency.
-func appendInt(b []byte, x int, width int) []byte {
-	u := uint(x)
-	if x < 0 {
-		b = append(b, '-')
-		u = uint(-x)
+func appendUint(b []byte, x uint, pad byte) []byte {
+	if x < 10 {
+		if pad != 0 {
+			b = append(b, pad)
+		}
+		return append(b, byte('0'+x))
+	}
+	if x < 100 {
+		b = append(b, byte('0'+x/10))
+		b = append(b, byte('0'+x%10))
+		return b
 	}
 
-	// Assemble decimal in reverse order.
-	var buf [20]byte
-	i := len(buf)
-	for u >= 10 {
-		i--
-		q := u / 10
-		buf[i] = byte('0' + u - q*10)
-		u = q
+	var buf [32]byte
+	n := len(buf)
+	if x == 0 {
+		return append(b, '0')
 	}
-	i--
-	buf[i] = byte('0' + u)
-
-	// Add 0-padding.
-	for w := len(buf) - i; w < width; w++ {
-		b = append(b, '0')
+	for x >= 10 {
+		n--
+		buf[n] = byte(x%10 + '0')
+		x /= 10
 	}
-
-	return append(b, buf[i:]...)
+	n--
+	buf[n] = byte(x + '0')
+	return append(b, buf[n:]...)
 }
 
 // Never printed, just needs to be non-nil for return by atoi.
@@ -408,32 +407,11 @@ func (t Time) String() string {
 // would be displayed if it were the value; it serves as an example of the
 // desired output. The same display rules will then be applied to the time
 // value.
-//
-// A fractional second is represented by adding a period and zeros
-// to the end of the seconds section of layout string, as in "15:04:05.000"
-// to format a time stamp with millisecond precision.
-//
 // Predefined layouts ANSIC, UnixDate, RFC3339 and others describe standard
 // and convenient representations of the reference time. For more information
 // about the formats and the definition of the reference time, see the
 // documentation for ANSIC and the other constants defined by this package.
 func (t Time) Format(layout string) string {
-	const bufSize = 64
-	var b []byte
-	max := len(layout) + 10
-	if max < bufSize {
-		var buf [bufSize]byte
-		b = buf[:0]
-	} else {
-		b = make([]byte, 0, max)
-	}
-	b = t.AppendFormat(b, layout)
-	return string(b)
-}
-
-// AppendFormat is like Format but appends the textual
-// representation to b and returns the extended buffer.
-func (t Time) AppendFormat(b []byte, layout string) []byte {
 	var (
 		name, offset, abs = t.locabs()
 
@@ -443,7 +421,16 @@ func (t Time) AppendFormat(b []byte, layout string) []byte {
 		hour  int = -1
 		min   int
 		sec   int
+
+		b   []byte
+		buf [64]byte
 	)
+	max := len(layout) + 10
+	if max <= len(buf) {
+		b = buf[:0]
+	} else {
+		b = make([]byte, 0, max)
+	}
 	// Each iteration generates one std value.
 	for layout != "" {
 		prefix, std, suffix := nextStdChunk(layout)
@@ -471,56 +458,75 @@ func (t Time) AppendFormat(b []byte, layout string) []byte {
 			if y < 0 {
 				y = -y
 			}
-			b = appendInt(b, y%100, 2)
+			b = appendUint(b, uint(y%100), '0')
 		case stdLongYear:
-			b = appendInt(b, year, 4)
+			// Pad year to at least 4 digits.
+			y := year
+			switch {
+			case year <= -1000:
+				b = append(b, '-')
+				y = -y
+			case year <= -100:
+				b = append(b, "-0"...)
+				y = -y
+			case year <= -10:
+				b = append(b, "-00"...)
+				y = -y
+			case year < 0:
+				b = append(b, "-000"...)
+				y = -y
+			case year < 10:
+				b = append(b, "000"...)
+			case year < 100:
+				b = append(b, "00"...)
+			case year < 1000:
+				b = append(b, '0')
+			}
+			b = appendUint(b, uint(y), 0)
 		case stdMonth:
 			b = append(b, month.String()[:3]...)
 		case stdLongMonth:
 			m := month.String()
 			b = append(b, m...)
 		case stdNumMonth:
-			b = appendInt(b, int(month), 0)
+			b = appendUint(b, uint(month), 0)
 		case stdZeroMonth:
-			b = appendInt(b, int(month), 2)
+			b = appendUint(b, uint(month), '0')
 		case stdWeekDay:
 			b = append(b, absWeekday(abs).String()[:3]...)
 		case stdLongWeekDay:
 			s := absWeekday(abs).String()
 			b = append(b, s...)
 		case stdDay:
-			b = appendInt(b, day, 0)
+			b = appendUint(b, uint(day), 0)
 		case stdUnderDay:
-			if day < 10 {
-				b = append(b, ' ')
-			}
-			b = appendInt(b, day, 0)
+			b = appendUint(b, uint(day), ' ')
 		case stdZeroDay:
-			b = appendInt(b, day, 2)
+			b = appendUint(b, uint(day), '0')
 		case stdHour:
-			b = appendInt(b, hour, 2)
+			b = appendUint(b, uint(hour), '0')
 		case stdHour12:
 			// Noon is 12PM, midnight is 12AM.
 			hr := hour % 12
 			if hr == 0 {
 				hr = 12
 			}
-			b = appendInt(b, hr, 0)
+			b = appendUint(b, uint(hr), 0)
 		case stdZeroHour12:
 			// Noon is 12PM, midnight is 12AM.
 			hr := hour % 12
 			if hr == 0 {
 				hr = 12
 			}
-			b = appendInt(b, hr, 2)
+			b = appendUint(b, uint(hr), '0')
 		case stdMinute:
-			b = appendInt(b, min, 0)
+			b = appendUint(b, uint(min), 0)
 		case stdZeroMinute:
-			b = appendInt(b, min, 2)
+			b = appendUint(b, uint(min), '0')
 		case stdSecond:
-			b = appendInt(b, sec, 2)
+			b = appendUint(b, uint(sec), 0)
 		case stdZeroSecond:
-			b = appendInt(b, sec, 2)
+			b = appendUint(b, uint(sec), '0')
 		case stdPM:
 			if hour >= 12 {
 				b = append(b, "PM"...)
@@ -549,18 +555,18 @@ func (t Time) AppendFormat(b []byte, layout string) []byte {
 			} else {
 				b = append(b, '+')
 			}
-			b = appendInt(b, zone/60, 2)
+			b = appendUint(b, uint(zone/60), '0')
 			if std == stdISO8601ColonTZ || std == stdNumColonTZ || std == stdISO8601ColonSecondsTZ || std == stdNumColonSecondsTZ {
 				b = append(b, ':')
 			}
-			b = appendInt(b, zone%60, 2)
+			b = appendUint(b, uint(zone%60), '0')
 
 			// append seconds if appropriate
 			if std == stdISO8601SecondsTZ || std == stdNumSecondsTz || std == stdNumColonSecondsTZ || std == stdISO8601ColonSecondsTZ {
 				if std == stdNumColonSecondsTZ || std == stdISO8601ColonSecondsTZ {
 					b = append(b, ':')
 				}
-				b = appendInt(b, absoffset%60, 2)
+				b = appendUint(b, uint(absoffset%60), '0')
 			}
 
 		case stdTZ:
@@ -577,13 +583,13 @@ func (t Time) AppendFormat(b []byte, layout string) []byte {
 			} else {
 				b = append(b, '+')
 			}
-			b = appendInt(b, zone/60, 2)
-			b = appendInt(b, zone%60, 2)
+			b = appendUint(b, uint(zone/60), '0')
+			b = appendUint(b, uint(zone%60), '0')
 		case stdFracSecond0, stdFracSecond9:
 			b = formatNano(b, uint(t.Nanosecond()), std>>stdArgShift, std&stdMask == stdFracSecond9)
 		}
 	}
-	return b
+	return string(b)
 }
 
 var errBad = errors.New("bad value for field") // placeholder not passed to user
@@ -614,7 +620,8 @@ func (e *ParseError) Error() string {
 		quote(e.Value) + e.Message
 }
 
-// isDigit reports whether s[i] is in range and is a decimal digit.
+// isDigit returns true if s[i] is a decimal digit, false if not or
+// if s[i] is out of range.
 func isDigit(s string, i int) bool {
 	if len(s) <= i {
 		return false
@@ -674,13 +681,10 @@ func skip(value, prefix string) (string, error) {
 // would be interpreted if it were the value; it serves as an example of
 // the input format. The same interpretation will then be made to the
 // input string.
-//
 // Predefined layouts ANSIC, UnixDate, RFC3339 and others describe standard
 // and convenient representations of the reference time. For more information
 // about the formats and the definition of the reference time, see the
 // documentation for ANSIC and the other constants defined by this package.
-// Also, the executable example for time.Format demonstrates the working
-// of the layout string in detail and is a good reference.
 //
 // Elements omitted from the value are assumed to be zero or, when
 // zero is impossible, one, so parsing "3:04pm" returns the time
@@ -1127,28 +1131,24 @@ func leadingInt(s string) (x int64, rem string, err error) {
 		if c < '0' || c > '9' {
 			break
 		}
-		if x > (1<<63-1)/10 {
+		if x >= (1<<63-10)/10 {
 			// overflow
 			return 0, "", errLeadingInt
 		}
 		x = x*10 + int64(c) - '0'
-		if x < 0 {
-			// overflow
-			return 0, "", errLeadingInt
-		}
 	}
 	return x, s[i:], nil
 }
 
-var unitMap = map[string]int64{
-	"ns": int64(Nanosecond),
-	"us": int64(Microsecond),
-	"µs": int64(Microsecond), // U+00B5 = micro symbol
-	"μs": int64(Microsecond), // U+03BC = Greek letter mu
-	"ms": int64(Millisecond),
-	"s":  int64(Second),
-	"m":  int64(Minute),
-	"h":  int64(Hour),
+var unitMap = map[string]float64{
+	"ns": float64(Nanosecond),
+	"us": float64(Microsecond),
+	"µs": float64(Microsecond), // U+00B5 = micro symbol
+	"μs": float64(Microsecond), // U+03BC = Greek letter mu
+	"ms": float64(Millisecond),
+	"s":  float64(Second),
+	"m":  float64(Minute),
+	"h":  float64(Hour),
 }
 
 // ParseDuration parses a duration string.
@@ -1159,7 +1159,7 @@ var unitMap = map[string]int64{
 func ParseDuration(s string) (Duration, error) {
 	// [-+]?([0-9]*(\.[0-9]*)?[a-z]+)+
 	orig := s
-	var d int64
+	f := float64(0)
 	neg := false
 
 	// Consume [-+]?
@@ -1178,23 +1178,22 @@ func ParseDuration(s string) (Duration, error) {
 		return 0, errors.New("time: invalid duration " + orig)
 	}
 	for s != "" {
-		var (
-			v, f  int64       // integers before, after decimal point
-			scale float64 = 1 // value = v + f/scale
-		)
+		g := float64(0) // this element of the sequence
 
+		var x int64
 		var err error
 
 		// The next character must be [0-9.]
-		if !(s[0] == '.' || '0' <= s[0] && s[0] <= '9') {
+		if !(s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 			return 0, errors.New("time: invalid duration " + orig)
 		}
 		// Consume [0-9]*
 		pl := len(s)
-		v, s, err = leadingInt(s)
+		x, s, err = leadingInt(s)
 		if err != nil {
 			return 0, errors.New("time: invalid duration " + orig)
 		}
+		g = float64(x)
 		pre := pl != len(s) // whether we consumed anything before a period
 
 		// Consume (\.[0-9]*)?
@@ -1202,13 +1201,15 @@ func ParseDuration(s string) (Duration, error) {
 		if s != "" && s[0] == '.' {
 			s = s[1:]
 			pl := len(s)
-			f, s, err = leadingInt(s)
+			x, s, err = leadingInt(s)
 			if err != nil {
 				return 0, errors.New("time: invalid duration " + orig)
 			}
+			scale := 1.0
 			for n := pl - len(s); n > 0; n-- {
 				scale *= 10
 			}
+			g += float64(x) / scale
 			post = pl != len(s)
 		}
 		if !pre && !post {
@@ -1220,7 +1221,7 @@ func ParseDuration(s string) (Duration, error) {
 		i := 0
 		for ; i < len(s); i++ {
 			c := s[i]
-			if c == '.' || '0' <= c && c <= '9' {
+			if c == '.' || ('0' <= c && c <= '9') {
 				break
 			}
 		}
@@ -1233,29 +1234,15 @@ func ParseDuration(s string) (Duration, error) {
 		if !ok {
 			return 0, errors.New("time: unknown unit " + u + " in duration " + orig)
 		}
-		if v > (1<<63-1)/unit {
-			// overflow
-			return 0, errors.New("time: invalid duration " + orig)
-		}
-		v *= unit
-		if f > 0 {
-			// float64 is needed to be nanosecond accurate for fractions of hours.
-			// v >= 0 && (f*unit/scale) <= 3.6e+12 (ns/h, h is the largest unit)
-			v += int64(float64(f) * (float64(unit) / scale))
-			if v < 0 {
-				// overflow
-				return 0, errors.New("time: invalid duration " + orig)
-			}
-		}
-		d += v
-		if d < 0 {
-			// overflow
-			return 0, errors.New("time: invalid duration " + orig)
-		}
+
+		f += g * unit
 	}
 
 	if neg {
-		d = -d
+		f = -f
 	}
-	return Duration(d), nil
+	if f < float64(-1<<63) || f > float64(1<<63-1) {
+		return 0, errors.New("time: overflow parsing duration")
+	}
+	return Duration(f), nil
 }

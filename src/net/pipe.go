@@ -55,13 +55,13 @@ func (p *pipe) RemoteAddr() Addr {
 }
 
 func (p *pipe) SetDeadline(t time.Time) error {
-	return &OpError{Op: "set", Net: "pipe", Source: nil, Addr: nil, Err: errors.New("deadline not supported")}
+	return errors.New("net.Pipe does not support deadlines")
 }
 
 func (p *pipe) SetReadDeadline(t time.Time) error {
-	return &OpError{Op: "set", Net: "pipe", Source: nil, Addr: nil, Err: errors.New("deadline not supported")}
+	return errors.New("net.Pipe does not support deadlines")
 }
 
 func (p *pipe) SetWriteDeadline(t time.Time) error {
-	return &OpError{Op: "set", Net: "pipe", Source: nil, Addr: nil, Err: errors.New("deadline not supported")}
+	return errors.New("net.Pipe does not support deadlines")
 }

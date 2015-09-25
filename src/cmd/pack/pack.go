@@ -183,7 +183,7 @@ func existingArchive(name string) bool {
 		if os.IsNotExist(err) {
 			return false
 		}
-		log.Fatalf("cannot open file: %s", err)
+		log.Fatal("cannot open file: %s", err)
 	}
 	checkHeader(fd)
 	fd.Close()
@@ -196,7 +196,7 @@ func checkHeader(fd *os.File) {
 	buf := make([]byte, len(arHeader))
 	_, err := io.ReadFull(fd, buf)
 	if err != nil || string(buf) != arHeader {
-		log.Fatalf("%s is not an archive: bad header", fd.Name())
+		log.Fatal("%s is not an archive: bad header", fd.Name())
 	}
 }
 

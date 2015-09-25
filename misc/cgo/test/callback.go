@@ -9,6 +9,7 @@ void callback(void *f);
 void callGoFoo(void);
 void callGoStackCheck(void);
 void callPanic(void);
+void callCgoAllocate(void);
 int callGoReturnVal(void);
 int returnAfterGrow(void);
 int returnAfterGrowFromGo(void);
@@ -21,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"unsafe"
+
+	"./backdoor"
 )
 
 // nestedCall calls into C, back into Go, and finally to f.
@@ -46,6 +49,8 @@ func testCallback(t *testing.T) {
 func testCallbackGC(t *testing.T) {
 	nestedCall(runtime.GC)
 }
+
+var lockedOSThread = backdoor.LockedOSThread
 
 func testCallbackPanic(t *testing.T) {
 	// Make sure panic during callback unwinds properly.
@@ -156,17 +161,15 @@ func testCallbackCallers(t *testing.T) {
 		"runtime.cgocallbackg1",
 		"runtime.cgocallbackg",
 		"runtime.cgocallback_gofunc",
-		"runtime.asmcgocall",
-		"runtime.cgocall",
+		"asmcgocall",
+		"runtime.asmcgocall_errno",
+		"runtime.cgocall_errno",
 		"test._Cfunc_callback",
 		"test.nestedCall",
 		"test.testCallbackCallers",
 		"test.TestCallbackCallers",
 		"testing.tRunner",
 		"runtime.goexit",
-	}
-	if unsafe.Sizeof((*byte)(nil)) == 8 {
-		name[1] = "runtime.call32"
 	}
 	nestedCall(func() {
 		n = runtime.Callers(2, pc)
@@ -206,6 +209,10 @@ func testPanicFromC(t *testing.T) {
 		}
 	}()
 	C.callPanic()
+}
+
+func testAllocateFromC(t *testing.T) {
+	C.callCgoAllocate() // crashes or exits on failure
 }
 
 // Test that C code can return a value if it calls a Go function that

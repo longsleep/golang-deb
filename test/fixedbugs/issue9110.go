@@ -17,7 +17,6 @@ import (
 )
 
 func main() {
-	runtime.GOMAXPROCS(1)
 	debug.SetGCPercent(1000000) // only GC when we ask for GC
 
 	var stats, stats1, stats2 runtime.MemStats

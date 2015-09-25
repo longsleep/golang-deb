@@ -17,38 +17,10 @@ import "unsafe"
  * Wrapped
  */
 
-func Access(path string, mode uint32) (err error) {
-	return Faccessat(_AT_FDCWD, path, mode, 0)
-}
-
-func Chmod(path string, mode uint32) (err error) {
-	return Fchmodat(_AT_FDCWD, path, mode, 0)
-}
-
-func Chown(path string, uid int, gid int) (err error) {
-	return Fchownat(_AT_FDCWD, path, uid, gid, 0)
-}
-
-func Creat(path string, mode uint32) (fd int, err error) {
-	return Open(path, O_CREAT|O_WRONLY|O_TRUNC, mode)
-}
-
-//sys	linkat(olddirfd int, oldpath string, newdirfd int, newpath string, flags int) (err error)
-
-func Link(oldpath string, newpath string) (err error) {
-	return linkat(_AT_FDCWD, oldpath, _AT_FDCWD, newpath, 0)
-}
-
-func Mkdir(path string, mode uint32) (err error) {
-	return Mkdirat(_AT_FDCWD, path, mode)
-}
-
-func Mknod(path string, mode uint32, dev int) (err error) {
-	return Mknodat(_AT_FDCWD, path, mode, dev)
-}
+//sys	open(path string, mode int, perm uint32) (fd int, err error)
 
 func Open(path string, mode int, perm uint32) (fd int, err error) {
-	return openat(_AT_FDCWD, path, mode|O_LARGEFILE, perm)
+	return open(path, mode|O_LARGEFILE, perm)
 }
 
 //sys	openat(dirfd int, path string, flags int, mode uint32) (fd int, err error)
@@ -57,34 +29,30 @@ func Openat(dirfd int, path string, flags int, mode uint32) (fd int, err error) 
 	return openat(dirfd, path, flags|O_LARGEFILE, mode)
 }
 
-//sys	readlinkat(dirfd int, path string, buf []byte) (n int, err error)
+//sysnb	pipe(p *[2]_C_int) (err error)
 
-func Readlink(path string, buf []byte) (n int, err error) {
-	return readlinkat(_AT_FDCWD, path, buf)
+func Pipe(p []int) (err error) {
+	if len(p) != 2 {
+		return EINVAL
+	}
+	var pp [2]_C_int
+	err = pipe(&pp)
+	p[0] = int(pp[0])
+	p[1] = int(pp[1])
+	return
 }
 
-func Rename(oldpath string, newpath string) (err error) {
-	return Renameat(_AT_FDCWD, oldpath, _AT_FDCWD, newpath)
-}
+//sysnb pipe2(p *[2]_C_int, flags int) (err error)
 
-func Rmdir(path string) error {
-	return unlinkat(_AT_FDCWD, path, _AT_REMOVEDIR)
-}
-
-//sys	symlinkat(oldpath string, newdirfd int, newpath string) (err error)
-
-func Symlink(oldpath string, newpath string) (err error) {
-	return symlinkat(oldpath, _AT_FDCWD, newpath)
-}
-
-func Unlink(path string) error {
-	return unlinkat(_AT_FDCWD, path, 0)
-}
-
-//sys	unlinkat(dirfd int, path string, flags int) (err error)
-
-func Unlinkat(dirfd int, path string) error {
-	return unlinkat(dirfd, path, 0)
+func Pipe2(p []int, flags int) (err error) {
+	if len(p) != 2 {
+		return EINVAL
+	}
+	var pp [2]_C_int
+	err = pipe2(&pp, flags)
+	p[0] = int(pp[0])
+	p[1] = int(pp[1])
+	return
 }
 
 //sys	utimes(path string, times *[2]Timeval) (err error)
@@ -815,13 +783,17 @@ func Mount(source string, target string, fstype string, flags uintptr, data stri
 /*
  * Direct access
  */
+//sys	Access(path string, mode uint32) (err error)
 //sys	Acct(path string) (err error)
 //sys	Adjtimex(buf *Timex) (state int, err error)
 //sys	Chdir(path string) (err error)
+//sys	Chmod(path string, mode uint32) (err error)
 //sys	Chroot(path string) (err error)
 //sys	Close(fd int) (err error)
-//sys	Dup(oldfd int) (fd int, err error)
-//sys	Dup3(oldfd int, newfd int, flags int) (err error)
+//sys	Creat(path string, mode uint32) (fd int, err error)
+//sysnb	Dup(oldfd int) (fd int, err error)
+//sysnb	Dup2(oldfd int, newfd int) (err error)
+//sysnb	Dup3(oldfd int, newfd int, flags int) (err error)
 //sysnb	EpollCreate(size int) (fd int, err error)
 //sysnb	EpollCreate1(flag int) (fd int, err error)
 //sysnb	EpollCtl(epfd int, op int, fd int, event *EpollEvent) (err error)
@@ -839,12 +811,7 @@ func Mount(source string, target string, fstype string, flags uintptr, data stri
 //sys	Fsync(fd int) (err error)
 //sys	Getdents(fd int, buf []byte) (n int, err error) = SYS_GETDENTS64
 //sysnb	Getpgid(pid int) (pgid int, err error)
-
-func Getpgrp() (pid int) {
-	pid, _ = Getpgid(0)
-	return
-}
-
+//sysnb	Getpgrp() (pid int)
 //sysnb	Getpid() (pid int)
 //sysnb	Getppid() (ppid int)
 //sys	Getpriority(which int, who int) (prio int, err error)
@@ -852,20 +819,27 @@ func Getpgrp() (pid int) {
 //sysnb	Gettid() (tid int)
 //sys	Getxattr(path string, attr string, dest []byte) (sz int, err error)
 //sys	InotifyAddWatch(fd int, pathname string, mask uint32) (watchdesc int, err error)
+//sysnb	InotifyInit() (fd int, err error)
 //sysnb	InotifyInit1(flags int) (fd int, err error)
 //sysnb	InotifyRmWatch(fd int, watchdesc uint32) (success int, err error)
 //sysnb	Kill(pid int, sig Signal) (err error)
 //sys	Klogctl(typ int, buf []byte) (n int, err error) = SYS_SYSLOG
+//sys	Link(oldpath string, newpath string) (err error)
 //sys	Listxattr(path string, dest []byte) (sz int, err error)
+//sys	Mkdir(path string, mode uint32) (err error)
 //sys	Mkdirat(dirfd int, path string, mode uint32) (err error)
+//sys	Mknod(path string, mode uint32, dev int) (err error)
 //sys	Mknodat(dirfd int, path string, mode uint32, dev int) (err error)
 //sys	Nanosleep(time *Timespec, leftover *Timespec) (err error)
 //sys	Pause() (err error)
 //sys	PivotRoot(newroot string, putold string) (err error) = SYS_PIVOT_ROOT
 //sysnb prlimit(pid int, resource int, old *Rlimit, newlimit *Rlimit) (err error) = SYS_PRLIMIT64
 //sys	read(fd int, p []byte) (n int, err error)
+//sys	Readlink(path string, buf []byte) (n int, err error)
 //sys	Removexattr(path string, attr string) (err error)
+//sys	Rename(oldpath string, newpath string) (err error)
 //sys	Renameat(olddirfd int, oldpath string, newdirfd int, newpath string) (err error)
+//sys	Rmdir(path string) (err error)
 //sys	Setdomainname(p []byte) (err error)
 //sys	Sethostname(p []byte) (err error)
 //sysnb	Setpgid(pid int, pgid int) (err error)
@@ -887,6 +861,7 @@ func Setgid(uid int) (err error) {
 
 //sys	Setpriority(which int, who int, prio int) (err error)
 //sys	Setxattr(path string, attr string, data []byte, flags int) (err error)
+//sys	Symlink(oldpath string, newpath string) (err error)
 //sys	Sync()
 //sysnb	Sysinfo(info *Sysinfo_t) (err error)
 //sys	Tee(rfd int, wfd int, len int, flags int) (n int64, err error)
@@ -894,6 +869,8 @@ func Setgid(uid int) (err error) {
 //sysnb	Times(tms *Tms) (ticks uintptr, err error)
 //sysnb	Umask(mask int) (oldmask int)
 //sysnb	Uname(buf *Utsname) (err error)
+//sys	Unlink(path string) (err error)
+//sys	Unlinkat(dirfd int, path string) (err error)
 //sys	Unmount(target string, flags int) (err error) = SYS_UMOUNT2
 //sys	Unshare(flags int) (err error)
 //sys	Ustat(dev int, ubuf *Ustat_t) (err error)

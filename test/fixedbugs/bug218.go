@@ -5,7 +5,7 @@
 // license that can be found in the LICENSE file.
 
 // Crashes 6g, 8g
-// https://golang.org/issue/238
+// http://code.google.com/p/go/issues/detail?id=238
 
 package main
 

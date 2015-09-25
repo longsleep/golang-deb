@@ -23,7 +23,7 @@ func g() int {
 }
 
 func main() {
-	// gc used to evaluate g() before f().
+	// 6g, 8g, 5g all used to evaluate g() before f().
 	if f() < g() {
 		panic("wrong answer")
 	}

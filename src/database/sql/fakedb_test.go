@@ -89,10 +89,7 @@ type fakeConn struct {
 	stmtsMade   int
 	stmtsClosed int
 	numPrepare  int
-
-	// bad connection tests; see isBad()
-	bad       bool
-	stickyBad bool
+	bad         bool
 }
 
 func (c *fakeConn) incrStat(v *int) {
@@ -246,15 +243,13 @@ func (db *fakeDB) columnType(table, column string) (typ string, ok bool) {
 }
 
 func (c *fakeConn) isBad() bool {
-	if c.stickyBad {
-		return true
-	} else if c.bad {
-		// alternate between bad conn and not bad conn
-		c.db.badConn = !c.db.badConn
-		return c.db.badConn
-	} else {
+	// if not simulating bad conn, do nothing
+	if !c.bad {
 		return false
 	}
+	// alternate between bad conn and not bad conn
+	c.db.badConn = !c.db.badConn
+	return c.db.badConn
 }
 
 func (c *fakeConn) Begin() (driver.Tx, error) {
@@ -471,7 +466,7 @@ func (c *fakeConn) Prepare(query string) (driver.Stmt, error) {
 		panic("nil c.db; conn = " + fmt.Sprintf("%#v", c))
 	}
 
-	if c.stickyBad || (hookPrepareBadConn != nil && hookPrepareBadConn()) {
+	if hookPrepareBadConn != nil && hookPrepareBadConn() {
 		return nil, driver.ErrBadConn
 	}
 
@@ -534,7 +529,7 @@ func (s *fakeStmt) Exec(args []driver.Value) (driver.Result, error) {
 		return nil, errClosed
 	}
 
-	if s.c.stickyBad || (hookExecBadConn != nil && hookExecBadConn()) {
+	if hookExecBadConn != nil && hookExecBadConn() {
 		return nil, driver.ErrBadConn
 	}
 
@@ -618,7 +613,7 @@ func (s *fakeStmt) Query(args []driver.Value) (driver.Rows, error) {
 		return nil, errClosed
 	}
 
-	if s.c.stickyBad || (hookQueryBadConn != nil && hookQueryBadConn()) {
+	if hookQueryBadConn != nil && hookQueryBadConn() {
 		return nil, driver.ErrBadConn
 	}
 

@@ -11,5 +11,5 @@
 //go:generate yacc -o expr.go -p "expr" expr.y
 
 // Expr is a simple expression evaluator that serves as a working example of
-// how to use Go's yacc implementation.
+// how to use Go's yacc implemenation.
 package main

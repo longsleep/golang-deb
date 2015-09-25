@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "funcdata.h"
 #include "textflag.h"
 
@@ -39,14 +38,27 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$-4
 
 	BL	runtime·emptyfunc(SB)	// fault if stack check is wrong
 
-	BL	runtime·_initcgo(SB)	// will clobber R0-R3
+#ifndef GOOS_nacl
+	// if there is an _cgo_init, call it.
+	MOVW	_cgo_init(SB), R4
+	CMP	$0, R4
+	B.EQ	nocgo
+	MRC     15, 0, R0, C13, C0, 3 	// load TLS base pointer
+	MOVW 	R0, R3 			// arg 3: TLS base pointer
+	MOVW 	$runtime·tlsg(SB), R2 	// arg 2: tlsg
+	MOVW	$setg_gcc<>(SB), R1 	// arg 1: setg
+	MOVW	g, R0 			// arg 0: G
+	BL	(R4) // will clobber R0-R3
+#endif
 
+nocgo:
 	// update stackguard after _cgo_init
 	MOVW	(g_stack+stack_lo)(g), R0
-	ADD	$const__StackGuard, R0
+	ADD	$const_StackGuard, R0
 	MOVW	R0, g_stackguard0(g)
 	MOVW	R0, g_stackguard1(g)
 
+	BL	runtime·checkgoarm(SB)
 	BL	runtime·check(SB)
 
 	// saved argc, argv
@@ -55,12 +67,11 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$-4
 	MOVW	64(R13), R1
 	MOVW	R1, 8(R13)
 	BL	runtime·args(SB)
-	BL	runtime·checkgoarm(SB)
 	BL	runtime·osinit(SB)
 	BL	runtime·schedinit(SB)
 
 	// create a new goroutine to start program
-	MOVW	$runtime·mainPC(SB), R0
+	MOVW	$runtime·main·f(SB), R0
 	MOVW.W	R0, -4(R13)
 	MOVW	$8, R0
 	MOVW.W	R0, -4(R13)
@@ -76,8 +87,8 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$-4
 	MOVW	$1000, R1
 	MOVW	R0, (R1)	// fail hard
 
-DATA	runtime·mainPC+0(SB)/4,$runtime·main(SB)
-GLOBL	runtime·mainPC(SB),RODATA,$4
+DATA	runtime·main·f+0(SB)/4,$runtime·main(SB)
+GLOBL	runtime·main·f(SB),RODATA,$4
 
 TEXT runtime·breakpoint(SB),NOSPLIT,$0-0
 	// gdb won't skip this breakpoint instruction automatically,
@@ -106,8 +117,8 @@ TEXT runtime·asminit(SB),NOSPLIT,$0-0
 // void gosave(Gobuf*)
 // save state in Gobuf; setjmp
 TEXT runtime·gosave(SB),NOSPLIT,$-4-4
-	MOVW	buf+0(FP), R0
-	MOVW	R13, gobuf_sp(R0)
+	MOVW	0(FP), R0		// gobuf
+	MOVW	SP, gobuf_sp(R0)
 	MOVW	LR, gobuf_pc(R0)
 	MOVW	g, gobuf_g(R0)
 	MOVW	$0, R11
@@ -119,7 +130,7 @@ TEXT runtime·gosave(SB),NOSPLIT,$-4-4
 // void gogo(Gobuf*)
 // restore state from Gobuf; longjmp
 TEXT runtime·gogo(SB),NOSPLIT,$-4-4
-	MOVW	buf+0(FP), R1
+	MOVW	0(FP), R1		// gobuf
 	MOVW	gobuf_g(R1), R0
 	BL	setg<>(SB)
 
@@ -133,7 +144,7 @@ TEXT runtime·gogo(SB),NOSPLIT,$-4-4
 	// after this point: it must be straight-line code until the
 	// final B instruction.
 	// See large comment in sigprof for more details.
-	MOVW	gobuf_sp(R1), R13	// restore SP==R13
+	MOVW	gobuf_sp(R1), SP	// restore SP
 	MOVW	gobuf_lr(R1), LR
 	MOVW	gobuf_ret(R1), R0
 	MOVW	gobuf_ctxt(R1), R7
@@ -152,7 +163,7 @@ TEXT runtime·gogo(SB),NOSPLIT,$-4-4
 // to keep running g.
 TEXT runtime·mcall(SB),NOSPLIT,$-4-4
 	// Save caller state in g->sched.
-	MOVW	R13, (g_sched+gobuf_sp)(g)
+	MOVW	SP, (g_sched+gobuf_sp)(g)
 	MOVW	LR, (g_sched+gobuf_pc)(g)
 	MOVW	$0, R11
 	MOVW	R11, (g_sched+gobuf_lr)(g)
@@ -170,57 +181,65 @@ TEXT runtime·mcall(SB),NOSPLIT,$-4-4
 	CMP	$0, R11
 	BL.NE	runtime·save_g(SB)
 	MOVW	fn+0(FP), R0
-	MOVW	(g_sched+gobuf_sp)(g), R13
-	SUB	$8, R13
-	MOVW	R1, 4(R13)
+	MOVW	(g_sched+gobuf_sp)(g), SP
+	SUB	$8, SP
+	MOVW	R1, 4(SP)
 	MOVW	R0, R7
 	MOVW	0(R0), R0
 	BL	(R0)
 	B	runtime·badmcall2(SB)
 	RET
 
-// systemstack_switch is a dummy routine that systemstack leaves at the bottom
+// switchtoM is a dummy routine that onM leaves at the bottom
 // of the G stack.  We need to distinguish the routine that
 // lives at the bottom of the G stack from the one that lives
-// at the top of the system stack because the one at the top of
-// the system stack terminates the stack walk (see topofstack()).
-TEXT runtime·systemstack_switch(SB),NOSPLIT,$0-0
+// at the top of the M stack because the one at the top of
+// the M stack terminates the stack walk (see topofstack()).
+TEXT runtime·switchtoM(SB),NOSPLIT,$0-0
 	MOVW	$0, R0
 	BL	(R0) // clobber lr to ensure push {lr} is kept
 	RET
 
-// func systemstack(fn func())
-TEXT runtime·systemstack(SB),NOSPLIT,$0-4
+// func onM_signalok(fn func())
+TEXT runtime·onM_signalok(SB), NOSPLIT, $-4-4
+	MOVW	g_m(g), R1
+	MOVW	m_gsignal(R1), R2
+	CMP	g, R2
+	B.EQ	ongsignal
+	B	runtime·onM(SB)
+
+ongsignal:
+	MOVW	fn+0(FP), R0
+	MOVW	R0, R7
+	MOVW	0(R0), R0
+	BL	(R0)
+	RET
+
+// func onM(fn func())
+TEXT runtime·onM(SB),NOSPLIT,$0-4
 	MOVW	fn+0(FP), R0	// R0 = fn
 	MOVW	g_m(g), R1	// R1 = m
 
-	MOVW	m_gsignal(R1), R2	// R2 = gsignal
-	CMP	g, R2
-	B.EQ	noswitch
-
 	MOVW	m_g0(R1), R2	// R2 = g0
 	CMP	g, R2
-	B.EQ	noswitch
+	B.EQ	onm
 
 	MOVW	m_curg(R1), R3
 	CMP	g, R3
-	B.EQ	switch
+	B.EQ	oncurg
 
-	// Bad: g is not gsignal, not g0, not curg. What is it?
+	// Not g0, not curg. Must be gsignal, but that's not allowed.
 	// Hide call from linker nosplit analysis.
-	MOVW	$runtime·badsystemstack(SB), R0
+	MOVW	$runtime·badonm(SB), R0
 	BL	(R0)
 
-switch:
+oncurg:
 	// save our state in g->sched.  Pretend to
-	// be systemstack_switch if the G stack is scanned.
-	MOVW	$runtime·systemstack_switch(SB), R3
-#ifdef GOOS_nacl
-	ADD	$4, R3, R3 // get past nacl-insert bic instruction
-#endif
+	// be switchtoM if the G stack is scanned.
+	MOVW	$runtime·switchtoM(SB), R3
 	ADD	$4, R3, R3 // get past push {lr}
 	MOVW	R3, (g_sched+gobuf_pc)(g)
-	MOVW	R13, (g_sched+gobuf_sp)(g)
+	MOVW	SP, (g_sched+gobuf_sp)(g)
 	MOVW	LR, (g_sched+gobuf_lr)(g)
 	MOVW	g, (g_sched+gobuf_g)(g)
 
@@ -230,11 +249,11 @@ switch:
 	BL	setg<>(SB)
 	MOVW	R5, R0
 	MOVW	(g_sched+gobuf_sp)(R2), R3
-	// make it look like mstart called systemstack on g0, to stop traceback
+	// make it look like mstart called onM on g0, to stop traceback
 	SUB	$4, R3, R3
 	MOVW	$runtime·mstart(SB), R4
 	MOVW	R4, 0(R3)
-	MOVW	R3, R13
+	MOVW	R3, SP
 
 	// call target function
 	MOVW	R0, R7
@@ -245,12 +264,12 @@ switch:
 	MOVW	g_m(g), R1
 	MOVW	m_curg(R1), R0
 	BL	setg<>(SB)
-	MOVW	(g_sched+gobuf_sp)(g), R13
+	MOVW	(g_sched+gobuf_sp)(g), SP
 	MOVW	$0, R3
 	MOVW	R3, (g_sched+gobuf_sp)(g)
 	RET
 
-noswitch:
+onm:
 	MOVW	R0, R7
 	MOVW	0(R0), R0
 	BL	(R0)
@@ -262,6 +281,7 @@ noswitch:
 
 // Called during function prolog when more stack is needed.
 // R1 frame size
+// R2 arg size
 // R3 prolog's LR
 // NB. we do not save R0 because we've forced 5c to pass all arguments
 // on the stack.
@@ -286,21 +306,21 @@ TEXT runtime·morestack(SB),NOSPLIT,$-4-0
 	// Called from f.
 	// Set g->sched to context in f.
 	MOVW	R7, (g_sched+gobuf_ctxt)(g)
-	MOVW	R13, (g_sched+gobuf_sp)(g)
+	MOVW	SP, (g_sched+gobuf_sp)(g)
 	MOVW	LR, (g_sched+gobuf_pc)(g)
 	MOVW	R3, (g_sched+gobuf_lr)(g)
 
 	// Called from f.
 	// Set m->morebuf to f's caller.
 	MOVW	R3, (m_morebuf+gobuf_pc)(R8)	// f's caller's PC
-	MOVW	R13, (m_morebuf+gobuf_sp)(R8)	// f's caller's SP
-	MOVW	$4(R13), R3			// f's argument pointer
+	MOVW	SP, (m_morebuf+gobuf_sp)(R8)	// f's caller's SP
+	MOVW	$4(SP), R3			// f's argument pointer
 	MOVW	g, (m_morebuf+gobuf_g)(R8)
 
 	// Call newstack on m->g0's stack.
 	MOVW	m_g0(R8), R0
 	BL	setg<>(SB)
-	MOVW	(g_sched+gobuf_sp)(g), R13
+	MOVW	(g_sched+gobuf_sp)(g), SP
 	BL	runtime·newstack(SB)
 
 	// Not reached, but make sure the return PC from the call to newstack
@@ -311,25 +331,8 @@ TEXT runtime·morestack_noctxt(SB),NOSPLIT,$-4-0
 	MOVW	$0, R7
 	B runtime·morestack(SB)
 
-TEXT runtime·stackBarrier(SB),NOSPLIT,$0
-	// We came here via a RET to an overwritten LR.
-	// R0 may be live. Other registers are available.
-
-	// Get the original return PC, g.stkbar[g.stkbarPos].savedLRVal.
-	MOVW	(g_stkbar+slice_array)(g), R4
-	MOVW	g_stkbarPos(g), R5
-	MOVW	$stkbar__size, R6
-	MUL	R5, R6
-	ADD	R4, R6
-	MOVW	stkbar_savedLRVal(R6), R6
-	// Record that this stack barrier was hit.
-	ADD	$1, R5
-	MOVW	R5, g_stkbarPos(g)
-	// Jump to the original return PC.
-	B	(R6)
-
 // reflectcall: call a function with the given argument list
-// func call(argtype *_type, f *FuncVal, arg *byte, argsize, retoffset uint32).
+// func call(f *FuncVal, arg *byte, argsize, retoffset uint32).
 // we don't have variable-sized frames, so we use a small number
 // of constant-sized-frame functions to encode a few bits of size in the pc.
 // Caution: ugly multiline assembly macros in your future!
@@ -340,11 +343,8 @@ TEXT runtime·stackBarrier(SB),NOSPLIT,$0
 	MOVW	$NAME(SB), R1;		\
 	B	(R1)
 
-TEXT reflect·call(SB), NOSPLIT, $0-0
-	B	·reflectcall(SB)
-
-TEXT ·reflectcall(SB),NOSPLIT,$-4-20
-	MOVW	argsize+12(FP), R0
+TEXT ·reflectcall(SB),NOSPLIT,$-4-16
+	MOVW	argsize+8(FP), R0
 	DISPATCH(runtime·call16, 16)
 	DISPATCH(runtime·call32, 32)
 	DISPATCH(runtime·call64, 64)
@@ -376,12 +376,12 @@ TEXT ·reflectcall(SB),NOSPLIT,$-4-20
 	B	(R1)
 
 #define CALLFN(NAME,MAXSIZE)			\
-TEXT NAME(SB), WRAPPER, $MAXSIZE-20;		\
+TEXT NAME(SB), WRAPPER, $MAXSIZE-16;		\
 	NO_LOCAL_POINTERS;			\
 	/* copy arguments to stack */		\
-	MOVW	argptr+8(FP), R0;		\
-	MOVW	argsize+12(FP), R2;		\
-	ADD	$4, R13, R1;			\
+	MOVW	argptr+4(FP), R0;		\
+	MOVW	argsize+8(FP), R2;		\
+	ADD	$4, SP, R1;			\
 	CMP	$0, R2;				\
 	B.EQ	5(PC);				\
 	MOVBU.P	1(R0), R5;			\
@@ -389,37 +389,24 @@ TEXT NAME(SB), WRAPPER, $MAXSIZE-20;		\
 	SUB	$1, R2, R2;			\
 	B	-5(PC);				\
 	/* call function */			\
-	MOVW	f+4(FP), R7;			\
+	MOVW	f+0(FP), R7;			\
 	MOVW	(R7), R0;			\
 	PCDATA  $PCDATA_StackMapIndex, $0;	\
 	BL	(R0);				\
 	/* copy return values back */		\
-	MOVW	argptr+8(FP), R0;		\
-	MOVW	argsize+12(FP), R2;		\
-	MOVW	retoffset+16(FP), R3;		\
-	ADD	$4, R13, R1;			\
+	MOVW	argptr+4(FP), R0;		\
+	MOVW	argsize+8(FP), R2;		\
+	MOVW	retoffset+12(FP), R3;		\
+	ADD	$4, SP, R1;			\
 	ADD	R3, R1;				\
 	ADD	R3, R0;				\
 	SUB	R3, R2;				\
-loop:						\
 	CMP	$0, R2;				\
-	B.EQ	end;				\
+	RET.EQ	;				\
 	MOVBU.P	1(R1), R5;			\
 	MOVBU.P R5, 1(R0);			\
 	SUB	$1, R2, R2;			\
-	B	loop;				\
-end:						\
-	/* execute write barrier updates */	\
-	MOVW	argtype+0(FP), R1;		\
-	MOVW	argptr+8(FP), R0;		\
-	MOVW	argsize+12(FP), R2;		\
-	MOVW	retoffset+16(FP), R3;		\
-	MOVW	R1, 4(R13);			\
-	MOVW	R0, 8(R13);			\
-	MOVW	R2, 12(R13);			\
-	MOVW	R3, 16(R13);			\
-	BL	runtime·callwritebarrier(SB);	\
-	RET	
+	B	-5(PC)				\
 
 CALLFN(·call16, 16)
 CALLFN(·call32, 32)
@@ -459,11 +446,11 @@ CALLFN(·call1073741824, 1073741824)
 // interrupt can never see mismatched SP/LR/PC.
 // (And double-check that pop is atomic in that way.)
 TEXT runtime·jmpdefer(SB),NOSPLIT,$0-8
-	MOVW	0(R13), LR
+	MOVW	0(SP), LR
 	MOVW	$-4(LR), LR	// BL deferreturn
 	MOVW	fv+0(FP), R7
-	MOVW	argp+4(FP), R13
-	MOVW	$-4(R13), R13	// SP is 4 below argp, due to saved LR
+	MOVW	argp+4(FP), SP
+	MOVW	$-4(SP), SP	// SP is 4 below argp, due to saved LR
 	MOVW	0(R7), R1
 	B	(R1)
 
@@ -477,14 +464,25 @@ TEXT gosave<>(SB),NOSPLIT,$0
 	MOVW	R11, (g_sched+gobuf_ctxt)(g)
 	RET
 
-// func asmcgocall(fn, arg unsafe.Pointer) int32
+// asmcgocall(void(*fn)(void*), void *arg)
 // Call fn(arg) on the scheduler stack,
 // aligned appropriately for the gcc ABI.
-// See cgocall.go for more details.
-TEXT ·asmcgocall(SB),NOSPLIT,$0-12
+// See cgocall.c for more details.
+TEXT	·asmcgocall(SB),NOSPLIT,$0-8
 	MOVW	fn+0(FP), R1
 	MOVW	arg+4(FP), R0
+	BL	asmcgocall<>(SB)
+	RET
 
+TEXT ·asmcgocall_errno(SB),NOSPLIT,$0-12
+	MOVW	fn+0(FP), R1
+	MOVW	arg+4(FP), R0
+	BL	asmcgocall<>(SB)
+	MOVW	R0, ret+8(FP)
+	RET
+
+TEXT asmcgocall<>(SB),NOSPLIT,$0-0
+	// fn in R1, arg in R0.
 	MOVW	R13, R2
 	MOVW	g, R4
 
@@ -494,7 +492,7 @@ TEXT ·asmcgocall(SB),NOSPLIT,$0-12
 	MOVW	g_m(g), R8
 	MOVW	m_g0(R8), R3
 	CMP	R3, g
-	BEQ	g0
+	BEQ	asmcgocall_g0
 	BL	gosave<>(SB)
 	MOVW	R0, R5
 	MOVW	R3, R0
@@ -503,7 +501,7 @@ TEXT ·asmcgocall(SB),NOSPLIT,$0-12
 	MOVW	(g_sched+gobuf_sp)(g), R13
 
 	// Now on a scheduling stack (a pthread-created stack).
-g0:
+asmcgocall_g0:
 	SUB	$24, R13
 	BIC	$0x7, R13	// alignment for gcc ABI
 	MOVW	R4, 20(R13) // save old g
@@ -521,8 +519,6 @@ g0:
 	SUB	R2, R1
 	MOVW	R5, R0
 	MOVW	R1, R13
-
-	MOVW	R0, ret+8(FP)
 	RET
 
 // cgocallback(void (*fn)(void*), void *frame, uintptr framesize)
@@ -540,7 +536,7 @@ TEXT runtime·cgocallback(SB),NOSPLIT,$12-12
 	RET
 
 // cgocallback_gofunc(void (*fn)(void*), void *frame, uintptr framesize)
-// See cgocall.go for more details.
+// See cgocall.c for more details.
 TEXT	·cgocallback_gofunc(SB),NOSPLIT,$8-12
 	NO_LOCAL_POINTERS
 	
@@ -568,7 +564,7 @@ TEXT	·cgocallback_gofunc(SB),NOSPLIT,$8-12
 	// the same SP back to m->sched.sp. That seems redundant,
 	// but if an unrecovered panic happens, unwindm will
 	// restore the g->sched.sp from the stack location
-	// and then systemstack will try to use it. If we don't set it here,
+	// and then onM will try to use it. If we don't set it here,
 	// that restored SP will be uninitialized (typically 0) and
 	// will not be usable.
 	MOVW	g_m(g), R8
@@ -655,34 +651,29 @@ TEXT setg<>(SB),NOSPLIT,$-4-0
 	MOVW	g, R0
 	RET
 
-TEXT runtime·getcallerpc(SB),NOSPLIT,$4-8
-	MOVW	8(R13), R0		// LR saved by caller
-	MOVW	runtime·stackBarrierPC(SB), R1
-	CMP	R0, R1
-	BNE	nobar
-	// Get original return PC.
-	BL	runtime·nextBarrierPC(SB)
-	MOVW	4(R13), R0
-nobar:
+TEXT runtime·getcallerpc(SB),NOSPLIT,$-4-4
+	MOVW	0(SP), R0
 	MOVW	R0, ret+4(FP)
 	RET
 
-TEXT runtime·setcallerpc(SB),NOSPLIT,$4-8
-	MOVW	pc+4(FP), R0
-	MOVW	8(R13), R1
-	MOVW	runtime·stackBarrierPC(SB), R2
-	CMP	R1, R2
-	BEQ	setbar
-	MOVW	R0, 8(R13)		// set LR in caller
-	RET
-setbar:
-	// Set the stack barrier return PC.
-	MOVW	R0, 4(R13)
-	BL	runtime·setNextBarrierPC(SB)
+TEXT runtime·gogetcallerpc(SB),NOSPLIT,$-4-8
+	MOVW	R14, ret+4(FP)
 	RET
 
-TEXT runtime·getcallersp(SB),NOSPLIT,$-4-8
-	MOVW	argp+0(FP), R0
+TEXT runtime·setcallerpc(SB),NOSPLIT,$-4-8
+	MOVW	pc+4(FP), R0
+	MOVW	R0, 0(SP)
+	RET
+
+TEXT runtime·getcallersp(SB),NOSPLIT,$-4-4
+	MOVW	0(FP), R0
+	MOVW	$-4(R0), R0
+	MOVW	R0, ret+4(FP)
+	RET
+
+// func gogetcallersp(p unsafe.Pointer) uintptr
+TEXT runtime·gogetcallersp(SB),NOSPLIT,$-4-8
+	MOVW	0(FP), R0
 	MOVW	$-4(R0), R0
 	MOVW	R0, ret+4(FP)
 	RET
@@ -716,22 +707,10 @@ casl:
 	LDREX	(R1), R0
 	CMP	R0, R2
 	BNE	casfail
-
-	MOVB	runtime·goarm(SB), R11
-	CMP	$7, R11
-	BLT	2(PC)
-	WORD	$0xf57ff05a	// dmb ishst
-
 	STREX	R3, (R1), R0
 	CMP	$0, R0
 	BNE	casl
 	MOVW	$1, R0
-
-	MOVB	runtime·goarm(SB), R11
-	CMP	$7, R11
-	BLT	2(PC)
-	WORD	$0xf57ff05b	// dmb ish
-
 	MOVB	R0, ret+12(FP)
 	RET
 casfail:
@@ -751,22 +730,6 @@ TEXT runtime·atomicloaduint(SB),NOSPLIT,$0-8
 TEXT runtime·atomicstoreuintptr(SB),NOSPLIT,$0-8
 	B	runtime·atomicstore(SB)
 
-// armPublicationBarrier is a native store/store barrier for ARMv7+.
-// On earlier ARM revisions, armPublicationBarrier is a no-op.
-// This will not work on SMP ARMv6 machines, if any are in use.
-// To implement publiationBarrier in sys_$GOOS_arm.s using the native
-// instructions, use:
-//
-//	TEXT ·publicationBarrier(SB),NOSPLIT,$-4-0
-//		B	runtime·armPublicationBarrier(SB)
-//
-TEXT runtime·armPublicationBarrier(SB),NOSPLIT,$-4-0
-	MOVB	runtime·goarm(SB), R11
-	CMP	$7, R11
-	BLT	2(PC)
-	WORD $0xf57ff05e	// DMB ST
-	RET
-
 // AES hashing not implemented for ARM
 TEXT runtime·aeshash(SB),NOSPLIT,$-4-0
 	MOVW	$0, R0
@@ -781,23 +744,6 @@ TEXT runtime·aeshashstr(SB),NOSPLIT,$-4-0
 	MOVW	$0, R0
 	MOVW	(R0), R1
 
-// memhash_varlen(p unsafe.Pointer, h seed) uintptr
-// redirects to memhash(p, h, size) using the size
-// stored in the closure.
-TEXT runtime·memhash_varlen(SB),NOSPLIT,$16-12
-	GO_ARGS
-	NO_LOCAL_POINTERS
-	MOVW	p+0(FP), R0
-	MOVW	h+4(FP), R1
-	MOVW	4(R7), R2
-	MOVW	R0, 4(R13)
-	MOVW	R1, 8(R13)
-	MOVW	R2, 12(R13)
-	BL	runtime·memhash(SB)
-	MOVW	16(R13), R0
-	MOVW	R0, ret+8(FP)
-	RET
-
 TEXT runtime·memeq(SB),NOSPLIT,$-4-13
 	MOVW	a+0(FP), R1
 	MOVW	b+4(FP), R2
@@ -805,149 +751,86 @@ TEXT runtime·memeq(SB),NOSPLIT,$-4-13
 	ADD	R1, R3, R6
 	MOVW	$1, R0
 	MOVB	R0, ret+12(FP)
-loop:
+_next2:
 	CMP	R1, R6
 	RET.EQ
 	MOVBU.P	1(R1), R4
 	MOVBU.P	1(R2), R5
 	CMP	R4, R5
-	BEQ	loop
+	BEQ	_next2
 
 	MOVW	$0, R0
 	MOVB	R0, ret+12(FP)
 	RET
 
-// memequal_varlen(a, b unsafe.Pointer) bool
-TEXT runtime·memequal_varlen(SB),NOSPLIT,$16-9
-	MOVW	a+0(FP), R0
-	MOVW	b+4(FP), R1
-	CMP	R0, R1
-	BEQ	eq
-	MOVW	4(R7), R2    // compiler stores size at offset 4 in the closure
-	MOVW	R0, 4(R13)
-	MOVW	R1, 8(R13)
-	MOVW	R2, 12(R13)
-	BL	runtime·memeq(SB)
-	MOVB	16(R13), R0
-	MOVB	R0, ret+8(FP)
-	RET
-eq:
-	MOVW	$1, R0
-	MOVB	R0, ret+8(FP)
-	RET
-
-TEXT runtime·cmpstring(SB),NOSPLIT,$-4-20
-	MOVW	s1_base+0(FP), R2
-	MOVW	s1_len+4(FP), R0
-	MOVW	s2_base+8(FP), R3
-	MOVW	s2_len+12(FP), R1
-	ADD	$20, R13, R7
-	B	runtime·cmpbody(SB)
-
-TEXT bytes·Compare(SB),NOSPLIT,$-4-28
-	MOVW	s1+0(FP), R2
-	MOVW	s1+4(FP), R0
-	MOVW	s2+12(FP), R3
-	MOVW	s2+16(FP), R1
-	ADD	$28, R13, R7
-	B	runtime·cmpbody(SB)
-
-// On entry:
-// R0 is the length of s1
-// R1 is the length of s2
-// R2 points to the start of s1
-// R3 points to the start of s2
-// R7 points to return value (-1/0/1 will be written here)
-//
-// On exit:
-// R4, R5, and R6 are clobbered
-TEXT runtime·cmpbody(SB),NOSPLIT,$-4-0
-	CMP 	R0, R1
-	MOVW 	R0, R6
-	MOVW.LT	R1, R6	// R6 is min(R0, R1)
-
-	ADD	R2, R6	// R2 is current byte in s1, R6 is last byte in s1 to compare
-loop:
-	CMP	R2, R6
-	BEQ	samebytes // all compared bytes were the same; compare lengths
-	MOVBU.P	1(R2), R4
-	MOVBU.P	1(R3), R5
-	CMP	R4, R5
-	BEQ	loop
-	// bytes differed
-	MOVW.LT	$1, R0
-	MOVW.GT	$-1, R0
-	MOVW	R0, (R7)
-	RET
-samebytes:
-	CMP	R0, R1
-	MOVW.LT	$1, R0
-	MOVW.GT	$-1, R0
-	MOVW.EQ	$0, R0
-	MOVW	R0, (R7)
-	RET
-
 // eqstring tests whether two strings are equal.
-// The compiler guarantees that strings passed
-// to eqstring have equal length.
 // See runtime_test.go:eqstring_generic for
 // equivalent Go code.
 TEXT runtime·eqstring(SB),NOSPLIT,$-4-17
+	MOVW	s1len+4(FP), R0
+	MOVW	s2len+12(FP), R1
+	MOVW	$0, R7
+	CMP	R0, R1
+	MOVB.NE R7, v+16(FP)
+	RET.NE
 	MOVW	s1str+0(FP), R2
 	MOVW	s2str+8(FP), R3
 	MOVW	$1, R8
 	MOVB	R8, v+16(FP)
 	CMP	R2, R3
 	RET.EQ
-	MOVW	s1len+4(FP), R0
 	ADD	R2, R0, R6
-loop:
+_eqnext:
 	CMP	R2, R6
 	RET.EQ
 	MOVBU.P	1(R2), R4
 	MOVBU.P	1(R3), R5
 	CMP	R4, R5
-	BEQ	loop
-	MOVW	$0, R8
-	MOVB	R8, v+16(FP)
+	BEQ	_eqnext
+	MOVB	R7, v+16(FP)
 	RET
 
+// void setg_gcc(G*); set g called from gcc.
+TEXT setg_gcc<>(SB),NOSPLIT,$0
+	MOVW	R0, g
+	B		runtime·save_g(SB)
+
 // TODO: share code with memeq?
-TEXT bytes·Equal(SB),NOSPLIT,$0-25
+TEXT bytes·Equal(SB),NOSPLIT,$0
 	MOVW	a_len+4(FP), R1
 	MOVW	b_len+16(FP), R3
 	
 	CMP	R1, R3		// unequal lengths are not equal
-	B.NE	notequal
+	B.NE	_notequal
 
 	MOVW	a+0(FP), R0
 	MOVW	b+12(FP), R2
 	ADD	R0, R1		// end
 
-loop:
+_byteseq_next:
 	CMP	R0, R1
-	B.EQ	equal		// reached the end
+	B.EQ	_equal		// reached the end
 	MOVBU.P	1(R0), R4
 	MOVBU.P	1(R2), R5
 	CMP	R4, R5
-	B.EQ	loop
+	B.EQ	_byteseq_next
 
-notequal:
+_notequal:
 	MOVW	$0, R0
 	MOVBU	R0, ret+24(FP)
 	RET
 
-equal:
+_equal:
 	MOVW	$1, R0
 	MOVBU	R0, ret+24(FP)
 	RET
 
-TEXT bytes·IndexByte(SB),NOSPLIT,$0-20
+TEXT bytes·IndexByte(SB),NOSPLIT,$0
 	MOVW	s+0(FP), R0
 	MOVW	s_len+4(FP), R1
 	MOVBU	c+12(FP), R2	// byte to find
 	MOVW	R0, R4		// store base for later
-	ADD	R0, R1		// end
+	ADD	R0, R1		// end 
 
 _loop:
 	CMP	R0, R1
@@ -958,7 +841,7 @@ _loop:
 
 	SUB	$1, R0		// R0 will be one beyond the position we want
 	SUB	R4, R0		// remove base
-	MOVW    R0, ret+16(FP)
+	MOVW    R0, ret+16(FP) 
 	RET
 
 _notfound:
@@ -966,12 +849,12 @@ _notfound:
 	MOVW	R0, ret+16(FP)
 	RET
 
-TEXT strings·IndexByte(SB),NOSPLIT,$0-16
+TEXT strings·IndexByte(SB),NOSPLIT,$0
 	MOVW	s+0(FP), R0
 	MOVW	s_len+4(FP), R1
 	MOVBU	c+8(FP), R2	// byte to find
 	MOVW	R0, R4		// store base for later
-	ADD	R0, R1		// end
+	ADD	R0, R1		// end 
 
 _sib_loop:
 	CMP	R0, R1
@@ -982,12 +865,420 @@ _sib_loop:
 
 	SUB	$1, R0		// R0 will be one beyond the position we want
 	SUB	R4, R0		// remove base
-	MOVW	R0, ret+12(FP)
+	MOVW	R0, ret+12(FP) 
 	RET
 
 _sib_notfound:
 	MOVW	$-1, R0
 	MOVW	R0, ret+12(FP)
+	RET
+
+// A Duff's device for zeroing memory.
+// The compiler jumps to computed addresses within
+// this routine to zero chunks of memory.  Do not
+// change this code without also changing the code
+// in ../../cmd/5g/ggen.c:clearfat.
+// R0: zero
+// R1: ptr to memory to be zeroed
+// R1 is updated as a side effect.
+TEXT runtime·duffzero(SB),NOSPLIT,$0-0
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	MOVW.P	R0, 4(R1)
+	RET
+
+// A Duff's device for copying memory.
+// The compiler jumps to computed addresses within
+// this routine to copy chunks of memory.  Source
+// and destination must not overlap.  Do not
+// change this code without also changing the code
+// in ../../cmd/5g/cgen.c:sgen.
+// R0: scratch space
+// R1: ptr to source memory
+// R2: ptr to destination memory
+// R1 and R2 are updated as a side effect
+TEXT runtime·duffcopy(SB),NOSPLIT,$0-0
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
+	MOVW.P	4(R1), R0
+	MOVW.P	R0, 4(R2)
 	RET
 
 TEXT runtime·fastrand1(SB),NOSPLIT,$-4-4
@@ -1035,38 +1326,3 @@ TEXT _cgo_topofstack(SB),NOSPLIT,$8
 TEXT runtime·goexit(SB),NOSPLIT,$-4-0
 	MOVW	R0, R0	// NOP
 	BL	runtime·goexit1(SB)	// does not return
-	// traceback from goexit1 must hit code range of goexit
-	MOVW	R0, R0	// NOP
-
-TEXT runtime·prefetcht0(SB),NOSPLIT,$0-4
-	RET
-
-TEXT runtime·prefetcht1(SB),NOSPLIT,$0-4
-	RET
-
-TEXT runtime·prefetcht2(SB),NOSPLIT,$0-4
-	RET
-
-TEXT runtime·prefetchnta(SB),NOSPLIT,$0-4
-	RET
-
-// x -> x/1000000, x%1000000, called from Go with args, results on stack.
-TEXT runtime·usplit(SB),NOSPLIT,$0-12
-	MOVW	x+0(FP), R0
-	CALL	runtime·usplitR0(SB)
-	MOVW	R0, q+4(FP)
-	MOVW	R1, r+8(FP)
-	RET
-
-// R0, R1 = R0/1000000, R0%1000000
-TEXT runtime·usplitR0(SB),NOSPLIT,$0
-	// magic multiply to avoid software divide without available m.
-	// see output of go tool compile -S for x/1000000.
-	MOVW	R0, R3
-	MOVW	$1125899907, R1
-	MULLU	R1, R0, (R0, R1)
-	MOVW	R0>>18, R0
-	MOVW	$1000000, R1
-	MULU	R0, R1
-	SUB	R1, R3, R1
-	RET

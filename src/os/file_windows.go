@@ -5,7 +5,6 @@
 package os
 
 import (
-	"internal/syscall/windows"
 	"io"
 	"runtime"
 	"sync"
@@ -134,7 +133,7 @@ func openDir(name string) (file *File, err error) {
 // (O_RDONLY etc.) and perm, (0666 etc.) if applicable.  If successful,
 // methods on the returned File can be used for I/O.
 // If there is an error, it will be of type *PathError.
-func OpenFile(name string, flag int, perm FileMode) (*File, error) {
+func OpenFile(name string, flag int, perm FileMode) (file *File, err error) {
 	if name == "" {
 		return nil, &PathError{"open", name, syscall.ENOENT}
 	}
@@ -461,14 +460,6 @@ func Remove(name string) error {
 	return &PathError{"remove", name, e}
 }
 
-func rename(oldname, newname string) error {
-	e := windows.Rename(oldname, newname)
-	if e != nil {
-		return &LinkError{"rename", oldname, newname, e}
-	}
-	return nil
-}
-
 // Pipe returns a connected pair of Files; reads from r return bytes written to w.
 // It returns the files and an error, if any.
 func Pipe() (r *File, w *File, err error) {
@@ -490,18 +481,20 @@ func Pipe() (r *File, w *File, err error) {
 
 // TempDir returns the default directory to use for temporary files.
 func TempDir() string {
-	n := uint32(syscall.MAX_PATH)
-	for {
-		b := make([]uint16, n)
-		n, _ = syscall.GetTempPath(uint32(len(b)), &b[0])
-		if n > uint32(len(b)) {
-			continue
+	const pathSep = '\\'
+	dirw := make([]uint16, syscall.MAX_PATH)
+	n, _ := syscall.GetTempPath(uint32(len(dirw)), &dirw[0])
+	if n > uint32(len(dirw)) {
+		dirw = make([]uint16, n)
+		n, _ = syscall.GetTempPath(uint32(len(dirw)), &dirw[0])
+		if n > uint32(len(dirw)) {
+			n = 0
 		}
-		if n > 0 && b[n-1] == '\\' {
-			n--
-		}
-		return string(utf16.Decode(b[:n]))
 	}
+	if n > 0 && dirw[n-1] == pathSep {
+		n--
+	}
+	return string(utf16.Decode(dirw[0:n]))
 }
 
 // Link creates newname as a hard link to the oldname file.
@@ -515,8 +508,9 @@ func Link(oldname, newname string) error {
 	if err != nil {
 		return &LinkError{"link", oldname, newname, err}
 	}
-	err = syscall.CreateHardLink(n, o, 0)
-	if err != nil {
+
+	e := syscall.CreateHardLink(n, o, 0)
+	if e != nil {
 		return &LinkError{"link", oldname, newname, err}
 	}
 	return nil

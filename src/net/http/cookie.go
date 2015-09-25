@@ -14,18 +14,19 @@ import (
 	"time"
 )
 
+// This implementation is done according to RFC 6265:
+//
+//    http://tools.ietf.org/html/rfc6265
+
 // A Cookie represents an HTTP cookie as sent in the Set-Cookie header of an
 // HTTP response or the Cookie header of an HTTP request.
-//
-// See http://tools.ietf.org/html/rfc6265 for details.
 type Cookie struct {
-	Name  string
-	Value string
-
-	Path       string    // optional
-	Domain     string    // optional
-	Expires    time.Time // optional
-	RawExpires string    // for reading cookies only
+	Name       string
+	Value      string
+	Path       string
+	Domain     string
+	Expires    time.Time
+	RawExpires string
 
 	// MaxAge=0 means no 'Max-Age' attribute specified.
 	// MaxAge<0 means delete cookie now, equivalently 'Max-Age: 0'
@@ -125,22 +126,14 @@ func readSetCookies(h Header) []*Cookie {
 }
 
 // SetCookie adds a Set-Cookie header to the provided ResponseWriter's headers.
-// The provided cookie must have a valid Name. Invalid cookies may be
-// silently dropped.
 func SetCookie(w ResponseWriter, cookie *Cookie) {
-	if v := cookie.String(); v != "" {
-		w.Header().Add("Set-Cookie", v)
-	}
+	w.Header().Add("Set-Cookie", cookie.String())
 }
 
 // String returns the serialization of the cookie for use in a Cookie
 // header (if only Name and Value are set) or a Set-Cookie response
 // header (if other fields are set).
-// If c is nil or c.Name is invalid, the empty string is returned.
 func (c *Cookie) String() string {
-	if c == nil || !isCookieNameValid(c.Name) {
-		return ""
-	}
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "%s=%s", sanitizeCookieName(c.Name), sanitizeCookieValue(c.Value))
 	if len(c.Path) > 0 {
@@ -163,7 +156,7 @@ func (c *Cookie) String() string {
 		}
 	}
 	if c.Expires.Unix() > 0 {
-		fmt.Fprintf(&b, "; Expires=%s", c.Expires.UTC().Format(TimeFormat))
+		fmt.Fprintf(&b, "; Expires=%s", c.Expires.UTC().Format(time.RFC1123))
 	}
 	if c.MaxAge > 0 {
 		fmt.Fprintf(&b, "; Max-Age=%d", c.MaxAge)
@@ -304,7 +297,7 @@ func sanitizeCookieName(n string) string {
 // We loosen this as spaces and commas are common in cookie values
 // but we produce a quoted cookie-value in when value starts or ends
 // with a comma or space.
-// See https://golang.org/issue/7243 for the discussion.
+// See http://golang.org/issue/7243 for the discussion.
 func sanitizeCookieValue(v string) string {
 	v = sanitizeOrWarn("Cookie.Value", validCookieValueByte, v)
 	if len(v) == 0 {
@@ -366,8 +359,5 @@ func parseCookieValue(raw string, allowDoubleQuote bool) (string, bool) {
 }
 
 func isCookieNameValid(raw string) bool {
-	if raw == "" {
-		return false
-	}
 	return strings.IndexFunc(raw, isNotToken) < 0
 }

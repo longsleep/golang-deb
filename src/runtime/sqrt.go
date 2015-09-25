@@ -3,11 +3,10 @@
 // license that can be found in the LICENSE file.
 
 // Copy of math/sqrt.go, here for use by ARM softfloat.
-// Modified to not use any floating point arithmetic so
-// that we don't clobber any floating-point registers
-// while emulating the sqrt instruction.
 
 package runtime
+
+import "unsafe"
 
 // The original C code and the long comment below are
 // from FreeBSD's /usr/src/lib/msun/src/e_sqrt.c and
@@ -87,53 +86,47 @@ package runtime
 // Notes:  Rounding mode detection omitted.
 
 const (
-	float64Mask  = 0x7FF
-	float64Shift = 64 - 11 - 1
-	float64Bias  = 1023
-	float64NaN   = 0x7FF8000000000001
-	float64Inf   = 0x7FF0000000000000
-	maxFloat64   = 1.797693134862315708145274237317043567981e+308 // 2**1023 * (2**53 - 1) / 2**52
+	uvnan      = 0x7FF8000000000001
+	uvinf      = 0x7FF0000000000000
+	uvneginf   = 0xFFF0000000000000
+	mask       = 0x7FF
+	shift      = 64 - 11 - 1
+	bias       = 1023
+	maxFloat64 = 1.797693134862315708145274237317043567981e+308 // 2**1023 * (2**53 - 1) / 2**52
 )
 
-// isnanu returns whether ix represents a NaN floating point number.
-func isnanu(ix uint64) bool {
-	exp := (ix >> float64Shift) & float64Mask
-	sig := ix << (64 - float64Shift) >> (64 - float64Shift)
-	return exp == float64Mask && sig != 0
-}
+func float64bits(f float64) uint64     { return *(*uint64)(unsafe.Pointer(&f)) }
+func float64frombits(b uint64) float64 { return *(*float64)(unsafe.Pointer(&b)) }
 
-func sqrt(ix uint64) uint64 {
+func sqrt(x float64) float64 {
 	// special cases
 	switch {
-	case ix == 0 || ix == 1<<63: // x == 0
-		return ix
-	case isnanu(ix): // x != x
-		return ix
-	case ix&(1<<63) != 0: // x < 0
-		return float64NaN
-	case ix == float64Inf: // x > MaxFloat
-		return ix
+	case x == 0 || x != x || x > maxFloat64:
+		return x
+	case x < 0:
+		return nan
 	}
+	ix := float64bits(x)
 	// normalize x
-	exp := int((ix >> float64Shift) & float64Mask)
+	exp := int((ix >> shift) & mask)
 	if exp == 0 { // subnormal x
-		for ix&1<<float64Shift == 0 {
+		for ix&1<<shift == 0 {
 			ix <<= 1
 			exp--
 		}
 		exp++
 	}
-	exp -= float64Bias // unbias exponent
-	ix &^= float64Mask << float64Shift
-	ix |= 1 << float64Shift
+	exp -= bias // unbias exponent
+	ix &^= mask << shift
+	ix |= 1 << shift
 	if exp&1 == 1 { // odd exp, double x to make it even
 		ix <<= 1
 	}
 	exp >>= 1 // exp = exp/2, exponent of square root
 	// generate sqrt(x) bit by bit
 	ix <<= 1
-	var q, s uint64                      // q = sqrt(x)
-	r := uint64(1 << (float64Shift + 1)) // r = moving bit from MSB to LSB
+	var q, s uint64               // q = sqrt(x)
+	r := uint64(1 << (shift + 1)) // r = moving bit from MSB to LSB
 	for r != 0 {
 		t := s + r
 		if t <= ix {
@@ -148,6 +141,10 @@ func sqrt(ix uint64) uint64 {
 	if ix != 0 { // remainder, result not exact
 		q += q & 1 // round according to extra bit
 	}
-	ix = q>>1 + uint64(exp-1+float64Bias)<<float64Shift // significand + biased exponent
-	return ix
+	ix = q>>1 + uint64(exp-1+bias)<<shift // significand + biased exponent
+	return float64frombits(ix)
+}
+
+func sqrtC(f float64, r *float64) {
+	*r = sqrt(f)
 }

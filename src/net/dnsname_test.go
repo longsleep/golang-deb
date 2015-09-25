@@ -9,12 +9,12 @@ import (
 	"testing"
 )
 
-type dnsNameTest struct {
+type testCase struct {
 	name   string
 	result bool
 }
 
-var dnsNameTests = []dnsNameTest{
+var tests = []testCase{
 	// RFC2181, section 11.
 	{"_xmpp-server._tcp.google.com", true},
 	{"foo.com", true},
@@ -30,7 +30,7 @@ var dnsNameTests = []dnsNameTest{
 	{"b.com.", true},
 }
 
-func emitDNSNameTest(ch chan<- dnsNameTest) {
+func getTestCases(ch chan<- testCase) {
 	defer close(ch)
 	var char59 = ""
 	var char63 = ""
@@ -41,36 +41,35 @@ func emitDNSNameTest(ch chan<- dnsNameTest) {
 	char63 = char59 + "aaaa"
 	char64 = char63 + "a"
 
-	for _, tc := range dnsNameTests {
+	for _, tc := range tests {
 		ch <- tc
 	}
 
-	ch <- dnsNameTest{char63 + ".com", true}
-	ch <- dnsNameTest{char64 + ".com", false}
+	ch <- testCase{char63 + ".com", true}
+	ch <- testCase{char64 + ".com", false}
 	// 255 char name is fine:
-	ch <- dnsNameTest{char59 + "." + char63 + "." + char63 + "." +
+	ch <- testCase{char59 + "." + char63 + "." + char63 + "." +
 		char63 + ".com",
 		true}
 	// 256 char name is bad:
-	ch <- dnsNameTest{char59 + "a." + char63 + "." + char63 + "." +
+	ch <- testCase{char59 + "a." + char63 + "." + char63 + "." +
 		char63 + ".com",
 		false}
 }
 
-func TestDNSName(t *testing.T) {
-	ch := make(chan dnsNameTest)
-	go emitDNSNameTest(ch)
+func TestDNSNames(t *testing.T) {
+	ch := make(chan testCase)
+	go getTestCases(ch)
 	for tc := range ch {
 		if isDomainName(tc.name) != tc.result {
-			t.Errorf("isDomainName(%q) = %v; want %v", tc.name, !tc.result, tc.result)
+			t.Errorf("isDomainName(%v) failed: Should be %v",
+				tc.name, tc.result)
 		}
 	}
 }
 
-func BenchmarkDNSName(b *testing.B) {
-	testHookUninstaller.Do(uninstallTestHooks)
-
-	benchmarks := append(dnsNameTests, []dnsNameTest{
+func BenchmarkDNSNames(b *testing.B) {
+	benchmarks := append(tests, []testCase{
 		{strings.Repeat("a", 63), true},
 		{strings.Repeat("a", 64), false},
 	}...)

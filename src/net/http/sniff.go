@@ -38,11 +38,7 @@ func DetectContentType(data []byte) string {
 }
 
 func isWS(b byte) bool {
-	switch b {
-	case '\t', '\n', '\x0c', '\r', ' ':
-		return true
-	}
-	return false
+	return bytes.IndexByte([]byte("\t\n\x0C\r "), b) != -1
 }
 
 type sniffSig interface {
@@ -165,8 +161,6 @@ func (h htmlSig) match(data []byte, firstNonWS int) string {
 	return "text/html; charset=utf-8"
 }
 
-var mp4ftype = []byte("ftyp")
-
 type mp4Sig int
 
 func (mp4Sig) match(data []byte, firstNonWS int) string {
@@ -178,7 +172,7 @@ func (mp4Sig) match(data []byte, firstNonWS int) string {
 	if boxSize%4 != 0 || len(data) < boxSize {
 		return ""
 	}
-	if !bytes.Equal(data[4:8], mp4ftype) {
+	if !bytes.Equal(data[4:8], []byte("ftyp")) {
 		return ""
 	}
 	for st := 8; st < boxSize; st += 4 {

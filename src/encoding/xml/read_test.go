@@ -694,7 +694,7 @@ type Pod struct {
 	Pea interface{} `xml:"Pea"`
 }
 
-// https://golang.org/issue/6836
+// https://code.google.com/p/go/issues/detail?id=6836
 func TestUnmarshalIntoInterface(t *testing.T) {
 	pod := new(Pod)
 	pod.Pea = new(Pea)

@@ -772,24 +772,29 @@ func (f *zeroFile) pread(b []byte, offset int64) (int, error) {
 	return len(b), nil
 }
 
-type randomFile struct{}
-
-func openRandom() (devFile, error) {
-	return randomFile{}, nil
+type randomFile struct {
+	naclFD int
 }
 
-func (f randomFile) close() error {
+func openRandom() (devFile, error) {
+	fd, err := openNamedService("SecureRandom", O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	return &randomFile{naclFD: fd}, nil
+}
+
+func (f *randomFile) close() error {
+	naclClose(f.naclFD)
+	f.naclFD = -1
 	return nil
 }
 
-func (f randomFile) pread(b []byte, offset int64) (int, error) {
-	if err := naclGetRandomBytes(b); err != nil {
-		return 0, err
-	}
-	return len(b), nil
+func (f *randomFile) pread(b []byte, offset int64) (int, error) {
+	return naclRead(f.naclFD, b)
 }
 
-func (f randomFile) pwrite(b []byte, offset int64) (int, error) {
+func (f *randomFile) pwrite(b []byte, offset int64) (int, error) {
 	return 0, EPERM
 }
 
@@ -810,7 +815,7 @@ func fdToFsysFile(fd int) (*fsysFile, error) {
 // It is meant to be called when initializing the file system image.
 func create(name string, mode uint32, sec int64, data []byte) error {
 	fs.mu.Lock()
-	defer fs.mu.Unlock()
+	fs.mu.Unlock()
 	f, err := fs.open(name, O_CREATE|O_EXCL, mode)
 	if err != nil {
 		if mode&S_IFMT == S_IFDIR {

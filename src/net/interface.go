@@ -62,61 +62,41 @@ func (f Flags) String() string {
 // Addrs returns interface addresses for a specific interface.
 func (ifi *Interface) Addrs() ([]Addr, error) {
 	if ifi == nil {
-		return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: errInvalidInterface}
+		return nil, errInvalidInterface
 	}
-	ifat, err := interfaceAddrTable(ifi)
-	if err != nil {
-		err = &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
-	}
-	return ifat, err
+	return interfaceAddrTable(ifi)
 }
 
 // MulticastAddrs returns multicast, joined group addresses for
 // a specific interface.
 func (ifi *Interface) MulticastAddrs() ([]Addr, error) {
 	if ifi == nil {
-		return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: errInvalidInterface}
+		return nil, errInvalidInterface
 	}
-	ifat, err := interfaceMulticastAddrTable(ifi)
-	if err != nil {
-		err = &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
-	}
-	return ifat, err
+	return interfaceMulticastAddrTable(ifi)
 }
 
 // Interfaces returns a list of the system's network interfaces.
 func Interfaces() ([]Interface, error) {
-	ift, err := interfaceTable(0)
-	if err != nil {
-		err = &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
-	}
-	return ift, err
+	return interfaceTable(0)
 }
 
 // InterfaceAddrs returns a list of the system's network interface
 // addresses.
 func InterfaceAddrs() ([]Addr, error) {
-	ifat, err := interfaceAddrTable(nil)
-	if err != nil {
-		err = &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
-	}
-	return ifat, err
+	return interfaceAddrTable(nil)
 }
 
 // InterfaceByIndex returns the interface specified by index.
 func InterfaceByIndex(index int) (*Interface, error) {
 	if index <= 0 {
-		return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: errInvalidInterfaceIndex}
+		return nil, errInvalidInterfaceIndex
 	}
 	ift, err := interfaceTable(index)
 	if err != nil {
-		return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
+		return nil, err
 	}
-	ifi, err := interfaceByIndex(ift, index)
-	if err != nil {
-		err = &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
-	}
-	return ifi, err
+	return interfaceByIndex(ift, index)
 }
 
 func interfaceByIndex(ift []Interface, index int) (*Interface, error) {
@@ -131,16 +111,16 @@ func interfaceByIndex(ift []Interface, index int) (*Interface, error) {
 // InterfaceByName returns the interface specified by name.
 func InterfaceByName(name string) (*Interface, error) {
 	if name == "" {
-		return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: errInvalidInterfaceName}
+		return nil, errInvalidInterfaceName
 	}
 	ift, err := interfaceTable(0)
 	if err != nil {
-		return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: err}
+		return nil, err
 	}
 	for _, ifi := range ift {
 		if name == ifi.Name {
 			return &ifi, nil
 		}
 	}
-	return nil, &OpError{Op: "route", Net: "ip+net", Source: nil, Addr: nil, Err: errNoSuchInterface}
+	return nil, errNoSuchInterface
 }

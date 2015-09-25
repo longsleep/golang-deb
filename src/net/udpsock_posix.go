@@ -31,6 +31,13 @@ func (a *UDPAddr) family() int {
 	return syscall.AF_INET6
 }
 
+func (a *UDPAddr) isWildcard() bool {
+	if a == nil || a.IP == nil {
+		return true
+	}
+	return a.IP.IsUnspecified()
+}
+
 func (a *UDPAddr) sockaddr(family int) (syscall.Sockaddr, error) {
 	if a == nil {
 		return nil, nil
@@ -53,11 +60,10 @@ func newUDPConn(fd *netFD) *UDPConn { return &UDPConn{conn{fd}} }
 // ReadFromUDP can be made to time out and return an error with
 // Timeout() == true after a fixed time limit; see SetDeadline and
 // SetReadDeadline.
-func (c *UDPConn) ReadFromUDP(b []byte) (int, *UDPAddr, error) {
+func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *UDPAddr, err error) {
 	if !c.ok() {
 		return 0, nil, syscall.EINVAL
 	}
-	var addr *UDPAddr
 	n, sa, err := c.fd.readFrom(b)
 	switch sa := sa.(type) {
 	case *syscall.SockaddrInet4:
@@ -65,10 +71,7 @@ func (c *UDPConn) ReadFromUDP(b []byte) (int, *UDPAddr, error) {
 	case *syscall.SockaddrInet6:
 		addr = &UDPAddr{IP: sa.Addr[0:], Port: sa.Port, Zone: zoneToString(int(sa.ZoneId))}
 	}
-	if err != nil {
-		err = &OpError{Op: "read", Net: c.fd.net, Source: c.fd.laddr, Addr: c.fd.raddr, Err: err}
-	}
-	return n, addr, err
+	return
 }
 
 // ReadFrom implements the PacketConn ReadFrom method.
@@ -77,10 +80,7 @@ func (c *UDPConn) ReadFrom(b []byte) (int, Addr, error) {
 		return 0, nil, syscall.EINVAL
 	}
 	n, addr, err := c.ReadFromUDP(b)
-	if addr == nil {
-		return n, nil, err
-	}
-	return n, addr, err
+	return n, addr.toAddr(), err
 }
 
 // ReadMsgUDP reads a packet from c, copying the payload into b and
@@ -100,9 +100,6 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *UDPAddr, 
 	case *syscall.SockaddrInet6:
 		addr = &UDPAddr{IP: sa.Addr[0:], Port: sa.Port, Zone: zoneToString(int(sa.ZoneId))}
 	}
-	if err != nil {
-		err = &OpError{Op: "read", Net: c.fd.net, Source: c.fd.laddr, Addr: c.fd.raddr, Err: err}
-	}
 	return
 }
 
@@ -118,20 +115,16 @@ func (c *UDPConn) WriteToUDP(b []byte, addr *UDPAddr) (int, error) {
 		return 0, syscall.EINVAL
 	}
 	if c.fd.isConnected {
-		return 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: ErrWriteToConnected}
+		return 0, &OpError{"write", c.fd.net, addr, ErrWriteToConnected}
 	}
 	if addr == nil {
-		return 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: nil, Err: errMissingAddress}
+		return 0, &OpError{Op: "write", Net: c.fd.net, Addr: nil, Err: errMissingAddress}
 	}
 	sa, err := addr.sockaddr(c.fd.family)
 	if err != nil {
-		return 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: err}
+		return 0, &OpError{"write", c.fd.net, addr, err}
 	}
-	n, err := c.fd.writeTo(b, sa)
-	if err != nil {
-		err = &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: err}
-	}
-	return n, err
+	return c.fd.writeTo(b, sa)
 }
 
 // WriteTo implements the PacketConn WriteTo method.
@@ -141,36 +134,29 @@ func (c *UDPConn) WriteTo(b []byte, addr Addr) (int, error) {
 	}
 	a, ok := addr.(*UDPAddr)
 	if !ok {
-		return 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr, Err: syscall.EINVAL}
+		return 0, &OpError{"write", c.fd.net, addr, syscall.EINVAL}
 	}
 	return c.WriteToUDP(b, a)
 }
 
-// WriteMsgUDP writes a packet to addr via c if c isn't connected, or
-// to c's remote destination address if c is connected (in which case
-// addr must be nil).  The payload is copied from b and the associated
-// out-of-band data is copied from oob.  It returns the number of
-// payload and out-of-band bytes written.
+// WriteMsgUDP writes a packet to addr via c, copying the payload from
+// b and the associated out-of-band data from oob.  It returns the
+// number of payload and out-of-band bytes written.
 func (c *UDPConn) WriteMsgUDP(b, oob []byte, addr *UDPAddr) (n, oobn int, err error) {
 	if !c.ok() {
 		return 0, 0, syscall.EINVAL
 	}
-	if c.fd.isConnected && addr != nil {
-		return 0, 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: ErrWriteToConnected}
+	if c.fd.isConnected {
+		return 0, 0, &OpError{"write", c.fd.net, addr, ErrWriteToConnected}
 	}
-	if !c.fd.isConnected && addr == nil {
-		return 0, 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: errMissingAddress}
+	if addr == nil {
+		return 0, 0, &OpError{Op: "write", Net: c.fd.net, Addr: nil, Err: errMissingAddress}
 	}
-	var sa syscall.Sockaddr
-	sa, err = addr.sockaddr(c.fd.family)
+	sa, err := addr.sockaddr(c.fd.family)
 	if err != nil {
-		return 0, 0, &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: err}
+		return 0, 0, &OpError{"write", c.fd.net, addr, err}
 	}
-	n, oobn, err = c.fd.writeMsg(b, oob, sa)
-	if err != nil {
-		err = &OpError{Op: "write", Net: c.fd.net, Source: c.fd.laddr, Addr: addr.opAddr(), Err: err}
-	}
-	return
+	return c.fd.writeMsg(b, oob, sa)
 }
 
 // DialUDP connects to the remote address raddr on the network net,
@@ -180,10 +166,10 @@ func DialUDP(net string, laddr, raddr *UDPAddr) (*UDPConn, error) {
 	switch net {
 	case "udp", "udp4", "udp6":
 	default:
-		return nil, &OpError{Op: "dial", Net: net, Source: laddr.opAddr(), Addr: raddr.opAddr(), Err: UnknownNetworkError(net)}
+		return nil, &OpError{Op: "dial", Net: net, Addr: raddr, Err: UnknownNetworkError(net)}
 	}
 	if raddr == nil {
-		return nil, &OpError{Op: "dial", Net: net, Source: laddr.opAddr(), Addr: nil, Err: errMissingAddress}
+		return nil, &OpError{Op: "dial", Net: net, Addr: nil, Err: errMissingAddress}
 	}
 	return dialUDP(net, laddr, raddr, noDeadline)
 }
@@ -191,7 +177,7 @@ func DialUDP(net string, laddr, raddr *UDPAddr) (*UDPConn, error) {
 func dialUDP(net string, laddr, raddr *UDPAddr, deadline time.Time) (*UDPConn, error) {
 	fd, err := internetSocket(net, laddr, raddr, deadline, syscall.SOCK_DGRAM, 0, "dial")
 	if err != nil {
-		return nil, &OpError{Op: "dial", Net: net, Source: laddr.opAddr(), Addr: raddr.opAddr(), Err: err}
+		return nil, &OpError{Op: "dial", Net: net, Addr: raddr, Err: err}
 	}
 	return newUDPConn(fd), nil
 }
@@ -207,52 +193,45 @@ func ListenUDP(net string, laddr *UDPAddr) (*UDPConn, error) {
 	switch net {
 	case "udp", "udp4", "udp6":
 	default:
-		return nil, &OpError{Op: "listen", Net: net, Source: nil, Addr: laddr.opAddr(), Err: UnknownNetworkError(net)}
+		return nil, &OpError{Op: "listen", Net: net, Addr: laddr, Err: UnknownNetworkError(net)}
 	}
 	if laddr == nil {
 		laddr = &UDPAddr{}
 	}
 	fd, err := internetSocket(net, laddr, nil, noDeadline, syscall.SOCK_DGRAM, 0, "listen")
 	if err != nil {
-		return nil, &OpError{Op: "listen", Net: net, Source: nil, Addr: laddr, Err: err}
+		return nil, &OpError{Op: "listen", Net: net, Addr: laddr, Err: err}
 	}
 	return newUDPConn(fd), nil
 }
 
 // ListenMulticastUDP listens for incoming multicast UDP packets
-// addressed to the group address gaddr on the interface ifi.
-// Network must be "udp", "udp4" or "udp6".
-// ListenMulticastUDP uses the system-assigned multicast interface
-// when ifi is nil, although this is not recommended because the
-// assignment depends on platforms and sometimes it might require
-// routing configuration.
-//
-// ListenMulticastUDP is just for convenience of simple, small
-// applications. There are golang.org/x/net/ipv4 and
-// golang.org/x/net/ipv6 packages for general purpose uses.
-func ListenMulticastUDP(network string, ifi *Interface, gaddr *UDPAddr) (*UDPConn, error) {
-	switch network {
+// addressed to the group address gaddr on ifi, which specifies the
+// interface to join.  ListenMulticastUDP uses default multicast
+// interface if ifi is nil.
+func ListenMulticastUDP(net string, ifi *Interface, gaddr *UDPAddr) (*UDPConn, error) {
+	switch net {
 	case "udp", "udp4", "udp6":
 	default:
-		return nil, &OpError{Op: "listen", Net: network, Source: nil, Addr: gaddr.opAddr(), Err: UnknownNetworkError(network)}
+		return nil, &OpError{Op: "listen", Net: net, Addr: gaddr, Err: UnknownNetworkError(net)}
 	}
 	if gaddr == nil || gaddr.IP == nil {
-		return nil, &OpError{Op: "listen", Net: network, Source: nil, Addr: gaddr.opAddr(), Err: errMissingAddress}
+		return nil, &OpError{Op: "listen", Net: net, Addr: nil, Err: errMissingAddress}
 	}
-	fd, err := internetSocket(network, gaddr, nil, noDeadline, syscall.SOCK_DGRAM, 0, "listen")
+	fd, err := internetSocket(net, gaddr, nil, noDeadline, syscall.SOCK_DGRAM, 0, "listen")
 	if err != nil {
-		return nil, &OpError{Op: "listen", Net: network, Source: nil, Addr: gaddr, Err: err}
+		return nil, &OpError{Op: "listen", Net: net, Addr: gaddr, Err: err}
 	}
 	c := newUDPConn(fd)
 	if ip4 := gaddr.IP.To4(); ip4 != nil {
 		if err := listenIPv4MulticastUDP(c, ifi, ip4); err != nil {
 			c.Close()
-			return nil, &OpError{Op: "listen", Net: network, Source: c.fd.laddr, Addr: &IPAddr{IP: ip4}, Err: err}
+			return nil, &OpError{Op: "listen", Net: net, Addr: &IPAddr{IP: ip4}, Err: err}
 		}
 	} else {
 		if err := listenIPv6MulticastUDP(c, ifi, gaddr.IP); err != nil {
 			c.Close()
-			return nil, &OpError{Op: "listen", Net: network, Source: c.fd.laddr, Addr: &IPAddr{IP: gaddr.IP}, Err: err}
+			return nil, &OpError{Op: "listen", Net: net, Addr: &IPAddr{IP: gaddr.IP}, Err: err}
 		}
 	}
 	return c, nil

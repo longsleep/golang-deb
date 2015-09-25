@@ -155,7 +155,6 @@ var sumVW = []argVW{
 	{nat{1}, nat{1}, 0, 0},
 	{nat{0}, nat{_M}, 1, 1},
 	{nat{0, 0, 0, 0}, nat{_M, _M, _M, _M}, 1, 1},
-	{nat{585}, nat{314}, 271, 0},
 }
 
 var prodVW = []argVW{
@@ -255,7 +254,7 @@ func benchmarkFunVW(b *testing.B, f funVW, n int) {
 	x := rndV(n)
 	y := rndW()
 	z := make([]Word, n)
-	b.SetBytes(int64(n * _S))
+	b.SetBytes(int64(n * _W))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		f(z, x, y)

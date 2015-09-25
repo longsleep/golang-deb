@@ -13,39 +13,35 @@ type hex uint64
 func bytes(s string) (ret []byte) {
 	rp := (*slice)(unsafe.Pointer(&ret))
 	sp := (*_string)(noescape(unsafe.Pointer(&s)))
-	rp.array = unsafe.Pointer(sp.str)
-	rp.len = sp.len
-	rp.cap = sp.len
+	rp.array = sp.str
+	rp.len = uint(sp.len)
+	rp.cap = uint(sp.len)
 	return
 }
 
-var debuglock mutex
-
-// The compiler emits calls to printlock and printunlock around
-// the multiple calls that implement a single Go print or println
-// statement. Some of the print helpers (printsp, for example)
-// call print recursively. There is also the problem of a crash
-// happening during the print routines and needing to acquire
-// the print lock to print information about the crash.
-// For both these reasons, let a thread acquire the printlock 'recursively'.
-
-func printlock() {
-	mp := getg().m
-	mp.locks++ // do not reschedule between printlock++ and lock(&debuglock).
-	mp.printlock++
-	if mp.printlock == 1 {
-		lock(&debuglock)
-	}
-	mp.locks-- // now we know debuglock is held and holding up mp.locks for us.
+// printf is only called from C code. It has no type information for the args,
+// but C stacks are ignored by the garbage collector anyway, so having
+// type information would not add anything.
+//go:nosplit
+func printf(s *byte) {
+	vprintf(gostringnocopy(s), add(unsafe.Pointer(&s), unsafe.Sizeof(s)))
 }
 
-func printunlock() {
-	mp := getg().m
-	mp.printlock--
-	if mp.printlock == 0 {
-		unlock(&debuglock)
-	}
+// sprintf is only called from C code. It has no type information for the args,
+// but C stacks are ignored by the garbage collector anyway, so having
+// type information would not add anything.
+//go:nosplit
+func snprintf(dst *byte, n int32, s *byte) {
+	buf := (*[1 << 30]byte)(unsafe.Pointer(dst))[0:n:n]
+
+	gp := getg()
+	gp.writebuf = buf[0:0 : n-1] // leave room for NUL, this is called from C
+	vprintf(gostringnocopy(s), add(unsafe.Pointer(&s), unsafe.Sizeof(s)))
+	buf[len(gp.writebuf)] = '\x00'
+	gp.writebuf = nil
 }
+
+//var debuglock mutex
 
 // write to goroutine-local buffer if diverting output,
 // or else standard error.
@@ -55,12 +51,22 @@ func gwrite(b []byte) {
 	}
 	gp := getg()
 	if gp == nil || gp.writebuf == nil {
-		writeErr(b)
+		write(2, unsafe.Pointer(&b[0]), int32(len(b)))
 		return
 	}
 
 	n := copy(gp.writebuf[len(gp.writebuf):cap(gp.writebuf)], b)
 	gp.writebuf = gp.writebuf[:len(gp.writebuf)+n]
+}
+
+func prints(s *byte) {
+	b := (*[1 << 30]byte)(unsafe.Pointer(s))
+	for i := 0; ; i++ {
+		if b[i] == 0 {
+			gwrite(b[:i])
+			return
+		}
+	}
 }
 
 func printsp() {
@@ -69,6 +75,92 @@ func printsp() {
 
 func printnl() {
 	print("\n")
+}
+
+// Very simple printf.  Only for debugging prints.
+// Do not add to this without checking with Rob.
+func vprintf(str string, arg unsafe.Pointer) {
+	//lock(&debuglock);
+
+	s := bytes(str)
+	start := 0
+	i := 0
+	for ; i < len(s); i++ {
+		if s[i] != '%' {
+			continue
+		}
+		if i > start {
+			gwrite(s[start:i])
+		}
+		if i++; i >= len(s) {
+			break
+		}
+		var siz uintptr
+		switch s[i] {
+		case 't', 'c':
+			siz = 1
+		case 'd', 'x': // 32-bit
+			arg = roundup(arg, 4)
+			siz = 4
+		case 'D', 'U', 'X', 'f': // 64-bit
+			arg = roundup(arg, unsafe.Sizeof(uintreg(0)))
+			siz = 8
+		case 'C':
+			arg = roundup(arg, unsafe.Sizeof(uintreg(0)))
+			siz = 16
+		case 'p', 's': // pointer-sized
+			arg = roundup(arg, unsafe.Sizeof(uintptr(0)))
+			siz = unsafe.Sizeof(uintptr(0))
+		case 'S': // pointer-aligned but bigger
+			arg = roundup(arg, unsafe.Sizeof(uintptr(0)))
+			siz = unsafe.Sizeof(string(""))
+		case 'a': // pointer-aligned but bigger
+			arg = roundup(arg, unsafe.Sizeof(uintptr(0)))
+			siz = unsafe.Sizeof([]byte{})
+		case 'i', 'e': // pointer-aligned but bigger
+			arg = roundup(arg, unsafe.Sizeof(uintptr(0)))
+			siz = unsafe.Sizeof(interface{}(nil))
+		}
+		switch s[i] {
+		case 'a':
+			printslice(*(*[]byte)(arg))
+		case 'c':
+			printbyte(*(*byte)(arg))
+		case 'd':
+			printint(int64(*(*int32)(arg)))
+		case 'D':
+			printint(int64(*(*int64)(arg)))
+		case 'e':
+			printeface(*(*interface{})(arg))
+		case 'f':
+			printfloat(*(*float64)(arg))
+		case 'C':
+			printcomplex(*(*complex128)(arg))
+		case 'i':
+			printiface(*(*fInterface)(arg))
+		case 'p':
+			printpointer(*(*unsafe.Pointer)(arg))
+		case 's':
+			prints(*(**byte)(arg))
+		case 'S':
+			printstring(*(*string)(arg))
+		case 't':
+			printbool(*(*bool)(arg))
+		case 'U':
+			printuint(*(*uint64)(arg))
+		case 'x':
+			printhex(uint64(*(*uint32)(arg)))
+		case 'X':
+			printhex(*(*uint64)(arg))
+		}
+		arg = add(arg, siz)
+		start = i + 1
+	}
+	if start < i {
+		gwrite(s[start:i])
+	}
+
+	//unlock(&debuglock);
 }
 
 func printpc(p unsafe.Pointer) {

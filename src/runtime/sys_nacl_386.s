@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include "go_asm.h"
-#include "go_tls.h"
+#include "zasm_GOOS_GOARCH.h"
 #include "textflag.h"
 #include "syscall_nacl.h"
 
@@ -33,7 +32,7 @@ TEXT runtime·open(SB),NOSPLIT,$12
 	MOVL AX, ret+12(FP)
 	RET
 
-TEXT runtime·closefd(SB),NOSPLIT,$4
+TEXT runtime·close(SB),NOSPLIT,$4
 	MOVL fd+0(FP), AX
 	MOVL AX, 0(SP)
 	NACL_SYSCALL(SYS_close)
@@ -294,7 +293,7 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$0
 	MOVL	$0, 0(SP)
 	MOVL	$runtime·badsignal(SB), AX
 	CALL	AX
-	JMP 	ret
+	JMP 	sigtramp_ret
 
 	// save g
 	MOVL	DI, 20(SP)
@@ -318,11 +317,11 @@ TEXT runtime·sigtramp(SB),NOSPLIT,$0
 	MOVL	20(SP), BX
 	MOVL	BX, g(CX)
 
-ret:
+sigtramp_ret:
 	// Enable exceptions again.
 	NACL_SYSCALL(SYS_exception_clear_flag)
 
-	// NaCl has abdicated its traditional operating system responsibility
+	// NaCl has abidcated its traditional operating system responsibility
 	// and declined to implement 'sigreturn'. Instead the only way to return
 	// to the execution of our program is to restore the registers ourselves.
 	// Unfortunately, that is impossible to do with strict fidelity, because
@@ -362,12 +361,3 @@ ret:
 	// 36(BP) is saved EFLAGS, never to be seen again
 	MOVL	32(BP), BP // saved PC
 	JMP	BP
-
-// func getRandomData([]byte)
-TEXT runtime·getRandomData(SB),NOSPLIT,$8-12
-	MOVL buf+0(FP), AX
-	MOVL AX, 0(SP)
-	MOVL len+4(FP), AX
-	MOVL AX, 4(SP)
-	NACL_SYSCALL(SYS_get_random_bytes)
-	RET

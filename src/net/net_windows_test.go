@@ -15,31 +15,18 @@ import (
 	"time"
 )
 
-func toErrno(err error) (syscall.Errno, bool) {
-	operr, ok := err.(*OpError)
-	if !ok {
-		return 0, false
-	}
-	syserr, ok := operr.Err.(*os.SyscallError)
-	if !ok {
-		return 0, false
-	}
-	errno, ok := syserr.Err.(syscall.Errno)
-	if !ok {
-		return 0, false
-	}
-	return errno, true
-}
-
-// TestAcceptIgnoreSomeErrors tests that windows TCPListener.AcceptTCP
-// handles broken connections. It verifies that broken connections do
-// not affect future connections.
 func TestAcceptIgnoreSomeErrors(t *testing.T) {
-	recv := func(ln Listener, ignoreSomeReadErrors bool) (string, error) {
+	t.Skip("skipping temporarily, see issue 8662")
+
+	recv := func(ln Listener) (string, error) {
 		c, err := ln.Accept()
 		if err != nil {
 			// Display windows errno in error message.
-			errno, ok := toErrno(err)
+			operr, ok := err.(*OpError)
+			if !ok {
+				return "", err
+			}
+			errno, ok := operr.Err.(syscall.Errno)
 			if !ok {
 				return "", err
 			}
@@ -49,14 +36,10 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 
 		b := make([]byte, 100)
 		n, err := c.Read(b)
-		if err == nil || err == io.EOF {
-			return string(b[:n]), nil
+		if err != nil && err != io.EOF {
+			return "", err
 		}
-		errno, ok := toErrno(err)
-		if ok && ignoreSomeReadErrors && (errno == syscall.ERROR_NETNAME_DELETED || errno == syscall.WSAECONNRESET) {
-			return "", nil
-		}
-		return "", err
+		return string(b[:n]), nil
 	}
 
 	send := func(addr string, data string) error {
@@ -81,7 +64,7 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 		// In child process.
 		c, err := Dial("tcp", envaddr)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Dial failed: %v", err)
 		}
 		fmt.Printf("sleeping\n")
 		time.Sleep(time.Minute) // process will be killed here
@@ -90,7 +73,7 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 
 	ln, err := Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Listen failed: %v", err)
 	}
 	defer ln.Close()
 
@@ -140,13 +123,13 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 	}()
 
 	// Receive first or second connection.
-	s, err := recv(ln, true)
+	s, err := recv(ln)
 	if err != nil {
 		t.Fatalf("recv failed: %v", err)
 	}
 	switch s {
 	case "":
-		// First connection data is received, let's get second connection data.
+		// First connection data is received, lets get second connection data.
 	case "abc":
 		// First connection is lost forever, but that is ok.
 		return
@@ -155,7 +138,7 @@ func TestAcceptIgnoreSomeErrors(t *testing.T) {
 	}
 
 	// Get second connection data.
-	s, err = recv(ln, false)
+	s, err = recv(ln)
 	if err != nil {
 		t.Fatalf("recv failed: %v", err)
 	}

@@ -3,8 +3,6 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-# See golang.org/s/go15bootstrap for an overview of the build process.
-
 # Environment variables that control make.bash:
 #
 # GOROOT_FINAL: The expected final Go root, baked into binaries.
@@ -19,11 +17,14 @@
 #
 # GOOS: The target operating system for installed packages and tools.
 #
-# GO_GCFLAGS: Additional go tool compile arguments to use when
+# GO_GCFLAGS: Additional 5g/6g/8g arguments to use when
 # building the packages and commands.
 #
-# GO_LDFLAGS: Additional go tool link arguments to use when
+# GO_LDFLAGS: Additional 5l/6l/8l arguments to use when
 # building the commands.
+#
+# GO_CCFLAGS: Additional 5c/6c/8c arguments to use when
+# building.
 #
 # CGO_ENABLED: Controls cgo usage during the build. Set it to 1
 # to include all cgo related files, .c and .go file with "cgo"
@@ -109,16 +110,26 @@ rm -f ./runtime/runtime_defs.go
 
 # Finally!  Run the build.
 
-echo '##### Building Go bootstrap tool.'
+echo '# Building C bootstrap tool.'
 echo cmd/dist
 export GOROOT="$(cd .. && pwd)"
-GOROOT_BOOTSTRAP=${GOROOT_BOOTSTRAP:-$HOME/go1.4}
-if [ ! -x "$GOROOT_BOOTSTRAP/bin/go" ]; then
-	echo "ERROR: Cannot find $GOROOT_BOOTSTRAP/bin/go." >&2
-	echo "Set \$GOROOT_BOOTSTRAP to a working Go tree >= Go 1.4." >&2
+GOROOT_FINAL="${GOROOT_FINAL:-$GOROOT}"
+DEFGOROOT='-DGOROOT_FINAL="'"$GOROOT_FINAL"'"'
+
+mflag=""
+case "$GOHOSTARCH" in
+386) mflag=-m32;;
+amd64) mflag=-m64;;
+esac
+if [ "$(uname)" == "Darwin" ]; then
+	# golang.org/issue/5261
+	mflag="$mflag -mmacosx-version-min=10.6"
 fi
-rm -f cmd/dist/dist
-GOROOT="$GOROOT_BOOTSTRAP" GOOS="" GOARCH="" "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist
+# if gcc does not exist and $CC is not set, try clang if available.
+if [ -z "$CC" -a -z "$(type -t gcc)" -a -n "$(type -t clang)" ]; then
+	export CC=clang CXX=clang++
+fi
+${CC:-gcc} $mflag -O2 -Wall -Werror -o cmd/dist/dist -Icmd/dist "$DEFGOROOT" cmd/dist/*.c
 
 # -e doesn't propagate out of eval, so check success by hand.
 eval $(./cmd/dist/dist env -p || echo FAIL=true)
@@ -138,6 +149,7 @@ if [ "$1" = "--dist-tool" ]; then
 	exit 0
 fi
 
+echo "# Building compilers and Go bootstrap tool for host, $GOHOSTOS/$GOHOSTARCH."
 buildall="-a"
 if [ "$1" = "--no-clean" ]; then
 	buildall=""
@@ -146,19 +158,20 @@ fi
 ./cmd/dist/dist bootstrap $buildall $GO_DISTFLAGS -v # builds go_bootstrap
 # Delay move of dist tool to now, because bootstrap may clear tool directory.
 mv cmd/dist/dist "$GOTOOLDIR"/dist
+"$GOTOOLDIR"/go_bootstrap clean -i std
 echo
 
 if [ "$GOHOSTARCH" != "$GOARCH" -o "$GOHOSTOS" != "$GOOS" ]; then
-	echo "##### Building packages and commands for host, $GOHOSTOS/$GOHOSTARCH."
+	echo "# Building packages and commands for host, $GOHOSTOS/$GOHOSTARCH."
 	# CC_FOR_TARGET is recorded as the default compiler for the go tool. When building for the host, however,
 	# use the host compiler, CC, from `cmd/dist/dist env` instead.
 	CC=$CC GOOS=$GOHOSTOS GOARCH=$GOHOSTARCH \
-		"$GOTOOLDIR"/go_bootstrap install -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std cmd
+		"$GOTOOLDIR"/go_bootstrap install -ccflags "$GO_CCFLAGS" -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
 	echo
 fi
 
-echo "##### Building packages and commands for $GOOS/$GOARCH."
-CC=$CC_FOR_TARGET "$GOTOOLDIR"/go_bootstrap install $GO_FLAGS -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std cmd
+echo "# Building packages and commands for $GOOS/$GOARCH."
+CC=$CC_FOR_TARGET "$GOTOOLDIR"/go_bootstrap install $GO_FLAGS -ccflags "$GO_CCFLAGS" -gcflags "$GO_GCFLAGS" -ldflags "$GO_LDFLAGS" -v std
 echo
 
 rm -f "$GOTOOLDIR"/go_bootstrap

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// Read static host/IP entries from /etc/hosts.
+
 package net
 
 import (
@@ -11,21 +13,8 @@ import (
 
 const cacheMaxAge = 5 * time.Minute
 
-func parseLiteralIP(addr string) string {
-	var ip IP
-	var zone string
-	ip = parseIPv4(addr)
-	if ip == nil {
-		ip, zone = parseIPv6(addr, true)
-	}
-	if ip == nil {
-		return ""
-	}
-	if zone == "" {
-		return ip.String()
-	}
-	return ip.String() + "%" + zone
-}
+// hostsPath points to the file with static IP/address entries.
+var hostsPath = "/etc/hosts"
 
 // Simple cache.
 var hosts struct {
@@ -38,7 +27,7 @@ var hosts struct {
 
 func readHosts() {
 	now := time.Now()
-	hp := testHookHostsPath
+	hp := hostsPath
 	if len(hosts.byName) == 0 || now.After(hosts.expire) || hosts.path != hp {
 		hs := make(map[string][]string)
 		is := make(map[string][]string)
@@ -52,17 +41,13 @@ func readHosts() {
 				line = line[0:i]
 			}
 			f := getFields(line)
-			if len(f) < 2 {
-				continue
-			}
-			addr := parseLiteralIP(f[0])
-			if addr == "" {
+			if len(f) < 2 || ParseIP(f[0]) == nil {
 				continue
 			}
 			for i := 1; i < len(f); i++ {
 				h := f[i]
-				hs[h] = append(hs[h], addr)
-				is[addr] = append(is[addr], h)
+				hs[h] = append(hs[h], f[0])
+				is[f[0]] = append(is[f[0]], h)
 			}
 		}
 		// Update the data cache.
@@ -92,10 +77,6 @@ func lookupStaticAddr(addr string) []string {
 	hosts.Lock()
 	defer hosts.Unlock()
 	readHosts()
-	addr = parseLiteralIP(addr)
-	if addr == "" {
-		return nil
-	}
 	if len(hosts.byAddr) != 0 {
 		if hosts, ok := hosts.byAddr[addr]; ok {
 			return hosts

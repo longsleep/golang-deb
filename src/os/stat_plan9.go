@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-const _BIT16SZ = 2
-
 func sameFile(fs1, fs2 *fileStat) bool {
 	a := fs1.sys.(*syscall.Dir)
 	b := fs2.sys.(*syscall.Dir)
@@ -43,14 +41,16 @@ func fileInfoFromStat(d *syscall.Dir) FileInfo {
 // arg is an open *File or a path string.
 func dirstat(arg interface{}) (*syscall.Dir, error) {
 	var name string
-	var err error
 
-	size := syscall.STATFIXLEN + 16*4
+	// This is big enough for most stat messages
+	// and rounded to a multiple of 128 bytes.
+	size := (syscall.STATFIXLEN + 16*4 + 128) &^ 128
 
 	for i := 0; i < 2; i++ {
-		buf := make([]byte, _BIT16SZ+size)
+		buf := make([]byte, size)
 
 		var n int
+		var err error
 		switch a := arg.(type) {
 		case *File:
 			name = a.name
@@ -61,9 +61,11 @@ func dirstat(arg interface{}) (*syscall.Dir, error) {
 		default:
 			panic("phase error in dirstat")
 		}
-
-		if n < _BIT16SZ {
+		if err != nil {
 			return nil, &PathError{"stat", name, err}
+		}
+		if n < syscall.STATFIXLEN {
+			return nil, &PathError{"stat", name, syscall.ErrShortStat}
 		}
 
 		// Pull the real size out of the stat message.
@@ -71,26 +73,22 @@ func dirstat(arg interface{}) (*syscall.Dir, error) {
 
 		// If the stat message is larger than our buffer we will
 		// go around the loop and allocate one that is big enough.
-		if size <= n {
-			d, err := syscall.UnmarshalDir(buf[:n])
-			if err != nil {
-				return nil, &PathError{"stat", name, err}
-			}
-			return d, nil
+		if size > n {
+			continue
 		}
 
+		d, err := syscall.UnmarshalDir(buf[:n])
+		if err != nil {
+			return nil, &PathError{"stat", name, err}
+		}
+		return d, nil
 	}
-
-	if err == nil {
-		err = syscall.ErrBadStat
-	}
-
-	return nil, &PathError{"stat", name, err}
+	return nil, &PathError{"stat", name, syscall.ErrBadStat}
 }
 
 // Stat returns a FileInfo describing the named file.
 // If there is an error, it will be of type *PathError.
-func Stat(name string) (FileInfo, error) {
+func Stat(name string) (fi FileInfo, err error) {
 	d, err := dirstat(name)
 	if err != nil {
 		return nil, err
@@ -102,7 +100,7 @@ func Stat(name string) (FileInfo, error) {
 // If the file is a symbolic link, the returned FileInfo
 // describes the symbolic link.  Lstat makes no attempt to follow the link.
 // If there is an error, it will be of type *PathError.
-func Lstat(name string) (FileInfo, error) {
+func Lstat(name string) (fi FileInfo, err error) {
 	return Stat(name)
 }
 

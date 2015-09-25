@@ -8,7 +8,3 @@ func ForceAusForTesting() {
 	ResetLocalOnceForTest()
 	localOnce.Do(initAusTestingZone)
 }
-
-func ToEnglishName(stdname, dstname string) (string, error) {
-	return toEnglishName(stdname, dstname)
-}

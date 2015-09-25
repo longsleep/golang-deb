@@ -335,8 +335,6 @@ func TestRaceRange(t *testing.T) {
 			}
 			done <- true
 		}(i)
-		// Ensure the goroutine runs before we continue the loop.
-		runtime.Gosched()
 	}
 	for i := 0; i < N; i++ {
 		<-done
@@ -1065,7 +1063,6 @@ func TestRaceCrawl(t *testing.T) {
 		}()
 		seen[u] = true
 		if d <= 0 {
-			wg.Done()
 			return
 		}
 		urls := [...]string{"a", "b", "c"}
@@ -1587,110 +1584,6 @@ func TestRaceBlockAs(t *testing.T) {
 	<-c
 }
 
-func TestRaceBlockCall1(t *testing.T) {
-	done := make(chan bool)
-	x, y := 0, 0
-	go func() {
-		f := func() (int, int) {
-			return 42, 43
-		}
-		x, y = f()
-		done <- true
-	}()
-	_ = x
-	<-done
-	if x != 42 || y != 43 {
-		panic("corrupted data")
-	}
-}
-func TestRaceBlockCall2(t *testing.T) {
-	done := make(chan bool)
-	x, y := 0, 0
-	go func() {
-		f := func() (int, int) {
-			return 42, 43
-		}
-		x, y = f()
-		done <- true
-	}()
-	_ = y
-	<-done
-	if x != 42 || y != 43 {
-		panic("corrupted data")
-	}
-}
-func TestRaceBlockCall3(t *testing.T) {
-	done := make(chan bool)
-	var x *int
-	y := 0
-	go func() {
-		f := func() (*int, int) {
-			i := 42
-			return &i, 43
-		}
-		x, y = f()
-		done <- true
-	}()
-	_ = x
-	<-done
-	if *x != 42 || y != 43 {
-		panic("corrupted data")
-	}
-}
-func TestRaceBlockCall4(t *testing.T) {
-	done := make(chan bool)
-	x := 0
-	var y *int
-	go func() {
-		f := func() (int, *int) {
-			i := 43
-			return 42, &i
-		}
-		x, y = f()
-		done <- true
-	}()
-	_ = y
-	<-done
-	if x != 42 || *y != 43 {
-		panic("corrupted data")
-	}
-}
-func TestRaceBlockCall5(t *testing.T) {
-	done := make(chan bool)
-	var x *int
-	y := 0
-	go func() {
-		f := func() (*int, int) {
-			i := 42
-			return &i, 43
-		}
-		x, y = f()
-		done <- true
-	}()
-	_ = y
-	<-done
-	if *x != 42 || y != 43 {
-		panic("corrupted data")
-	}
-}
-func TestRaceBlockCall6(t *testing.T) {
-	done := make(chan bool)
-	x := 0
-	var y *int
-	go func() {
-		f := func() (int, *int) {
-			i := 43
-			return 42, &i
-		}
-		x, y = f()
-		done <- true
-	}()
-	_ = x
-	<-done
-	if x != 42 || *y != 43 {
-		panic("corrupted data")
-	}
-}
 func TestRaceSliceSlice(t *testing.T) {
 	c := make(chan bool, 1)
 	x := make([]int, 10)
@@ -1833,16 +1726,13 @@ func TestNoRaceAsFunc4(t *testing.T) {
 }
 
 func TestRaceHeapParam(t *testing.T) {
-	done := make(chan bool)
 	x := func() (x int) {
 		go func() {
 			x = 42
-			done <- true
 		}()
 		return
 	}()
 	_ = x
-	<-done
 }
 
 func TestNoRaceEmptyStruct(t *testing.T) {

@@ -6,19 +6,35 @@ package runtime
 
 import "unsafe"
 
-type libcFunc uintptr
+func setitimer(mode int32, new, old unsafe.Pointer)
+func sigaction(sig int32, new, old unsafe.Pointer)
+func sigaltstack(new, old unsafe.Pointer)
+func sigprocmask(mode int32, new, old unsafe.Pointer)
+func sysctl(mib *uint32, miblen uint32, out *byte, size *uintptr, dst *byte, ndst uintptr) int32
+func getrlimit(kind int32, limit unsafe.Pointer)
+func miniterrno(fn unsafe.Pointer)
+func raise(sig int32)
+func getcontext(ctxt unsafe.Pointer)
+func tstart_sysvicall(mm unsafe.Pointer) uint32
+func nanotime1() int64
+func usleep1(usec uint32)
+func osyield1()
+func netpollinit()
+func netpollopen(fd uintptr, pd *pollDesc) int32
+func netpollclose(fd uintptr) int32
+func netpollarm(pd *pollDesc, mode int)
+
+type libcFunc byte
 
 var asmsysvicall6 libcFunc
-
-//go:noescape
-func sigfwd(fn uintptr, sig uint32, info *siginfo, ctx unsafe.Pointer)
 
 //go:nosplit
 func sysvicall0(fn *libcFunc) uintptr {
 	libcall := &getg().m.libcall
 	libcall.fn = uintptr(unsafe.Pointer(fn))
 	libcall.n = 0
-	libcall.args = uintptr(unsafe.Pointer(fn)) // it's unused but must be non-nil, otherwise crashes
+	// TODO(rsc): Why is noescape necessary here and below?
+	libcall.args = uintptr(noescape(unsafe.Pointer(&fn))) // it's unused but must be non-nil, otherwise crashes
 	asmcgocall(unsafe.Pointer(&asmsysvicall6), unsafe.Pointer(libcall))
 	return libcall.r1
 }
@@ -28,7 +44,6 @@ func sysvicall1(fn *libcFunc, a1 uintptr) uintptr {
 	libcall := &getg().m.libcall
 	libcall.fn = uintptr(unsafe.Pointer(fn))
 	libcall.n = 1
-	// TODO(rsc): Why is noescape necessary here and below?
 	libcall.args = uintptr(noescape(unsafe.Pointer(&a1)))
 	asmcgocall(unsafe.Pointer(&asmsysvicall6), unsafe.Pointer(libcall))
 	return libcall.r1

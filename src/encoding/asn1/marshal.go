@@ -18,7 +18,7 @@ import (
 // A forkableWriter is an in-memory buffer that can be
 // 'forked' to create new forkableWriters that bracket the
 // original.  After
-//    pre, post := w.fork()
+//    pre, post := w.fork();
 // the overall sequence of bytes represented is logically w+pre+post.
 type forkableWriter struct {
 	*bytes.Buffer
@@ -410,11 +410,9 @@ func stripTagAndLength(in []byte) []byte {
 
 func marshalBody(out *forkableWriter, value reflect.Value, params fieldParameters) (err error) {
 	switch value.Type() {
-	case flagType:
-		return nil
 	case timeType:
 		t := value.Interface().(time.Time)
-		if params.timeType == tagGeneralizedTime || outsideUTCRange(t) {
+		if outsideUTCRange(t) {
 			return marshalGeneralizedTime(out, t)
 		} else {
 			return marshalUTCTime(out, t)
@@ -554,10 +552,6 @@ func marshalField(out *forkableWriter, v reflect.Value, params fieldParameters) 
 	}
 	class := classUniversal
 
-	if params.timeType != 0 && tag != tagUTCTime {
-		return StructuralError{"explicit time type given to non-time member"}
-	}
-
 	if params.stringType != 0 && tag != tagPrintableString {
 		return StructuralError{"explicit string type given to non-string member"}
 	}
@@ -581,7 +575,7 @@ func marshalField(out *forkableWriter, v reflect.Value, params fieldParameters) 
 			tag = params.stringType
 		}
 	case tagUTCTime:
-		if params.timeType == tagGeneralizedTime || outsideUTCRange(v.Interface().(time.Time)) {
+		if outsideUTCRange(v.Interface().(time.Time)) {
 			tag = tagGeneralizedTime
 		}
 	}

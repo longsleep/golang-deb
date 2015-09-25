@@ -7,7 +7,7 @@ package runtime
 // Compiler is the name of the compiler toolchain that built the
 // running binary.  Known toolchains are:
 //
-//	gc      Also known as cmd/compile.
+//	gc      The 5g/6g/8g compiler suite at code.google.com/p/go.
 //	gccgo   The gccgo front end, part of the GCC compiler suite.
 //
 const Compiler = "gc"

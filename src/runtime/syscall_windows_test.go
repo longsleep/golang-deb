@@ -271,7 +271,7 @@ func (f cbDLLFunc) buildOne(stdcall bool) string {
 	typename := "t" + funcname
 	p := make([]string, f)
 	for i := range p {
-		p[i] = "uintptr_t"
+		p[i] = "void*"
 	}
 	params := strings.Join(p, ",")
 	for i := range p {
@@ -280,9 +280,9 @@ func (f cbDLLFunc) buildOne(stdcall bool) string {
 	args := strings.Join(p, ",")
 	return fmt.Sprintf(`
 typedef void %s (*%s)(%s);
-void %s(%s f, uintptr_t n) {
-	uintptr_t i;
-	for(i=0;i<n;i++){
+void %s(%s f, void *n) {
+	int i;
+	for(i=0;i<(int)n;i++){
 		f(%s);
 	}
 }
@@ -290,7 +290,7 @@ void %s(%s f, uintptr_t n) {
 }
 
 func (f cbDLLFunc) build() string {
-	return "#include <stdint.h>\n\n" + f.buildOne(false) + f.buildOne(true)
+	return f.buildOne(false) + f.buildOne(true)
 }
 
 var cbFuncs = [...]interface{}{
@@ -379,13 +379,13 @@ var cbDLLs = []cbDLL{
 	{
 		"test",
 		func(out, src string) []string {
-			return []string{"gcc", "-shared", "-s", "-Werror", "-o", out, src}
+			return []string{"gcc", "-shared", "-s", "-o", out, src}
 		},
 	},
 	{
 		"testO2",
 		func(out, src string) []string {
-			return []string{"gcc", "-shared", "-s", "-Werror", "-o", out, "-O2", src}
+			return []string{"gcc", "-shared", "-s", "-o", out, "-O2", src}
 		},
 	},
 }
@@ -436,9 +436,6 @@ var cbTests = []cbTest{
 }
 
 func TestStdcallAndCDeclCallbacks(t *testing.T) {
-	if _, err := exec.LookPath("gcc"); err != nil {
-		t.Skip("skipping test: gcc is missing")
-	}
 	tmp, err := ioutil.TempDir("", "TestCDeclCallback")
 	if err != nil {
 		t.Fatal("TempDir failed: ", err)
@@ -537,106 +534,10 @@ func main() {
 }
 `
 
-func TestWERDialogue(t *testing.T) {
-	if os.Getenv("TESTING_WER_DIALOGUE") == "1" {
-		defer os.Exit(0)
-
-		*runtime.TestingWER = true
-		const EXCEPTION_NONCONTINUABLE = 1
-		mod := syscall.MustLoadDLL("kernel32.dll")
-		proc := mod.MustFindProc("RaiseException")
-		proc.Call(0xbad, EXCEPTION_NONCONTINUABLE, 0, 0)
-		println("RaiseException should not return")
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestWERDialogue")
-	cmd.Env = []string{"TESTING_WER_DIALOGUE=1"}
-	// Child process should not open WER dialogue, but return immediately instead.
-	cmd.CombinedOutput()
-}
-
-var used byte
-
-func use(buf []byte) {
-	for _, c := range buf {
-		used += c
-	}
-}
-
-func forceStackCopy() (r int) {
-	var f func(int) int
-	f = func(i int) int {
-		var buf [256]byte
-		use(buf[:])
-		if i == 0 {
-			return 0
-		}
-		return i + f(i-1)
-	}
-	r = f(128)
-	return
-}
-
-func TestReturnAfterStackGrowInCallback(t *testing.T) {
-	if _, err := exec.LookPath("gcc"); err != nil {
-		t.Skip("skipping test: gcc is missing")
-	}
-
-	const src = `
-#include <stdint.h>
-#include <windows.h>
-
-typedef uintptr_t __stdcall (*callback)(uintptr_t);
-
-uintptr_t cfunc(callback f, uintptr_t n) {
-   uintptr_t r;
-   r = f(n);
-   SetLastError(333);
-   return r;
-}
-`
-	tmpdir, err := ioutil.TempDir("", "TestReturnAfterStackGrowInCallback")
-	if err != nil {
-		t.Fatal("TempDir failed: ", err)
-	}
-	defer os.RemoveAll(tmpdir)
-
-	srcname := "mydll.c"
-	err = ioutil.WriteFile(filepath.Join(tmpdir, srcname), []byte(src), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	outname := "mydll.dll"
-	cmd := exec.Command("gcc", "-shared", "-s", "-Werror", "-o", outname, srcname)
-	cmd.Dir = tmpdir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("failed to build dll: %v - %v", err, string(out))
-	}
-	dllpath := filepath.Join(tmpdir, outname)
-
-	dll := syscall.MustLoadDLL(dllpath)
-	defer dll.Release()
-
-	proc := dll.MustFindProc("cfunc")
-
-	cb := syscall.NewCallback(func(n uintptr) uintptr {
-		forceStackCopy()
-		return n
-	})
-
-	// Use a new goroutine so that we get a small stack.
-	type result struct {
-		r   uintptr
-		err syscall.Errno
-	}
-	c := make(chan result)
-	go func() {
-		r, _, err := proc.Call(cb, 100)
-		c <- result{r, err.(syscall.Errno)}
-	}()
-	want := result{r: 100, err: 333}
-	if got := <-c; got != want {
-		t.Errorf("got %d want %d", got, want)
-	}
+func TestCallbackWithNoInputParameters(t *testing.T) {
+	// Test that NewCallback and NewCallbackCDecl can accept functions without
+	// input parameters, see issue 9871.
+	cb := func() uintptr { return 0 }
+	_ = syscall.NewCallback(cb)
+	_ = syscall.NewCallbackCDecl(cb)
 }

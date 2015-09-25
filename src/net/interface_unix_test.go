@@ -42,50 +42,50 @@ func (ti *testInterface) teardown() error {
 
 func TestPointToPointInterface(t *testing.T) {
 	if testing.Short() {
-		t.Skip("avoid external network")
+		t.Skip("skipping test in short mode")
 	}
-	if runtime.GOOS == "darwin" {
-		t.Skipf("not supported on %s", runtime.GOOS)
+	switch {
+	case runtime.GOOS == "darwin":
+		t.Skipf("skipping read test on %q", runtime.GOOS)
 	}
 	if os.Getuid() != 0 {
-		t.Skip("must be root")
+		t.Skip("skipping test; must be root")
 	}
 
 	local, remote := "169.254.0.1", "169.254.0.254"
 	ip := ParseIP(remote)
 	for i := 0; i < 3; i++ {
-		ti := &testInterface{local: local, remote: remote}
-		if err := ti.setPointToPoint(5963 + i); err != nil {
+		ti := &testInterface{}
+		if err := ti.setPointToPoint(5963+i, local, remote); err != nil {
 			t.Skipf("test requries external command: %v", err)
 		}
 		if err := ti.setup(); err != nil {
-			t.Fatal(err)
+			t.Fatalf("testInterface.setup failed: %v", err)
 		} else {
 			time.Sleep(3 * time.Millisecond)
 		}
 		ift, err := Interfaces()
 		if err != nil {
 			ti.teardown()
-			t.Fatal(err)
+			t.Fatalf("Interfaces failed: %v", err)
 		}
 		for _, ifi := range ift {
-			if ti.name != ifi.Name {
-				continue
-			}
-			ifat, err := ifi.Addrs()
-			if err != nil {
-				ti.teardown()
-				t.Fatal(err)
-			}
-			for _, ifa := range ifat {
-				if ip.Equal(ifa.(*IPNet).IP) {
+			if ti.name == ifi.Name {
+				ifat, err := ifi.Addrs()
+				if err != nil {
 					ti.teardown()
-					t.Fatalf("got %v", ifa)
+					t.Fatalf("Interface.Addrs failed: %v", err)
+				}
+				for _, ifa := range ifat {
+					if ip.Equal(ifa.(*IPNet).IP) {
+						ti.teardown()
+						t.Fatalf("got %v; want %v", ip, local)
+					}
 				}
 			}
 		}
 		if err := ti.teardown(); err != nil {
-			t.Fatal(err)
+			t.Fatalf("testInterface.teardown failed: %v", err)
 		} else {
 			time.Sleep(3 * time.Millisecond)
 		}
@@ -94,32 +94,30 @@ func TestPointToPointInterface(t *testing.T) {
 
 func TestInterfaceArrivalAndDeparture(t *testing.T) {
 	if testing.Short() {
-		t.Skip("avoid external network")
+		t.Skip("skipping test in short mode")
 	}
 	if os.Getuid() != 0 {
-		t.Skip("must be root")
+		t.Skip("skipping test; must be root")
 	}
 
-	local, remote := "169.254.0.1", "169.254.0.254"
-	ip := ParseIP(remote)
 	for i := 0; i < 3; i++ {
 		ift1, err := Interfaces()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Interfaces failed: %v", err)
 		}
-		ti := &testInterface{local: local, remote: remote}
+		ti := &testInterface{}
 		if err := ti.setBroadcast(5682 + i); err != nil {
 			t.Skipf("test requires external command: %v", err)
 		}
 		if err := ti.setup(); err != nil {
-			t.Fatal(err)
+			t.Fatalf("testInterface.setup failed: %v", err)
 		} else {
 			time.Sleep(3 * time.Millisecond)
 		}
 		ift2, err := Interfaces()
 		if err != nil {
 			ti.teardown()
-			t.Fatal(err)
+			t.Fatalf("Interfaces failed: %v", err)
 		}
 		if len(ift2) <= len(ift1) {
 			for _, ifi := range ift1 {
@@ -131,30 +129,14 @@ func TestInterfaceArrivalAndDeparture(t *testing.T) {
 			ti.teardown()
 			t.Fatalf("got %v; want gt %v", len(ift2), len(ift1))
 		}
-		for _, ifi := range ift2 {
-			if ti.name != ifi.Name {
-				continue
-			}
-			ifat, err := ifi.Addrs()
-			if err != nil {
-				ti.teardown()
-				t.Fatal(err)
-			}
-			for _, ifa := range ifat {
-				if ip.Equal(ifa.(*IPNet).IP) {
-					ti.teardown()
-					t.Fatalf("got %v", ifa)
-				}
-			}
-		}
 		if err := ti.teardown(); err != nil {
-			t.Fatal(err)
+			t.Fatalf("testInterface.teardown failed: %v", err)
 		} else {
 			time.Sleep(3 * time.Millisecond)
 		}
 		ift3, err := Interfaces()
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Interfaces failed: %v", err)
 		}
 		if len(ift3) >= len(ift2) {
 			for _, ifi := range ift2 {

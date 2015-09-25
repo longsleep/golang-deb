@@ -56,29 +56,29 @@ expr:
 	}
 |	'-' expr
 	{
-		$$ = $2.Neg($2)
+		$$.Neg($2)
 	}
 
 expr1:
 	expr2
 |	expr1 '+' expr2
 	{
-		$$ = $1.Add($1, $3)
+		$$.Add($1, $3)
 	}
 |	expr1 '-' expr2
 	{
-		$$ = $1.Sub($1, $3)
+		$$.Sub($1, $3)
 	}
 
 expr2:
 	expr3
 |	expr2 '*' expr3
 	{
-		$$ = $1.Mul($1, $3)
+		$$.Mul($1, $3)
 	}
 |	expr2 '/' expr3
 	{
-		$$ = $1.Quo($1, $3)
+		$$.Quo($1, $3)
 	}
 
 expr3:

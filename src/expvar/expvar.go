@@ -26,14 +26,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"runtime"
 	"sort"
 	"strconv"
 	"sync"
-	"sync/atomic"
 )
 
 // Var is an abstract type for all exported variables.
@@ -43,47 +41,52 @@ type Var interface {
 
 // Int is a 64-bit integer variable that satisfies the Var interface.
 type Int struct {
-	i int64
+	mu sync.RWMutex
+	i  int64
 }
 
 func (v *Int) String() string {
-	return strconv.FormatInt(atomic.LoadInt64(&v.i), 10)
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return strconv.FormatInt(v.i, 10)
 }
 
 func (v *Int) Add(delta int64) {
-	atomic.AddInt64(&v.i, delta)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.i += delta
 }
 
 func (v *Int) Set(value int64) {
-	atomic.StoreInt64(&v.i, value)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.i = value
 }
 
 // Float is a 64-bit float variable that satisfies the Var interface.
 type Float struct {
-	f uint64
+	mu sync.RWMutex
+	f  float64
 }
 
 func (v *Float) String() string {
-	return strconv.FormatFloat(
-		math.Float64frombits(atomic.LoadUint64(&v.f)), 'g', -1, 64)
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return strconv.FormatFloat(v.f, 'g', -1, 64)
 }
 
 // Add adds delta to v.
 func (v *Float) Add(delta float64) {
-	for {
-		cur := atomic.LoadUint64(&v.f)
-		curVal := math.Float64frombits(cur)
-		nxtVal := curVal + delta
-		nxt := math.Float64bits(nxtVal)
-		if atomic.CompareAndSwapUint64(&v.f, cur, nxt) {
-			return
-		}
-	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.f += delta
 }
 
 // Set sets v to value.
 func (v *Float) Set(value float64) {
-	atomic.StoreUint64(&v.f, math.Float64bits(value))
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.f = value
 }
 
 // Map is a string-to-Var map variable that satisfies the Var interface.

@@ -10,52 +10,72 @@ import (
 	"time"
 )
 
-func TestNoRaceCond(t *testing.T) {
-	x := 0
-	condition := 0
+func TestNoRaceCond(t *testing.T) { // tsan's test02
+	ch := make(chan bool, 1)
+	var x int = 0
 	var mu sync.Mutex
-	cond := sync.NewCond(&mu)
-	go func() {
+	var cond *sync.Cond = sync.NewCond(&mu)
+	var condition int = 0
+	var waker func()
+	waker = func() {
 		x = 1
 		mu.Lock()
 		condition = 1
 		cond.Signal()
 		mu.Unlock()
-	}()
-	mu.Lock()
-	for condition != 1 {
-		cond.Wait()
 	}
-	mu.Unlock()
-	x = 2
+
+	var waiter func()
+	waiter = func() {
+		go waker()
+		cond.L.Lock()
+		for condition != 1 {
+			cond.Wait()
+		}
+		cond.L.Unlock()
+		x = 2
+		ch <- true
+	}
+	go waiter()
+	<-ch
 }
 
-func TestRaceCond(t *testing.T) {
-	done := make(chan bool)
+func TestRaceCond(t *testing.T) { // tsan's test50
+	ch := make(chan bool, 2)
+
+	var x int = 0
 	var mu sync.Mutex
-	cond := sync.NewCond(&mu)
-	x := 0
-	condition := 0
-	go func() {
-		time.Sleep(10 * time.Millisecond) // Enter cond.Wait loop
+	var condition int = 0
+	var cond *sync.Cond = sync.NewCond(&mu)
+
+	var waker func() = func() {
+		<-time.After(1e5)
 		x = 1
 		mu.Lock()
 		condition = 1
 		cond.Signal()
 		mu.Unlock()
-		time.Sleep(10 * time.Millisecond) // Exit cond.Wait loop
+		<-time.After(1e5)
 		mu.Lock()
 		x = 3
 		mu.Unlock()
-		done <- true
-	}()
-	mu.Lock()
-	for condition != 1 {
-		cond.Wait()
+		ch <- true
 	}
-	mu.Unlock()
-	x = 2
-	<-done
+
+	var waiter func() = func() {
+		mu.Lock()
+		for condition != 1 {
+			cond.Wait()
+		}
+		mu.Unlock()
+		x = 2
+		ch <- true
+	}
+	x = 0
+	go waker()
+	go waiter()
+	<-ch
+	<-ch
 }
 
 // We do not currently automatically

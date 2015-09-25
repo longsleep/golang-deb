@@ -549,6 +549,7 @@ func (d *Decoder) rawToken() (Token, error) {
 
 	case '?':
 		// <?: Processing instruction.
+		// TODO(rsc): Should parse the <?xml declaration to make sure the version is 1.0.
 		var target string
 		if target, ok = d.name(); !ok {
 			if d.err == nil {
@@ -573,13 +574,7 @@ func (d *Decoder) rawToken() (Token, error) {
 		data = data[0 : len(data)-2] // chop ?>
 
 		if target == "xml" {
-			content := string(data)
-			ver := procInst("version", content)
-			if ver != "" && ver != "1.0" {
-				d.err = fmt.Errorf("xml: unsupported version %q; only version 1.0 is supported", ver)
-				return nil, d.err
-			}
-			enc := procInst("encoding", content)
+			enc := procInstEncoding(string(data))
 			if enc != "" && enc != "utf-8" && enc != "UTF-8" {
 				if d.CharsetReader == nil {
 					d.err = fmt.Errorf("xml: encoding %q declared but Decoder.CharsetReader is nil", enc)
@@ -728,7 +723,7 @@ func (d *Decoder) rawToken() (Token, error) {
 		return nil, d.err
 	}
 
-	attr = []Attr{}
+	attr = make([]Attr, 0, 4)
 	for {
 		d.space()
 		if b, ok = d.mustgetc(); !ok {
@@ -752,11 +747,7 @@ func (d *Decoder) rawToken() (Token, error) {
 
 		n := len(attr)
 		if n >= cap(attr) {
-			nCap := 2 * cap(attr)
-			if nCap == 0 {
-				nCap = 4
-			}
-			nattr := make([]Attr, n, nCap)
+			nattr := make([]Attr, n, 2*cap(attr))
 			copy(nattr, attr)
 			attr = nattr
 		}
@@ -1128,12 +1119,12 @@ func (d *Decoder) name() (s string, ok bool) {
 	}
 
 	// Now we check the characters.
-	b := d.buf.Bytes()
-	if !isName(b) {
-		d.err = d.syntaxError("invalid XML name: " + string(b))
+	s = d.buf.String()
+	if !isName([]byte(s)) {
+		d.err = d.syntaxError("invalid XML name: " + s)
 		return "", false
 	}
-	return string(b), true
+	return s, true
 }
 
 // Read a name and append its bytes to d.buf.
@@ -1841,13 +1832,6 @@ var (
 // EscapeText writes to w the properly escaped XML equivalent
 // of the plain text data s.
 func EscapeText(w io.Writer, s []byte) error {
-	return escapeText(w, s, true)
-}
-
-// escapeText writes to w the properly escaped XML equivalent
-// of the plain text data s. If escapeNewline is true, newline
-// characters will be escaped.
-func escapeText(w io.Writer, s []byte, escapeNewline bool) error {
 	var esc []byte
 	last := 0
 	for i := 0; i < len(s); {
@@ -1867,9 +1851,6 @@ func escapeText(w io.Writer, s []byte, escapeNewline bool) error {
 		case '\t':
 			esc = esc_tab
 		case '\n':
-			if !escapeNewline {
-				continue
-			}
 			esc = esc_nl
 		case '\r':
 			esc = esc_cr
@@ -1940,17 +1921,16 @@ func Escape(w io.Writer, s []byte) {
 	EscapeText(w, s)
 }
 
-// procInst parses the `param="..."` or `param='...'`
+// procInstEncoding parses the `encoding="..."` or `encoding='...'`
 // value out of the provided string, returning "" if not found.
-func procInst(param, s string) string {
+func procInstEncoding(s string) string {
 	// TODO: this parsing is somewhat lame and not exact.
 	// It works for all actual cases, though.
-	param = param + "="
-	idx := strings.Index(s, param)
+	idx := strings.Index(s, "encoding=")
 	if idx == -1 {
 		return ""
 	}
-	v := s[idx+len(param):]
+	v := s[idx+len("encoding="):]
 	if v == "" {
 		return ""
 	}
