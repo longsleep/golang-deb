@@ -11,6 +11,9 @@ golang (2:1.5.1-1~exp1) UNRELEASED; urgency=low
       GOROOT, and thus the golang-go-GOHOST-GOARCH packages are removed.
   * Sync debian/copyright with the Ubuntu delta. (thanks doko!)
   * Remove patches that no longer apply.
+  * Add more supported arches to "debian/rules" code for detecting
+    appropriate GOARCH/GOHOSTARCH values; thanks mwhudson and tpot!
+    (Closes: #799907)
 
  -- Tianon Gravi <tianon@debian.org>  Wed, 22 Jul 2015 21:55:56 -0700
 

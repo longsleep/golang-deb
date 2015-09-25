@@ -123,29 +123,38 @@ else ifeq ($(DEB_BUILD_ARCH_CPU), amd64)
     GOHOSTARCH := amd64
 else ifeq ($(DEB_BUILD_ARCH_CPU), arm)
     GOHOSTARCH := arm
-else ifeq ($(DEB_BUILD_ARCH_CPU), armhf)
-    GOHOSTARCH := arm
+else ifeq ($(DEB_BUILD_ARCH_CPU), arm64)
+    GOHOSTARCH := arm64
+else ifeq ($(DEB_BUILD_ARCH_CPU), ppc64)
+    GOHOSTARCH := ppc64
+else ifeq ($(DEB_BUILD_ARCH_CPU), ppc64el)
+    GOHOSTARCH := ppc64le
 else
-    $(error unrecognized build host instruction set $(DEB_HOST_ARCH_CPU)!)
+    $(error unrecognized build host instruction set $(DEB_BUILD_ARCH_CPU)!)
 endif
 
 ifeq ($(DEB_HOST_ARCH_CPU), i386)
     GOARCH := 386
-    GOPREFIX := 8
 else ifeq ($(DEB_HOST_ARCH_CPU), amd64)
     GOARCH := amd64
-    GOPREFIX := 6
 else ifeq ($(DEB_HOST_ARCH_CPU), arm)
-    GOARCH := arm
-    GOPREFIX := 5
-ifeq ($(DEB_HOST_ARCH), armel)
     RUN_TEST := false
+    GOARCH := arm
+# set GOARM to lowest-common-denominator for each arch
+# see notes about GO386 above for details
+ifeq ($(DEB_HOST_ARCH), armel)
     GOARM := 5
 else ifeq ($(DEB_HOST_ARCH), armhf)
     GOARM := 6
 else
-    $(error unrecognized arm architecture $(DEB_HOST_ARCH)!)
+    $(error unrecognized arm architecture $(DEB_HOST_ARCH) ($(shell uname -m))!)
 endif
+else ifeq ($(DEB_HOST_ARCH_CPU), arm64)
+    GOARCH := arm64
+else ifeq ($(DEB_HOST_ARCH_CPU), ppc64)
+    GOARCH := ppc64
+else ifeq ($(DEB_HOST_ARCH_CPU), ppc64el)
+    GOARCH := ppc64le
 else
     $(error unrecognized instruction set $(DEB_HOST_ARCH_CPU)!)
 endif
