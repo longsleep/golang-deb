@@ -21,6 +21,14 @@ golang (2:1.5.1-1~exp1) experimental; urgency=low
 
  -- Tianon Gravi <tianon@debian.org>  Fri, 25 Sep 2015 14:36:53 -0700
 
+golang (2:1.4.3-1) unstable; urgency=medium
+
+  * New upstream version (https://golang.org/doc/devel/release.html#go1.4.minor)
+    - includes previous CVE and non-CVE security fixes, especially
+      TEMP-0000000-1C4729
+
+ -- Tianon Gravi <tianon@debian.org>  Fri, 25 Sep 2015 00:02:31 -0700
+
 golang (2:1.4.2-4) unstable; urgency=high
 
   * Apply backported CVE fixes (Closes: #795106).
