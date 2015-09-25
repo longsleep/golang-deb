@@ -1,4 +1,4 @@
-golang (2:1.5.1-1~exp1) UNRELEASED; urgency=low
+golang (2:1.5.1-1~exp1) experimental; urgency=low
 
   * Upload to experimental.
   * Update to 1.5.1 upstream release (Closes: #796150).
@@ -19,7 +19,7 @@ golang (2:1.5.1-1~exp1) UNRELEASED; urgency=low
   * Move "dpkg-architecture" to "GOOS"/"GOARCH" code into a simple shell script
     for easier maintenance.
 
- -- Tianon Gravi <tianon@debian.org>  Wed, 22 Jul 2015 21:55:56 -0700
+ -- Tianon Gravi <tianon@debian.org>  Fri, 25 Sep 2015 14:36:53 -0700
 
 golang (2:1.4.2-4) unstable; urgency=high
 
