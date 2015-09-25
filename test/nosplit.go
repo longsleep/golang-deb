@@ -1,6 +1,5 @@
-// run
-
 // +build !nacl
+// run
 
 // Copyright 2014 The Go Authors.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -127,8 +126,9 @@ main 136 nosplit; REJECT
 # Calling a nosplit function from a nosplit function requires
 # having room for the saved caller PC and the called frame.
 # Because ARM doesn't save LR in the leaf, it gets an extra 4 bytes.
+# Because ppc64 doesn't save LR in the leaf, it gets an extra 8 bytes.
 main 112 nosplit call f; f 0 nosplit
-main 116 nosplit call f; f 0 nosplit; REJECT amd64
+main 116 nosplit call f; f 0 nosplit
 main 120 nosplit call f; f 0 nosplit; REJECT amd64
 main 124 nosplit call f; f 0 nosplit; REJECT amd64 386
 main 128 nosplit call f; f 0 nosplit; REJECT
@@ -137,8 +137,8 @@ main 136 nosplit call f; f 0 nosplit; REJECT
 
 # Calling a splitting function from a nosplit function requires
 # having room for the saved caller PC of the call but also the
-# saved caller PC for the call to morestack. Again the ARM works
-# in less space.
+# saved caller PC for the call to morestack.
+# Again the ARM and ppc64 work in less space.
 main 104 nosplit call f; f 0 call f
 main 108 nosplit call f; f 0 call f
 main 112 nosplit call f; f 0 call f; REJECT amd64
@@ -182,6 +182,17 @@ func main() {
 	goarch := os.Getenv("GOARCH")
 	if goarch == "" {
 		goarch = runtime.GOARCH
+	}
+
+	version, err := exec.Command("go", "tool", "compile", "-V").Output()
+	if err != nil {
+		bug()
+		fmt.Printf("running go tool compile -V: %v\n", err)
+		return
+	}
+	if strings.Contains(string(version), "framepointer") {
+		// Skip this test if GOEXPERIMENT=framepointer
+		return
 	}
 
 	dir, err := ioutil.TempDir("", "go-test-nosplit")
@@ -234,9 +245,20 @@ TestCases:
 		fmt.Fprintf(&gobuf, "package main\n")
 
 		var buf bytes.Buffer
-		if goarch == "arm" {
+		ptrSize := 4
+		switch goarch {
+		case "ppc64", "ppc64le":
+			ptrSize = 8
+			fmt.Fprintf(&buf, "#define CALL BL\n#define REGISTER (CTR)\n")
+		case "arm":
 			fmt.Fprintf(&buf, "#define CALL BL\n#define REGISTER (R0)\n")
-		} else {
+		case "arm64":
+			ptrSize = 8
+			fmt.Fprintf(&buf, "#define CALL BL\n#define REGISTER (R0)\n")
+		case "amd64":
+			ptrSize = 8
+			fmt.Fprintf(&buf, "#define REGISTER AX\n")
+		default:
 			fmt.Fprintf(&buf, "#define REGISTER AX\n")
 		}
 
@@ -259,14 +281,21 @@ TestCases:
 				name := m[1]
 				size, _ := strconv.Atoi(m[2])
 
-				// The limit was originally 128 but is now 384.
+				// The limit was originally 128 but is now 512.
 				// Instead of rewriting the test cases above, adjust
-				// the first stack frame to use up the extra 32 bytes.
+				// the first stack frame to use up the extra bytes.
 				if i == 0 {
-					size += 384 - 128
+					size += 512 - 128
+					// Noopt builds have a larger stackguard.
+					// See ../cmd/dist/buildruntime.go:stackGuardMultiplier
+					for _, s := range strings.Split(os.Getenv("GO_GCFLAGS"), " ") {
+						if s == "-N" {
+							size += 640
+						}
+					}
 				}
 
-				if goarch == "amd64" && size%8 == 4 {
+				if size%ptrSize == 4 || goarch == "arm64" && size != 0 && (size+8)%16 != 0 {
 					continue TestCases
 				}
 				nosplit := m[3]

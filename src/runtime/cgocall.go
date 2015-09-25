@@ -83,27 +83,17 @@ import "unsafe"
 
 // Call from Go to C.
 //go:nosplit
-func cgocall(fn, arg unsafe.Pointer) {
-	cgocall_errno(fn, arg)
-}
-
-//go:nosplit
-func cgocall_errno(fn, arg unsafe.Pointer) int32 {
+func cgocall(fn, arg unsafe.Pointer) int32 {
 	if !iscgo && GOOS != "solaris" && GOOS != "windows" {
-		gothrow("cgocall unavailable")
+		throw("cgocall unavailable")
 	}
 
 	if fn == nil {
-		gothrow("cgocall nil")
+		throw("cgocall nil")
 	}
 
 	if raceenabled {
 		racereleasemerge(unsafe.Pointer(&racecgosync))
-	}
-
-	// Create an extra M for callbacks on threads not created by Go on first cgo call.
-	if needextram == 1 && cas(&needextram, 1, 0) {
-		onM(newextram)
 	}
 
 	/*
@@ -127,9 +117,9 @@ func cgocall_errno(fn, arg unsafe.Pointer) int32 {
 	 * so it is safe to call while "in a system call", outside
 	 * the $GOMAXPROCS accounting.
 	 */
-	entersyscall()
-	errno := asmcgocall_errno(fn, arg)
-	exitsyscall()
+	entersyscall(0)
+	errno := asmcgocall(fn, arg)
+	exitsyscall(0)
 
 	return errno
 }
@@ -137,12 +127,6 @@ func cgocall_errno(fn, arg unsafe.Pointer) int32 {
 //go:nosplit
 func endcgo(mp *m) {
 	mp.ncgo--
-	if mp.ncgo == 0 {
-		// We are going back to Go and are not in a recursive
-		// call.  Let the GC collect any memory allocated via
-		// _cgo_allocate that is no longer referenced.
-		mp.cgomal = nil
-	}
 
 	if raceenabled {
 		raceacquire(unsafe.Pointer(&racecgosync))
@@ -153,25 +137,21 @@ func endcgo(mp *m) {
 
 // Helper functions for cgo code.
 
-// Filled by schedinit from corresponding C variables,
-// which are in turn filled in by dynamic linker when Cgo is available.
-var cgoMalloc, cgoFree unsafe.Pointer
-
 func cmalloc(n uintptr) unsafe.Pointer {
 	var args struct {
 		n   uint64
 		ret unsafe.Pointer
 	}
 	args.n = uint64(n)
-	cgocall(cgoMalloc, unsafe.Pointer(&args))
+	cgocall(_cgo_malloc, unsafe.Pointer(&args))
 	if args.ret == nil {
-		gothrow("C malloc failed")
+		throw("C malloc failed")
 	}
 	return args.ret
 }
 
 func cfree(p unsafe.Pointer) {
-	cgocall(cgoFree, p)
+	cgocall(_cgo_free, p)
 }
 
 // Call from C back to Go.
@@ -183,23 +163,37 @@ func cgocallbackg() {
 		exit(2)
 	}
 
+	// Save current syscall parameters, so m.syscall can be
+	// used again if callback decide to make syscall.
+	syscall := gp.m.syscall
+
 	// entersyscall saves the caller's SP to allow the GC to trace the Go
 	// stack. However, since we're returning to an earlier stack frame and
 	// need to pair with the entersyscall() call made by cgocall, we must
 	// save syscall* and let reentersyscall restore them.
 	savedsp := unsafe.Pointer(gp.syscallsp)
 	savedpc := gp.syscallpc
-	exitsyscall() // coming out of cgo call
+	exitsyscall(0) // coming out of cgo call
 	cgocallbackg1()
 	// going back to cgo call
-	reentersyscall(savedpc, savedsp)
+	reentersyscall(savedpc, uintptr(savedsp))
+
+	gp.m.syscall = syscall
 }
 
 func cgocallbackg1() {
 	gp := getg()
 	if gp.m.needextram {
 		gp.m.needextram = false
-		onM(newextram)
+		systemstack(newextram)
+	}
+
+	if gp.m.ncgo == 0 {
+		// The C call to Go came from a thread not currently running
+		// any Go. In the case of -buildmode=c-archive or c-shared,
+		// this call may be coming in before package initialization
+		// is complete. Wait until it is.
+		<-main_init_done
 	}
 
 	// Add entry to defer stack in case of panic.
@@ -222,21 +216,40 @@ func cgocallbackg1() {
 	sp := gp.m.g0.sched.sp
 	switch GOARCH {
 	default:
-		gothrow("cgocallbackg is unimplemented on arch")
+		throw("cgocallbackg is unimplemented on arch")
 	case "arm":
 		// On arm, stack frame is two words and there's a saved LR between
 		// SP and the stack frame and between the stack frame and the arguments.
 		cb = (*args)(unsafe.Pointer(sp + 4*ptrSize))
+	case "arm64":
+		// On arm64, stack frame is four words and there's a saved LR between
+		// SP and the stack frame and between the stack frame and the arguments.
+		cb = (*args)(unsafe.Pointer(sp + 5*ptrSize))
 	case "amd64":
 		// On amd64, stack frame is one word, plus caller PC.
+		if framepointer_enabled {
+			// In this case, there's also saved BP.
+			cb = (*args)(unsafe.Pointer(sp + 3*ptrSize))
+			break
+		}
 		cb = (*args)(unsafe.Pointer(sp + 2*ptrSize))
 	case "386":
 		// On 386, stack frame is three words, plus caller PC.
 		cb = (*args)(unsafe.Pointer(sp + 4*ptrSize))
+	case "ppc64", "ppc64le":
+		// On ppc64, stack frame is two words and there's a
+		// saved LR between SP and the stack frame and between
+		// the stack frame and the arguments.
+		cb = (*args)(unsafe.Pointer(sp + 4*ptrSize))
 	}
 
 	// Invoke callback.
-	reflectcall(unsafe.Pointer(cb.fn), unsafe.Pointer(cb.arg), uint32(cb.argsize), 0)
+	// NOTE(rsc): passing nil for argtype means that the copying of the
+	// results back into cb.arg happens without any corresponding write barriers.
+	// For cgo, cb.arg points into a C stack frame and therefore doesn't
+	// hold any pointers that the GC can find anyway - the write barrier
+	// would be a no-op.
+	reflectcall(nil, unsafe.Pointer(cb.fn), unsafe.Pointer(cb.arg), uint32(cb.argsize), 0)
 
 	if raceenabled {
 		racereleasemerge(unsafe.Pointer(&racecgosync))
@@ -257,23 +270,27 @@ func unwindm(restore *bool) {
 	sched := &mp.g0.sched
 	switch GOARCH {
 	default:
-		gothrow("unwindm not implemented")
+		throw("unwindm not implemented")
 	case "386", "amd64":
 		sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp))
 	case "arm":
 		sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp + 4))
+	case "arm64":
+		sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp + 16))
+	case "ppc64", "ppc64le":
+		sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp + 8))
 	}
 	releasem(mp)
 }
 
 // called from assembly
 func badcgocallback() {
-	gothrow("misaligned stack in cgocallback")
+	throw("misaligned stack in cgocallback")
 }
 
 // called from (incomplete) assembly
 func cgounimpl() {
-	gothrow("cgo not implemented")
+	throw("cgo not implemented")
 }
 
 var racecgosync uint64 // represents possible synchronization in C code

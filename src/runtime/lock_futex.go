@@ -34,9 +34,6 @@ const (
 // Note that there can be spinning threads during all states - they do not
 // affect mutex's state.
 
-func futexsleep(addr *uint32, val uint32, ns int64)
-func futexwakeup(addr *uint32, cnt uint32)
-
 // We use the uintptr mutex.key and note.key as a uint32.
 func key32(p *uintptr) *uint32 {
 	return (*uint32)(unsafe.Pointer(p))
@@ -46,7 +43,7 @@ func lock(l *mutex) {
 	gp := getg()
 
 	if gp.m.locks < 0 {
-		gothrow("runtime·lock: lock count")
+		throw("runtime·lock: lock count")
 	}
 	gp.m.locks++
 
@@ -105,7 +102,7 @@ func lock(l *mutex) {
 func unlock(l *mutex) {
 	v := xchg(key32(&l.key), mutex_unlocked)
 	if v == mutex_unlocked {
-		gothrow("unlock of unlocked lock")
+		throw("unlock of unlocked lock")
 	}
 	if v == mutex_sleeping {
 		futexwakeup(key32(&l.key), 1)
@@ -114,7 +111,7 @@ func unlock(l *mutex) {
 	gp := getg()
 	gp.m.locks--
 	if gp.m.locks < 0 {
-		gothrow("runtime·unlock: lock count")
+		throw("runtime·unlock: lock count")
 	}
 	if gp.m.locks == 0 && gp.preempt { // restore the preemption request in case we've cleared it in newstack
 		gp.stackguard0 = stackPreempt
@@ -130,7 +127,7 @@ func notewakeup(n *note) {
 	old := xchg(key32(&n.key), 1)
 	if old != 0 {
 		print("notewakeup - double wakeup (", old, ")\n")
-		gothrow("notewakeup - double wakeup")
+		throw("notewakeup - double wakeup")
 	}
 	futexwakeup(key32(&n.key), 1)
 }
@@ -138,7 +135,7 @@ func notewakeup(n *note) {
 func notesleep(n *note) {
 	gp := getg()
 	if gp != gp.m.g0 {
-		gothrow("notesleep not on g0")
+		throw("notesleep not on g0")
 	}
 	for atomicload(key32(&n.key)) == 0 {
 		gp.m.blocked = true
@@ -147,7 +144,11 @@ func notesleep(n *note) {
 	}
 }
 
+// May run with m.p==nil if called from notetsleep, so write barriers
+// are not allowed.
+//
 //go:nosplit
+//go:nowritebarrier
 func notetsleep_internal(n *note, ns int64) bool {
 	gp := getg()
 
@@ -183,8 +184,8 @@ func notetsleep_internal(n *note, ns int64) bool {
 
 func notetsleep(n *note, ns int64) bool {
 	gp := getg()
-	if gp != gp.m.g0 && gp.m.gcing == 0 {
-		gothrow("notetsleep not on g0")
+	if gp != gp.m.g0 && gp.m.preemptoff != "" {
+		throw("notetsleep not on g0")
 	}
 
 	return notetsleep_internal(n, ns)
@@ -195,11 +196,11 @@ func notetsleep(n *note, ns int64) bool {
 func notetsleepg(n *note, ns int64) bool {
 	gp := getg()
 	if gp == gp.m.g0 {
-		gothrow("notetsleepg on g0")
+		throw("notetsleepg on g0")
 	}
 
-	entersyscallblock()
+	entersyscallblock(0)
 	ok := notetsleep_internal(n, ns)
-	exitsyscall()
+	exitsyscall(0)
 	return ok
 }

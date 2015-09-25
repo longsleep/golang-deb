@@ -34,7 +34,7 @@ func netpollinit() {
 		return
 	}
 	println("netpollinit: failed to create epoll descriptor", -epfd)
-	gothrow("netpollinit: failed to create descriptor")
+	throw("netpollinit: failed to create descriptor")
 }
 
 func netpollopen(fd uintptr, pd *pollDesc) int32 {
@@ -50,14 +50,14 @@ func netpollclose(fd uintptr) int32 {
 }
 
 func netpollarm(pd *pollDesc, mode int) {
-	gothrow("unused")
+	throw("unused")
 }
 
 // polls for ready network connections
 // returns list of goroutines that become runnable
-func netpoll(block bool) (gp *g) {
+func netpoll(block bool) *g {
 	if epfd == -1 {
-		return
+		return nil
 	}
 	waitms := int32(-1)
 	if !block {
@@ -73,6 +73,7 @@ retry:
 		}
 		goto retry
 	}
+	var gp guintptr
 	for i := int32(0); i < n; i++ {
 		ev := &events[i]
 		if ev.events == 0 {
@@ -87,11 +88,12 @@ retry:
 		}
 		if mode != 0 {
 			pd := *(**pollDesc)(unsafe.Pointer(&ev.data))
-			netpollready((**g)(noescape(unsafe.Pointer(&gp))), pd, mode)
+
+			netpollready(&gp, pd, mode)
 		}
 	}
-	if block && gp == nil {
+	if block && gp == 0 {
 		goto retry
 	}
-	return gp
+	return gp.ptr()
 }
