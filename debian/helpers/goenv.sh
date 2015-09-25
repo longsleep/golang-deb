@@ -1,12 +1,6 @@
 #!/bin/sh
 set -e
 
-#       build machine
-#           The machine the package is built on.
-#
-#       host machine
-#           The machine the package is built for.
-
 __goos__deb_arch_os() {
 	case "$1" in
 		kfreebsd) echo freebsd ;;
@@ -23,6 +17,12 @@ __goarch__deb_arch_cpu() {
 		*) echo >&2 "error: unrecongized DEB_*_ARCH_CPU: $1"; exit 1 ;;
 	esac
 }
+
+#       build machine
+#           The machine the package is built on.
+#
+#       host machine
+#           The machine the package is built for.
 
 export GOHOSTOS="$(__goos__deb_arch_os "$(dpkg-architecture -qDEB_BUILD_ARCH_OS 2>/dev/null)")"
 export GOOS="$(__goos__deb_arch_os "$(dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)")"
