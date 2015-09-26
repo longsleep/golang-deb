@@ -1,24 +1,8 @@
 #!/bin/sh
-
-confdir=/etc/golang
-conffile=$confdir/goinstall.conf
-
 set -e
-
-. /usr/share/debconf/confmodule
-
-# Cleanup old debconf dashboard question that was removed in golang-go 2:1.1
-# -- 2013-05-14 stapelberg
-db_purge
 
 case "$1" in
     configure)
-	# Remove obsolete goinstall.conf.
-	# -- 2013-05-14 stapelberg
-	if [ -e $conffile ]; then
-		rm -f $conffile
-		rmdir /etc/golang || true
-	fi
 	# Very ugly hack to set timestamps same as /usr/lib/go/bin/go
 	find /usr/lib/go/pkg -exec touch -r /usr/lib/go/bin/go {} \;
 	# Setup alternatives
