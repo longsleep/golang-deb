@@ -1,7 +1,7 @@
 
 Package: golang-go-@OS@-@ARCH@
 Architecture: @BUILDARCHS@
-Depends: ${shlibs:Depends}, ${misc:Depends}, ${perl:Depends}
+Depends: ${misc:Depends}, ${perl:Depends}, ${shlibs:Depends}
 Breaks: golang-go (<< 2:1.1-2)
 Replaces: golang-go (<< 2:1.1-2)
 Description: Go standard library compiled for @OS@_@ARCH@
