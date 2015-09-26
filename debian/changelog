@@ -1,3 +1,9 @@
+golang (2:1.4.3-2) UNRELEASED; urgency=medium
+
+  * Update Recommends/Suggests, especially to add gcc, etc.
+
+ -- Tianon Gravi <tianon@debian.org>  Sat, 26 Sep 2015 13:37:05 -0700
+
 golang (2:1.4.3-1) unstable; urgency=medium
 
   * New upstream version (https://golang.org/doc/devel/release.html#go1.4.minor)
