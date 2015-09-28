@@ -2,7 +2,8 @@ golang (2:1.4.3-2) UNRELEASED; urgency=medium
 
   * Update Recommends/Suggests, especially to add gcc, etc.
   * Refactor "debian/rules" to utilize debhelper more effectively, especially
-    for arch vs indep building (mostly backported from the 1.5+ changes).
+    for arch vs indep building (mostly backported from the 1.5+ changes), which
+    fixes the "arch:all" FTBFS.
 
  -- Tianon Gravi <tianon@debian.org>  Sat, 26 Sep 2015 13:37:05 -0700
 
