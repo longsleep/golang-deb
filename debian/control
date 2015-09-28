@@ -93,7 +93,7 @@ Description: Go programming language compiler - metapackage
  that (most of) a full Go development environment is installed.
 
 Package: golang-go-linux-amd64
-Architecture: i386 amd64 armel armhf
+Architecture: amd64 armel armhf i386
 Depends: ${misc:Depends}, ${perl:Depends}, ${shlibs:Depends}
 Description: Go standard library compiled for linux_amd64
  This package contains the Go standard library,
@@ -109,7 +109,7 @@ Description: Go standard library compiled for linux_amd64
  linux_amd64, even though you are executing the Go compiler on linux_386.
 
 Package: golang-go-linux-arm
-Architecture: i386 amd64 armel armhf
+Architecture: amd64 armel armhf i386
 Depends: ${misc:Depends}, ${perl:Depends}, ${shlibs:Depends}
 Description: Go standard library compiled for linux_arm
  This package contains the Go standard library,
@@ -125,7 +125,7 @@ Description: Go standard library compiled for linux_arm
  linux_amd64, even though you are executing the Go compiler on linux_386.
 
 Package: golang-go-linux-386
-Architecture: i386 amd64 armel armhf
+Architecture: amd64 armel armhf i386
 Depends: ${misc:Depends}, ${perl:Depends}, ${shlibs:Depends}
 Description: Go standard library compiled for linux_386
  This package contains the Go standard library,
