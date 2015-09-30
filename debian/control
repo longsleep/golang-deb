@@ -10,7 +10,7 @@ Vcs-Git: git://anonscm.debian.org/pkg-golang/golang.git
 Build-Depends: bison,
                debhelper (>= 7.4.10),
                ed,
-               golang-go (>= 2:1.4.2-2~) | gccgo-5,
+               golang-go (>= 2:1.4.2-2~) [!arm64 !ppc64 !ppc64el] | gccgo-5,
                mawk | awk,
                netbase,
                perl

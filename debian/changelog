@@ -1,6 +1,7 @@
 golang (2:1.5.1-1~exp2) UNRELEASED; urgency=medium
 
-  * Add a few cgo-related Recommends (gcc, etc).
+  * Add arch-qualifiers to "golang-go" build-depends to unblock the buildds
+    (Closes: #800479); thanks Tim!
 
  -- Tianon Gravi <tianon@debian.org>  Sat, 26 Sep 2015 09:10:47 -0700
 
