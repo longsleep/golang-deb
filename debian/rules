@@ -28,6 +28,9 @@ override_dh_auto_test-arch:
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
 
+override_dh_install-indep:
+	dh_install --fail-missing
+
 override_dh_install-arch:
 	dh_install --fail-missing
 	# Remove Plan9 rc(1) scripts
@@ -37,9 +40,6 @@ override_dh_install-arch:
 	# Touch built and installed files and directories to have same timestamp
 	touch debian/golang-go/usr/lib/go/pkg
 	find debian/golang-go/usr/lib/go/pkg -exec touch -r $(CURDIR)/debian/golang-go/usr/lib/go/pkg {} \;
-
-override_dh_install-indep:
-	dh_install --fail-missing
 
 override_dh_strip:
 	# strip disabled as golang upstream doesn't support it and it makes go
@@ -57,5 +57,5 @@ override_dh_auto_build-arch:
 
 opt_no_act :=
 ifneq (,$(findstring n,$(MAKEFLAGS)))
-opt_no_act := --no-act
+	opt_no_act := --no-act
 endif
