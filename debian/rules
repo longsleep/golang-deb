@@ -13,10 +13,11 @@ export GOHOSTARCH := $(shell ./debian/helpers/goenv.sh echo '$$GOHOSTARCH')
 # We loop over supported operating systems and architectures multiple times,
 # so these two variables contain a centralized version of that code.
 # The variables $$os and $$arch can be used inside such a loop.
-FOR_GO_ARCH := for os in $$(echo linux freebsd windows darwin netbsd); do \
-	archs="amd64 386"; \
-	[ "$$os" = "linux" ] || [ "$$os" = "freebsd" ] && archs="amd64 arm 386"; \
-	for arch in $$(echo $$archs); do
+FOR_GO_ARCH := set -ex; \
+	for os in $$(echo linux freebsd windows darwin netbsd); do \
+		archs="amd64 386"; \
+		[ "$$os" = "linux" ] || [ "$$os" = "freebsd" ] && archs="amd64 arm 386"; \
+		for arch in $$(echo $$archs); do
 FOR_GO_ARCH_END := done; done
 
 override_dh_auto_clean:
@@ -66,9 +67,10 @@ gencontrol:
 	mv debian/control.tmp debian/control
 
 install-overrides:
-	-${FOR_GO_ARCH} \
+	# go install: -race is only supported on linux/amd64, freebsd/amd64, darwin/amd64 and windows/amd64
+	${FOR_GO_ARCH} \
 		echo "pkg/$${os}_$${arch} /usr/lib/go/pkg/" > debian/golang-go-$$os-$$arch.install; \
-		[ "$$arch" = "amd64" ] && [ "$$os" = "linux" ] \
+		[ "$$arch" = '$(GOHOSTARCH)' -a "$$arch" = 'amd64' -a "$$os" = '$(GOHOSTOS)' -a "$$os" = 'linux' ] \
 			&& echo "pkg/$${os}_$${arch}_race /usr/lib/go/pkg/" >> debian/golang-go-$$os-$$arch.install; \
 		echo "golang-go-$$os-$$arch: arch-independent-package-contains-binary-or-object" > debian/golang-go-$$os-$$arch.lintian-overrides; \
 	${FOR_GO_ARCH_END}
@@ -127,14 +129,17 @@ override_dh_auto_build:
 	#
 	# The race detector currently only works on linux/amd64. The check within
 	# the following loop works precisely the same way src/race.bash does.
-	-${FOR_GO_ARCH} \
+	#
+	# go install: -race is only supported on linux/amd64, freebsd/amd64, darwin/amd64 and windows/amd64
+	${FOR_GO_ARCH} \
 		cd src \
 			&& $(CURDIR)/debian/helpers/goenv.sh \
 				GOARCH=$$arch GOOS=$$os \
 				bash ./make.bash --no-clean --no-banner; \
-		if [ "$$arch" = "amd64" -a "$$os" = "linux" ]; then \
-			$(GOROOT)/bin/go install -race cmd/cgo; \
-			$(GOROOT)/bin/go install -race std; \
+		if [ "$$arch" = '$(GOHOSTARCH)' -a "$$arch" = 'amd64' -a "$$os" = "$(GOHOSTOS)" -a "$$os" = 'linux' ]; then \
+			$(CURDIR)/debian/helpers/goenv.sh \
+				GOARCH=$$arch GOOS=$$os \
+				$(GOROOT)/bin/go install -race std; \
 		fi; \
 		cd ..; \
 	${FOR_GO_ARCH_END}
