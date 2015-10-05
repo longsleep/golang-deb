@@ -1,8 +1,8 @@
-golang (2:1.4.3-3) UNRELEASED; urgency=medium
+golang (2:1.4.3-3) unstable; urgency=medium
 
   * Fix FTBFS for non-amd64 architectures due to handling of "-race".
 
- -- Tianon Gravi <tianon@debian.org>  Mon, 05 Oct 2015 01:07:52 -0700
+ -- Tianon Gravi <tianon@debian.org>  Mon, 05 Oct 2015 02:04:07 -0700
 
 golang (2:1.4.3-2) unstable; urgency=medium
 
