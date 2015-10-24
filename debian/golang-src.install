@@ -1,3 +1,2 @@
-include /usr/share/go/
 src /usr/share/go/
 test /usr/share/go/
