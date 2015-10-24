@@ -1,11 +1,11 @@
-golang (2:1.5.1-1) UNRELEASED; urgency=medium
+golang (2:1.5.1-1) unstable; urgency=medium
 
   * Upload to unstable.
   * Update to 1.5.1 upstream release (see notes from experimental uploads for
     what's changed).
   * Skip tests on architectures where the tests fail.
 
- -- Tianon Gravi <tianon@debian.org>  Sat, 24 Oct 2015 09:26:20 -0700
+ -- Tianon Gravi <tianon@debian.org>  Sat, 24 Oct 2015 10:22:02 -0700
 
 golang (2:1.4.3-3) unstable; urgency=medium
 
