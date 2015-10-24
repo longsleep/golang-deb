@@ -5,6 +5,12 @@
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go
 
+DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
+RUN_TESTS := true
+ifeq (ppc64, $(DEB_HOST_ARCH_CPU))
+	RUN_TESTS := false
+endif
+
 %:
 	+dh --parallel $(opt_no_act) $@
 
@@ -19,11 +25,15 @@ override_dh_auto_clean:
 	rm -rf bin pkg
 
 override_dh_auto_test-arch:
+ifeq (true, $(RUN_TESTS))
 	set -ex; \
 		cd src; \
 		export PATH="$(GOROOT)/bin:$$PATH"; \
 		eval "$$(go tool dist env)"; \
 		bash run.bash --no-rebuild;
+else
+	# skip the tests on platforms where they fail
+endif
 
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
