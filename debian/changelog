@@ -1,8 +1,24 @@
+golang (2:1.5.1-1) UNRELEASED; urgency=medium
+
+  * Upload to unstable.
+  * Update to 1.5.1 upstream release (see notes from experimental uploads for
+    what's changed).
+
+ -- Tianon Gravi <tianon@debian.org>  Sat, 24 Oct 2015 09:26:20 -0700
+
 golang (2:1.4.3-3) unstable; urgency=medium
 
   * Fix FTBFS for non-amd64 architectures due to handling of "-race".
 
  -- Tianon Gravi <tianon@debian.org>  Mon, 05 Oct 2015 02:04:07 -0700
+
+golang (2:1.5.1-1~exp2) experimental; urgency=medium
+
+  * Upload to experimental.
+  * Add arch-qualifiers to "golang-go" build-depends to unblock the buildds
+    (Closes: #800479); thanks Tim!
+
+ -- Tianon Gravi <tianon@debian.org>  Wed, 30 Sep 2015 11:19:26 -0700
 
 golang (2:1.4.3-2) unstable; urgency=medium
 
@@ -12,6 +28,29 @@ golang (2:1.4.3-2) unstable; urgency=medium
     fixes the "arch:all" FTBFS.
 
  -- Tianon Gravi <tianon@debian.org>  Sun, 27 Sep 2015 22:06:07 -0700
+
+golang (2:1.5.1-1~exp1) experimental; urgency=low
+
+  * Upload to experimental.
+  * Update to 1.5.1 upstream release (Closes: #796150).
+    - Compiler and runtime written entirely in Go.
+    - Concurrent garbage collector.
+    - GOMAXPROCS=runtime.NumCPU() by default.
+    - "internal" packages for all, not just core.
+    - Experimental "vendoring" support.
+    - Cross-compilation no longer requires a complete rebuild of the stdlib in
+      GOROOT, and thus the golang-go-GOHOST-GOARCH packages are removed.
+  * Sync debian/copyright with the Ubuntu delta. (thanks doko!)
+  * Remove patches that no longer apply.
+  * Add more supported arches to "debian/rules" code for detecting
+    appropriate GOARCH/GOHOSTARCH values; thanks mwhudson and tpot!
+    (Closes: #799907)
+  * Refactor "debian/rules" to utilize debhelper more effectively, especially
+    for arch vs indep building.
+  * Move "dpkg-architecture" to "GOOS"/"GOARCH" code into a simple shell script
+    for easier maintenance.
+
+ -- Tianon Gravi <tianon@debian.org>  Fri, 25 Sep 2015 14:36:53 -0700
 
 golang (2:1.4.3-1) unstable; urgency=medium
 
