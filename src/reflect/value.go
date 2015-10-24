@@ -10,7 +10,7 @@ import (
 	"unsafe"
 )
 
-const ptrSize = unsafe.Sizeof((*byte)(nil))
+const ptrSize = 4 << (^uintptr(0) >> 63) // unsafe.Sizeof(uintptr(0)) but an ideal const
 const cannotSet = "cannot set value obtained from unexported struct field"
 
 // Value is the reflection interface to a Go value.
@@ -30,6 +30,10 @@ const cannotSet = "cannot set value obtained from unexported struct field"
 // A Value can be used concurrently by multiple goroutines provided that
 // the underlying Go value can be used concurrently for the equivalent
 // direct operations.
+//
+// Using == on two Values does not compare the underlying values
+// they represent, but rather the contents of the Value structs.
+// To compare two Values, compare the results of the Interface method.
 type Value struct {
 	// typ holds the type of the value represented by a Value.
 	typ *rtype
@@ -103,7 +107,7 @@ func packEface(v Value) interface{} {
 			// TODO: pass safe boolean from valueInterface so
 			// we don't need to copy if safe==true?
 			c := unsafe_New(t)
-			memmove(c, ptr, t.size)
+			typedmemmove(t, c, ptr)
 			ptr = c
 		}
 		e.word = ptr
@@ -172,7 +176,7 @@ type emptyInterface struct {
 
 // nonEmptyInterface is the header for a interface value with methods.
 type nonEmptyInterface struct {
-	// see ../runtime/iface.c:/Itab
+	// see ../runtime/iface.go:/Itab
 	itab *struct {
 		ityp   *rtype // static interface type
 		typ    *rtype // dynamic concrete type
@@ -264,7 +268,7 @@ func (v Value) runes() []rune {
 	return *(*[]rune)(v.ptr)
 }
 
-// CanAddr returns true if the value's address can be obtained with Addr.
+// CanAddr reports whether the value's address can be obtained with Addr.
 // Such values are called addressable.  A value is addressable if it is
 // an element of a slice, an element of an addressable array,
 // a field of an addressable struct, or the result of dereferencing a pointer.
@@ -273,11 +277,11 @@ func (v Value) CanAddr() bool {
 	return v.flag&flagAddr != 0
 }
 
-// CanSet returns true if the value of v can be changed.
+// CanSet reports whether the value of v can be changed.
 // A Value can be changed only if it is addressable and was not
 // obtained by the use of unexported struct fields.
 // If CanSet returns false, calling Set or any type-specific
-// setter (e.g., SetBool, SetInt64) will panic.
+// setter (e.g., SetBool, SetInt) will panic.
 func (v Value) CanSet() bool {
 	return v.flag&(flagAddr|flagRO) == flagAddr
 }
@@ -298,8 +302,8 @@ func (v Value) Call(in []Value) []Value {
 
 // CallSlice calls the variadic function v with the input arguments in,
 // assigning the slice in[len(in)-1] to v's final variadic argument.
-// For example, if len(in) == 3, v.Call(in) represents the Go call v(in[0], in[1], in[2]...).
-// Call panics if v's Kind is not Func or if v is not variadic.
+// For example, if len(in) == 3, v.CallSlice(in) represents the Go call v(in[0], in[1], in[2]...).
+// CallSlice panics if v's Kind is not Func or if v is not variadic.
 // It returns the output results as Values.
 // As in Go, each input argument must be assignable to the
 // type of the function's corresponding input parameter.
@@ -389,9 +393,18 @@ func (v Value) call(op string, in []Value) []Value {
 	}
 	nout := t.NumOut()
 
-	// Compute frame type, allocate a chunk of memory for frame
-	frametype, _, retOffset, _ := funcLayout(t, rcvrtype)
-	args := unsafe_New(frametype)
+	// Compute frame type.
+	frametype, _, retOffset, _, framePool := funcLayout(t, rcvrtype)
+
+	// Allocate a chunk of memory for frame.
+	var args unsafe.Pointer
+	if nout == 0 {
+		args = framePool.Get().(unsafe.Pointer)
+	} else {
+		// Can't use pool if the function has return values.
+		// We will leak pointer to args in ret, so its lifetime is not scoped.
+		args = unsafe_New(frametype)
+	}
 	off := uintptr(0)
 
 	// Copy inputs into args.
@@ -408,7 +421,7 @@ func (v Value) call(op string, in []Value) []Value {
 		addr := unsafe.Pointer(uintptr(args) + off)
 		v = v.assignTo("reflect.Value.Call", targ, addr)
 		if v.flag&flagIndir != 0 {
-			memmove(addr, v.ptr, n)
+			typedmemmove(targ, addr, v.ptr)
 		} else {
 			*(*unsafe.Pointer)(addr) = v.ptr
 		}
@@ -416,23 +429,33 @@ func (v Value) call(op string, in []Value) []Value {
 	}
 
 	// Call.
-	call(fn, args, uint32(frametype.size), uint32(retOffset))
+	call(frametype, fn, args, uint32(frametype.size), uint32(retOffset))
 
 	// For testing; see TestCallMethodJump.
 	if callGC {
 		runtime.GC()
 	}
 
-	// Copy return values out of args.
-	ret := make([]Value, nout)
-	off = retOffset
-	for i := 0; i < nout; i++ {
-		tv := t.Out(i)
-		a := uintptr(tv.Align())
-		off = (off + a - 1) &^ (a - 1)
-		fl := flagIndir | flag(tv.Kind())
-		ret[i] = Value{tv.common(), unsafe.Pointer(uintptr(args) + off), fl}
-		off += tv.Size()
+	var ret []Value
+	if nout == 0 {
+		memclr(args, frametype.size)
+		framePool.Put(args)
+	} else {
+		// Zero the now unused input area of args,
+		// because the Values returned by this function contain pointers to the args object,
+		// and will thus keep the args object alive indefinitely.
+		memclr(args, retOffset)
+		// Copy return values out of args.
+		ret = make([]Value, nout)
+		off = retOffset
+		for i := 0; i < nout; i++ {
+			tv := t.Out(i)
+			a := uintptr(tv.Align())
+			off = (off + a - 1) &^ (a - 1)
+			fl := flagIndir | flag(tv.Kind())
+			ret[i] = Value{tv.common(), unsafe.Pointer(uintptr(args) + off), fl}
+			off += tv.Size()
+		}
 	}
 
 	return ret
@@ -469,7 +492,7 @@ func callReflect(ctxt *makeFuncImpl, frame unsafe.Pointer) {
 			// and we cannot let f keep a reference to the stack frame
 			// after this function returns, not even a read-only reference.
 			v.ptr = unsafe_New(typ)
-			memmove(v.ptr, addr, typ.size)
+			typedmemmove(typ, v.ptr, addr)
 			v.flag |= flagIndir
 		} else {
 			v.ptr = *(*unsafe.Pointer)(addr)
@@ -505,7 +528,7 @@ func callReflect(ctxt *makeFuncImpl, frame unsafe.Pointer) {
 			off += -off & uintptr(typ.align-1)
 			addr := unsafe.Pointer(uintptr(ptr) + off)
 			if v.flag&flagIndir != 0 {
-				memmove(addr, v.ptr, typ.size)
+				typedmemmove(typ, addr, v.ptr)
 			} else {
 				*(*unsafe.Pointer)(addr) = v.ptr
 			}
@@ -592,17 +615,17 @@ func align(x, n uintptr) uintptr {
 func callMethod(ctxt *methodValue, frame unsafe.Pointer) {
 	rcvr := ctxt.rcvr
 	rcvrtype, t, fn := methodReceiver("call", rcvr, ctxt.method)
-	frametype, argSize, retOffset, _ := funcLayout(t, rcvrtype)
+	frametype, argSize, retOffset, _, framePool := funcLayout(t, rcvrtype)
 
 	// Make a new frame that is one word bigger so we can store the receiver.
-	args := unsafe_New(frametype)
+	args := framePool.Get().(unsafe.Pointer)
 
 	// Copy in receiver and rest of args.
 	storeRcvr(rcvr, args)
-	memmove(unsafe.Pointer(uintptr(args)+ptrSize), frame, argSize-ptrSize)
+	typedmemmovepartial(frametype, unsafe.Pointer(uintptr(args)+ptrSize), frame, ptrSize, argSize-ptrSize)
 
 	// Call.
-	call(fn, args, uint32(frametype.size), uint32(retOffset))
+	call(frametype, fn, args, uint32(frametype.size), uint32(retOffset))
 
 	// Copy return values. On amd64p32, the beginning of return values
 	// is 64-bit aligned, so the caller's frame layout (which doesn't have
@@ -613,8 +636,14 @@ func callMethod(ctxt *methodValue, frame unsafe.Pointer) {
 	if runtime.GOARCH == "amd64p32" {
 		callerRetOffset = align(argSize-ptrSize, 8)
 	}
-	memmove(unsafe.Pointer(uintptr(frame)+callerRetOffset),
-		unsafe.Pointer(uintptr(args)+retOffset), frametype.size-retOffset)
+	typedmemmovepartial(frametype,
+		unsafe.Pointer(uintptr(frame)+callerRetOffset),
+		unsafe.Pointer(uintptr(args)+retOffset),
+		retOffset,
+		frametype.size-retOffset)
+
+	memclr(args, frametype.size)
+	framePool.Put(args)
 }
 
 // funcName returns the name of f, for use in error messages.
@@ -725,7 +754,7 @@ func (v Value) Field(i int) Value {
 	// Either flagIndir is set and v.ptr points at struct,
 	// or flagIndir is not set and v.ptr is the actual struct data.
 	// In the former case, we want v.ptr + offset.
-	// In the latter case, we must be have field.offset = 0,
+	// In the latter case, we must have field.offset = 0,
 	// so v.ptr + field.offset is still okay.
 	ptr := unsafe.Pointer(uintptr(v.ptr) + field.offset)
 	return Value{typ, ptr, fl}
@@ -819,7 +848,7 @@ func (v Value) Index(i int) Value {
 		}
 		tt := (*sliceType)(unsafe.Pointer(v.typ))
 		typ := tt.elem
-		val := unsafe.Pointer(uintptr(s.Data) + uintptr(i)*typ.size)
+		val := arrayAt(s.Data, i, typ.size)
 		fl := flagAddr | flagIndir | v.flag&flagRO | flag(typ.Kind())
 		return Value{typ, val, fl}
 
@@ -828,7 +857,7 @@ func (v Value) Index(i int) Value {
 		if uint(i) >= uint(s.Len) {
 			panic("reflect: string index out of range")
 		}
-		p := unsafe.Pointer(uintptr(s.Data) + uintptr(i))
+		p := arrayAt(s.Data, i, 1)
 		fl := v.flag&flagRO | flag(Uint8) | flagIndir
 		return Value{uint8Type, p, fl}
 	}
@@ -855,7 +884,7 @@ func (v Value) Int() int64 {
 	panic(&ValueError{"reflect.Value.Int", v.kind()})
 }
 
-// CanInterface returns true if Interface can be used without panicking.
+// CanInterface reports whether Interface can be used without panicking.
 func (v Value) CanInterface() bool {
 	if v.flag == 0 {
 		panic(&ValueError{"reflect.Value.CanInterface", Invalid})
@@ -942,7 +971,7 @@ func (v Value) IsNil() bool {
 	panic(&ValueError{"reflect.Value.IsNil", v.kind()})
 }
 
-// IsValid returns true if v represents a value.
+// IsValid reports whether v represents a value.
 // It returns false if v is the zero Value.
 // If IsValid returns false, all other methods except String panic.
 // Most functions and methods never return an invalid value.
@@ -1013,7 +1042,7 @@ func (v Value) MapIndex(key Value) Value {
 		// Copy result so future changes to the map
 		// won't change the underlying value.
 		c := unsafe_New(typ)
-		memmove(c, e, typ.size)
+		typedmemmove(typ, c, e)
 		return Value{typ, c, fl | flagIndir}
 	} else {
 		return Value{typ, *(*unsafe.Pointer)(e), fl}
@@ -1051,7 +1080,7 @@ func (v Value) MapKeys() []Value {
 			// Copy result so future changes to the map
 			// won't change the underlying value.
 			c := unsafe_New(keyType)
-			memmove(c, key, keyType.size)
+			typedmemmove(keyType, c, key)
 			a[i] = Value{keyType, c, fl | flagIndir}
 		} else {
 			a[i] = Value{keyType, *(*unsafe.Pointer)(key), fl}
@@ -1119,7 +1148,7 @@ func (v Value) NumField() int {
 	return len(tt.fields)
 }
 
-// OverflowComplex returns true if the complex128 x cannot be represented by v's type.
+// OverflowComplex reports whether the complex128 x cannot be represented by v's type.
 // It panics if v's Kind is not Complex64 or Complex128.
 func (v Value) OverflowComplex(x complex128) bool {
 	k := v.kind()
@@ -1132,7 +1161,7 @@ func (v Value) OverflowComplex(x complex128) bool {
 	panic(&ValueError{"reflect.Value.OverflowComplex", v.kind()})
 }
 
-// OverflowFloat returns true if the float64 x cannot be represented by v's type.
+// OverflowFloat reports whether the float64 x cannot be represented by v's type.
 // It panics if v's Kind is not Float32 or Float64.
 func (v Value) OverflowFloat(x float64) bool {
 	k := v.kind()
@@ -1152,7 +1181,7 @@ func overflowFloat32(x float64) bool {
 	return math.MaxFloat32 < x && x <= math.MaxFloat64
 }
 
-// OverflowInt returns true if the int64 x cannot be represented by v's type.
+// OverflowInt reports whether the int64 x cannot be represented by v's type.
 // It panics if v's Kind is not Int, Int8, int16, Int32, or Int64.
 func (v Value) OverflowInt(x int64) bool {
 	k := v.kind()
@@ -1165,7 +1194,7 @@ func (v Value) OverflowInt(x int64) bool {
 	panic(&ValueError{"reflect.Value.OverflowInt", v.kind()})
 }
 
-// OverflowUint returns true if the uint64 x cannot be represented by v's type.
+// OverflowUint reports whether the uint64 x cannot be represented by v's type.
 // It panics if v's Kind is not Uint, Uintptr, Uint8, Uint16, Uint32, or Uint64.
 func (v Value) OverflowUint(x uint64) bool {
 	k := v.kind()
@@ -1297,7 +1326,7 @@ func (v Value) Set(x Value) {
 	}
 	x = x.assignTo("reflect.Set", v.typ, target)
 	if x.flag&flagIndir != 0 {
-		memmove(v.ptr, x.ptr, v.typ.size)
+		typedmemmove(v.typ, v.ptr, x.ptr)
 	} else {
 		*(*unsafe.Pointer)(v.ptr) = x.ptr
 	}
@@ -1511,7 +1540,7 @@ func (v Value) Slice(i, j int) Value {
 		if i < 0 || j < i || j > s.Len {
 			panic("reflect.Value.Slice: string slice index out of bounds")
 		}
-		t := stringHeader{unsafe.Pointer(uintptr(s.Data) + uintptr(i)), j - i}
+		t := stringHeader{arrayAt(s.Data, i, 1), j - i}
 		return Value{v.typ, unsafe.Pointer(&t), v.flag}
 	}
 
@@ -1527,7 +1556,7 @@ func (v Value) Slice(i, j int) Value {
 	s.Len = j - i
 	s.Cap = cap - i
 	if cap-i > 0 {
-		s.Data = unsafe.Pointer(uintptr(base) + uintptr(i)*typ.elem.Size())
+		s.Data = arrayAt(base, i, typ.elem.Size())
 	} else {
 		// do not advance pointer, to avoid pointing beyond end of slice
 		s.Data = base
@@ -1579,7 +1608,7 @@ func (v Value) Slice3(i, j, k int) Value {
 	s.Len = j - i
 	s.Cap = k - i
 	if k-i > 0 {
-		s.Data = unsafe.Pointer(uintptr(base) + uintptr(i)*typ.elem.Size())
+		s.Data = arrayAt(base, i, typ.elem.Size())
 	} else {
 		// do not advance pointer, to avoid pointing beyond end of slice
 		s.Data = base
@@ -1593,6 +1622,8 @@ func (v Value) Slice3(i, j, k int) Value {
 // String is a special case because of Go's String method convention.
 // Unlike the other getters, it does not panic if v's Kind is not String.
 // Instead, it returns a string of the form "<T value>" where T is v's type.
+// The fmt package treats Values specially. It does not call their String
+// method implicitly but instead prints the concrete values they hold.
 func (v Value) String() string {
 	switch k := v.kind(); k {
 	case Invalid:
@@ -1618,7 +1649,7 @@ func (v Value) TryRecv() (x Value, ok bool) {
 
 // TrySend attempts to send x on the channel v but will not block.
 // It panics if v's Kind is not Chan.
-// It returns true if the value was sent, false otherwise.
+// It reports whether the value was sent.
 // As in Go, x's value must be assignable to the channel's element type.
 func (v Value) TrySend(x Value) bool {
 	v.mustBe(Chan)
@@ -1736,6 +1767,12 @@ func typesMustMatch(what string, t1, t2 Type) {
 	}
 }
 
+// arrayAt returns the i-th element of p, a C-array whose elements are
+// eltSize wide (in bytes).
+func arrayAt(p unsafe.Pointer, i int, eltSize uintptr) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(p) + uintptr(i)*eltSize)
+}
+
 // grow grows the slice s so that it can hold extra more values, allocating
 // more capacity if needed. It also returns the old and new slice lengths.
 func grow(s Value, extra int) (Value, int, int) {
@@ -1811,27 +1848,23 @@ func Copy(dst, src Value) int {
 	se := src.typ.Elem()
 	typesMustMatch("reflect.Copy", de, se)
 
-	n := dst.Len()
-	if sn := src.Len(); n > sn {
-		n = sn
+	var ds, ss sliceHeader
+	if dk == Array {
+		ds.Data = dst.ptr
+		ds.Len = dst.Len()
+		ds.Cap = ds.Len
+	} else {
+		ds = *(*sliceHeader)(dst.ptr)
+	}
+	if sk == Array {
+		ss.Data = src.ptr
+		ss.Len = src.Len()
+		ss.Cap = ss.Len
+	} else {
+		ss = *(*sliceHeader)(src.ptr)
 	}
 
-	// Copy via memmove.
-	var da, sa unsafe.Pointer
-	if dk == Array {
-		da = dst.ptr
-	} else {
-		da = (*sliceHeader)(dst.ptr).Data
-	}
-	if src.flag&flagIndir == 0 {
-		sa = unsafe.Pointer(&src.ptr)
-	} else if sk == Array {
-		sa = src.ptr
-	} else {
-		sa = (*sliceHeader)(src.ptr).Data
-	}
-	memmove(da, sa, uintptr(n)*de.Size())
-	return n
+	return typedslicecopy(de.common(), ds, ss)
 }
 
 // A runtimeSelect is a single case passed to rselect.
@@ -2372,7 +2405,7 @@ func cvtDirect(v Value, typ Type) Value {
 	if f&flagAddr != 0 {
 		// indirect, mutable word - make a copy
 		c := unsafe_New(t)
-		memmove(c, ptr, t.size)
+		typedmemmove(t, c, ptr)
 		ptr = c
 		f &^= flagAddr
 	}
@@ -2414,19 +2447,54 @@ func chansend(t *rtype, ch unsafe.Pointer, val unsafe.Pointer, nb bool) bool
 
 func makechan(typ *rtype, size uint64) (ch unsafe.Pointer)
 func makemap(t *rtype) (m unsafe.Pointer)
+
+//go:noescape
 func mapaccess(t *rtype, m unsafe.Pointer, key unsafe.Pointer) (val unsafe.Pointer)
+
 func mapassign(t *rtype, m unsafe.Pointer, key, val unsafe.Pointer)
+
+//go:noescape
 func mapdelete(t *rtype, m unsafe.Pointer, key unsafe.Pointer)
+
+// m escapes into the return value, but the caller of mapiterinit
+// doesn't let the return value escape.
+//go:noescape
 func mapiterinit(t *rtype, m unsafe.Pointer) unsafe.Pointer
+
+//go:noescape
 func mapiterkey(it unsafe.Pointer) (key unsafe.Pointer)
+
+//go:noescape
 func mapiternext(it unsafe.Pointer)
+
+//go:noescape
 func maplen(m unsafe.Pointer) int
-func call(fn, arg unsafe.Pointer, n uint32, retoffset uint32)
+
+// call calls fn with a copy of the n argument bytes pointed at by arg.
+// After fn returns, reflectcall copies n-retoffset result bytes
+// back into arg+retoffset before returning. If copying result bytes back,
+// the caller must pass the argument frame type as argtype, so that
+// call can execute appropriate write barriers during the copy.
+func call(argtype *rtype, fn, arg unsafe.Pointer, n uint32, retoffset uint32)
 
 func ifaceE2I(t *rtype, src interface{}, dst unsafe.Pointer)
 
+// typedmemmove copies a value of type t to dst from src.
 //go:noescape
-func memmove(adst, asrc unsafe.Pointer, n uintptr)
+func typedmemmove(t *rtype, dst, src unsafe.Pointer)
+
+// typedmemmovepartial is like typedmemmove but assumes that
+// dst and src point off bytes into the value and only copies size bytes.
+//go:noescape
+func typedmemmovepartial(t *rtype, dst, src unsafe.Pointer, off, size uintptr)
+
+// typedslicecopy copies a slice of elemType values from src to dst,
+// returning the number of elements copied.
+//go:noescape
+func typedslicecopy(elemType *rtype, dst, src sliceHeader) int
+
+//go:noescape
+func memclr(ptr unsafe.Pointer, n uintptr)
 
 // Dummy annotation marking that the value x escapes,
 // for use in cases where the reflect code is so clever that
