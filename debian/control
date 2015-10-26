@@ -35,6 +35,7 @@ Replaces: golang-go-darwin-386,
           golang-go-netbsd-amd64,
           golang-go-windows-386,
           golang-go-windows-amd64
+Conflicts: golang-golang-x-tools (<< 1:0.0~git20151026.0.0f9d71c-1~)
 Recommends: g++, gcc, libc6-dev, pkg-config
 Suggests: bzr, ca-certificates, git, golang-golang-x-tools, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
