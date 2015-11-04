@@ -1,8 +1,8 @@
-golang (2:1.5.1-4) UNRELEASED; urgency=medium
+golang (2:1.5.1-4) unstable; urgency=medium
 
   * Add Conflicts to force newer golang-go.tools too (Closes: #803559)
 
- -- Tianon Gravi <tianon@debian.org>  Tue, 03 Nov 2015 21:20:17 -0800
+ -- Tianon Gravi <tianon@debian.org>  Tue, 03 Nov 2015 21:57:54 -0800
 
 golang (2:1.5.1-3) unstable; urgency=medium
 
