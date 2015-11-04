@@ -19,7 +19,7 @@ Homepage: https://golang.org
 
 Package: golang-go
 Architecture: amd64 arm64 armel armhf i386 ppc64 ppc64el
-Depends: golang-src (>= ${source:Version}),
+Depends: golang-src (= ${binary:Version}),
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
@@ -96,9 +96,9 @@ Description: Go programming language - documentation
  --http=:6060", and then visiting http://localhost:6060/doc/install.html.
 
 Package: golang
-Depends: golang-doc (>= ${source:Version}),
-         golang-go (>= ${source:Version}),
-         golang-src (>= ${source:Version}),
+Depends: golang-doc (= ${binary:Version}),
+         golang-go (= ${binary:Version}),
+         golang-src (= ${binary:Version}),
          ${misc:Depends}
 Architecture: all
 Description: Go programming language compiler - metapackage
