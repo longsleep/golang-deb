@@ -1,7 +1,7 @@
 golang (2:1.5.1-5) UNRELEASED; urgency=medium
 
   * Switch from using "${source:Version}" for inter-package dependencies to
-    using "${binary:Version}" so that binNMUs work properly
+    using "${binary:Version}" so that binNMUs work properly (Closes: #799252)
 
  -- Tianon Gravi <tianon@debian.org>  Wed, 04 Nov 2015 00:23:16 -0800
 
