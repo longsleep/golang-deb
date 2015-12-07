@@ -142,7 +142,8 @@ func gentraceback(pc0, sp0, lr0 uintptr, gp *g, skip int, pcbuf *uintptr, max in
 
 	// Fix up returns to the stack barrier by fetching the
 	// original return PC from gp.stkbar.
-	stkbar := gp.stkbar[gp.stkbarPos:]
+	stkbarG := gp
+	stkbar := stkbarG.stkbar[stkbarG.stkbarPos:]
 
 	if pc0 == ^uintptr(0) && sp0 == ^uintptr(0) { // Signal to fetch saved values from gp.
 		if gp.syscallsp != 0 {
@@ -188,6 +189,34 @@ func gentraceback(pc0, sp0, lr0 uintptr, gp *g, skip int, pcbuf *uintptr, max in
 	}
 
 	f := findfunc(frame.pc)
+	if f != nil && f.entry == stackBarrierPC {
+		// We got caught in the middle of a stack barrier
+		// (presumably by a signal), so stkbar may be
+		// inconsistent with the barriers on the stack.
+		// Simulate the completion of the barrier.
+		//
+		// On x86, SP will be exactly one word above
+		// savedLRPtr. On LR machines, SP will be above
+		// savedLRPtr by some frame size.
+		var stkbarPos uintptr
+		if len(stkbar) > 0 && stkbar[0].savedLRPtr < sp0 {
+			// stackBarrier has not incremented stkbarPos.
+			stkbarPos = gp.stkbarPos
+		} else if gp.stkbarPos > 0 && gp.stkbar[gp.stkbarPos-1].savedLRPtr < sp0 {
+			// stackBarrier has incremented stkbarPos.
+			stkbarPos = gp.stkbarPos - 1
+		} else {
+			printlock()
+			print("runtime: failed to unwind through stackBarrier at SP ", hex(sp0), "; ")
+			gcPrintStkbars(gp, int(gp.stkbarPos))
+			print("\n")
+			throw("inconsistent state in stackBarrier")
+		}
+
+		frame.pc = gp.stkbar[stkbarPos].savedLRVal
+		stkbar = gp.stkbar[stkbarPos+1:]
+		f = findfunc(frame.pc)
+	}
 	if f == nil {
 		if callback != nil {
 			print("runtime: unknown pc ", hex(frame.pc), "\n")
@@ -216,7 +245,8 @@ func gentraceback(pc0, sp0, lr0 uintptr, gp *g, skip int, pcbuf *uintptr, max in
 			sp := frame.sp
 			if flags&_TraceJumpStack != 0 && f.entry == systemstackPC && gp == g.m.g0 && gp.m.curg != nil {
 				sp = gp.m.curg.sched.sp
-				stkbar = gp.m.curg.stkbar[gp.m.curg.stkbarPos:]
+				stkbarG = gp.m.curg
+				stkbar = stkbarG.stkbar[stkbarG.stkbarPos:]
 			}
 			frame.fp = sp + uintptr(funcspdelta(f, frame.pc))
 			if !usesLR {
@@ -254,9 +284,9 @@ func gentraceback(pc0, sp0, lr0 uintptr, gp *g, skip int, pcbuf *uintptr, max in
 			}
 			if frame.lr == stackBarrierPC {
 				// Recover original PC.
-				if stkbar[0].savedLRPtr != lrPtr {
+				if len(stkbar) == 0 || stkbar[0].savedLRPtr != lrPtr {
 					print("found next stack barrier at ", hex(lrPtr), "; expected ")
-					gcPrintStkbars(stkbar)
+					gcPrintStkbars(stkbarG, len(stkbarG.stkbar)-len(stkbar))
 					print("\n")
 					throw("missed stack barrier")
 				}
@@ -476,7 +506,7 @@ func gentraceback(pc0, sp0, lr0 uintptr, gp *g, skip int, pcbuf *uintptr, max in
 
 	if callback != nil && n < max && len(stkbar) > 0 {
 		print("runtime: g", gp.goid, ": leftover stack barriers ")
-		gcPrintStkbars(stkbar)
+		gcPrintStkbars(stkbarG, len(stkbarG.stkbar)-len(stkbar))
 		print("\n")
 		throw("traceback has leftover stack barriers")
 	}
