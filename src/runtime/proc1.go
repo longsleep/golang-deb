@@ -414,13 +414,7 @@ func scang(gp *g) {
 			// the goroutine until we're done.
 			if castogscanstatus(gp, s, s|_Gscan) {
 				if !gp.gcscandone {
-					// Coordinate with traceback
-					// in sigprof.
-					for !cas(&gp.stackLock, 0, 1) {
-						osyield()
-					}
 					scanstack(gp)
-					atomicstore(&gp.stackLock, 0)
 					gp.gcscandone = true
 				}
 				restartg(gp)
@@ -951,6 +945,15 @@ func needm(x byte) {
 	mp.needextram = mp.schedlink == 0
 	unlockextra(mp.schedlink.ptr())
 
+	// Save and block signals before installing g.
+	// Once g is installed, any incoming signals will try to execute,
+	// but we won't have the sigaltstack settings and other data
+	// set up appropriately until the end of minit, which will
+	// unblock the signals. This is the same dance as when
+	// starting a new m to run Go code via newosproc.
+	msigsave(mp)
+	sigblock()
+
 	// Install g (= m->g0) and set the stack bounds
 	// to match the current stack. We don't actually know
 	// how big the stack is, like we don't know how big any
@@ -962,7 +965,6 @@ func needm(x byte) {
 	_g_.stack.lo = uintptr(noescape(unsafe.Pointer(&x))) - 32*1024
 	_g_.stackguard0 = _g_.stack.lo + _StackGuard
 
-	msigsave(mp)
 	// Initialize this thread to use the m.
 	asminit()
 	minit()
@@ -1033,9 +1035,6 @@ func newextram() {
 // We may have to keep the current version on systems with cgo
 // but without pthreads, like Windows.
 func dropm() {
-	// Undo whatever initialization minit did during needm.
-	unminit()
-
 	// Clear m and g, and return m to the extra list.
 	// After the call to setg we can only call nosplit functions
 	// with no pointer manipulation.
@@ -1043,7 +1042,16 @@ func dropm() {
 	mnext := lockextra(true)
 	mp.schedlink.set(mnext)
 
+	// Block signals before unminit.
+	// Unminit unregisters the signal handling stack (but needs g on some systems).
+	// Setg(nil) clears g, which is the signal handler's cue not to run Go handlers.
+	// It's important not to try to handle a signal between those two steps.
+	sigblock()
+	unminit()
 	setg(nil)
+	msigrestore(mp)
+
+	// Commit the release of mp.
 	unlockextra(mp)
 }
 
@@ -2500,11 +2508,6 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 	// Profiling runs concurrently with GC, so it must not allocate.
 	mp.mallocing++
 
-	// Coordinate with stack barrier insertion in scanstack.
-	for !cas(&gp.stackLock, 0, 1) {
-		osyield()
-	}
-
 	// Define that a "user g" is a user-created goroutine, and a "system g"
 	// is one that is m->g0 or m->gsignal.
 	//
@@ -2571,8 +2574,18 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 	// transition. We simply require that g and SP match and that the PC is not
 	// in gogo.
 	traceback := true
+	haveStackLock := false
 	if gp == nil || sp < gp.stack.lo || gp.stack.hi < sp || setsSP(pc) {
 		traceback = false
+	} else if gp.m.curg != nil {
+		if gcTryLockStackBarriers(gp.m.curg) {
+			haveStackLock = true
+		} else {
+			// Stack barriers are being inserted or
+			// removed, so we can't get a consistent
+			// traceback right now.
+			traceback = false
+		}
 	}
 	var stk [maxCPUProfStack]uintptr
 	n := 0
@@ -2582,7 +2595,14 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 		// This is especially important on windows, since all syscalls are cgo calls.
 		n = gentraceback(mp.curg.syscallpc, mp.curg.syscallsp, 0, mp.curg, 0, &stk[0], len(stk), nil, nil, 0)
 	} else if traceback {
-		n = gentraceback(pc, sp, lr, gp, 0, &stk[0], len(stk), nil, nil, _TraceTrap|_TraceJumpStack)
+		flags := uint(_TraceTrap | _TraceJumpStack)
+		if gp.m.curg != nil && readgstatus(gp.m.curg) == _Gcopystack {
+			// We can traceback the system stack, but
+			// don't jump to the potentially inconsistent
+			// user stack.
+			flags &^= _TraceJumpStack
+		}
+		n = gentraceback(pc, sp, lr, gp, 0, &stk[0], len(stk), nil, nil, flags)
 	}
 	if !traceback || n <= 0 {
 		// Normal traceback is impossible or has failed.
@@ -2608,7 +2628,9 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 			}
 		}
 	}
-	atomicstore(&gp.stackLock, 0)
+	if haveStackLock {
+		gcUnlockStackBarriers(gp.m.curg)
+	}
 
 	if prof.hz != 0 {
 		// Simple cas-lock to coordinate with setcpuprofilerate.

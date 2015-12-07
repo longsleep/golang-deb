@@ -11,6 +11,26 @@ import (
 )
 
 func TestNoteReading(t *testing.T) {
+	testNoteReading(t)
+}
+
+func TestNoteReading2K(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skipf("2kB is not enough on %s", runtime.GOOS)
+	}
+	// Set BuildIDReadSize to 2kB to exercise Mach-O parsing more strictly.
+	defer func(old int) {
+		main.BuildIDReadSize = old
+	}(main.BuildIDReadSize)
+	main.BuildIDReadSize = 2 * 1024
+
+	testNoteReading(t)
+}
+
+func testNoteReading(t *testing.T) {
+	if runtime.GOOS == "dragonfly" {
+		t.Skipf("TestNoteReading is broken on dragonfly - golang.org/issue/13364", runtime.GOOS)
+	}
 	tg := testgo(t)
 	defer tg.cleanup()
 	tg.tempFile("hello.go", `package main; func main() { print("hello, world\n") }`)
@@ -32,9 +52,6 @@ func TestNoteReading(t *testing.T) {
 	case "plan9":
 		// no external linking
 		t.Logf("no external linking - skipping linkmode=external test")
-
-	case "solaris":
-		t.Logf("skipping - golang.org/issue/12178")
 
 	default:
 		tg.run("build", "-ldflags", "-buildid="+buildID+" -linkmode=external", "-o", tg.path("hello.exe"), tg.path("hello.go"))

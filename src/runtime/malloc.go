@@ -401,7 +401,7 @@ func mHeap_SysAlloc(h *mheap, n uintptr) unsafe.Pointer {
 			if p == h.arena_end {
 				h.arena_end = new_end
 				h.arena_reserved = reserved
-			} else if p+p_size <= h.arena_start+_MaxArena32 {
+			} else if h.arena_start <= p && p+p_size <= h.arena_start+_MaxArena32 {
 				// Keep everything page-aligned.
 				// Our pages are bigger than hardware pages.
 				h.arena_end = p + p_size
@@ -411,7 +411,10 @@ func mHeap_SysAlloc(h *mheap, n uintptr) unsafe.Pointer {
 				h.arena_used = used
 				h.arena_reserved = reserved
 			} else {
-				var stat uint64
+				// We haven't added this allocation to
+				// the stats, so subtract it from a
+				// fake stat (but avoid underflow).
+				stat := uint64(p_size)
 				sysFree((unsafe.Pointer)(p), p_size, &stat)
 			}
 		}
