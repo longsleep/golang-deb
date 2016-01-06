@@ -1,8 +1,6 @@
 golang (2:1.5.2-1) UNRELEASED; urgency=medium
 
   * Update to 1.5.2 upstream release (Closes: #807136)
-  * Switch from using "${source:Version}" for inter-package dependencies to
-    using "${binary:Version}" so that binNMUs work properly (Closes: #799252)
 
  -- Tianon Gravi <tianon@debian.org>  Sun, 06 Dec 2015 16:54:36 -0800
 
