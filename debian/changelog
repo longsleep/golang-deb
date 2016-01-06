@@ -1,8 +1,8 @@
-golang (2:1.5.2-1) UNRELEASED; urgency=medium
+golang (2:1.5.2-1) unstable; urgency=medium
 
   * Update to 1.5.2 upstream release (Closes: #807136)
 
- -- Tianon Gravi <tianon@debian.org>  Sun, 06 Dec 2015 16:54:36 -0800
+ -- Tianon Gravi <tianon@debian.org>  Tue, 05 Jan 2016 19:59:22 -0800
 
 golang (2:1.5.1-4) unstable; urgency=medium
 
