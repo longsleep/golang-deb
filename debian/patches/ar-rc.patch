@@ -1,0 +1,35 @@
+From 321cf6f86dd28248d98e5e24c073740f23c1897b Mon Sep 17 00:00:00 2001
+From: Ian Lance Taylor <iant@golang.org>
+Date: Wed, 4 Nov 2015 17:38:53 -0800
+Subject: [PATCH] cmd/go: change ar argument to rc
+
+Put 'r' first because that is the command, and 'c' is the modifier.
+Keep 'c' because it means to not warn when creating an archive.
+Drop 'u' because it is unnecessary and fails on Arch Linux.
+
+No test because this is only for gccgo (I tested it manually).
+
+Fixes #12310.
+
+Change-Id: Id740257fb1c347dfaa60f7d613af2897dae2c059
+Reviewed-on: https://go-review.googlesource.com/16664
+Run-TryBot: Ian Lance Taylor <iant@golang.org>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+Reviewed-by: David Crawshaw <crawshaw@golang.org>
+---
+ src/cmd/go/build.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/cmd/go/build.go b/src/cmd/go/build.go
+index 54d1b8f..e869b27 100644
+--- a/src/cmd/go/build.go
++++ b/src/cmd/go/build.go
+@@ -2506,7 +2506,7 @@ func (gccgoToolchain) pack(b *builder, p *Package, objDir, afile string, ofiles
+ 	for _, f := range ofiles {
+ 		absOfiles = append(absOfiles, mkAbs(objDir, f))
+ 	}
+-	return b.run(p.Dir, p.ImportPath, nil, "ar", "cru", mkAbs(objDir, afile), absOfiles)
++	return b.run(p.Dir, p.ImportPath, nil, "ar", "rc", mkAbs(objDir, afile), absOfiles)
+ }
+ 
+ func (tools gccgoToolchain) ld(b *builder, root *action, out string, allactions []*action, mainpkg string, ofiles []string) error {
