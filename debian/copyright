@@ -104,7 +104,7 @@ Files: include/fmt.h
 Copyright: © 1998-2002 by Lucent Technologies.
            Portions © 2004 Google Inc.
            Portions © 2009 The Go Authors.  All rights reserved.
-License:
+License: MIT-Inspired
  The authors of this software are Rob Pike and Ken Thompson,
  with contributions from Mike Burrows and Sean Dorward.
               Copyright (c) 1998-2006 by Lucent Technologies.
@@ -179,6 +179,7 @@ Origin: Translated and simplified from FreeBSD /usr/src/lib/msun/src/s_log1p.c
 Copyright: © 2010 The Go Authors. All rights reserved.
            Based on code © 1993 by Sun Microsystems, Inc. All rights reserved.
 License: Go
+Comment:
  The original C code, the long comment, and the constants
  below are from FreeBSD's /usr/src/lib/msun/src/s_log1p.c
  and came with this notice.  The go code is a simplified
@@ -276,6 +277,7 @@ License: Apache-2.0
 Files: lib/godoc/godoc.html
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: CC-BY-3.0
+Comment:
  Except as noted, this content is licensed under Creative Commons
  Attribution 3.0
 
@@ -293,8 +295,9 @@ License: Shootout
 
 Files: favicon.ico
  doc/gopher/*
-Author: Renée French
+Copyright: Renée French
 License: CC-BY-3.0
+Comment:
  The mascot and logo were designed by
  Renée French <http://reneefrench.blogspot.com>, who also designed
  Glenda <http://plan9.bell-labs.com/plan9/glenda.html>,
@@ -308,6 +311,7 @@ License: CC-BY-3.0
 Files: doc/*
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: CC-BY-3.0
+Comment:
  Except as noted, this content is licensed under Creative Commons
  Attribution 3.0
 
@@ -330,6 +334,7 @@ Files: doc/talks/slidy.*
 Origin: http://www.w3.org/Talks/Tools/Slidy/
 Copyright: © 2005 W3C (MIT, ERCIM, Keio), All Rights Reserved.
 License: W3C
+Comment:
  W3C liability, trademark, document use and software licensing
  rules apply, see:
  .
