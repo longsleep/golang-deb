@@ -10,6 +10,9 @@ RUN_TESTS := true
 ifeq (ppc64, $(DEB_HOST_ARCH_CPU))
 	RUN_TESTS := false
 endif
+ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
+	RUN_TESTS := false
+endif
 
 %:
 	+dh --parallel $(opt_no_act) $@
