@@ -1,0 +1,39 @@
+From 7e312243292866e73d2f2346a81eceffa1890f64 Mon Sep 17 00:00:00 2001
+From: Ian Lance Taylor <iant@golang.org>
+Date: Fri, 20 Nov 2015 16:01:45 -0800
+Subject: [PATCH] net: don't run multicast listen test on nil interface in
+ short mode
+
+The gccgo bug report https://gcc.gnu.org/PR65785 points out that the
+multicast listen tests will use the network even with -test.short.
+Fix test by checking testing.Short with a nil interface.
+
+Change-Id: I7eab8df34fe3b78fc376912312fac9d0f94977f1
+Reviewed-on: https://go-review.googlesource.com/17154
+Reviewed-by: Mikio Hara <mikioh.mikioh@gmail.com>
+---
+ src/net/listen_test.go | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/net/listen_test.go b/src/net/listen_test.go
+index d5627f2..51ffe67 100644
+--- a/src/net/listen_test.go
++++ b/src/net/listen_test.go
+@@ -542,7 +542,7 @@ func TestIPv4MulticastListener(t *testing.T) {
+ 		// routing stuff for finding out an appropriate
+ 		// nexthop containing both network and link layer
+ 		// adjacencies.
+-		if ifi == nil && !*testExternal {
++		if ifi == nil && (testing.Short() || !*testExternal) {
+ 			continue
+ 		}
+ 		for _, tt := range ipv4MulticastListenerTests {
+@@ -618,7 +618,7 @@ func TestIPv6MulticastListener(t *testing.T) {
+ 		// routing stuff for finding out an appropriate
+ 		// nexthop containing both network and link layer
+ 		// adjacencies.
+-		if ifi == nil && (!*testExternal || !*testIPv6) {
++		if ifi == nil && (testing.Short() || !*testExternal || !*testIPv6) {
+ 			continue
+ 		}
+ 		for _, tt := range ipv6MulticastListenerTests {
