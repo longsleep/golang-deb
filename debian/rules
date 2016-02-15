@@ -33,7 +33,9 @@ ifeq (true, $(RUN_TESTS))
 		cd src; \
 		export PATH="$(GOROOT)/bin:$$PATH"; \
 		eval "$$(go tool dist env)"; \
-		bash run.bash --no-rebuild;
+		bash run.bash -k -no-rebuild;
+	# -k           keep going even when error occurred
+	# -no-rebuild  don't rebuild std and cmd packages
 else
 	# skip the tests on platforms where they fail
 endif
