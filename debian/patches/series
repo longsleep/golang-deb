@@ -1,3 +1,0 @@
-skip-userns-tests-when-chrooted.patch
-ar-rc.patch
-cl-17154.patch

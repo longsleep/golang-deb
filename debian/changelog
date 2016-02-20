@@ -1,20 +1,21 @@
-golang (2:1.5.3-2) UNRELEASED; urgency=medium
+golang (2:1.6-1) UNRELEASED; urgency=medium
+
+  * Update to 1.6 upstream release (thanks Hilko!)
+    - change "ar" arguments to quiet spurious warnings while using gccgo
+      (Closes: #807138)
+    - skip multicast listen test (Closes: #814849)
+    - skip userns tests when chrooted (Closes: #807303)
 
   [ Michael Hudson-Doyle ]
   * Respect "nocheck" in DEB_BUILD_OPTIONS while building to skip tests
     (Closes: #807290)
-  * Skip userns tests when chrooted (Closes: #807303)
   * Trim Build-Depends (Closes: #807299)
   * Fix several minor debian/copyright issues (Closes: #807304)
 
   [ Tianon Gravi ]
-  * Backport "ar" arguments change from go1.6 to quiet spurious warnings while
-    using gccgo (Closes: #807138)
   * Add "-k" to "run.bash" invocation so that we do a full test run every time
-  * Backport test skipping change from go1.6 for multicast listen in short mode
-    (Closes: #814849)
 
- -- Tianon Gravi <tianon@debian.org>  Tue, 02 Feb 2016 21:54:29 -0800
+ -- Tianon Gravi <tianon@debian.org>  Sat, 20 Feb 2016 01:11:40 -0800
 
 golang (2:1.5.3-1) unstable; urgency=high
 
