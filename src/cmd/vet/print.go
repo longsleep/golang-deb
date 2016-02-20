@@ -445,6 +445,10 @@ func (f *File) okPrintfArg(call *ast.CallExpr, state *formatState) (ok bool) {
 		return false
 	}
 	arg := call.Args[argNum]
+	if f.isFunctionValue(arg) && state.verb != 'p' && state.verb != 'T' {
+		f.Badf(call.Pos(), "arg %s in printf call is a function value, not a function call", f.gofmt(arg))
+		return false
+	}
 	if !f.matchArgType(v.typ, nil, arg) {
 		typeString := ""
 		if typ := f.pkg.types[arg].Type; typ != nil {
@@ -488,6 +492,16 @@ func (f *File) recursiveStringer(e ast.Expr) bool {
 	// is the one we declared as the receiver for the String method in
 	// which this printf appears.
 	return f.stringers[obj]
+}
+
+// isFunctionValue reports whether the expression is a function as opposed to a function call.
+// It is almost always a mistake to print a function value.
+func (f *File) isFunctionValue(e ast.Expr) bool {
+	if typ := f.pkg.types[e].Type; typ != nil {
+		_, ok := typ.(*types.Signature)
+		return ok
+	}
+	return false
 }
 
 // argCanBeChecked reports whether the specified argument is statically present;
@@ -579,8 +593,11 @@ func (f *File) checkPrint(call *ast.CallExpr, name string, firstArg int) {
 		}
 	}
 	for _, arg := range args {
+		if f.isFunctionValue(arg) {
+			f.Badf(call.Pos(), "arg %s in %s call is a function value, not a function call", f.gofmt(arg), name)
+		}
 		if f.recursiveStringer(arg) {
-			f.Badf(call.Pos(), "arg %s for print causes recursive call to String method", f.gofmt(arg))
+			f.Badf(call.Pos(), "arg %s in %s call causes recursive call to String method", f.gofmt(arg), name)
 		}
 	}
 }

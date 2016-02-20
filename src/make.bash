@@ -44,8 +44,7 @@
 # This is used by cgo. Default is CXX, or, if that is not set, 
 # "g++" or "clang++".
 #
-# GO_DISTFLAGS: extra flags to provide to "dist bootstrap". Use "-s"
-# to build a statically linked toolchain.
+# GO_DISTFLAGS: extra flags to provide to "dist bootstrap".
 
 set -e
 if [ ! -f run.bash ]; then
@@ -116,6 +115,12 @@ GOROOT_BOOTSTRAP=${GOROOT_BOOTSTRAP:-$HOME/go1.4}
 if [ ! -x "$GOROOT_BOOTSTRAP/bin/go" ]; then
 	echo "ERROR: Cannot find $GOROOT_BOOTSTRAP/bin/go." >&2
 	echo "Set \$GOROOT_BOOTSTRAP to a working Go tree >= Go 1.4." >&2
+	exit 1
+fi
+if [ "$GOROOT_BOOTSTRAP" == "$GOROOT" ]; then
+	echo "ERROR: \$GOROOT_BOOTSTRAP must not be set to \$GOROOT" >&2
+	echo "Set \$GOROOT_BOOTSTRAP to a working Go tree >= Go 1.4." >&2
+	exit 1
 fi
 rm -f cmd/dist/dist
 GOROOT="$GOROOT_BOOTSTRAP" GOOS="" GOARCH="" "$GOROOT_BOOTSTRAP/bin/go" build -o cmd/dist/dist ./cmd/dist

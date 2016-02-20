@@ -243,7 +243,7 @@ TEXT runtime·externalthreadhandler(SB),NOSPLIT,$0
 	LEAQ	g__size(SP), BX
 	MOVQ	BX, g_m(SP)
 
-	LEAQ	-8192(SP), CX
+	LEAQ	-32768(SP), CX		// must be less than SizeOfStackReserve set by linker
 	MOVQ	CX, (g_stack+stack_lo)(SP)
 	ADDQ	$const__StackGuard, CX
 	MOVQ	CX, g_stackguard0(SP)
@@ -428,19 +428,21 @@ ret:
 	RET
 
 // Runs on OS stack. duration (in 100ns units) is in BX.
-TEXT runtime·usleep2(SB),NOSPLIT,$16
+// The function leaves room for 4 syscall parameters
+// (as per windows amd64 calling convention).
+TEXT runtime·usleep2(SB),NOSPLIT,$48
 	MOVQ	SP, AX
 	ANDQ	$~15, SP	// alignment as per Windows requirement
-	MOVQ	AX, 8(SP)
+	MOVQ	AX, 40(SP)
 	// Want negative 100ns units.
 	NEGQ	BX
-	MOVQ	SP, R8 // ptime
+	LEAQ	32(SP), R8  // ptime
 	MOVQ	BX, (R8)
 	MOVQ	$-1, CX // handle
 	MOVQ	$0, DX // alertable
 	MOVQ	runtime·_NtWaitForSingleObject(SB), AX
 	CALL	AX
-	MOVQ	8(SP), SP
+	MOVQ	40(SP), SP
 	RET
 
 // func now() (sec int64, nsec int32)

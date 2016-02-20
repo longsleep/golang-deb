@@ -4,7 +4,11 @@
 
 package runtime
 
-import "unsafe"
+import (
+	"runtime/internal/atomic"
+	"runtime/internal/sys"
+	"unsafe"
+)
 
 /*
  * defined constants
@@ -45,14 +49,6 @@ const (
 	_Pdead
 )
 
-// The next line makes 'go generate' write the zgen_*.go files with
-// per-OS and per-arch information, including constants
-// named goos_$GOOS and goarch_$GOARCH for every
-// known GOOS and GOARCH. The constant is 1 on the
-// current system, 0 otherwise; multiplying by them is
-// useful for defining GOOS- or GOARCH-specific constants.
-//go:generate go run gengoos.go
-
 type mutex struct {
 	// Futex-based impl treats it as uint32 key,
 	// while sema-based impl as M* waitm.
@@ -65,11 +61,6 @@ type note struct {
 	// while sema-based impl as M* waitm.
 	// Used to be a union, but unions break precise GC.
 	key uintptr
-}
-
-type _string struct {
-	str *byte
-	len int
 }
 
 type funcval struct {
@@ -85,6 +76,10 @@ type iface struct {
 type eface struct {
 	_type *_type
 	data  unsafe.Pointer
+}
+
+func efaceOf(ep *interface{}) *eface {
+	return (*eface)(unsafe.Pointer(ep))
 }
 
 // The guintptr, muintptr, and puintptr are all used to bypass write barriers.
@@ -127,20 +122,31 @@ type eface struct {
 // alternate arena. Using guintptr doesn't make that problem any worse.
 type guintptr uintptr
 
-func (gp guintptr) ptr() *g   { return (*g)(unsafe.Pointer(gp)) }
+//go:nosplit
+func (gp guintptr) ptr() *g { return (*g)(unsafe.Pointer(gp)) }
+
+//go:nosplit
 func (gp *guintptr) set(g *g) { *gp = guintptr(unsafe.Pointer(g)) }
+
+//go:nosplit
 func (gp *guintptr) cas(old, new guintptr) bool {
-	return casuintptr((*uintptr)(unsafe.Pointer(gp)), uintptr(old), uintptr(new))
+	return atomic.Casuintptr((*uintptr)(unsafe.Pointer(gp)), uintptr(old), uintptr(new))
 }
 
 type puintptr uintptr
 
-func (pp puintptr) ptr() *p   { return (*p)(unsafe.Pointer(pp)) }
+//go:nosplit
+func (pp puintptr) ptr() *p { return (*p)(unsafe.Pointer(pp)) }
+
+//go:nosplit
 func (pp *puintptr) set(p *p) { *pp = puintptr(unsafe.Pointer(p)) }
 
 type muintptr uintptr
 
-func (mp muintptr) ptr() *m   { return (*m)(unsafe.Pointer(mp)) }
+//go:nosplit
+func (mp muintptr) ptr() *m { return (*m)(unsafe.Pointer(mp)) }
+
+//go:nosplit
 func (mp *muintptr) set(m *m) { *mp = muintptr(unsafe.Pointer(m)) }
 
 type gobuf struct {
@@ -149,7 +155,7 @@ type gobuf struct {
 	pc   uintptr
 	g    guintptr
 	ctxt unsafe.Pointer // this has to be a pointer so that gc scans it
-	ret  uintreg
+	ret  sys.Uintreg
 	lr   uintptr
 	bp   uintptr // for GOEXPERIMENT=framepointer
 }
@@ -227,8 +233,9 @@ type g struct {
 	sched          gobuf
 	syscallsp      uintptr        // if status==Gsyscall, syscallsp = sched.sp to use during gc
 	syscallpc      uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc
-	stkbar         []stkbar       // stack barriers, from low to high
+	stkbar         []stkbar       // stack barriers, from low to high (see top of mstkbar.go)
 	stkbarPos      uintptr        // index of lowest stack barrier not hit
+	stktopsp       uintptr        // expected sp at top of stack, to check in traceback
 	param          unsafe.Pointer // passed parameter on wakeup
 	atomicstatus   uint32
 	stackLock      uint32 // sigprof/scang lock; TODO: fold in to atomicstatus
@@ -256,20 +263,17 @@ type g struct {
 	startpc        uintptr // pc of goroutine function
 	racectx        uintptr
 	waiting        *sudog // sudog structures this g is waiting on (that have a valid elem ptr)
-	readyg         *g     // scratch for readyExecute
 
 	// Per-G gcController state
-	gcalloc    uintptr // bytes allocated during this GC cycle
-	gcscanwork int64   // scan work done (or stolen) this GC cycle
-}
 
-type mts struct {
-	tv_sec  int64
-	tv_nsec int64
-}
-
-type mscratch struct {
-	v [6]uintptr
+	// gcAssistBytes is this G's GC assist credit in terms of
+	// bytes allocated. If this is positive, then the G has credit
+	// to allocate gcAssistBytes bytes without assisting. If this
+	// is negative, then the G must correct this by performing
+	// scan work. We track this in bytes to make it fast to update
+	// and check for debt in the malloc hot path. The assist ratio
+	// determines how this corresponds to scan work debt.
+	gcAssistBytes int64
 }
 
 type m struct {
@@ -280,8 +284,8 @@ type m struct {
 	// Fields not known to debuggers.
 	procid        uint64     // for debuggers, but offset not hard-coded
 	gsignal       *g         // signal-handling g
-	sigmask       [4]uintptr // storage for saved signal mask
-	tls           [4]uintptr // thread-local storage (for x86 extern register)
+	sigmask       sigset     // storage for saved signal mask
+	tls           [6]uintptr // thread-local storage (for x86 extern register)
 	mstartfn      func()
 	curg          *g       // current running goroutine
 	caughtsig     guintptr // goroutine running during fatal signal
@@ -299,6 +303,7 @@ type m struct {
 	spinning      bool // m is out of work and is actively looking for work
 	blocked       bool // m is blocked on a note
 	inwb          bool // m is executing a write barrier
+	newSigstack   bool // minit on C thread called sigaltstack
 	printlock     int8
 	fastrand      uint32
 	ncgocall      uint64 // number of cgo calls in total
@@ -315,9 +320,6 @@ type m struct {
 	fflag         uint32      // floating point compare flags
 	locked        uint32      // tracking for lockosthread
 	nextwaitm     uintptr     // next m waiting for lock
-	waitsema      uintptr     // semaphore for parking on locks
-	waitsemacount uint32
-	waitsemalock  uint32
 	gcstats       gcstats
 	needextram    bool
 	traceback     uint8
@@ -337,18 +339,7 @@ type m struct {
 	libcallg  guintptr
 	syscall   libcall // stores syscall parameters on windows
 	//#endif
-	//#ifdef GOOS_solaris
-	perrno *int32 // pointer to tls errno
-	// these are here because they are too large to be on the stack
-	// of low-level NOSPLIT functions.
-	//LibCall	libcall;
-	ts      mts
-	scratch mscratch
-	//#endif
-	//#ifdef GOOS_plan9
-	notesig *int8
-	errstr  *byte
-	//#endif
+	mOS
 }
 
 type p struct {
@@ -372,7 +363,7 @@ type p struct {
 	// Queue of runnable goroutines. Accessed without lock.
 	runqhead uint32
 	runqtail uint32
-	runq     [256]*g
+	runq     [256]guintptr
 	// runnext, if non-nil, is a runnable G that was ready'd by
 	// the current G and should be run next instead of what's in
 	// runq if there's time remaining in the running G's time
@@ -391,13 +382,13 @@ type p struct {
 	sudogcache []*sudog
 	sudogbuf   [128]*sudog
 
-	tracebuf *traceBuf
+	tracebuf traceBufPtr
 
 	palloc persistentAlloc // per-P to avoid mutex
 
 	// Per-P GC state
 	gcAssistTime     int64 // Nanoseconds in assistAlloc
-	gcBgMarkWorker   *g
+	gcBgMarkWorker   guintptr
 	gcMarkWorkerMode gcMarkWorkerMode
 
 	// gcw is this P's GC work buffer cache. The work buffer is
@@ -417,9 +408,11 @@ const (
 )
 
 type schedt struct {
-	lock mutex
+	// accessed atomically. keep at top to ensure alignment on 32-bit systems.
+	goidgen  uint64
+	lastpoll uint64
 
-	goidgen uint64
+	lock mutex
 
 	midle        muintptr // idle m's waiting for work
 	nmidle       int32    // number of idle m's waiting for work
@@ -427,9 +420,11 @@ type schedt struct {
 	mcount       int32    // number of m's that have been created
 	maxmcount    int32    // maximum number of m's allowed (or die)
 
+	ngsys uint32 // number of system goroutines; updated atomically
+
 	pidle      puintptr // idle p's
 	npidle     uint32
-	nmspinning uint32
+	nmspinning uint32 // See "Worker thread parking/unparking" comment in proc.go.
 
 	// Global runnable queue.
 	runqhead guintptr
@@ -454,7 +449,6 @@ type schedt struct {
 	stopnote   note
 	sysmonwait uint32
 	sysmonnote note
-	lastpoll   uint64
 
 	// safepointFn should be called on each P at the next GC
 	// safepoint if p.runSafePointFn is set.
@@ -492,7 +486,6 @@ const (
 	_SigPanic                // if the signal is from the kernel, panic
 	_SigDefault              // if the signal isn't explicitly requested, don't monitor it
 	_SigHandling             // our signal handler is registered
-	_SigIgnored              // the signal was ignored before we registered for it
 	_SigGoExit               // cause all runtime procs to exit (only used on Plan 9).
 	_SigSetStack             // add SA_ONSTACK to libc handler
 	_SigUnblock              // unblocked in minit
@@ -506,8 +499,8 @@ type _func struct {
 	entry   uintptr // start pc
 	nameoff int32   // function name
 
-	args  int32 // in/out args size
-	frame int32 // legacy frame size; use pcsp if possible
+	args int32 // in/out args size
+	_    int32 // previously legacy frame size; kept for layout compatibility
 
 	pcsp      int32
 	pcfile    int32
@@ -544,7 +537,7 @@ type forcegcstate struct {
  * known to compiler
  */
 const (
-	_Structrnd = regSize
+	_Structrnd = sys.RegSize
 )
 
 // startup_random_data holds random bytes initialized at startup.  These come from
@@ -564,7 +557,7 @@ func extendRandom(r []byte, n int) {
 			w = 16
 		}
 		h := memhash(unsafe.Pointer(&r[n-w]), uintptr(nanotime()), uintptr(w))
-		for i := 0; i < ptrSize && n < len(r); i++ {
+		for i := 0; i < sys.PtrSize && n < len(r); i++ {
 			r[n] = byte(h)
 			n++
 			h >>= 8
@@ -626,16 +619,12 @@ const (
 
 var (
 	emptystring string
-	allg        **g
 	allglen     uintptr
-	lastg       *g
 	allm        *m
 	allp        [_MaxGomaxprocs + 1]*p
 	gomaxprocs  int32
 	panicking   uint32
-	goos        *int8
 	ncpu        int32
-	signote     note
 	forcegc     forcegcstate
 	sched       schedt
 	newprocs    int32
@@ -645,6 +634,8 @@ var (
 	cpuid_ecx         uint32
 	cpuid_edx         uint32
 	lfenceBeforeRdtsc bool
+	support_avx       bool
+	support_avx2      bool
 
 	goarm uint8 // set by cmd/link on arm systems
 )

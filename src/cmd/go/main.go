@@ -285,8 +285,8 @@ func printUsage(w io.Writer) {
 func usage() {
 	// special case "go test -h"
 	if len(os.Args) > 1 && os.Args[1] == "test" {
-		os.Stdout.WriteString(testUsage + "\n\n" +
-			strings.TrimSpace(testFlag1) + "\n\n" +
+		os.Stderr.WriteString(testUsage + "\n\n" +
+			strings.TrimSpace(testFlag1) + "\n\n\t" +
 			strings.TrimSpace(testFlag2) + "\n")
 		os.Exit(2)
 	}
@@ -353,7 +353,7 @@ func importPathsNoDotExpansion(args []string) []string {
 		} else {
 			a = path.Clean(a)
 		}
-		if a == "all" || a == "std" || a == "cmd" {
+		if isMetaPackage(a) {
 			out = append(out, allPackages(a)...)
 			continue
 		}
@@ -454,7 +454,9 @@ func envForDir(dir string, base []string) []string {
 
 // mergeEnvLists merges the two environment lists such that
 // variables with the same name in "in" replace those in "out".
+// This always returns a newly allocated slice.
 func mergeEnvLists(in, out []string) []string {
+	out = append([]string(nil), out...)
 NextVar:
 	for _, inkv := range in {
 		k := strings.SplitAfterN(inkv, "=", 2)[0]
@@ -524,6 +526,15 @@ func hasFilePathPrefix(s, prefix string) bool {
 	}
 }
 
+// expandPath returns the symlink-expanded form of path.
+func expandPath(p string) string {
+	x, err := filepath.EvalSymlinks(p)
+	if err == nil {
+		return x
+	}
+	return p
+}
+
 // treeCanMatchPattern(pattern)(name) reports whether
 // name or children of name can possibly match pattern.
 // Pattern is the same limited glob accepted by matchPattern.
@@ -554,7 +565,7 @@ func allPackages(pattern string) []string {
 func matchPackages(pattern string) []string {
 	match := func(string) bool { return true }
 	treeCanMatch := func(string) bool { return true }
-	if pattern != "all" && pattern != "std" && pattern != "cmd" {
+	if !isMetaPackage(pattern) {
 		match = matchPattern(pattern)
 		treeCanMatch = treeCanMatchPattern(pattern)
 	}
@@ -588,10 +599,9 @@ func matchPackages(pattern string) []string {
 			}
 
 			name := filepath.ToSlash(path[len(src):])
-			if pattern == "std" && (strings.Contains(name, ".") || name == "cmd") {
+			if pattern == "std" && (!isStandardImportPath(name) || name == "cmd") {
 				// The name "std" is only the standard library.
-				// If the name has a dot, assume it's a domain name for go get,
-				// and if the name is cmd, it's the root of the command tree.
+				// If the name is cmd, it's the root of the command tree.
 				return filepath.SkipDir
 			}
 			if !treeCanMatch(name) {
@@ -674,7 +684,14 @@ func matchPackagesInFS(pattern string) []string {
 		if !match(name) {
 			return nil
 		}
-		if _, err = build.ImportDir(path, 0); err != nil {
+
+		// We keep the directory if we can import it, or if we can't import it
+		// due to invalid Go source files. This means that directories containing
+		// parse errors will be built (and fail) instead of being silently skipped
+		// as not matching the pattern. Go 1.5 and earlier skipped, but that
+		// behavior means people miss serious mistakes.
+		// See golang.org/issue/11407.
+		if p, err := buildContext.ImportDir(path, 0); err != nil && (p == nil || len(p.InvalidGoFiles) == 0) {
 			if _, noGo := err.(*build.NoGoError); !noGo {
 				log.Print(err)
 			}
