@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestCloseRead(t *testing.T) {
@@ -208,8 +209,8 @@ func TestListenerClose(t *testing.T) {
 		case "unix", "unixpacket":
 			defer os.Remove(ln.Addr().String())
 		}
-		defer ln.Close()
 
+		dst := ln.Addr().String()
 		if err := ln.Close(); err != nil {
 			if perr := parseCloseError(err); perr != nil {
 				t.Error(perr)
@@ -220,6 +221,29 @@ func TestListenerClose(t *testing.T) {
 		if err == nil {
 			c.Close()
 			t.Fatal("should fail")
+		}
+
+		if network == "tcp" {
+			// We will have two TCP FSMs inside the
+			// kernel here. There's no guarantee that a
+			// signal comes from the far end FSM will be
+			// delivered immediately to the near end FSM,
+			// especially on the platforms that allow
+			// multiple consumer threads to pull pending
+			// established connections at the same time by
+			// enabling SO_REUSEPORT option such as Linux,
+			// DragonFly BSD. So we need to give some time
+			// quantum to the kernel.
+			//
+			// Note that net.inet.tcp.reuseport_ext=1 by
+			// default on DragonFly BSD.
+			time.Sleep(time.Millisecond)
+
+			cc, err := Dial("tcp", dst)
+			if err == nil {
+				t.Error("Dial to closed TCP listener succeeded.")
+				cc.Close()
+			}
 		}
 	}
 }
@@ -253,4 +277,30 @@ func TestPacketConnClose(t *testing.T) {
 			t.Fatalf("got (%d, %v); want (0, error)", n, err)
 		}
 	}
+}
+
+// nacl was previous failing to reuse an address.
+func TestListenCloseListen(t *testing.T) {
+	const maxTries = 10
+	for tries := 0; tries < maxTries; tries++ {
+		ln, err := newLocalListener("tcp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := ln.Addr().String()
+		if err := ln.Close(); err != nil {
+			if perr := parseCloseError(err); perr != nil {
+				t.Error(perr)
+			}
+			t.Fatal(err)
+		}
+		ln, err = Listen("tcp", addr)
+		if err == nil {
+			// Success. nacl couldn't do this before.
+			ln.Close()
+			return
+		}
+		t.Errorf("failed on try %d/%d: %v", tries+1, maxTries, err)
+	}
+	t.Fatalf("failed to listen/close/listen on same address after %d tries", maxTries)
 }

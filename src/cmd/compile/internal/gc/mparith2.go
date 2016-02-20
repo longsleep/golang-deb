@@ -31,6 +31,12 @@ func mpmovefixfix(a, b *Mpint) {
 }
 
 func mpmovefltfix(a *Mpint, b *Mpflt) int {
+	// avoid converting huge floating-point numbers to integers
+	// (2*Mpprec is large enough to permit all tests to pass)
+	if b.Val.MantExp(nil) > 2*Mpprec {
+		return -1
+	}
+
 	if _, acc := b.Val.Int(&a.Val); acc == big.Exact {
 		return 0
 	}
@@ -229,7 +235,7 @@ func mprshfixfix(a, b *Mpint) {
 	}
 
 	s := Mpgetfix(b)
-	if s < 0 || s >= Mpprec {
+	if s < 0 {
 		Yyerror("stupid shift: %d", s)
 		if a.Val.Sign() < 0 {
 			Mpmovecfix(a, -1)

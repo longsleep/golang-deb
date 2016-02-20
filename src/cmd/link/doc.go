@@ -52,6 +52,9 @@ Flags:
 		The dynamic header is on by default, even without any
 		references to dynamic libraries, because many common
 		system tools now assume the presence of the header.
+	-extar ar
+		Set the external archive program (default "ar").
+		Used only for -buildmode=c-archive.
 	-extld linker
 		Set the external linker (default "clang" or "gcc").
 	-extldflags flags
@@ -63,6 +66,12 @@ Flags:
 	-installsuffix suffix
 		Look for packages in $GOROOT/pkg/$GOOS_$GOARCH_suffix
 		instead of $GOROOT/pkg/$GOOS_$GOARCH.
+	-libgcc file
+		Set name of compiler support library.
+		This is only used in internal link mode.
+		If not set, default value comes from running the compiler,
+		which may be set by the -extld option.
+		Set to "none" to use no support library.
 	-linkmode mode
 		Set link mode (internal, external, auto).
 		This sets the linking mode as described in cmd/cgo/doc.go.
@@ -72,6 +81,8 @@ Flags:
 		Write memory profile to file.
 	-memprofilerate rate
 		Set runtime.MemProfileRate to rate.
+	-msan
+		Link with C/C++ memory sanitizer support.
 	-o file
 		Write output to file (default a.out, or a.out.exe on Windows).
 	-r dir1:dir2:...

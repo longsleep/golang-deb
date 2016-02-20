@@ -158,7 +158,7 @@ var mulRangesN = []struct {
 
 func TestMulRangeN(t *testing.T) {
 	for i, r := range mulRangesN {
-		prod := nat(nil).mulRange(r.a, r.b).decimalString()
+		prod := string(nat(nil).mulRange(r.a, r.b).utoa(10))
 		if prod != r.prod {
 			t.Errorf("#%d: got %s; want %s", i, prod, r.prod)
 		}
@@ -326,7 +326,7 @@ func TestTrailingZeroBits(t *testing.T) {
 	for i := uint(0); i <= 3*_W; i++ {
 		n := y.trailingZeroBits()
 		if n != i {
-			t.Errorf("got 0x%s.trailingZeroBits() = %d; want %d", y.hexString(), n, i)
+			t.Errorf("got 0x%s.trailingZeroBits() = %d; want %d", y.utoa(16), n, i)
 		}
 		y = y.shl(y, 1)
 	}
@@ -419,11 +419,11 @@ func TestMontgomery(t *testing.T) {
 
 		if x.cmp(m) > 0 {
 			_, r := nat(nil).div(nil, x, m)
-			t.Errorf("#%d: x > m (0x%s > 0x%s; use 0x%s)", i, x.hexString(), m.hexString(), r.hexString())
+			t.Errorf("#%d: x > m (0x%s > 0x%s; use 0x%s)", i, x.utoa(16), m.utoa(16), r.utoa(16))
 		}
 		if y.cmp(m) > 0 {
 			_, r := nat(nil).div(nil, x, m)
-			t.Errorf("#%d: y > m (0x%s > 0x%s; use 0x%s)", i, y.hexString(), m.hexString(), r.hexString())
+			t.Errorf("#%d: y > m (0x%s > 0x%s; use 0x%s)", i, y.utoa(16), m.utoa(16), r.utoa(16))
 		}
 
 		var out nat
@@ -441,7 +441,7 @@ func TestMontgomery(t *testing.T) {
 		mi := &Int{abs: m}
 		p := new(Int).Mod(new(Int).Mul(xi, new(Int).Mul(yi, new(Int).ModInverse(new(Int).Lsh(one, uint(len(m))*_W), mi))), mi)
 		if out.cmp(p.abs.norm()) != 0 {
-			t.Errorf("#%d: out in table=0x%s, computed=0x%s", i, out.hexString(), p.abs.norm().hexString())
+			t.Errorf("#%d: out in table=0x%s, computed=0x%s", i, out.utoa(16), p.abs.norm().utoa(16))
 		}
 
 		// check k0 in table
@@ -457,7 +457,7 @@ func TestMontgomery(t *testing.T) {
 		z := nat(nil).montgomery(x, y, m, k0, len(m))
 		z = z.norm()
 		if z.cmp(out) != 0 {
-			t.Errorf("#%d: got 0x%s want 0x%s", i, z.hexString(), out.hexString())
+			t.Errorf("#%d: got 0x%s want 0x%s", i, z.utoa(16), out.utoa(16))
 		}
 	}
 }
@@ -483,6 +483,12 @@ var expNNTests = []struct {
 		"29834729834729834729347290846729561262544958723956495615629569234729836259263598127342374289365912465901365498236492183464",
 		"23537740700184054162508175125554701713153216681790245129157191391322321508055833908509185839069455749219131480588829346291",
 	},
+	{
+		"11521922904531591643048817447554701904414021819823889996244743037378330903763518501116638828335352811871131385129455853417360623007349090150042001944696604737499160174391019030572483602867266711107136838523916077674888297896995042968746762200926853379",
+		"426343618817810911523",
+		"444747819283133684179",
+		"42",
+	},
 }
 
 func TestExpNN(t *testing.T) {
@@ -498,7 +504,7 @@ func TestExpNN(t *testing.T) {
 
 		z := nat(nil).expNN(x, y, m)
 		if z.cmp(out) != 0 {
-			t.Errorf("#%d got %s want %s", i, z.decimalString(), out.decimalString())
+			t.Errorf("#%d got %s want %s", i, z.utoa(10), out.utoa(10))
 		}
 	}
 }
@@ -555,7 +561,7 @@ var fiboNums = []string{
 func TestFibo(t *testing.T) {
 	for i, want := range fiboNums {
 		n := i * 10
-		got := fibo(n).decimalString()
+		got := string(fibo(n).utoa(10))
 		if got != want {
 			t.Errorf("fibo(%d) failed: got %s want %s", n, got, want)
 		}

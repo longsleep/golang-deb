@@ -4,7 +4,12 @@
 
 package runtime
 
-import "unsafe"
+import (
+	"runtime/internal/atomic"
+	"unsafe"
+)
+
+type sigset struct{}
 
 // Called to initialize a new m (including the bootstrap m).
 // Called on the parent thread (main thread in case of bootstrap), can allocate memory.
@@ -21,7 +26,7 @@ func mpreinit(mp *m) {
 func msigsave(mp *m) {
 }
 
-func msigrestore(mp *m) {
+func msigrestore(sigmask sigset) {
 }
 
 func sigblock() {
@@ -102,7 +107,7 @@ func getRandomData(r []byte) {
 func goenvs() {
 }
 
-func initsig() {
+func initsig(preinit bool) {
 }
 
 //go:nosplit
@@ -149,7 +154,7 @@ func goexitsall(status *byte) {
 	n := copy(buf[:], goexits)
 	n = copy(buf[n:], gostringnocopy(status))
 	pid := getpid()
-	for mp := (*m)(atomicloadp(unsafe.Pointer(&allm))); mp != nil; mp = mp.alllink {
+	for mp := (*m)(atomic.Loadp(unsafe.Pointer(&allm))); mp != nil; mp = mp.alllink {
 		if mp.procid != pid {
 			postnote(mp.procid, buf[:])
 		}
@@ -170,7 +175,7 @@ func postnote(pid uint64, msg []byte) int {
 		return -1
 	}
 	len := findnull(&msg[0])
-	if write(uintptr(fd), (unsafe.Pointer)(&msg[0]), int32(len)) != int64(len) {
+	if write(uintptr(fd), unsafe.Pointer(&msg[0]), int32(len)) != int64(len) {
 		closefd(fd)
 		return -1
 	}
@@ -208,8 +213,7 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 }
 
 //go:nosplit
-func semacreate() uintptr {
-	return 1
+func semacreate(mp *m) {
 }
 
 //go:nosplit

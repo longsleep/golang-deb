@@ -444,7 +444,7 @@ func Asmbmacho() {
 		ms = newMachoSeg("", 40)
 
 		ms.fileoffset = Segtext.Fileoff
-		if Thearch.Thechar == '5' {
+		if Thearch.Thechar == '5' || Buildmode == BuildmodeCArchive {
 			ms.filesize = Segdata.Fileoff + Segdata.Filelen - Segtext.Fileoff
 		} else {
 			ms.filesize = Segdwarf.Fileoff + Segdwarf.Filelen - Segtext.Fileoff
@@ -566,6 +566,25 @@ func Asmbmacho() {
 		}
 	}
 
+	if Linkmode == LinkInternal {
+		// For lldb, must say LC_VERSION_MIN_MACOSX or else
+		// it won't know that this Mach-O binary is from OS X
+		// (could be iOS or WatchOS intead).
+		// Go on iOS uses linkmode=external, and linkmode=external
+		// adds this itself. So we only need this code for linkmode=internal
+		// and we can assume OS X.
+		//
+		// See golang.org/issues/12941.
+		const (
+			LC_VERSION_MIN_MACOSX   = 0x24
+			LC_VERSION_MIN_IPHONEOS = 0x25
+			LC_VERSION_MIN_WATCHOS  = 0x30
+		)
+		ml := newMachoLoad(LC_VERSION_MIN_MACOSX, 2)
+		ml.data[0] = 10<<16 | 7<<8 | 0<<0 // OS X version 10.7.0
+		ml.data[1] = 10<<16 | 7<<8 | 0<<0 // SDK 10.7.0
+	}
+
 	// TODO: dwarf headers go in ms too
 	if Debug['s'] == 0 {
 		dwarfaddmachoheaders(ms)
@@ -625,10 +644,10 @@ func (x machoscmp) Less(i, j int) bool {
 	k1 := symkind(s1)
 	k2 := symkind(s2)
 	if k1 != k2 {
-		return k1-k2 < 0
+		return k1 < k2
 	}
 
-	return stringsCompare(s1.Extname, s2.Extname) < 0
+	return s1.Extname < s2.Extname
 }
 
 func machogenasmsym(put func(*LSym, string, int, int64, int64, int, *LSym)) {

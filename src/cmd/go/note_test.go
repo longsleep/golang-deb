@@ -6,6 +6,7 @@ package main_test
 
 import (
 	main "cmd/go"
+	"go/build"
 	"runtime"
 	"testing"
 )
@@ -28,9 +29,6 @@ func TestNoteReading2K(t *testing.T) {
 }
 
 func testNoteReading(t *testing.T) {
-	if runtime.GOOS == "dragonfly" {
-		t.Skipf("TestNoteReading is broken on dragonfly - golang.org/issue/13364", runtime.GOOS)
-	}
 	tg := testgo(t)
 	defer tg.cleanup()
 	tg.tempFile("hello.go", `package main; func main() { print("hello, world\n") }`)
@@ -44,23 +42,25 @@ func testNoteReading(t *testing.T) {
 		t.Fatalf("buildID in hello binary = %q, want %q", id, buildID)
 	}
 
-	if runtime.GOOS == "linux" && runtime.GOARCH == "ppc64le" {
-		t.Skipf("skipping - golang.org/issue/11184")
+	switch {
+	case !build.Default.CgoEnabled:
+		t.Skipf("skipping - no cgo, so assuming external linking not available")
+	case runtime.GOOS == "linux" && (runtime.GOARCH == "ppc64le" || runtime.GOARCH == "ppc64"):
+		t.Skipf("skipping - external linking not supported, golang.org/issue/11184")
+	case runtime.GOOS == "linux" && (runtime.GOARCH == "mips64le" || runtime.GOARCH == "mips64"):
+		t.Skipf("skipping - external linking not supported, golang.org/issue/12560")
+	case runtime.GOOS == "openbsd" && runtime.GOARCH == "arm":
+		t.Skipf("skipping - external linking not supported, golang.org/issue/10619")
+	case runtime.GOOS == "plan9":
+		t.Skipf("skipping - external linking not supported")
 	}
 
-	switch runtime.GOOS {
-	case "plan9":
-		// no external linking
-		t.Logf("no external linking - skipping linkmode=external test")
-
-	default:
-		tg.run("build", "-ldflags", "-buildid="+buildID+" -linkmode=external", "-o", tg.path("hello.exe"), tg.path("hello.go"))
-		id, err := main.ReadBuildIDFromBinary(tg.path("hello.exe"))
-		if err != nil {
-			t.Fatalf("reading build ID from hello binary (linkmode=external): %v", err)
-		}
-		if id != buildID {
-			t.Fatalf("buildID in hello binary = %q, want %q (linkmode=external)", id, buildID)
-		}
+	tg.run("build", "-ldflags", "-buildid="+buildID+" -linkmode=external", "-o", tg.path("hello.exe"), tg.path("hello.go"))
+	id, err = main.ReadBuildIDFromBinary(tg.path("hello.exe"))
+	if err != nil {
+		t.Fatalf("reading build ID from hello binary (linkmode=external): %v", err)
+	}
+	if id != buildID {
+		t.Fatalf("buildID in hello binary = %q, want %q (linkmode=external)", id, buildID)
 	}
 }

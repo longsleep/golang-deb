@@ -125,26 +125,13 @@ func TestStringW(t *testing.T) {
 }
 
 func TestLargeStringConcat(t *testing.T) {
-	output := executeTest(t, largeStringConcatSource, nil)
+	output := runTestProg(t, "testprog", "stringconcat")
 	want := "panic: " + strings.Repeat("0", 1<<10) + strings.Repeat("1", 1<<10) +
 		strings.Repeat("2", 1<<10) + strings.Repeat("3", 1<<10)
 	if !strings.HasPrefix(output, want) {
 		t.Fatalf("output does not start with %q:\n%s", want, output)
 	}
 }
-
-var largeStringConcatSource = `
-package main
-import "strings"
-func main() {
-	s0 := strings.Repeat("0", 1<<10)
-	s1 := strings.Repeat("1", 1<<10)
-	s2 := strings.Repeat("2", 1<<10)
-	s3 := strings.Repeat("3", 1<<10)
-	s := s0 + s1 + s2 + s3
-	panic(s)
-}
-`
 
 func TestGostringnocopy(t *testing.T) {
 	max := *runtime.Maxstring
@@ -233,5 +220,20 @@ func TestRangeStringCast(t *testing.T) {
 	})
 	if n != 0 {
 		t.Fatalf("want 0 allocs, got %v", n)
+	}
+}
+
+func TestString2Slice(t *testing.T) {
+	// Make sure we don't return slices that expose
+	// an unzeroed section of stack-allocated temp buf
+	// between len and cap.  See issue 14232.
+	s := "foož"
+	b := ([]byte)(s)
+	if cap(b) != 5 {
+		t.Errorf("want cap of 5, got %d", cap(b))
+	}
+	r := ([]rune)(s)
+	if cap(r) != 4 {
+		t.Errorf("want cap of 4, got %d", cap(r))
 	}
 }

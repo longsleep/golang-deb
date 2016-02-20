@@ -74,7 +74,7 @@ func lwp_start(uintptr)
 //go:nowritebarrier
 func newosproc(mp *m, stk unsafe.Pointer) {
 	if false {
-		print("newosproc stk=", stk, " m=", mp, " g=", mp.g0, " lwp_start=", funcPC(lwp_start), " id=", mp.id, "/", mp.tls[0], " ostk=", &mp, "\n")
+		print("newosproc stk=", stk, " m=", mp, " g=", mp.g0, " lwp_start=", funcPC(lwp_start), " id=", mp.id, " ostk=", &mp, "\n")
 	}
 
 	var oset sigset
@@ -87,8 +87,6 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 		tid1:       unsafe.Pointer(&mp.procid),
 		tid2:       nil,
 	}
-
-	mp.tls[0] = uintptr(mp.id) // XXX so 386 asm can find it
 
 	lwp_create(&params)
 	sigprocmask(_SIG_SETMASK, &oset, nil)
@@ -121,17 +119,12 @@ func mpreinit(mp *m) {
 
 //go:nosplit
 func msigsave(mp *m) {
-	smask := (*sigset)(unsafe.Pointer(&mp.sigmask))
-	if unsafe.Sizeof(*smask) > unsafe.Sizeof(mp.sigmask) {
-		throw("insufficient storage for signal mask")
-	}
-	sigprocmask(_SIG_SETMASK, nil, smask)
+	sigprocmask(_SIG_SETMASK, nil, &mp.sigmask)
 }
 
 //go:nosplit
-func msigrestore(mp *m) {
-	smask := (*sigset)(unsafe.Pointer(&mp.sigmask))
-	sigprocmask(_SIG_SETMASK, smask, nil)
+func msigrestore(sigmask sigset) {
+	sigprocmask(_SIG_SETMASK, &sigmask, nil)
 }
 
 //go:nosplit
@@ -147,11 +140,20 @@ func minit() {
 	// m.procid is a uint64, but lwp_start writes an int32. Fix it up.
 	_g_.m.procid = uint64(*(*int32)(unsafe.Pointer(&_g_.m.procid)))
 
-	// Initialize signal handling
+	// Initialize signal handling.
+
+	// On DragonFly a thread created by pthread_create inherits
+	// the signal stack of the creating thread.  We always create
+	// a new signal stack here, to avoid having two Go threads
+	// using the same signal stack.  This breaks the case of a
+	// thread created in C that calls sigaltstack and then calls a
+	// Go function, because we will lose track of the C code's
+	// sigaltstack, but it's the best we can do.
 	signalstack(&_g_.m.gsignal.stack)
+	_g_.m.newSigstack = true
 
 	// restore signal mask from m.sigmask and unblock essential signals
-	nmask := *(*sigset)(unsafe.Pointer(&_g_.m.sigmask))
+	nmask := _g_.m.sigmask
 	for i := range sigtable {
 		if sigtable[i].flags&_SigUnblock != 0 {
 			nmask.__bits[(i-1)/32] &^= 1 << ((uint32(i) - 1) & 31)
@@ -161,8 +163,11 @@ func minit() {
 }
 
 // Called from dropm to undo the effect of an minit.
+//go:nosplit
 func unminit() {
-	signalstack(nil)
+	if getg().m.newSigstack {
+		signalstack(nil)
+	}
 }
 
 func memlimit() uintptr {
@@ -204,6 +209,8 @@ type sigactiont struct {
 	sa_mask      sigset
 }
 
+//go:nosplit
+//go:nowritebarrierrec
 func setsig(i int32, fn uintptr, restart bool) {
 	var sa sigactiont
 	sa.sa_flags = _SA_SIGINFO | _SA_ONSTACK
@@ -218,10 +225,14 @@ func setsig(i int32, fn uintptr, restart bool) {
 	sigaction(i, &sa, nil)
 }
 
+//go:nosplit
+//go:nowritebarrierrec
 func setsigstack(i int32) {
 	throw("setsigstack")
 }
 
+//go:nosplit
+//go:nowritebarrierrec
 func getsig(i int32) uintptr {
 	var sa sigactiont
 	sigaction(i, nil, &sa)
@@ -244,6 +255,8 @@ func signalstack(s *stack) {
 	sigaltstack(&st, nil)
 }
 
+//go:nosplit
+//go:nowritebarrierrec
 func updatesigmask(m sigmask) {
 	var mask sigset
 	copy(mask.__bits[:], m[:])

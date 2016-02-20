@@ -1198,7 +1198,6 @@ func copyu(p *obj.Prog, v *obj.Addr, s *obj.Addr) int {
 		arm.ACMPD,
 		arm.ACMP,
 		arm.ACMN,
-		arm.ACASE,
 		arm.ATST:
 		/* read,, */
 		if s != nil {
@@ -1366,7 +1365,9 @@ func copyu(p *obj.Prog, v *obj.Addr, s *obj.Addr) int {
 	case obj.APCDATA,
 		obj.AFUNCDATA,
 		obj.AVARDEF,
-		obj.AVARKILL:
+		obj.AVARKILL,
+		obj.AVARLIVE,
+		obj.AUSEFIELD:
 		return 0
 	}
 }
@@ -1560,9 +1561,7 @@ func predicable(p *obj.Prog) bool {
 		obj.ADATA,
 		obj.AGLOBL,
 		obj.ATEXT,
-		arm.AWORD,
-		arm.ABCASE,
-		arm.ACASE:
+		arm.AWORD:
 		return false
 	}
 
