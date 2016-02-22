@@ -14,6 +14,7 @@ __goarch__deb_arch_cpu() {
 		amd64|arm|arm64|ppc64) echo "$1" ;;
 		i386) echo 386 ;;
 		ppc64el) echo ppc64le ;;
+		mips64el) echo mips64le ;;
 		*) echo >&2 "error: unrecongized DEB_*_ARCH_CPU: $1"; exit 1 ;;
 	esac
 }
