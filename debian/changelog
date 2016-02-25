@@ -5,6 +5,7 @@ golang (2:1.6-1) UNRELEASED; urgency=medium
       (Closes: #807138)
     - skip multicast listen test (Closes: #814849)
     - skip userns tests when chrooted (Closes: #807303)
+    - use correct ELF header for armhf binaries (Closes: #734357)
 
   [ Michael Hudson-Doyle ]
   * Respect "nocheck" in DEB_BUILD_OPTIONS while building to skip tests
