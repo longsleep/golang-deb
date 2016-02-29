@@ -36,6 +36,14 @@ ifeq (true, $(RUN_TESTS))
 		bash run.bash -k -no-rebuild;
 	# -k           keep going even when error occurred
 	# -no-rebuild  don't rebuild std and cmd packages
+
+	# On linux/amd64 run.bash installs some race enabled standard library
+	# packages. Delete them again to avoid accidentally including them in
+	# the package.
+	set -ex; \
+		export PATH="$(GOROOT)/bin:$$PATH"; \
+		eval "$$(go tool dist env)"; \
+		rm -rf "$(GOROOT)/pkg/$${GOOS}_$${GOARCH}_race/"
 else
 	# skip the tests on platforms where they fail
 endif

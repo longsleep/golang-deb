@@ -13,6 +13,7 @@ golang (2:1.6-1) UNRELEASED; urgency=medium
     (Closes: #807290)
   * Trim Build-Depends (Closes: #807299)
   * Fix several minor debian/copyright issues (Closes: #807304)
+  * Remove inconsistently included race-built packages (Closes: #807294)
 
   [ Tianon Gravi ]
   * Add "-k" to "run.bash" invocation so that we do a full test run every time
