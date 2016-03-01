@@ -1,4 +1,4 @@
-golang (2:1.6-1) UNRELEASED; urgency=medium
+golang (2:1.6-1) unstable; urgency=medium
 
   * Update to 1.6 upstream release (thanks Hilko!)
     - change "ar" arguments to quiet spurious warnings while using gccgo
@@ -18,7 +18,7 @@ golang (2:1.6-1) UNRELEASED; urgency=medium
   [ Tianon Gravi ]
   * Add "-k" to "run.bash" invocation so that we do a full test run every time
 
- -- Tianon Gravi <tianon@debian.org>  Sat, 20 Feb 2016 01:11:40 -0800
+ -- Tianon Gravi <tianon@debian.org>  Mon, 29 Feb 2016 16:10:32 -0800
 
 golang (2:1.5.3-1) unstable; urgency=high
 
