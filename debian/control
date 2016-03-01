@@ -30,7 +30,9 @@ Breaks: golang-go-darwin-386,
         golang-go-netbsd-386,
         golang-go-netbsd-amd64,
         golang-go-windows-386,
-        golang-go-windows-amd64
+        golang-go-windows-amd64,
+        golang-go.tools (<< 1:0.0~git20151026.0.0f9d71c-1~),
+        golang-golang-x-tools (<< 1:0.0~git20151026.0.0f9d71c-1~)
 Replaces: golang-go-darwin-386,
           golang-go-darwin-amd64,
           golang-go-freebsd-386,
@@ -42,9 +44,9 @@ Replaces: golang-go-darwin-386,
           golang-go-netbsd-386,
           golang-go-netbsd-amd64,
           golang-go-windows-386,
-          golang-go-windows-amd64
-Conflicts: golang-go.tools (<< 1:0.0~git20151026.0.0f9d71c-1~),
-           golang-golang-x-tools (<< 1:0.0~git20151026.0.0f9d71c-1~)
+          golang-go-windows-amd64,
+          golang-go.tools (<< 1:0.0~git20151026.0.0f9d71c-1~),
+          golang-golang-x-tools (<< 1:0.0~git20151026.0.0f9d71c-1~)
 Recommends: g++, gcc, libc6-dev, pkg-config
 Suggests: bzr,
           ca-certificates,

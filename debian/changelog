@@ -1,3 +1,10 @@
+golang (2:1.6-2) UNRELEASED; urgency=medium
+
+  * Breaks/Replaces: older golang-golang-x-tools, not Conflicts, to ensure
+    smooth upgrades.
+
+ -- Michael Hudson-Doyle <michael.hudson@canonical.com>  Wed, 02 Mar 2016 09:56:16 +1300
+
 golang (2:1.6-1) unstable; urgency=medium
 
   * Update to 1.6 upstream release (thanks Hilko!)
