@@ -51,7 +51,6 @@ Recommends: g++, gcc, libc6-dev, pkg-config
 Suggests: bzr,
           ca-certificates,
           git,
-          golang-golang-x-tools,
           mercurial,
           subversion
 Description: Go programming language compiler, linker, compiled stdlib
