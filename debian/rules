@@ -2,8 +2,10 @@
 # This file is in the public domain.
 # You may freely use, modify, distribute, and relicense it.
 
+export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-parsechangelog -SVersion`)->version() =~ /^([0-9]+\.[0-9]+)/ && print("$$1\n")')
+
 export GOROOT := $(CURDIR)
-export GOROOT_FINAL := /usr/lib/go
+export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 
 DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
 RUN_TESTS := true
@@ -26,6 +28,16 @@ override_dh_auto_clean:
 		src/runtime/internal/sys/zversion.go
 	# remove built objects
 	rm -rf bin pkg
+	@cd debian; for x in golang-X.Y-*; do \
+		rm -f -v golang-$(GOVER)-$${x##golang-X.Y-}; \
+	done
+
+override_dh_prep:
+	dh_prep
+	@cd debian; for x in golang-X.Y-*; do \
+		sed -e 's/X.Y/$(GOVER)/g' $$x > golang-$(GOVER)-$${x##golang-X.Y-}; \
+	done
+
 
 override_dh_auto_test-arch:
 ifeq (true, $(RUN_TESTS))
@@ -57,12 +69,12 @@ override_dh_install-indep:
 override_dh_install-arch:
 	dh_install --fail-missing
 	# Remove Plan9 rc(1) scripts
-	find debian/golang-src/usr/share/go/src -type f -name '*.rc' -delete
-	# Remove empty /usr/share/go/src from golang-go, it is provided by golang-src
-	find debian/golang-go/usr/share/go/src -type d -delete
+	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
+	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
+	find debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/src -type d -delete
 	# Touch built and installed files and directories to have same timestamp
-	touch debian/golang-go/usr/lib/go/pkg
-	find debian/golang-go/usr/lib/go/pkg -exec touch -r $(CURDIR)/debian/golang-go/usr/lib/go/pkg {} \;
+	touch debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg
+	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
 
 override_dh_strip:
 	dh_strip -Xtestdata

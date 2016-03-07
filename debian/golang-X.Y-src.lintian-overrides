@@ -1,0 +1,4 @@
+# golang-X.Y-src ships ELF object files as testdata for the debug/dwarf and
+# debug/elf packages.
+golang-X.Y-src: arch-dependent-file-in-usr-share
+golang-X.Y-src: unstripped-binary-or-object
