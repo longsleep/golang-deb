@@ -2,6 +2,8 @@ golang (2:1.6-2) UNRELEASED; urgency=medium
 
   * Breaks/Replaces: older golang-golang-x-tools, not Conflicts, to ensure
     smooth upgrades.
+  * Strip the binaries as it has worked for the last five years or so and
+    upstream sees no reason to disable it.
 
  -- Michael Hudson-Doyle <michael.hudson@canonical.com>  Wed, 02 Mar 2016 09:56:16 +1300
 

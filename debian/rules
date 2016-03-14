@@ -64,10 +64,6 @@ override_dh_install-arch:
 	touch debian/golang-go/usr/lib/go/pkg
 	find debian/golang-go/usr/lib/go/pkg -exec touch -r $(CURDIR)/debian/golang-go/usr/lib/go/pkg {} \;
 
-override_dh_strip:
-	# strip disabled as golang upstream doesn't support it and it makes go
-	# crash. See http://bugs.debian.org/717172
-
 override_dh_shlibdeps:
 	dh_shlibdeps -Xtestdata -Xtest
 
