@@ -1,3 +1,16 @@
+golang-1.6 (1.6.1-1) UNRELEASED; urgency=medium
+
+  * Build golang version-specific packages (Closes: #818415)
+  * Things that (conceptually at least) move to new golang version independent
+    golang-defaults source package:
+    - Man pages.
+    - Suggesting golang-golang-x-tools.
+    - Breaks/Replace-ing of old golang-go-$GOOS-$GOARCH packages.
+  * Stop using alternatives to manage /usr/bin/go.
+  * sed trickery in debian/rules to support easy changes to new golang versions.
+
+ -- Michael Hudson-Doyle <michael.hudson@canonical.com>  Mon, 07 Mar 2016 17:01:40 +1300
+
 golang (2:1.6.1-2) unstable; urgency=medium
 
   * Don't strip testdata files, causes build failures on some platforms. 
