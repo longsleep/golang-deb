@@ -1,4 +1,4 @@
-golang (2:1.6.1-1) UNRELEASED; urgency=medium
+golang (2:1.6.1-1) unstable; urgency=medium
 
   [ Michael Hudson-Doyle ]
   * Breaks/Replaces: older golang-golang-x-tools, not Conflicts, to ensure
@@ -10,7 +10,7 @@ golang (2:1.6.1-1) UNRELEASED; urgency=medium
   * Update to 1.6.1 upstream release (Closes: #820369)
     - Fix CVE-2016-3959: infinite loop in several big integer routines
 
- -- Tianon Gravi <tianon@debian.org>  Tue, 12 Apr 2016 22:10:21 -0700
+ -- Tianon Gravi <tianon@debian.org>  Tue, 12 Apr 2016 23:06:43 -0700
 
 golang (2:1.6-1) unstable; urgency=medium
 
