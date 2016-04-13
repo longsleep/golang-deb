@@ -1,8 +1,8 @@
-golang (2:1.6.1-2) UNRELEASED; urgency=medium
+golang (2:1.6.1-2) unstable; urgency=medium
 
   * Don't strip testdata files, causes build failures on some platforms. 
 
- -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 14 Apr 2016 10:38:17 +1200
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Wed, 13 Apr 2016 15:47:46 -0700
 
 golang (2:1.6.1-1) unstable; urgency=medium
 
