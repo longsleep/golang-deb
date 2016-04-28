@@ -2,7 +2,8 @@ Source: golang-1.6
 Section: devel
 Priority: optional
 Maintainer: Go Compiler Team <pkg-golang-devel@lists.alioth.debian.org>
-Uploaders: Michael Stapelberg <stapelberg@debian.org>,
+Uploaders: Michael Hudson-Doyle <michael.hudson@ubuntu.com>,
+           Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>
 Vcs-Browser: https://anonscm.debian.org/cgit/pkg-golang/golang.git
