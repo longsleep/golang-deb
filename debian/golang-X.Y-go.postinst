@@ -2,12 +2,12 @@
 set -e
 
 case "$1" in
-    configure)
-	# Very ugly hack to set timestamps same as /usr/lib/go-X.Y/bin/go
-	find /usr/lib/go-X.Y/pkg -exec touch -r /usr/lib/go-X.Y/bin/go {} \;
-	;;
-    *)
-	;;
+	configure)
+		# Very ugly hack to set timestamps same as /usr/lib/go-X.Y/bin/go
+		find /usr/lib/go-X.Y/pkg -exec touch -r /usr/lib/go-X.Y/bin/go {} \;
+		;;
+	*)
+		;;
 esac
 
 #DEBHELPER#
