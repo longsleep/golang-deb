@@ -1,4 +1,4 @@
-golang-1.6 (1.6.1-1) UNRELEASED; urgency=medium
+golang-1.6 (1.6.1-1) unstable; urgency=medium
 
   * Build golang version-specific packages (Closes: #818415)
   * Things that (conceptually at least) move to new golang version independent
@@ -9,7 +9,7 @@ golang-1.6 (1.6.1-1) UNRELEASED; urgency=medium
   * Stop using alternatives to manage /usr/bin/go.
   * sed trickery in debian/rules to support easy changes to new golang versions.
 
- -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Fri, 29 Apr 2016 12:08:52 +1200
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Wed, 01 Jun 2016 10:04:53 -0700
 
 golang (2:1.6.1-2) unstable; urgency=medium
 
