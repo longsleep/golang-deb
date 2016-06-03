@@ -1,9 +1,9 @@
-golang-1.6 (1.6.2-1) UNRELEASED; urgency=medium
+golang-1.6 (1.6.2-1) unstable; urgency=medium
 
-  * Update to 1.6.2 upstream release (Closes: #825696) 
+  * Update to 1.6.2 upstream release (Closes: #825696)
   * Build-Depend on golang-any instead of golang-go (Closes: #824421)
 
- -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Fri, 03 Jun 2016 14:07:17 +1200
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Fri, 03 Jun 2016 07:50:44 -0700
 
 golang-1.6 (1.6.1-1) unstable; urgency=medium
 
