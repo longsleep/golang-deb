@@ -12,9 +12,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Michael Hudson-Doyle <michael.hudson@ubuntu.com>
 Vcs-Browser: https://anonscm.debian.org/cgit/pkg-golang/golang.git
 Vcs-Git: git://anonscm.debian.org/pkg-golang/golang.git
-Build-Depends: debhelper (>= 7.4.10),
-               golang-go (>= 2:1.4.2-2~) | gccgo-5,
-               netbase
+Build-Depends: debhelper (>= 7.4.10), golang-any, netbase
 Standards-Version: 3.9.6
 Homepage: https://golang.org
 
