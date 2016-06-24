@@ -1,9 +1,9 @@
-golang-1.6 (1.6.2-2) UNRELEASED; urgency=medium
+golang-1.6 (1.6.2-2) unstable; urgency=medium
 
   * Update "golang-any" in "Build-Depends" to fallback to "golang-go | gccgo"
     (will help with backporting)
 
- -- Tianon Gravi <tianon@debian.org>  Thu, 23 Jun 2016 19:44:06 -0700
+ -- Tianon Gravi <tianon@debian.org>  Thu, 23 Jun 2016 20:01:00 -0700
 
 golang-1.6 (1.6.2-1) unstable; urgency=medium
 
