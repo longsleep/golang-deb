@@ -7,7 +7,7 @@
 package sort
 
 // A type, typically a collection, that satisfies sort.Interface can be
-// sorted by the routines in this package.  The methods require that the
+// sorted by the routines in this package. The methods require that the
 // elements of the collection be enumerated by an integer index.
 type Interface interface {
 	// Len is the number of elements in the collection.
@@ -17,13 +17,6 @@ type Interface interface {
 	Less(i, j int) bool
 	// Swap swaps the elements with indexes i and j.
 	Swap(i, j int)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // Insertion sort
@@ -315,7 +308,7 @@ func StringsAreSorted(a []string) bool { return IsSorted(StringSlice(a)) }
 
 // Notes on stable sorting:
 // The used algorithms are simple and provable correct on all input and use
-// only logarithmic additional stack space.  They perform well if compared
+// only logarithmic additional stack space. They perform well if compared
 // experimentally to other stable in-place sorting algorithms.
 //
 // Remarks on other algorithms evaluated:
@@ -335,7 +328,7 @@ func StringsAreSorted(a []string) bool { return IsSorted(StringSlice(a)) }
 //    unstable or rely on enough different elements in each step to encode the
 //    performed block rearrangements. See also "In-Place Merging Algorithms",
 //    Denham Coates-Evely, Department of Computer Science, Kings College,
-//    January 2004 and the reverences in there.
+//    January 2004 and the references in there.
 //  - Often "optimal" algorithms are optimal in the number of assignments
 //    but Interface has only Swap as operation.
 

@@ -1,4 +1,4 @@
-// Copyright 2011 The Go Authors.  All rights reserved.
+// Copyright 2011 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -129,6 +129,8 @@ type Proc struct {
 func (p *Proc) Addr() uintptr {
 	return p.addr
 }
+
+//go:uintptrescapes
 
 // Call executes procedure p with arguments a. It will panic, if more than 15 arguments
 // are supplied.
@@ -287,6 +289,8 @@ func (p *LazyProc) Addr() uintptr {
 	p.mustFind()
 	return p.proc.Addr()
 }
+
+//go:uintptrescapes
 
 // Call executes procedure p with arguments a. It will panic, if more than 15 arguments
 // are supplied.
