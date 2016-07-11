@@ -6,6 +6,7 @@ golang-1.7 (1.7~rc1-1) UNRELEASED; urgency=medium
   [ Tianon Gravi ]
   * Update to 1.7rc1 upstream release (new packages, not used by default; see
     also src:golang-defaults)
+  * Update Vcs-Git to reference a particular branch
 
  -- Tianon Gravi <tianon@debian.org>  Wed, 29 Jun 2016 20:20:49 -0400
 
