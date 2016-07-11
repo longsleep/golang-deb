@@ -7,8 +7,10 @@
 package runtime_test
 
 import (
+	"bytes"
 	"fmt"
 	"internal/testenv"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -49,6 +51,8 @@ func TestCgoCallbackGC(t *testing.T) {
 			t.Skip("see golang.org/issue/11990")
 		case runtime.GOOS == "linux" && runtime.GOARCH == "arm":
 			t.Skip("too slow for arm builders")
+		case runtime.GOOS == "linux" && (runtime.GOARCH == "mips64" || runtime.GOARCH == "mips64le"):
+			t.Skip("too slow for mips64x builders")
 		}
 	}
 	got := runTestProg(t, "testprogcgo", "CgoCallbackGC")
@@ -193,10 +197,94 @@ func TestCgoCheckBytes(t *testing.T) {
 	t.Errorf("cgo check too slow: got %v, expected at most %v", tot2/tries, (tot1/tries)*20)
 }
 
+func TestCgoPanicDeadlock(t *testing.T) {
+	// test issue 14432
+	got := runTestProg(t, "testprogcgo", "CgoPanicDeadlock")
+	want := "panic: cgo error\n\n"
+	if !strings.HasPrefix(got, want) {
+		t.Fatalf("output does not start with %q:\n%s", want, got)
+	}
+}
+
 func TestCgoCCodeSIGPROF(t *testing.T) {
 	got := runTestProg(t, "testprogcgo", "CgoCCodeSIGPROF")
 	want := "OK\n"
 	if got != want {
 		t.Errorf("expected %q got %v", want, got)
 	}
+}
+
+func TestCgoCrashTraceback(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skipf("not yet supported on %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	got := runTestProg(t, "testprogcgo", "CrashTraceback")
+	for i := 1; i <= 3; i++ {
+		if !strings.Contains(got, fmt.Sprintf("cgo symbolizer:%d", i)) {
+			t.Errorf("missing cgo symbolizer:%d", i)
+		}
+	}
+}
+
+func TestCgoTracebackContext(t *testing.T) {
+	got := runTestProg(t, "testprogcgo", "TracebackContext")
+	want := "OK\n"
+	if got != want {
+		t.Errorf("expected %q got %v", want, got)
+	}
+}
+
+func testCgoPprof(t *testing.T, buildArg, runArg string) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skipf("not yet supported on %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	testenv.MustHaveGoRun(t)
+
+	exe, err := buildTestProg(t, "testprogcgo", buildArg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := testEnv(exec.Command(exe, runArg)).CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fn := strings.TrimSpace(string(got))
+	defer os.Remove(fn)
+
+	cmd := testEnv(exec.Command("go", "tool", "pprof", "-top", "-nodecount=1", exe, fn))
+
+	found := false
+	for i, e := range cmd.Env {
+		if strings.HasPrefix(e, "PPROF_TMPDIR=") {
+			cmd.Env[i] = "PPROF_TMPDIR=" + os.TempDir()
+			found = true
+			break
+		}
+	}
+	if !found {
+		cmd.Env = append(cmd.Env, "PPROF_TMPDIR="+os.TempDir())
+	}
+
+	top, err := cmd.CombinedOutput()
+	t.Logf("%s", top)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Contains(top, []byte("cpuHog")) {
+		t.Error("missing cpuHog in pprof output")
+	}
+}
+
+func TestCgoPprof(t *testing.T) {
+	testCgoPprof(t, "", "CgoPprof")
+}
+
+func TestCgoPprofPIE(t *testing.T) {
+	testCgoPprof(t, "-ldflags=-extldflags=-pie", "CgoPprof")
+}
+
+func TestCgoPprofThread(t *testing.T) {
+	testCgoPprof(t, "", "CgoPprofThread")
 }

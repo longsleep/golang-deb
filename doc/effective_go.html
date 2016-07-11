@@ -239,9 +239,9 @@ starts with the name being declared.
 </p>
 
 <pre>
-// Compile parses a regular expression and returns, if successful, a Regexp
-// object that can be used to match against text.
-func Compile(str string) (regexp *Regexp, err error) {
+// Compile parses a regular expression and returns, if successful,
+// a Regexp that can be used to match against text.
+func Compile(str string) (*Regexp, error) {
 </pre>
 
 <p>
@@ -2014,7 +2014,7 @@ then make the receiver for the method a value of that type.
 type ByteSlice []byte
 
 func (slice ByteSlice) Append(data []byte) []byte {
-    // Body exactly the same as above
+    // Body exactly the same as the Append function defined above.
 }
 </pre>
 <p>
