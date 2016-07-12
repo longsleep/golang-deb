@@ -1,4 +1,4 @@
-golang-1.7 (1.7~rc1-1) UNRELEASED; urgency=medium
+golang-1.7 (1.7~rc1-1) unstable; urgency=medium
 
   [ Paul Tagliamonte ]
   * Use a secure transport for the Vcs-Git and Vcs-Browser URL
@@ -8,7 +8,7 @@ golang-1.7 (1.7~rc1-1) UNRELEASED; urgency=medium
     also src:golang-defaults)
   * Update Vcs-Git to reference a particular branch
 
- -- Tianon Gravi <tianon@debian.org>  Wed, 29 Jun 2016 20:20:49 -0400
+ -- Tianon Gravi <tianon@debian.org>  Mon, 11 Jul 2016 16:10:12 -0700
 
 golang-1.6 (1.6.2-2) unstable; urgency=medium
 
