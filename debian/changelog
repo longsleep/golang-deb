@@ -5,6 +5,7 @@ golang-1.6 (1.6.2-3) UNRELEASED; urgency=medium
 
   [ Tianon Gravi ]
   * Update Vcs-Git to reference a particular branch
+  * Remove outdated README files (README.source and README.Debian)
 
  -- Paul Tagliamonte <paultag@debian.org>  Wed, 29 Jun 2016 20:20:49 -0400
 
