@@ -20,7 +20,7 @@ endif
 	+dh --parallel $(opt_no_act) $@
 
 gencontrol:
-	for file in control gbp.conf watch; do \
+	for file in control gbp.conf source/lintian-overrides watch; do \
 		{ \
 			echo '#'; \
 			echo '# WARNING: "debian/'$$file'" is generated via "debian/rules gencontrol" (sourced from "debian/'$$file'.in")'; \

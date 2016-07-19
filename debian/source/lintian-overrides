@@ -1,10 +1,14 @@
-golang source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf
-golang source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
-golang source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86.obj
-golang source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-386-freebsd-exec
-golang source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-openbsd-debug-with-rela.obj
-golang source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
-golang source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.obj
-golang source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj
-golang source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
-golang source: source-contains-prebuilt-binary src/runtime/race/race_linux_amd64.syso
+#
+# WARNING: "debian/source/lintian-overrides" is generated via "debian/rules gencontrol" (sourced from "debian/source/lintian-overrides.in")
+#
+
+golang-1.7 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf
+golang-1.7 source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-1.7 source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86.obj
+golang-1.7 source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-1.7 source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-openbsd-debug-with-rela.obj
+golang-1.7 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
+golang-1.7 source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.obj
+golang-1.7 source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj
+golang-1.7 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
+golang-1.7 source: source-contains-prebuilt-binary src/runtime/race/race_linux_amd64.syso
