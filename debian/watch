@@ -1,4 +1,6 @@
+#
 # WARNING: "debian/watch" is generated via "debian/rules gencontrol" (sourced from "debian/watch.in")
+#
 
 version=3
 opts=\
