@@ -1,4 +1,7 @@
-golang-1.6 (1.6.2-3) UNRELEASED; urgency=medium
+golang-1.6 (1.6.3-1) UNRELEASED; urgency=medium
+
+  [ Michael Hudson-Doyle ]
+  * Update to new upstream release.
 
   [ Paul Tagliamonte ]
   * Use a secure transport for the Vcs-Git and Vcs-Browser URL
