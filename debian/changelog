@@ -1,4 +1,4 @@
-golang-1.7 (1.7~rc2-1) UNRELEASED; urgency=medium
+golang-1.7 (1.7~rc2-1) unstable; urgency=medium
 
   * Update to 1.7rc2 upstream release.
 
