@@ -15,7 +15,7 @@ Vcs-Git: https://anonscm.debian.org/git/pkg-golang/golang.git -b golang-1.7
 Build-Depends: debhelper (>= 7.4.10),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
-Standards-Version: 3.9.6
+Standards-Version: 3.9.8
 Homepage: https://golang.org
 
 Package: golang-1.7-go
