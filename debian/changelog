@@ -1,4 +1,4 @@
-golang-1.7 (1.7~rc3-1) UNRELEASED; urgency=medium
+golang-1.7 (1.7~rc3-1) unstable; urgency=medium
 
   [ Tianon Gravi ]
   * Remove outdated README files (README.source and README.Debian)
