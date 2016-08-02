@@ -1,3 +1,9 @@
+golang-1.7 (1.7~rc4-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Tue, 02 Aug 2016 15:10:22 +1200
+
 golang-1.7 (1.7~rc3-1) unstable; urgency=medium
 
   [ Tianon Gravi ]
