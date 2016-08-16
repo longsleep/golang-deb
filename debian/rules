@@ -7,9 +7,9 @@ export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-par
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 
-DEB_HOST_ARCH_CPU := $(shell dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)
+DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
 RUN_TESTS := true
-ifeq (ppc64, $(DEB_HOST_ARCH_CPU))
+ifneq (,$(filter armel ppc64,$(DEB_HOST_ARCH)))
 	RUN_TESTS := false
 endif
 ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
