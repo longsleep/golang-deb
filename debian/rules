@@ -9,7 +9,7 @@ export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 
 DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
 RUN_TESTS := true
-ifneq (,$(filter armel ppc64,$(DEB_HOST_ARCH)))
+ifneq (,$(filter armel ppc64 s390x,$(DEB_HOST_ARCH)))
 	RUN_TESTS := false
 endif
 ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
