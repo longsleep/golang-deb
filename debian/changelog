@@ -1,7 +1,6 @@
 golang-1.7 (1.7-3) UNRELEASED; urgency=medium
 
   * Add "s390x" to Architectures
-    (skip tests on s390x -- they fail in cgo-related ways)
 
  -- Tianon Gravi <tianon@debian.org>  Tue, 16 Aug 2016 07:35:03 -0700
 
