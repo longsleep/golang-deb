@@ -1,8 +1,8 @@
-golang-1.7 (1.7-3) UNRELEASED; urgency=medium
+golang-1.7 (1.7-3) unstable; urgency=medium
 
   * Add "s390x" to Architectures
 
- -- Tianon Gravi <tianon@debian.org>  Tue, 16 Aug 2016 07:35:03 -0700
+ -- Tianon Gravi <tianon@debian.org>  Tue, 23 Aug 2016 07:35:16 -0700
 
 golang-1.7 (1.7-2) unstable; urgency=medium
 
