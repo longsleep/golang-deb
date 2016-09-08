@@ -1,6 +1,7 @@
 golang-1.7 (1.7.1-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * Re-enable tests on s390x now that gcc-6 has been fixed in unstable. 
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 08 Sep 2016 13:04:33 +1200
 
