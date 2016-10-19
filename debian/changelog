@@ -1,9 +1,9 @@
-golang-1.7 (1.7.3-1) UNRELEASED; urgency=medium
+golang-1.7 (1.7.3-1) unstable; urgency=medium
 
   * New upstream release.
   * Delete d/patches/cl-28850.patch, applied upstream. 
 
- -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 20 Oct 2016 09:01:24 +1300
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 20 Oct 2016 09:10:47 +1300
 
 golang-1.7 (1.7.1-3) unstable; urgency=medium
 
