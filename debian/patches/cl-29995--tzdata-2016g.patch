@@ -17,11 +17,9 @@ TryBot-Result: Gobot Gobot <gobot@golang.org>
  src/time/time_test.go | 7 +++++--
  1 file changed, 5 insertions(+), 2 deletions(-)
 
-diff --git a/src/time/time_test.go b/src/time/time_test.go
-index 68236fd..2e47d08 100644
 --- a/src/time/time_test.go
 +++ b/src/time/time_test.go
-@@ -943,8 +943,11 @@ func TestLoadFixed(t *testing.T) {
+@@ -939,8 +939,11 @@
  	// but Go and most other systems use "east is positive".
  	// So GMT+1 corresponds to -3600 in the Go zone, not +3600.
  	name, offset := Now().In(loc).Zone()
