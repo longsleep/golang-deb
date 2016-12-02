@@ -1,3 +1,12 @@
+golang-1.7 (1.7.4-1) UNRELEASED; urgency=medium
+
+  * Update to 1.7.4 upstream release
+    - https://groups.google.com/d/topic/golang-announce/2lP5z9i9ySY/discussion
+    - https://golang.org/issue/17965 (potential DoS vector in net/http)
+    - https://github.com/golang/go/compare/go1.7.3...go1.7.4
+
+ -- Tianon Gravi <tianon@debian.org>  Thu, 01 Dec 2016 15:55:03 -0800
+
 golang-1.7 (1.7.3-1) unstable; urgency=medium
 
   * New upstream release.
