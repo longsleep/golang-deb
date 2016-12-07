@@ -125,7 +125,7 @@ func (d *Dialer) dialDNS(ctx context.Context, network, server string) (dnsConn, 
 	// Calling Dial here is scary -- we have to be sure not to
 	// dial a name that will require a DNS lookup, or Dial will
 	// call back here to translate it. The DNS config parser has
-	// already checked that all the cfg.servers[i] are IP
+	// already checked that all the cfg.servers are IP
 	// addresses, which Dial will use without a DNS lookup.
 	c, err := d.DialContext(ctx, network, server)
 	if err != nil {
@@ -182,13 +182,14 @@ func exchange(ctx context.Context, server, name string, qtype uint16, timeout ti
 // Do a lookup for a single name, which must be rooted
 // (otherwise answer will not find the answers).
 func tryOneName(ctx context.Context, cfg *dnsConfig, name string, qtype uint16) (string, []dnsRR, error) {
-	if len(cfg.servers) == 0 {
-		return "", nil, &DNSError{Err: "no DNS servers", Name: name}
-	}
-
 	var lastErr error
+	serverOffset := cfg.serverOffset()
+	sLen := uint32(len(cfg.servers))
+
 	for i := 0; i < cfg.attempts; i++ {
-		for _, server := range cfg.servers {
+		for j := uint32(0); j < sLen; j++ {
+			server := cfg.servers[(serverOffset+j)%sLen]
+
 			msg, err := exchange(ctx, server, name, qtype, cfg.timeout)
 			if err != nil {
 				lastErr = &DNSError{
@@ -315,7 +316,12 @@ func (conf *resolverConfig) releaseSema() {
 
 func lookup(ctx context.Context, name string, qtype uint16) (cname string, rrs []dnsRR, err error) {
 	if !isDomainName(name) {
-		return "", nil, &DNSError{Err: "invalid domain name", Name: name}
+		// We used to use "invalid domain name" as the error,
+		// but that is a detail of the specific lookup mechanism.
+		// Other lookups might allow broader name syntax
+		// (for example Multicast DNS allows UTF-8; see RFC 6762).
+		// For consistency with libc resolvers, report no such host.
+		return "", nil, &DNSError{Err: errNoSuchHost.Error(), Name: name}
 	}
 	resolvConf.tryUpdate("/etc/resolv.conf")
 	resolvConf.mu.RLock()
@@ -356,14 +362,21 @@ func (conf *dnsConfig) nameList(name string) []string {
 		return nil
 	}
 
+	// Check name length (see isDomainName).
+	l := len(name)
+	rooted := l > 0 && name[l-1] == '.'
+	if l > 254 || l == 254 && rooted {
+		return nil
+	}
+
 	// If name is rooted (trailing dot), try only that name.
-	rooted := len(name) > 0 && name[len(name)-1] == '.'
 	if rooted {
 		return []string{name}
 	}
 
 	hasNdots := count(name, '.') >= conf.ndots
 	name += "."
+	l++
 
 	// Build list of search choices.
 	names := make([]string, 0, 1+len(conf.search))
@@ -371,9 +384,11 @@ func (conf *dnsConfig) nameList(name string) []string {
 	if hasNdots {
 		names = append(names, name)
 	}
-	// Try suffixes.
+	// Try suffixes that are not too long (see isDomainName).
 	for _, suffix := range conf.search {
-		names = append(names, name+suffix)
+		if l+len(suffix) <= 254 {
+			names = append(names, name+suffix)
+		}
 	}
 	// Try unsuffixed, if not tried first above.
 	if !hasNdots {
@@ -455,8 +470,9 @@ func goLookupIPFiles(name string) (addrs []IPAddr) {
 
 // goLookupIP is the native Go implementation of LookupIP.
 // The libc versions are in cgo_*.go.
-func goLookupIP(ctx context.Context, name string) (addrs []IPAddr, err error) {
-	return goLookupIPOrder(ctx, name, hostLookupFilesDNS)
+func goLookupIP(ctx context.Context, host string) (addrs []IPAddr, err error) {
+	order := systemConf().hostLookupOrder(host)
+	return goLookupIPOrder(ctx, host, order)
 }
 
 func goLookupIPOrder(ctx context.Context, name string, order hostLookupOrder) (addrs []IPAddr, err error) {
@@ -467,7 +483,8 @@ func goLookupIPOrder(ctx context.Context, name string, order hostLookupOrder) (a
 		}
 	}
 	if !isDomainName(name) {
-		return nil, &DNSError{Err: "invalid domain name", Name: name}
+		// See comment in func lookup above about use of errNoSuchHost.
+		return nil, &DNSError{Err: errNoSuchHost.Error(), Name: name}
 	}
 	resolvConf.tryUpdate("/etc/resolv.conf")
 	resolvConf.mu.RLock()

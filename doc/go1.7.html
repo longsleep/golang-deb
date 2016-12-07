@@ -43,7 +43,7 @@ includes the <a href="#context">context package</a>, promoted from the
 and now used in the standard library;
 and <a href="#testing">adds support in the testing package</a> for
 creating hierarchies of tests and benchmarks.
-The release also <a href="#cmd/go">finalizes the vendoring support</a>
+The release also <a href="#cmd_go">finalizes the vendoring support</a>
 started in Go 1.5, making it a standard feature.
 </p>
 
@@ -357,7 +357,7 @@ the code generation changes alone typically reduce program CPU time by 5-35%.
 </p>
 
 <p>
-<!-- git log &#45&#45grep '-[0-9][0-9]\.[0-9][0-9]%' go1.6.. -->
+<!-- git log -''-grep '-[0-9][0-9]\.[0-9][0-9]%' go1.6.. -->
 There have been significant optimizations bringing more than 10% improvements
 to implementations in the
 <a href="/pkg/crypto/sha1/"><code>crypto/sha1</code></a>,
@@ -394,9 +394,9 @@ This allows the use of contexts for cancelation, timeouts, and passing
 request-scoped data in other standard library packages,
 including
 <a href="#net">net</a>,
-<a href="#net/http">net/http</a>,
+<a href="#net_http">net/http</a>,
 and
-<a href="#os/exec">os/exec</a>,
+<a href="#os_exec">os/exec</a>,
 as noted below.
 </p>
 
@@ -552,10 +552,9 @@ The
 
 <dd>
 <p>
-As noted above,
-there are significant performance optimizations throughout the package.
+There are many performance optimizations throughout the package.
 Decompression speed is improved by about 10%,
-while compression speed for <code>DefaultCompression</code> is roughly doubled.
+while compression for <code>DefaultCompression</code> is twice as fast.
 </p>
 
 <p>
