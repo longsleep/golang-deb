@@ -29,6 +29,10 @@ func dse(f *Func) {
 			}
 			if v.Type.IsMemory() {
 				stores = append(stores, v)
+				if v.Op == OpSelect1 {
+					// Use the args of the tuple-generating op.
+					v = v.Args[0]
+				}
 				for _, a := range v.Args {
 					if a.Block == b && a.Type.IsMemory() {
 						storeUse.add(a.ID)
@@ -80,7 +84,12 @@ func dse(f *Func) {
 			shadowed.clear()
 		}
 		if v.Op == OpStore || v.Op == OpZero {
-			sz := v.AuxInt
+			var sz int64
+			if v.Op == OpStore {
+				sz = v.AuxInt
+			} else { // OpZero
+				sz = SizeAndAlign(v.AuxInt).Size()
+			}
 			if shadowedSize := int64(shadowed.get(v.Args[0].ID)); shadowedSize != -1 && shadowedSize >= sz {
 				// Modify store into a copy
 				if v.Op == OpStore {
@@ -102,7 +111,7 @@ func dse(f *Func) {
 				if sz > 0x7fffffff { // work around sparseMap's int32 value type
 					sz = 0x7fffffff
 				}
-				shadowed.set(v.Args[0].ID, int32(sz))
+				shadowed.set(v.Args[0].ID, int32(sz), 0)
 			}
 		}
 		// walk to previous store

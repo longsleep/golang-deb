@@ -12,29 +12,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime/debug"
 	"strings"
-	"syscall"
 	"testing"
 )
-
-func init() {
-	tmpdir, err := ioutil.TempDir("", "symtest")
-	if err != nil {
-		panic("failed to create temp directory: " + err.Error())
-	}
-	defer os.RemoveAll(tmpdir)
-
-	err = os.Symlink("target", filepath.Join(tmpdir, "symlink"))
-	if err == nil {
-		return
-	}
-
-	err = err.(*os.LinkError).Err
-	switch err {
-	case syscall.EWINDOWS, syscall.ERROR_PRIVILEGE_NOT_HELD:
-		supportsSymlinks = false
-	}
-}
 
 func TestWinSplitListTestsAreValid(t *testing.T) {
 	comspec := os.Getenv("ComSpec")
@@ -357,10 +338,10 @@ func TestToNorm(t *testing.T) {
 		{`{{tmp}}\test`, `{{tmpvol}}FOO\BAR`, `{{tmpvol}}foo\bar`},
 
 		// test relative paths begin with '\'
-		{".", `{{tmpnovol}}\test\foo\bar`, `{{tmpnovol}}\test\foo\bar`},
-		{".", `{{tmpnovol}}\.\test\foo\bar`, `{{tmpnovol}}\test\foo\bar`},
-		{".", `{{tmpnovol}}\test\..\test\foo\bar`, `{{tmpnovol}}\test\foo\bar`},
-		{".", `{{tmpnovol}}\TEST\FOO\BAR`, `{{tmpnovol}}\test\foo\bar`},
+		{"{{tmp}}", `{{tmpnovol}}\test\foo\bar`, `{{tmpnovol}}\test\foo\bar`},
+		{"{{tmp}}", `{{tmpnovol}}\.\test\foo\bar`, `{{tmpnovol}}\test\foo\bar`},
+		{"{{tmp}}", `{{tmpnovol}}\test\..\test\foo\bar`, `{{tmpnovol}}\test\foo\bar`},
+		{"{{tmp}}", `{{tmpnovol}}\TEST\FOO\BAR`, `{{tmpnovol}}\test\foo\bar`},
 
 		// test relative paths begin without '\'
 		{`{{tmp}}\test`, ".", `.`},
@@ -371,11 +352,32 @@ func TestToNorm(t *testing.T) {
 		{`{{tmp}}\test`, `FOO\BAR`, `foo\bar`},
 	}
 
-	cwd, err := os.Getwd()
+	tmp, err := ioutil.TempDir("", "testToNorm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err := os.RemoveAll(tmp)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	// ioutil.TempDir might return "non-canonical" name.
+	ctmp, err := filepath.EvalSymlinks(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	err = os.MkdirAll(strings.Replace(testPath, "{{tmp}}", ctmp, -1), 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		err := os.Chdir(cwd)
 		if err != nil {
@@ -383,30 +385,19 @@ func TestToNorm(t *testing.T) {
 		}
 	}()
 
-	tmp, err := ioutil.TempDir("", "testToNorm")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmp)
-
-	// ioutil.TempDir might return "non-canonical" name.
-	tmp, err = filepath.EvalSymlinks(tmp)
-	if err != nil {
-		t.Fatal(err)
+	tmpVol := filepath.VolumeName(ctmp)
+	if len(tmpVol) != 2 {
+		t.Fatalf("unexpected temp volume name %q", tmpVol)
 	}
 
-	err = os.MkdirAll(strings.Replace(testPath, "{{tmp}}", tmp, -1), 0777)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tmpNoVol := ctmp[len(tmpVol):]
 
-	tmpVol := filepath.VolumeName(tmp)
-	tmpNoVol := tmp[len(tmpVol):]
+	replacer := strings.NewReplacer("{{tmp}}", ctmp, "{{tmpvol}}", tmpVol, "{{tmpnovol}}", tmpNoVol)
 
 	for _, test := range testsDir {
-		wd := strings.Replace(strings.Replace(strings.Replace(test.wd, "{{tmp}}", tmp, -1), "{{tmpvol}}", tmpVol, -1), "{{tmpnovol}}", tmpNoVol, -1)
-		arg := strings.Replace(strings.Replace(strings.Replace(test.arg, "{{tmp}}", tmp, -1), "{{tmpvol}}", tmpVol, -1), "{{tmpnovol}}", tmpNoVol, -1)
-		want := strings.Replace(strings.Replace(strings.Replace(test.want, "{{tmp}}", tmp, -1), "{{tmpvol}}", tmpVol, -1), "{{tmpnovol}}", tmpNoVol, -1)
+		wd := replacer.Replace(test.wd)
+		arg := replacer.Replace(test.arg)
+		want := replacer.Replace(test.want)
 
 		if test.wd == "." {
 			err := os.Chdir(cwd)
@@ -431,4 +422,11 @@ func TestToNorm(t *testing.T) {
 			t.Errorf("toNorm(%s) returns %s, but %s expected (wd=%s)\n", arg, got, want, wd)
 		}
 	}
+}
+
+func TestUNC(t *testing.T) {
+	// Test that this doesn't go into an infinite recursion.
+	// See golang.org/issue/15879.
+	defer debug.SetMaxStack(debug.SetMaxStack(1e6))
+	filepath.Glob(`\\?\c:\*`)
 }

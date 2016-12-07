@@ -43,17 +43,13 @@ architectures.
 	<code>amd64</code> (also known as <code>x86-64</code>)
 </dt>
 <dd>
-	A mature implementation. New in 1.7 is its SSA-based back end
-	that generates compact, efficient code.
+	A mature implementation.
 </dd>
 <dt>
 	<code>386</code> (<code>x86</code> or <code>x86-32</code>)
 </dt>
 <dd>
-	Comparable to the <code>amd64</code> port, but does
-	not yet use the SSA-based back end. It has an effective
-	optimizer (registerizer) and generates good code (although
-	<code>gccgo</code> can do noticeably better sometimes).
+	Comparable to the <code>amd64</code> port.
 </dd>
 <dt>
 	<code>arm</code> (<code>ARM</code>)
@@ -434,7 +430,7 @@ to override the defaults.
 <ul>
 <li><code>$GOROOT</code>
 <p>
-The root of the Go tree, often <code>$HOME/go</code>.
+The root of the Go tree, often <code>$HOME/go1.X</code>.
 Its value is built into the tree when it is compiled, and
 defaults to the parent of the directory where <code>all.bash</code> was run.
 There is no need to set this unless you want to switch between multiple
@@ -459,7 +455,7 @@ These default to the values of <code>$GOHOSTOS</code> and
 
 <p>
 Choices for <code>$GOOS</code> are
-<code>darwin</code> (Mac OS X 10.7 and above and iOS), <code>dragonfly</code>, <code>freebsd</code>,
+<code>darwin</code> (Mac OS X 10.8 and above and iOS), <code>dragonfly</code>, <code>freebsd</code>,
 <code>linux</code>, <code>netbsd</code>, <code>openbsd</code>,
 <code>plan9</code>, <code>solaris</code> and <code>windows</code>.
 Choices for <code>$GOARCH</code> are
@@ -636,7 +632,7 @@ something like this:
 </p>
 
 <pre>
-export GOROOT=$HOME/go
+export GOROOT=$HOME/go1.X
 export GOARCH=amd64
 export GOOS=linux
 </pre>
