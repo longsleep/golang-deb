@@ -1,6 +1,7 @@
 golang-1.8 (1.8~beta1-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * Remove d/patches/cl-29995--tzdata-2016g.patch, included upstream. 
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 08 Dec 2016 10:12:19 +1300
 
