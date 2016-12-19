@@ -375,7 +375,7 @@ func TestTxContextWait(t *testing.T) {
 
 	ctx, _ := context.WithTimeout(context.Background(), time.Millisecond*15)
 
-	tx, err := db.BeginContext(ctx)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,8 +486,8 @@ func TestQueryNamedArg(t *testing.T) {
 	rows, err := db.Query(
 		// Ensure the name and age parameters only match on placeholder name, not position.
 		"SELECT|people|age,name|name=?name,age=?age",
-		Named("?age", 2),
-		Named("?name", "Bob"),
+		Named("age", 2),
+		Named("name", "Bob"),
 	)
 	if err != nil {
 		t.Fatalf("Query: %v", err)
@@ -680,6 +680,37 @@ func TestQueryRow(t *testing.T) {
 	want := []byte("APHOTO")
 	if !reflect.DeepEqual(photo, want) {
 		t.Errorf("photo = %q; want %q", photo, want)
+	}
+}
+
+func TestTxRollbackCommitErr(t *testing.T) {
+	db := newTestDB(t, "people")
+	defer closeDB(t, db)
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = tx.Rollback()
+	if err != nil {
+		t.Errorf("expected nil error from Rollback; got %v", err)
+	}
+	err = tx.Commit()
+	if err != ErrTxDone {
+		t.Errorf("expected %q from Commit; got %q", ErrTxDone, err)
+	}
+
+	tx, err = db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = tx.Commit()
+	if err != nil {
+		t.Errorf("expected nil error from Commit; got %v", err)
+	}
+	err = tx.Rollback()
+	if err != ErrTxDone {
+		t.Errorf("expected %q from Rollback; got %q", ErrTxDone, err)
 	}
 }
 
