@@ -1700,6 +1700,8 @@ func TestMissingGOPATHEnvShowsDefault(t *testing.T) {
 
 // Test go get missing GOPATH causes go get to warn if directory doesn't exist.
 func TestMissingGOPATHGetWarnsIfNotExists(t *testing.T) {
+	testenv.MustHaveExternalNetwork(t)
+
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("skipping because git binary not found")
 	}
@@ -1727,6 +1729,8 @@ func TestMissingGOPATHGetWarnsIfNotExists(t *testing.T) {
 
 // Test go get missing GOPATH causes no warning if directory exists.
 func TestMissingGOPATHGetDoesntWarnIfExists(t *testing.T) {
+	testenv.MustHaveExternalNetwork(t)
+
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("skipping because git binary not found")
 	}
@@ -1757,6 +1761,8 @@ func TestMissingGOPATHGetDoesntWarnIfExists(t *testing.T) {
 
 // Test go get missing GOPATH fails if pointed file is not a directory.
 func TestMissingGOPATHGetFailsIfItsNotDirectory(t *testing.T) {
+	testenv.MustHaveExternalNetwork(t)
+
 	tg := testgo(t)
 	defer tg.cleanup()
 
@@ -2067,9 +2073,7 @@ func TestCaseCollisions(t *testing.T) {
 
 // Issue 8181.
 func TestGoGetDashTIssue8181(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping test that uses network in short mode")
-	}
+	testenv.MustHaveExternalNetwork(t)
 
 	tg := testgo(t)
 	defer tg.cleanup()
@@ -2083,9 +2087,7 @@ func TestGoGetDashTIssue8181(t *testing.T) {
 
 func TestIssue11307(t *testing.T) {
 	// go get -u was not working except in checkout directory
-	if testing.Short() {
-		t.Skip("skipping test that uses network in short mode")
-	}
+	testenv.MustHaveExternalNetwork(t)
 
 	tg := testgo(t)
 	defer tg.cleanup()
@@ -3715,4 +3717,29 @@ func TestLinkXImportPathEscape(t *testing.T) {
 		tg.t.Log(string(out))
 		tg.t.Fatal(`incorrect output: expected "linkXworked\n"`)
 	}
+}
+
+// Issue 18044.
+func TestLdBindNow(t *testing.T) {
+	tg := testgo(t)
+	defer tg.cleanup()
+	tg.parallel()
+	tg.setenv("LD_BIND_NOW", "1")
+	tg.run("help")
+}
+
+// Issue 18225.
+// This is really a cmd/asm issue but this is a convenient place to test it.
+func TestConcurrentAsm(t *testing.T) {
+	tg := testgo(t)
+	defer tg.cleanup()
+	tg.parallel()
+	asm := `DATA ·constants<>+0x0(SB)/8,$0
+GLOBL ·constants<>(SB),8,$8
+`
+	tg.tempFile("go/src/p/a.s", asm)
+	tg.tempFile("go/src/p/b.s", asm)
+	tg.tempFile("go/src/p/p.go", `package p`)
+	tg.setenv("GOPATH", tg.path("go"))
+	tg.run("build", "p")
 }
