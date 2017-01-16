@@ -200,7 +200,7 @@ const testFlag2 = `
 	    text from Log and Logf calls even if the test succeeds.
 
 The following flags are also recognized by 'go test' and can be used to
-profile the tests during execution::
+profile the tests during execution:
 
 	-benchmem
 	    Print memory allocation statistics for benchmarks.
@@ -243,7 +243,7 @@ profile the tests during execution::
 	    Writes test binary as -c would.
 
 	-mutexprofilefraction n
- 	    Sample 1 in n stack traces of goroutines holding a
+	    Sample 1 in n stack traces of goroutines holding a
 	    contended mutex.
 
 	-outputdir directory
@@ -334,7 +334,8 @@ If the last comment in the function starts with "Output:" then the output
 is compared exactly against the comment (see examples below). If the last
 comment begins with "Unordered output:" then the output is compared to the
 comment, however the order of the lines is ignored. An example with no such
-comment, or with no text after "Output:" is compiled but not executed.
+comment is compiled but not executed. An example with no text after
+"Output:" is compiled, executed, and expected to produce no output.
 
 Godoc displays the body of ExampleXXX to demonstrate the use
 of the function, constant, or variable XXX.  An example of a method M with

@@ -1885,6 +1885,26 @@ func TestGoTestCpuprofileDashOControlsBinaryLocation(t *testing.T) {
 	tg.wantExecutable("myerrors.test"+exeSuffix, "go test -cpuprofile -o myerrors.test did not create myerrors.test")
 }
 
+func TestGoTestMutexprofileLeavesBinaryBehind(t *testing.T) {
+	tg := testgo(t)
+	defer tg.cleanup()
+	// TODO: tg.parallel()
+	tg.makeTempdir()
+	tg.cd(tg.path("."))
+	tg.run("test", "-mutexprofile", "errors.prof", "errors")
+	tg.wantExecutable("errors.test"+exeSuffix, "go test -mutexprofile did not create errors.test")
+}
+
+func TestGoTestMutexprofileDashOControlsBinaryLocation(t *testing.T) {
+	tg := testgo(t)
+	defer tg.cleanup()
+	// TODO: tg.parallel()
+	tg.makeTempdir()
+	tg.cd(tg.path("."))
+	tg.run("test", "-mutexprofile", "errors.prof", "-o", "myerrors.test"+exeSuffix, "errors")
+	tg.wantExecutable("myerrors.test"+exeSuffix, "go test -mutexprofile -o myerrors.test did not create myerrors.test")
+}
+
 func TestGoTestDashCDashOControlsBinaryLocation(t *testing.T) {
 	tg := testgo(t)
 	defer tg.cleanup()
@@ -2245,6 +2265,28 @@ func TestCoverageImportMainLoop(t *testing.T) {
 	tg.grepStderr("not an importable package", "did not detect import main")
 	tg.runFail("test", "-cover", "importmain/test")
 	tg.grepStderr("not an importable package", "did not detect import main")
+}
+
+func TestTestEmpty(t *testing.T) {
+	if !canRace {
+		t.Skip("no race detector")
+	}
+
+	wd, _ := os.Getwd()
+	testdata := filepath.Join(wd, "testdata")
+
+	for _, dir := range []string{"pkg", "test", "xtest", "pkgtest", "pkgxtest", "pkgtestxtest", "testxtest"} {
+		t.Run(dir, func(t *testing.T) {
+			tg := testgo(t)
+			defer tg.cleanup()
+			tg.setenv("GOPATH", testdata)
+			tg.cd(filepath.Join(testdata, "src/empty/"+dir))
+			tg.run("test", "-cover", "-coverpkg=.", "-race")
+		})
+		if testing.Short() {
+			break
+		}
+	}
 }
 
 func TestBuildDryRunWithCgo(t *testing.T) {
@@ -3357,9 +3399,11 @@ func TestCgoConsistentResults(t *testing.T) {
 	if !canCgo {
 		t.Skip("skipping because cgo not enabled")
 	}
-	if runtime.GOOS == "solaris" {
-		// See https://golang.org/issue/13247
-		t.Skip("skipping because Solaris builds are known to be inconsistent; see #13247")
+	switch runtime.GOOS {
+	case "freebsd":
+		testenv.SkipFlaky(t, 15405)
+	case "solaris":
+		testenv.SkipFlaky(t, 13247)
 	}
 
 	tg := testgo(t)

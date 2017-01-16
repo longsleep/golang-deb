@@ -327,6 +327,18 @@ see improvements closer to the 32-bit ARM numbers.
 
 <h3 id="cmd_cgo">Cgo</h3>
 
+<p> <!-- CL 31141 -->
+The Go tool now remembers the value of the <code>CGO_ENABLED</code> environment
+variable set during <code>make.bash</code> and applies it to all future compilations
+by default to fix issue <a href="https://golang.org/issue/12808">#12808</a>.
+When doing native compilation, it is rarely necessary to explicitly set
+the <code>CGO_ENABLED</code> environment variable as <code>make.bash</code>
+will detect the correct setting automatically. The main reason to explicitly
+set the <code>CGO_ENABLED</code> environment variable is when your environment
+supports cgo, but you explicitly do not want cgo support, in which case, set
+<code>CGO_ENABLED=0</code> during <code>make.bash</code> or <code>all.bash</code>.
+</p>
+
 <p> <!-- CL 29991 -->
 The environment variable <code>PKG_CONFIG</code> may now be used to
 set the program to run to handle <code>#cgo</code> <code>pkg-config</code>
@@ -377,6 +389,15 @@ version of gccgo.
   is unset. It defaults to
   <code>$HOME/go</code> on Unix and
   <code>%USERPROFILE%/go</code> on Windows.
+</p>
+
+<h3 id="go_get">Go get</h3>
+
+<p> <!-- CL 34818 -->
+  The “<code>go</code> <code>get</code>” command now always respects
+  HTTP proxy environment variables, regardless of whether
+  the <code style='white-space:nowrap'>-insecure</code> flag is used. In previous releases, the
+  <code style='white-space:nowrap'>-insecure</code> flag had the side effect of not using proxies.
 </p>
 
 <h3 id="go_bug">Go bug</h3>
@@ -619,6 +640,13 @@ now implements the new
   <a href="/pkg/runtime/#SetMutexProfileFraction"><code>SetMutexProfileFraction</code></a>.
 </p>
 
+<p>
+  A known limitation for Go 1.8 is that the profile only reports contention for
+  <a href="/pkg/sync/#Mutex"><code>sync.Mutex</code></a>,
+  not 
+  <a href="/pkg/sync/#RWMutex"><code>sync.RWMutex</code></a>.
+</p>
+
 <h3 id="minor_library_changes">Minor changes to the library</h3>
 
 <p>
@@ -637,23 +665,6 @@ Optimizations and minor bug fixes are not listed.
       is now able to process tar files in the PAX format with entries larger than 8GB.
       The <a href="/pkg/archive/tar/#Writer"><code>Writer</code></a>
       no longer produces invalid tar files in some situations involving long pathnames.
-    </p>
-
-  </dd>
-</dl>
-
-<dl id="archive_zip"><dt><a href="/pkg/archive/zip/">archive/zip</a></dt>
-  <dd>
-
-    <p> <!-- CL 18274 -->
-      The
-      <a href="/pkg/archive/zip/#Reader"><code>Reader</code></a>
-      now supports modification times in
-      the NTFS, UNIX, and Extended Time Stamp metadata fields.
-      <!-- CL 30811 -->
-      The
-      <a href="/pkg/archive/zip/#Writer"><code>Writer</code></a>
-      now writes Extended Time Stamp fields.
     </p>
 
   </dd>
@@ -1288,9 +1299,17 @@ crypto/x509: return error for missing SerialNumber (CL 27238)
       </li>
 
       <li><!-- CL 31733, CL 29852 -->
-        The <code>Client</code> now supports 307 and 308 redirects.
-        If the redirect requires resending the request body,
-        the request must have the new
+        The <code>Client</code> now supports 301, 307, and 308 redirects.
+
+        For example, <code>Client.Post</code> now follows 301
+        redirects, converting them to <code>GET</code> requests
+        without bodies, like it did for 302 and 303 redirect responses
+        previously.
+
+        The <code>Client</code> now also follows 307 and 308
+        redirects, preserving the original request method and body, if
+        any. If the redirect requires resending the request body, the
+        request must have the new
         <a href="/pkg/net/http/#Request"><code>Request.GetBody</code></a>
         field defined.
         <a href="pkg/net/http/#NewRequest"><code>NewRequest</code></a>
