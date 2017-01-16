@@ -413,19 +413,26 @@ func (c *Client) checkRedirect(req *Request, via []*Request) error {
 
 // redirectBehavior describes what should happen when the
 // client encounters a 3xx status code from the server
-func redirectBehavior(reqMethod string, resp *Response, via []*Request) (redirectMethod string, shouldRedirect bool) {
+func redirectBehavior(reqMethod string, resp *Response, ireq *Request) (redirectMethod string, shouldRedirect bool) {
 	switch resp.StatusCode {
 	case 301, 302, 303:
-		redirectMethod = "GET"
+		redirectMethod = reqMethod
 		shouldRedirect = true
+
+		// RFC 2616 allowed automatic redirection only with GET and
+		// HEAD requests. RFC 7231 lifts this restriction, but we still
+		// restrict other methods to GET to maintain compatibility.
+		// See Issue 18570.
+		if reqMethod != "GET" && reqMethod != "HEAD" {
+			redirectMethod = "GET"
+		}
 	case 307, 308:
 		redirectMethod = reqMethod
 		shouldRedirect = true
 
 		// Treat 307 and 308 specially, since they're new in
 		// Go 1.8, and they also require re-sending the request body.
-		loc := resp.Header.Get("Location")
-		if loc == "" {
+		if resp.Header.Get("Location") == "" {
 			// 308s have been observed in the wild being served
 			// without Location headers. Since Go 1.7 and earlier
 			// didn't follow these codes, just stop here instead
@@ -434,7 +441,6 @@ func redirectBehavior(reqMethod string, resp *Response, via []*Request) (redirec
 			shouldRedirect = false
 			break
 		}
-		ireq := via[0]
 		if ireq.GetBody == nil && ireq.outgoingLength() != 0 {
 			// We had a request body, and 307/308 require
 			// re-sending it, but GetBody is not defined. So just
@@ -443,7 +449,6 @@ func redirectBehavior(reqMethod string, resp *Response, via []*Request) (redirec
 			shouldRedirect = false
 		}
 	}
-
 	return redirectMethod, shouldRedirect
 }
 
@@ -470,6 +475,16 @@ func redirectBehavior(reqMethod string, resp *Response, via []*Request) (redirec
 // the returned Response.Body is already closed.
 //
 // Generally Get, Post, or PostForm will be used instead of Do.
+//
+// If the server replies with a redirect, the Client first uses the
+// CheckRedirect function to determine whether the redirect should be
+// followed. If permitted, a 301, 302, or 303 redirect causes
+// subsequent requests to use HTTP method GET
+// (or HEAD if the original request was HEAD), with no body.
+// A 307 or 308 redirect preserves the original HTTP method and body,
+// provided that the Request.GetBody function is defined.
+// The NewRequest function automatically sets GetBody for common
+// standard library body types.
 func (c *Client) Do(req *Request) (*Response, error) {
 	if req.URL == nil {
 		req.closeBody()
@@ -583,7 +598,7 @@ func (c *Client) Do(req *Request) (*Response, error) {
 		}
 
 		var shouldRedirect bool
-		redirectMethod, shouldRedirect = redirectBehavior(req.Method, resp, reqs)
+		redirectMethod, shouldRedirect = redirectBehavior(req.Method, resp, reqs[0])
 		if !shouldRedirect {
 			return resp, nil
 		}
@@ -673,6 +688,9 @@ func defaultCheckRedirect(req *Request, via []*Request) error {
 // Post is a wrapper around DefaultClient.Post.
 //
 // To set custom headers, use NewRequest and DefaultClient.Do.
+//
+// See the Client.Do method documentation for details on how redirects
+// are handled.
 func Post(url string, contentType string, body io.Reader) (resp *Response, err error) {
 	return DefaultClient.Post(url, contentType, body)
 }
@@ -685,6 +703,9 @@ func Post(url string, contentType string, body io.Reader) (resp *Response, err e
 // request.
 //
 // To set custom headers, use NewRequest and Client.Do.
+//
+// See the Client.Do method documentation for details on how redirects
+// are handled.
 func (c *Client) Post(url string, contentType string, body io.Reader) (resp *Response, err error) {
 	req, err := NewRequest("POST", url, body)
 	if err != nil {
@@ -704,6 +725,9 @@ func (c *Client) Post(url string, contentType string, body io.Reader) (resp *Res
 // Caller should close resp.Body when done reading from it.
 //
 // PostForm is a wrapper around DefaultClient.PostForm.
+//
+// See the Client.Do method documentation for details on how redirects
+// are handled.
 func PostForm(url string, data url.Values) (resp *Response, err error) {
 	return DefaultClient.PostForm(url, data)
 }
@@ -716,6 +740,9 @@ func PostForm(url string, data url.Values) (resp *Response, err error) {
 //
 // When err is nil, resp always contains a non-nil resp.Body.
 // Caller should close resp.Body when done reading from it.
+//
+// See the Client.Do method documentation for details on how redirects
+// are handled.
 func (c *Client) PostForm(url string, data url.Values) (resp *Response, err error) {
 	return c.Post(url, "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
 }

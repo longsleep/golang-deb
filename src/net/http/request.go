@@ -341,6 +341,18 @@ func (r *Request) ProtoAtLeast(major, minor int) bool {
 		r.ProtoMajor == major && r.ProtoMinor >= minor
 }
 
+// protoAtLeastOutgoing is like ProtoAtLeast, but is for outgoing
+// requests (see issue 18407) where these fields aren't supposed to
+// matter.  As a minor fix for Go 1.8, at least treat (0, 0) as
+// matching HTTP/1.1 or HTTP/1.0.  Only HTTP/1.1 is used.
+// TODO(bradfitz): ideally remove this whole method. It shouldn't be used.
+func (r *Request) protoAtLeastOutgoing(major, minor int) bool {
+	if r.ProtoMajor == 0 && r.ProtoMinor == 0 && major == 1 && minor <= 1 {
+		return true
+	}
+	return r.ProtoAtLeast(major, minor)
+}
+
 // UserAgent returns the client's User-Agent, if sent in the request.
 func (r *Request) UserAgent() string {
 	return r.Header.Get("User-Agent")
@@ -600,6 +612,12 @@ func (req *Request) write(w io.Writer, usingProxy bool, extraHeaders Header, wai
 		}
 	}
 
+	if bw, ok := w.(*bufio.Writer); ok && tw.FlushHeaders {
+		if err := bw.Flush(); err != nil {
+			return err
+		}
+	}
+
 	// Write body and trailer
 	err = tw.WriteBody(w)
 	if err != nil {
@@ -731,6 +749,12 @@ func validMethod(method string) bool {
 // net/http/httptest package, use ReadRequest, or manually update the
 // Request fields. See the Request type's documentation for the
 // difference between inbound and outbound request fields.
+//
+// If body is of type *bytes.Buffer, *bytes.Reader, or
+// *strings.Reader, the returned request's ContentLength is set to its
+// exact value (instead of -1), GetBody is populated (so 307 and 308
+// redirects can replay the body), and Body is set to NoBody if the
+// ContentLength is 0.
 func NewRequest(method, urlStr string, body io.Reader) (*Request, error) {
 	if method == "" {
 		// We document that "" means "GET" for Request.Method, and people have
@@ -1292,4 +1316,19 @@ func (r *Request) outgoingLength() int64 {
 		return r.ContentLength
 	}
 	return -1
+}
+
+// requestMethodUsuallyLacksBody reports whether the given request
+// method is one that typically does not involve a request body.
+// This is used by the Transport (via
+// transferWriter.shouldSendChunkedRequestBody) to determine whether
+// we try to test-read a byte from a non-nil Request.Body when
+// Request.outgoingLength() returns -1. See the comments in
+// shouldSendChunkedRequestBody.
+func requestMethodUsuallyLacksBody(method string) bool {
+	switch method {
+	case "GET", "HEAD", "DELETE", "OPTIONS", "PROPFIND", "SEARCH":
+		return true
+	}
+	return false
 }
