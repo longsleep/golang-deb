@@ -1,3 +1,9 @@
+golang-1.8 (1.8~rc2-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Fri, 20 Jan 2017 12:00:13 +1300
+
 golang-1.8 (1.8~rc1-1) unstable; urgency=medium
 
   * New upstream release. 
