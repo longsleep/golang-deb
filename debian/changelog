@@ -1,3 +1,9 @@
+golang-1.7 (1.7.4-2) UNRELEASED; urgency=medium
+
+  * Backport CL 37964 for tzdata 2017a changes (Closes: #859583)
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Wed, 05 Apr 2017 11:53:49 +1200
+
 golang-1.7 (1.7.4-1) unstable; urgency=medium
 
   * Update to 1.7.4 upstream release (Closes: #846545)
