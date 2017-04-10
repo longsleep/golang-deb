@@ -1,0 +1,3 @@
+# Go shared libraries are not linked by the system linker so
+# the .so symlinks are not where lintian expects.
+libgolang-std1: dev-pkg-without-shlib-symlink

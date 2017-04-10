@@ -1,0 +1,40 @@
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86.obj
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-openbsd-debug-with-rela.obj
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.obj
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
+golang-X.Y source: source-contains-prebuilt-binary src/runtime/race/race_linux_amd64.syso
+
+# All these files are compiled from src/debug/elf/testdata/hello.c
+# with various toolchain and options to be used as test data for the
+# elf parser.
+golang-X.Y source: source-is-missing src/debug/elf/testdata/compressed-32.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/compressed-64.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-clang-arm.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-clang-x86.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc441-x86.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc482-aarch64.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc482-ppc64le.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc492-arm.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc492-mips64.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc493-mips64le.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc5-ppc.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/go-relocation-test-gcc531-s390x.obj
+golang-X.Y source: source-is-missing src/debug/elf/testdata/zdebug-test-gcc484-x86-64.obj
+
+# These files are compiled from src/debug/dwarf/testdata/line2.c with clang and gcc.
+golang-X.Y source: source-is-missing src/debug/dwarf/testdata/line-clang.elf
+golang-X.Y source: source-is-missing src/debug/dwarf/testdata/line-gcc.elf
+
+# Compiled from src/debug/dwarf/testdata/typedef.c with dwarf version 4.
+golang-X.Y source: source-is-missing src/debug/dwarf/testdata/typedef.elf4
+
+# This is not a typo.
+golang-X.Y source: unknown-file-in-debian-source lintian-overrides.in
