@@ -1,8 +1,8 @@
-golang-1.8 (1.8.1-1) UNRELEASED; urgency=medium
+golang-1.8 (1.8.1-1) unstable; urgency=medium
 
   * New upstream release.
 
- -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Mon, 10 Apr 2017 12:34:49 +1200
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Mon, 10 Apr 2017 13:29:28 +1200
 
 golang-1.8 (1.8-1) unstable; urgency=medium
 
