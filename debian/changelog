@@ -1,3 +1,10 @@
+golang-1.8 (1.8.1-1ubuntu1~longsleep0~xenial) xenial; urgency=medium
+
+  * Add patch for carry bug in x86-64 P-256
+  * Rebuild for 16.04
+
+ -- Simon Eisenmann <simon@longsleep.org>  Sat, 22 Apr 2017 19:06:30 +0200
+
 golang-1.8 (1.8.1-1ubuntu1) zesty; urgency=medium
 
   * Merge from Debian unstable. Remaining changes:
