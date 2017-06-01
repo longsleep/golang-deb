@@ -1,3 +1,10 @@
+golang-1.7 (1.7.6-1) unstable; urgency=medium
+
+  * New upstream release. (Closes: #863308)
+  * Remove d/patches/cl-29995--tzdata-2016g.patch, applied upstream.
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 01 Jun 2017 21:31:53 +1200
+
 golang-1.7 (1.7.4-2) unstable; urgency=medium
 
   * Backport CL 37964 for tzdata 2017a changes (Closes: #859583)
