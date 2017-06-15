@@ -8,8 +8,8 @@
 # Consult http://www.iana.org/time-zones for the latest versions.
 
 # Versions to use.
-CODE=2016j
-DATA=2016j
+CODE=2017b
+DATA=2017b
 
 set -e
 rm -rf work
@@ -42,7 +42,7 @@ zip -0 -r ../../zoneinfo.zip *
 cd ../..
 
 echo
-if [ "$1" == "-work" ]; then 
+if [ "$1" = "-work" ]; then 
 	echo Left workspace behind in work/.
 else
 	rm -rf work

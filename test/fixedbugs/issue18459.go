@@ -8,6 +8,6 @@
 
 package main
 
-//go:nowritebarrier // ERROR "go:nowritebarrier only allowed in runtime"
+//go:nowritebarrier // ERROR "//go:nowritebarrier only allowed in runtime"
 func main() {
 }

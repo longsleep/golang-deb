@@ -149,12 +149,10 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}()
 	}
 
-	outreq := new(http.Request)
-	*outreq = *req // includes shallow copies of maps, but okay
+	outreq := req.WithContext(ctx) // includes shallow copies of maps, but okay
 	if req.ContentLength == 0 {
 		outreq.Body = nil // Issue 16036: nil Body for http.Transport retries
 	}
-	outreq = outreq.WithContext(ctx)
 
 	p.Director(outreq)
 	outreq.Close = false
@@ -235,7 +233,8 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// The "Trailer" header isn't included in the Transport's response,
 	// at least for *http.Transport. Build it up from Trailer.
-	if len(res.Trailer) > 0 {
+	announcedTrailers := len(res.Trailer)
+	if announcedTrailers > 0 {
 		trailerKeys := make([]string, 0, len(res.Trailer))
 		for k := range res.Trailer {
 			trailerKeys = append(trailerKeys, k)
@@ -254,7 +253,18 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	p.copyResponse(rw, res.Body)
 	res.Body.Close() // close now, instead of defer, to populate res.Trailer
-	copyHeader(rw.Header(), res.Trailer)
+
+	if len(res.Trailer) == announcedTrailers {
+		copyHeader(rw.Header(), res.Trailer)
+		return
+	}
+
+	for k, vv := range res.Trailer {
+		k = http.TrailerPrefix + k
+		for _, v := range vv {
+			rw.Header().Add(k, v)
+		}
+	}
 }
 
 func (p *ReverseProxy) copyResponse(dst io.Writer, src io.Reader) {
@@ -288,7 +298,7 @@ func (p *ReverseProxy) copyBuffer(dst io.Writer, src io.Reader, buf []byte) (int
 	var written int64
 	for {
 		nr, rerr := src.Read(buf)
-		if rerr != nil && rerr != io.EOF {
+		if rerr != nil && rerr != io.EOF && rerr != context.Canceled {
 			p.logf("httputil: ReverseProxy read error during body copy: %v", rerr)
 		}
 		if nr > 0 {

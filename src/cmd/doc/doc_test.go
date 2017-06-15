@@ -71,6 +71,8 @@ var tests = []test{
 			`const MultiLineConst = ...`,                                   // Multi line constant.
 			`var MultiLineVar = map\[struct{ ... }\]struct{ ... }{ ... }`,  // Multi line variable.
 			`func MultiLineFunc\(x interface{ ... }\) \(r struct{ ... }\)`, // Multi line function.
+			`var LongLine = newLongLine\(("someArgument[1-4]", ){4}...\)`,  // Long list of arguments.
+			`type T1 = T2`, // Type alias
 		},
 		[]string{
 			`const internalConstant = 2`,        // No internal constants.
@@ -89,6 +91,8 @@ var tests = []test{
 			`unexportedTypedConstant`,           // No unexported typed constant.
 			`Field`,                             // No fields.
 			`Method`,                            // No methods.
+			`someArgument[5-8]`,                 // No truncated arguments.
+			`type T1 T2`,                        // Type alias does not display as type declaration.
 		},
 	},
 	// Package dump -u
@@ -265,6 +269,18 @@ var tests = []test{
 			`error`,                          // No embedded error.
 		},
 	},
+	// Type T1 dump (alias).
+	{
+		"type T1",
+		[]string{p + ".T1"},
+		[]string{
+			`type T1 = T2`,
+		},
+		[]string{
+			`type T1 T2`,
+			`type ExportedType`,
+		},
+	},
 	// Type -u with unexported fields.
 	{
 		"type with unexported fields and -u",
@@ -370,6 +386,29 @@ var tests = []test{
 		[]string{
 			`func \(ExportedType\) unexportedMethod\(a int\) bool`,
 			`Comment about unexported method.`,
+		},
+		nil,
+	},
+
+	// Field.
+	{
+		"field",
+		[]string{p, `ExportedType.ExportedField`},
+		[]string{
+			`ExportedField int`,
+			`Comment before exported field.`,
+			`Comment on line with exported field.`,
+		},
+		nil,
+	},
+
+	// Field  with -u.
+	{
+		"method with -u",
+		[]string{"-u", p, `ExportedType.unexportedField`},
+		[]string{
+			`unexportedField int`,
+			`Comment on line with unexported field.`,
 		},
 		nil,
 	},

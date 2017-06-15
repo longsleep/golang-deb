@@ -97,6 +97,27 @@ type Resolver struct {
 	// GODEBUG=netdns=go, but scoped to just this resolver.
 	PreferGo bool
 
+	// StrictErrors controls the behavior of temporary errors
+	// (including timeout, socket errors, and SERVFAIL) when using
+	// Go's built-in resolver. For a query composed of multiple
+	// sub-queries (such as an A+AAAA address lookup, or walking the
+	// DNS search list), this option causes such errors to abort the
+	// whole query instead of returning a partial result. This is
+	// not enabled by default because it may affect compatibility
+	// with resolvers that process AAAA queries incorrectly.
+	StrictErrors bool
+
+	// Dial optionally specifies an alternate dialer for use by
+	// Go's built-in DNS resolver to make TCP and UDP connections
+	// to DNS services. The provided addr will always be an IP
+	// address and not a hostname.
+	// If the Conn returned is also a PacketConn, sent and received DNS
+	// messages must adhere to section 4.2.1. "UDP usage" of RFC 1035.
+	// Otherwise, DNS messages transmitted over Conn must adhere to section
+	// 4.2.2. "TCP usage".
+	// If nil, the default dialer is used.
+	Dial func(ctx context.Context, network, addr string) (Conn, error)
+
 	// TODO(bradfitz): optional interface impl override hook
 	// TODO(bradfitz): Timeout time.Duration?
 }

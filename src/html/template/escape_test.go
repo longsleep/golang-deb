@@ -359,7 +359,7 @@ func TestEscape(t *testing.T) {
 		{
 			"styleStrEncodedProtocolEncoded",
 			`<a style="background: '{{"javascript\\3a alert(1337)"}}'">`,
-			// The CSS string 'javascript\\3a alert(1337)' does not contains a colon.
+			// The CSS string 'javascript\\3a alert(1337)' does not contain a colon.
 			`<a style="background: 'javascript\\3a alert\28 1337\29 '">`,
 		},
 		{
@@ -685,6 +685,40 @@ func TestEscape(t *testing.T) {
 	}
 }
 
+func TestEscapeMap(t *testing.T) {
+	data := map[string]string{
+		"html":     `<h1>Hi!</h1>`,
+		"urlquery": `http://www.foo.com/index.html?title=main`,
+	}
+	for _, test := range [...]struct {
+		desc, input, output string
+	}{
+		// covering issue 20323
+		{
+			"field with predefined escaper name 1",
+			`{{.html | print}}`,
+			`&lt;h1&gt;Hi!&lt;/h1&gt;`,
+		},
+		// covering issue 20323
+		{
+			"field with predefined escaper name 2",
+			`{{.urlquery | print}}`,
+			`http://www.foo.com/index.html?title=main`,
+		},
+	} {
+		tmpl := Must(New("").Parse(test.input))
+		b := new(bytes.Buffer)
+		if err := tmpl.Execute(b, data); err != nil {
+			t.Errorf("%s: template execution failed: %s", test.desc, err)
+			continue
+		}
+		if w, g := test.output, b.String(); w != g {
+			t.Errorf("%s: escaped output: want\n\t%q\ngot\n\t%q", test.desc, w, g)
+			continue
+		}
+	}
+}
+
 func TestEscapeSet(t *testing.T) {
 	type dataItem struct {
 		Children []*dataItem
@@ -970,8 +1004,33 @@ func TestErrors(t *testing.T) {
 			`<a=foo>`,
 			`: expected space, attr name, or end of tag, but got "=foo>"`,
 		},
+		{
+			`Hello, {{. | urlquery | print}}!`,
+			// urlquery is disallowed if it is not the last command in the pipeline.
+			`predefined escaper "urlquery" disallowed in template`,
+		},
+		{
+			`Hello, {{. | html | print}}!`,
+			// html is disallowed if it is not the last command in the pipeline.
+			`predefined escaper "html" disallowed in template`,
+		},
+		{
+			`Hello, {{html . | print}}!`,
+			// A direct call to html is disallowed if it is not the last command in the pipeline.
+			`predefined escaper "html" disallowed in template`,
+		},
+		{
+			`<div class={{. | html}}>Hello<div>`,
+			// html is disallowed in a pipeline that is in an unquoted attribute context,
+			// even if it is the last command in the pipeline.
+			`predefined escaper "html" disallowed in template`,
+		},
+		{
+			`Hello, {{. | urlquery | html}}!`,
+			// html is allowed since it is the last command in the pipeline, but urlquery is not.
+			`predefined escaper "urlquery" disallowed in template`,
+		},
 	}
-
 	for _, test := range tests {
 		buf := new(bytes.Buffer)
 		tmpl, err := New("z").Parse(test.input)
@@ -1396,6 +1455,16 @@ func TestEscapeText(t *testing.T) {
 			`<script type="text/template">`,
 			context{state: stateText},
 		},
+		// covering issue 19968
+		{
+			`<script type="TEXT/JAVASCRIPT">`,
+			context{state: stateJS, element: elementScript},
+		},
+		// covering issue 19965
+		{
+			`<script TYPE="text/template">`,
+			context{state: stateText},
+		},
 		{
 			`<script type="notjs">`,
 			context{state: stateText},
@@ -1529,24 +1598,24 @@ func TestEnsurePipelineContains(t *testing.T) {
 			[]string{"html"},
 		},
 		{
-			"{{.X | html}}",
-			".X | html | urlquery",
-			[]string{"urlquery"},
-		},
-		{
-			"{{.X | html | urlquery}}",
-			".X | html | urlquery",
-			[]string{"urlquery"},
-		},
-		{
-			"{{.X | html | urlquery}}",
-			".X | html | urlquery",
+			"{{html .X}}",
+			"_eval_args_ .X | html | urlquery",
 			[]string{"html", "urlquery"},
 		},
 		{
-			"{{.X | html | urlquery}}",
-			".X | html | urlquery",
-			[]string{"html"},
+			"{{html .X .Y .Z}}",
+			"_eval_args_ .X .Y .Z | html | urlquery",
+			[]string{"html", "urlquery"},
+		},
+		{
+			"{{.X | print}}",
+			".X | print | urlquery",
+			[]string{"urlquery"},
+		},
+		{
+			"{{.X | print | urlquery}}",
+			".X | print | urlquery",
+			[]string{"urlquery"},
 		},
 		{
 			"{{.X | urlquery}}",
@@ -1554,36 +1623,63 @@ func TestEnsurePipelineContains(t *testing.T) {
 			[]string{"html", "urlquery"},
 		},
 		{
-			"{{.X | html | print}}",
-			".X | urlquery | html | print",
-			[]string{"urlquery", "html"},
-		},
-		{
-			"{{($).X | html | print}}",
-			"($).X | urlquery | html | print",
-			[]string{"urlquery", "html"},
-		},
-		{
 			"{{.X | print 2 | .f 3}}",
 			".X | print 2 | .f 3 | urlquery | html",
 			[]string{"urlquery", "html"},
 		},
 		{
-			"{{.X | html | print 2 | .f 3}}",
-			".X | urlquery | html | print 2 | .f 3",
+			// covering issue 10801
+			"{{.X | println.x }}",
+			".X | println.x | urlquery | html",
 			[]string{"urlquery", "html"},
 		},
 		{
 			// covering issue 10801
-			"{{.X | js.x }}",
-			".X | js.x | urlquery | html",
+			"{{.X | (print 12 | println).x }}",
+			".X | (print 12 | println).x | urlquery | html",
 			[]string{"urlquery", "html"},
 		},
+		// The following test cases ensure that the merging of internal escapers
+		// with the predefined "html" and "urlquery" escapers is correct.
 		{
-			// covering issue 10801
-			"{{.X | (print 12 | js).x }}",
-			".X | (print 12 | js).x | urlquery | html",
-			[]string{"urlquery", "html"},
+			"{{.X | urlquery}}",
+			".X | _html_template_urlfilter | urlquery",
+			[]string{"_html_template_urlfilter", "_html_template_urlnormalizer"},
+		},
+		{
+			"{{.X | urlquery}}",
+			".X | urlquery | _html_template_urlfilter | _html_template_cssescaper",
+			[]string{"_html_template_urlfilter", "_html_template_cssescaper"},
+		},
+		{
+			"{{.X | urlquery}}",
+			".X | urlquery",
+			[]string{"_html_template_urlnormalizer"},
+		},
+		{
+			"{{.X | urlquery}}",
+			".X | urlquery",
+			[]string{"_html_template_urlescaper"},
+		},
+		{
+			"{{.X | html}}",
+			".X | html",
+			[]string{"_html_template_htmlescaper"},
+		},
+		{
+			"{{.X | html}}",
+			".X | html",
+			[]string{"_html_template_rcdataescaper"},
+		},
+		{
+			"{{.X | html}}",
+			".X | html | html",
+			[]string{"_html_template_htmlescaper", "_html_template_attrescaper"},
+		},
+		{
+			"{{.X | html}}",
+			".X | html | html",
+			[]string{"_html_template_rcdataescaper", "_html_template_attrescaper"},
 		},
 	}
 	for i, test := range tests {
@@ -1606,10 +1702,8 @@ func TestEscapeMalformedPipelines(t *testing.T) {
 	tests := []string{
 		"{{ 0 | $ }}",
 		"{{ 0 | $ | urlquery }}",
-		"{{ 0 | $ | urlquery | html }}",
 		"{{ 0 | (nil) }}",
 		"{{ 0 | (nil) | html }}",
-		"{{ 0 | (nil) | html | urlquery }}",
 	}
 	for _, test := range tests {
 		var b bytes.Buffer

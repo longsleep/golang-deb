@@ -20,10 +20,6 @@ import (
 )
 
 func TestDWARF(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("DWARF is not supported on Windows")
-	}
-
 	testenv.MustHaveCGO(t)
 	testenv.MustHaveGoBuild(t)
 

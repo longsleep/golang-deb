@@ -633,13 +633,13 @@ func (check *Checker) shift(x, y *operand, e *ast.BinaryExpr, op token.Token) {
 	}
 
 	// spec: "The right operand in a shift expression must have unsigned
-	// integer type or be an untyped constant that can be converted to
-	// unsigned integer type."
+	// integer type or be an untyped constant representable by a value of
+	// type uint."
 	switch {
 	case isUnsigned(y.typ):
 		// nothing to do
 	case isUntyped(y.typ):
-		check.convertUntyped(y, Typ[UntypedInt])
+		check.convertUntyped(y, Typ[Uint])
 		if y.mode == invalid {
 			x.mode = invalid
 			return
@@ -800,10 +800,24 @@ func (check *Checker) binary(x *operand, e *ast.BinaryExpr, lhs, rhs ast.Expr, o
 		return
 	}
 
-	if (op == token.QUO || op == token.REM) && (x.mode == constant_ || isInteger(x.typ)) && y.mode == constant_ && constant.Sign(y.val) == 0 {
-		check.invalidOp(y.pos(), "division by zero")
-		x.mode = invalid
-		return
+	if op == token.QUO || op == token.REM {
+		// check for zero divisor
+		if (x.mode == constant_ || isInteger(x.typ)) && y.mode == constant_ && constant.Sign(y.val) == 0 {
+			check.invalidOp(y.pos(), "division by zero")
+			x.mode = invalid
+			return
+		}
+
+		// check for divisor underflow in complex division (see issue 20227)
+		if x.mode == constant_ && y.mode == constant_ && isComplex(x.typ) {
+			re, im := constant.Real(y.val), constant.Imag(y.val)
+			re2, im2 := constant.BinaryOp(re, token.MUL, re), constant.BinaryOp(im, token.MUL, im)
+			if constant.Sign(re2) == 0 && constant.Sign(im2) == 0 {
+				check.invalidOp(y.pos(), "division by zero")
+				x.mode = invalid
+				return
+			}
+		}
 	}
 
 	if x.mode == constant_ && y.mode == constant_ {
@@ -1161,6 +1175,17 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 			}
 
 		default:
+			// when "using" all elements unpack KeyValueExpr
+			// explicitly because check.use doesn't accept them
+			for _, e := range e.Elts {
+				if kv, _ := e.(*ast.KeyValueExpr); kv != nil {
+					// Ideally, we should also "use" kv.Key but we can't know
+					// if it's an externally defined struct key or not. Going
+					// forward anyway can lead to other errors. Give up instead.
+					e = kv.Value
+				}
+				check.use(e)
+			}
 			// if utyp is invalid, an error was reported before
 			if utyp != Typ[Invalid] {
 				check.errorf(e.Pos(), "invalid composite literal type %s", typ)
@@ -1182,6 +1207,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	case *ast.IndexExpr:
 		check.expr(x, e.X)
 		if x.mode == invalid {
+			check.use(e.Index)
 			goto Error
 		}
 
@@ -1251,6 +1277,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	case *ast.SliceExpr:
 		check.expr(x, e.X)
 		if x.mode == invalid {
+			check.use(e.Low, e.High, e.Max)
 			goto Error
 		}
 

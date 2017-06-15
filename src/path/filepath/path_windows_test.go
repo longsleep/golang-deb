@@ -7,6 +7,7 @@ package filepath_test
 import (
 	"flag"
 	"fmt"
+	"internal/testenv"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -67,6 +68,9 @@ func testWinSplitListTestIsValid(t *testing.T, ti int, tt SplitListTest,
 		}
 	}
 
+	// on some systems, SystemRoot is required for cmd to work
+	systemRoot := os.Getenv("SystemRoot")
+
 	for i, d := range tt.result {
 		if d == "" {
 			continue
@@ -75,7 +79,7 @@ func testWinSplitListTestIsValid(t *testing.T, ti int, tt SplitListTest,
 		cmd := &exec.Cmd{
 			Path: comspec,
 			Args: []string{`/c`, cmdfile},
-			Env:  []string{`Path=` + tt.list},
+			Env:  []string{`Path=` + tt.list, `SystemRoot=` + systemRoot},
 			Dir:  tmp,
 		}
 		out, err := cmd.CombinedOutput()
@@ -429,4 +433,28 @@ func TestUNC(t *testing.T) {
 	// See golang.org/issue/15879.
 	defer debug.SetMaxStack(debug.SetMaxStack(1e6))
 	filepath.Glob(`\\?\c:\*`)
+}
+
+func testWalkMklink(t *testing.T, linktype string) {
+	output, _ := exec.Command("cmd", "/c", "mklink", "/?").Output()
+	if !strings.Contains(string(output), fmt.Sprintf(" /%s ", linktype)) {
+		t.Skipf(`skipping test; mklink does not supports /%s parameter`, linktype)
+	}
+	testWalkSymlink(t, func(target, link string) error {
+		output, err := exec.Command("cmd", "/c", "mklink", "/"+linktype, link, target).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf(`"mklink /%s %v %v" command failed: %v\n%v`, linktype, link, target, err, string(output))
+		}
+		return nil
+	})
+}
+
+func TestWalkDirectoryJunction(t *testing.T) {
+	testenv.MustHaveSymlink(t)
+	testWalkMklink(t, "J")
+}
+
+func TestWalkDirectorySymlink(t *testing.T) {
+	testenv.MustHaveSymlink(t)
+	testWalkMklink(t, "D")
 }

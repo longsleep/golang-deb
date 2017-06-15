@@ -14,7 +14,6 @@ const (
 	ScoreMemory
 	ScoreDefault
 	ScoreFlags
-	ScoreSelectCall
 	ScoreControl // towards bottom of block
 )
 
@@ -47,8 +46,8 @@ func (h ValHeap) Less(i, j int) bool {
 	if c := sx - sy; c != 0 {
 		return c > 0 // higher score comes later.
 	}
-	if x.Line != y.Line { // Favor in-order line stepping
-		return x.Line > y.Line
+	if x.Pos != y.Pos { // Favor in-order line stepping
+		return x.Pos.After(y.Pos)
 	}
 	if x.Op != OpPhi {
 		if c := len(x.Args) - len(y.Args); c != 0 {
@@ -111,25 +110,10 @@ func schedule(f *Func) {
 				// We want all the vardefs next.
 				score[v.ID] = ScoreVarDef
 			case v.Type.IsMemory():
-				// Don't schedule independent operations after call to those functions.
-				// runtime.selectgo will jump to next instruction after this call,
-				// causing extra execution of those operations. Prevent it, by setting
-				// priority to high value.
-				if (v.Op == OpAMD64CALLstatic || v.Op == OpPPC64CALLstatic ||
-					v.Op == OpARMCALLstatic || v.Op == OpARM64CALLstatic ||
-					v.Op == Op386CALLstatic || v.Op == OpMIPS64CALLstatic ||
-					v.Op == OpS390XCALLstatic || v.Op == OpMIPSCALLstatic) &&
-					(isSameSym(v.Aux, "runtime.selectrecv") ||
-						isSameSym(v.Aux, "runtime.selectrecv2") ||
-						isSameSym(v.Aux, "runtime.selectsend") ||
-						isSameSym(v.Aux, "runtime.selectdefault")) {
-					score[v.ID] = ScoreSelectCall
-				} else {
-					// Schedule stores as early as possible. This tends to
-					// reduce register pressure. It also helps make sure
-					// VARDEF ops are scheduled before the corresponding LEA.
-					score[v.ID] = ScoreMemory
-				}
+				// Schedule stores as early as possible. This tends to
+				// reduce register pressure. It also helps make sure
+				// VARDEF ops are scheduled before the corresponding LEA.
+				score[v.ID] = ScoreMemory
 			case v.Op == OpSelect0 || v.Op == OpSelect1:
 				// Schedule the pseudo-op of reading part of a tuple
 				// immediately after the tuple-generating op, since
@@ -148,19 +132,14 @@ func schedule(f *Func) {
 		}
 	}
 
-	// TODO: make this logic permanent in types.IsMemory?
-	isMem := func(v *Value) bool {
-		return v.Type.IsMemory() || v.Type.IsTuple() && v.Type.FieldType(1).IsMemory()
-	}
-
 	for _, b := range f.Blocks {
 		// Find store chain for block.
 		// Store chains for different blocks overwrite each other, so
 		// the calculated store chain is good only for this block.
 		for _, v := range b.Values {
-			if v.Op != OpPhi && isMem(v) {
+			if v.Op != OpPhi && v.Type.IsMemory() {
 				for _, w := range v.Args {
-					if isMem(w) {
+					if w.Type.IsMemory() {
 						nextMem[w.ID] = v
 					}
 				}
@@ -180,7 +159,7 @@ func schedule(f *Func) {
 					uses[w.ID]++
 				}
 				// Any load must come before the following store.
-				if !isMem(v) && isMem(w) {
+				if !v.Type.IsMemory() && w.Type.IsMemory() {
 					// v is a load.
 					s := nextMem[w.ID]
 					if s == nil || s.Block != b {
@@ -293,4 +272,161 @@ func schedule(f *Func) {
 	}
 
 	f.scheduled = true
+}
+
+// storeOrder orders values with respect to stores. That is,
+// if v transitively depends on store s, v is ordered after s,
+// otherwise v is ordered before s.
+// Specifically, values are ordered like
+//   store1
+//   NilCheck that depends on store1
+//   other values that depends on store1
+//   store2
+//   NilCheck that depends on store2
+//   other values that depends on store2
+//   ...
+// The order of non-store and non-NilCheck values are undefined
+// (not necessarily dependency order). This should be cheaper
+// than a full scheduling as done above.
+// Note that simple dependency order won't work: there is no
+// dependency between NilChecks and values like IsNonNil.
+// Auxiliary data structures are passed in as arguments, so
+// that they can be allocated in the caller and be reused.
+// This function takes care of reset them.
+func storeOrder(values []*Value, sset *sparseSet, storeNumber []int32) []*Value {
+	if len(values) == 0 {
+		return values
+	}
+
+	f := values[0].Block.Func
+
+	// find all stores
+	var stores []*Value // members of values that are store values
+	hasNilCheck := false
+	sset.clear() // sset is the set of stores that are used in other values
+	for _, v := range values {
+		if v.Type.IsMemory() {
+			stores = append(stores, v)
+			if v.Op == OpInitMem || v.Op == OpPhi {
+				continue
+			}
+			sset.add(v.MemoryArg().ID) // record that v's memory arg is used
+		}
+		if v.Op == OpNilCheck {
+			hasNilCheck = true
+		}
+	}
+	if len(stores) == 0 || !hasNilCheck && f.pass.name == "nilcheckelim" {
+		// there is no store, the order does not matter
+		return values
+	}
+
+	// find last store, which is the one that is not used by other stores
+	var last *Value
+	for _, v := range stores {
+		if !sset.contains(v.ID) {
+			if last != nil {
+				f.Fatalf("two stores live simultaneously: %v and %v", v, last)
+			}
+			last = v
+		}
+	}
+
+	// We assign a store number to each value. Store number is the
+	// index of the latest store that this value transitively depends.
+	// The i-th store in the current block gets store number 3*i. A nil
+	// check that depends on the i-th store gets store number 3*i+1.
+	// Other values that depends on the i-th store gets store number 3*i+2.
+	// Special case: 0 -- unassigned, 1 or 2 -- the latest store it depends
+	// is in the previous block (or no store at all, e.g. value is Const).
+	// First we assign the number to all stores by walking back the store chain,
+	// then assign the number to other values in DFS order.
+	count := make([]int32, 3*(len(stores)+1))
+	sset.clear() // reuse sparse set to ensure that a value is pushed to stack only once
+	for n, w := len(stores), last; n > 0; n-- {
+		storeNumber[w.ID] = int32(3 * n)
+		count[3*n]++
+		sset.add(w.ID)
+		if w.Op == OpInitMem || w.Op == OpPhi {
+			if n != 1 {
+				f.Fatalf("store order is wrong: there are stores before %v", w)
+			}
+			break
+		}
+		w = w.MemoryArg()
+	}
+	var stack []*Value
+	for _, v := range values {
+		if sset.contains(v.ID) {
+			// in sset means v is a store, or already pushed to stack, or already assigned a store number
+			continue
+		}
+		stack = append(stack, v)
+		sset.add(v.ID)
+
+		for len(stack) > 0 {
+			w := stack[len(stack)-1]
+			if storeNumber[w.ID] != 0 {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			if w.Op == OpPhi {
+				// Phi value doesn't depend on store in the current block.
+				// Do this early to avoid dependency cycle.
+				storeNumber[w.ID] = 2
+				count[2]++
+				stack = stack[:len(stack)-1]
+				continue
+			}
+
+			max := int32(0) // latest store dependency
+			argsdone := true
+			for _, a := range w.Args {
+				if a.Block != w.Block {
+					continue
+				}
+				if !sset.contains(a.ID) {
+					stack = append(stack, a)
+					sset.add(a.ID)
+					argsdone = false
+					break
+				}
+				if storeNumber[a.ID]/3 > max {
+					max = storeNumber[a.ID] / 3
+				}
+			}
+			if !argsdone {
+				continue
+			}
+
+			n := 3*max + 2
+			if w.Op == OpNilCheck {
+				n = 3*max + 1
+			}
+			storeNumber[w.ID] = n
+			count[n]++
+			stack = stack[:len(stack)-1]
+		}
+	}
+
+	// convert count to prefix sum of counts: count'[i] = sum_{j<=i} count[i]
+	for i := range count {
+		if i == 0 {
+			continue
+		}
+		count[i] += count[i-1]
+	}
+	if count[len(count)-1] != int32(len(values)) {
+		f.Fatalf("storeOrder: value is missing, total count = %d, values = %v", count[len(count)-1], values)
+	}
+
+	// place values in count-indexed bins, which are in the desired store order
+	order := make([]*Value, len(values))
+	for _, v := range values {
+		s := storeNumber[v.ID]
+		order[count[s-1]] = v
+		count[s-1]++
+	}
+
+	return order
 }

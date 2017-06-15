@@ -37,6 +37,8 @@
 package os
 
 import (
+	"errors"
+	"internal/poll"
 	"io"
 	"syscall"
 )
@@ -99,13 +101,7 @@ func (f *File) Read(b []byte) (n int, err error) {
 		return 0, err
 	}
 	n, e := f.read(b)
-	if n == 0 && len(b) > 0 && e == nil {
-		return 0, io.EOF
-	}
-	if e != nil {
-		err = &PathError{"read", f.name, e}
-	}
-	return n, err
+	return n, f.wrapErr("read", e)
 }
 
 // ReadAt reads len(b) bytes from the File starting at byte offset off.
@@ -116,13 +112,15 @@ func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 	if err := f.checkValid("read"); err != nil {
 		return 0, err
 	}
+
+	if off < 0 {
+		return 0, &PathError{"readat", f.name, errors.New("negative offset")}
+	}
+
 	for len(b) > 0 {
 		m, e := f.pread(b, off)
-		if m == 0 && e == nil {
-			return n, io.EOF
-		}
 		if e != nil {
-			err = &PathError{"read", f.name, e}
+			err = f.wrapErr("read", e)
 			break
 		}
 		n += m
@@ -150,8 +148,9 @@ func (f *File) Write(b []byte) (n int, err error) {
 	epipecheck(f, e)
 
 	if e != nil {
-		err = &PathError{"write", f.name, e}
+		err = f.wrapErr("write", e)
 	}
+
 	return n, err
 }
 
@@ -162,10 +161,15 @@ func (f *File) WriteAt(b []byte, off int64) (n int, err error) {
 	if err := f.checkValid("write"); err != nil {
 		return 0, err
 	}
+
+	if off < 0 {
+		return 0, &PathError{"writeat", f.name, errors.New("negative offset")}
+	}
+
 	for len(b) > 0 {
 		m, e := f.pwrite(b, off)
 		if e != nil {
-			err = &PathError{"write", f.name, e}
+			err = f.wrapErr("write", e)
 			break
 		}
 		n += m
@@ -189,7 +193,7 @@ func (f *File) Seek(offset int64, whence int) (ret int64, err error) {
 		e = syscall.EISDIR
 	}
 	if e != nil {
-		return 0, &PathError{"seek", f.name, e}
+		return 0, f.wrapErr("seek", e)
 	}
 	return r, nil
 }
@@ -222,19 +226,6 @@ func Mkdir(name string, perm FileMode) error {
 func Chdir(dir string) error {
 	if e := syscall.Chdir(dir); e != nil {
 		return &PathError{"chdir", dir, e}
-	}
-	return nil
-}
-
-// Chdir changes the current working directory to the file,
-// which must be a directory.
-// If there is an error, it will be of type *PathError.
-func (f *File) Chdir() error {
-	if err := f.checkValid("chdir"); err != nil {
-		return err
-	}
-	if e := syscall.Fchdir(f.fd); e != nil {
-		return &PathError{"chdir", f.name, e}
 	}
 	return nil
 }
@@ -276,14 +267,28 @@ func fixCount(n int, err error) (int, error) {
 	return n, err
 }
 
-// checkValid checks whether f is valid for use.
-// If not, it returns an appropriate error, perhaps incorporating the operation name op.
-func (f *File) checkValid(op string) error {
-	if f == nil {
-		return ErrInvalid
+// wrapErr wraps an error that occurred during an operation on an open file.
+// It passes io.EOF through unchanged, otherwise converts
+// poll.ErrFileClosing to ErrClosed and wraps the error in a PathError.
+func (f *File) wrapErr(op string, err error) error {
+	if err == nil || err == io.EOF {
+		return err
 	}
-	if f.fd == badFd {
-		return &PathError{op, f.name, ErrClosed}
+	if err == poll.ErrFileClosing {
+		err = ErrClosed
 	}
-	return nil
+	return &PathError{op, f.name, err}
+}
+
+// TempDir returns the default directory to use for temporary files.
+//
+// On Unix systems, it returns $TMPDIR if non-empty, else /tmp.
+// On Windows, it uses GetTempPath, returning the first non-empty
+// value from %TMP%, %TEMP%, %USERPROFILE%, or the Windows directory.
+// On Plan 9, it returns /tmp.
+//
+// The directory is neither guaranteed to exist nor have accessible
+// permissions.
+func TempDir() string {
+	return tempDir()
 }
