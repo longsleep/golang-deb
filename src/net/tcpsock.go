@@ -80,6 +80,15 @@ type TCPConn struct {
 	conn
 }
 
+// SyscallConn returns a raw network connection.
+// This implements the syscall.Conn interface.
+func (c *TCPConn) SyscallConn() (syscall.RawConn, error) {
+	if !c.ok() {
+		return nil, syscall.EINVAL
+	}
+	return newRawConn(c.fd)
+}
+
 // ReadFrom implements the io.ReaderFrom ReadFrom method.
 func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	if !c.ok() {
@@ -255,7 +264,7 @@ func (l *TCPListener) SetDeadline(t time.Time) error {
 	if !l.ok() {
 		return syscall.EINVAL
 	}
-	if err := l.fd.setDeadline(t); err != nil {
+	if err := l.fd.pfd.SetDeadline(t); err != nil {
 		return &OpError{Op: "set", Net: l.fd.net, Source: nil, Addr: l.fd.laddr, Err: err}
 	}
 	return nil

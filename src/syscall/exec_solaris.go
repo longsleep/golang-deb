@@ -23,6 +23,7 @@ type SysProcAttr struct {
 // Implemented in runtime package.
 func runtime_BeforeFork()
 func runtime_AfterFork()
+func runtime_AfterForkInChild()
 
 func chdir(path uintptr) (err Errno)
 func chroot1(path uintptr) (err Errno)
@@ -93,6 +94,8 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 
 	// Fork succeeded, now in child.
 
+	runtime_AfterForkInChild()
+
 	// Session ID
 	if sys.Setsid {
 		_, err1 = setsid()
@@ -143,9 +146,11 @@ func forkAndExecInChild(argv0 *byte, argv, envv []*byte, chroot, dir *byte, attr
 		if ngroups > 0 {
 			groups = uintptr(unsafe.Pointer(&cred.Groups[0]))
 		}
-		err1 = setgroups1(ngroups, groups)
-		if err1 != 0 {
-			goto childerror
+		if !cred.NoSetGroups {
+			err1 = setgroups1(ngroups, groups)
+			if err1 != 0 {
+				goto childerror
+			}
 		}
 		err1 = setgid(uintptr(cred.Gid))
 		if err1 != 0 {

@@ -45,6 +45,7 @@
 #define SYS_epoll_wait		    4250
 #define SYS_clock_gettime	    4263
 #define SYS_epoll_create1	    4326
+#define SYS_brk			    4045
 
 TEXT runtime·exit(SB),NOSPLIT,$0-4
 	MOVW	code+0(FP), R4
@@ -175,8 +176,8 @@ TEXT runtime·mincore(SB),NOSPLIT,$0-16
 	MOVW	R2, ret+12(FP)
 	RET
 
-// func now() (sec int64, nsec int32)
-TEXT time·now(SB),NOSPLIT,$8-12
+// func walltime() (sec int64, nsec int32)
+TEXT runtime·walltime(SB),NOSPLIT,$8-12
 	MOVW	$0, R4	// CLOCK_REALTIME
 	MOVW	$4(R29), R5
 	MOVW	$SYS_clock_gettime, R2
@@ -323,7 +324,7 @@ TEXT runtime·futex(SB),NOSPLIT,$20-28
 	RET
 
 
-// int32 clone(int32 flags, void *stk, M *mm, G *gg, void (*fn)(void));
+// int32 clone(int32 flags, void *stk, M *mp, G *gp, void (*fn)(void));
 TEXT runtime·clone(SB),NOSPLIT,$-4-24
 	MOVW	flags+0(FP), R4
 	MOVW	stk+4(FP), R5
@@ -335,9 +336,9 @@ TEXT runtime·clone(SB),NOSPLIT,$-4-24
 	// stack so that any syscall invoked immediately in the new thread won't fail.
 	ADD	$-32, R5
 
-	// Copy mm, gg, fn off parent stack for use by child.
-	MOVW	mm+8(FP), R16
-	MOVW	gg+12(FP), R17
+	// Copy mp, gp, fn off parent stack for use by child.
+	MOVW	mp+8(FP), R16
+	MOVW	gp+12(FP), R17
 	MOVW	fn+16(FP), R18
 
 	MOVW	$1234, R1
@@ -464,4 +465,13 @@ TEXT runtime·closeonexec(SB),NOSPLIT,$0-4
 	MOVW	$1, R6	// FD_CLOEXEC
 	MOVW	$SYS_fcntl, R2
 	SYSCALL
+	RET
+
+// func sbrk0() uintptr
+TEXT runtime·sbrk0(SB),NOSPLIT,$0-4
+	// Implemented as brk(NULL).
+	MOVW	$0, R4
+	MOVW	$SYS_brk, R2
+	SYSCALL
+	MOVW	R2, ret+0(FP)
 	RET

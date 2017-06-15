@@ -45,6 +45,7 @@
 #define SYS_epoll_wait		5209
 #define SYS_clock_gettime	5222
 #define SYS_epoll_create1	5285
+#define SYS_brk			5012
 
 TEXT runtime·exit(SB),NOSPLIT,$-8-4
 	MOVW	code+0(FP), R4
@@ -172,8 +173,8 @@ TEXT runtime·mincore(SB),NOSPLIT,$-8-28
 	MOVW	R2, ret+24(FP)
 	RET
 
-// func now() (sec int64, nsec int32)
-TEXT time·now(SB),NOSPLIT,$16
+// func walltime() (sec int64, nsec int32)
+TEXT runtime·walltime(SB),NOSPLIT,$16
 	MOVW	$0, R4 // CLOCK_REALTIME
 	MOVV	$0(R29), R5
 	MOVV	$SYS_clock_gettime, R2
@@ -425,4 +426,13 @@ TEXT runtime·closeonexec(SB),NOSPLIT,$-8
 	MOVV    $1, R6  // FD_CLOEXEC
 	MOVV	$SYS_fcntl, R2
 	SYSCALL
+	RET
+
+// func sbrk0() uintptr
+TEXT runtime·sbrk0(SB),NOSPLIT,$-8-8
+	// Implemented as brk(NULL).
+	MOVV	$0, R4
+	MOVV	$SYS_brk, R2
+	SYSCALL
+	MOVV	R2, ret+0(FP)
 	RET

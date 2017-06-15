@@ -39,27 +39,45 @@ func nilcheckelim(f *Func) {
 
 	// make an initial pass identifying any non-nil values
 	for _, b := range f.Blocks {
-		// a value resulting from taking the address of a
-		// value, or a value constructed from an offset of a
-		// non-nil ptr (OpAddPtr) implies it is non-nil
 		for _, v := range b.Values {
+			// a value resulting from taking the address of a
+			// value, or a value constructed from an offset of a
+			// non-nil ptr (OpAddPtr) implies it is non-nil
 			if v.Op == OpAddr || v.Op == OpAddPtr {
 				nonNilValues[v.ID] = true
-			} else if v.Op == OpPhi {
+			}
+		}
+	}
+
+	for changed := true; changed; {
+		changed = false
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
 				// phis whose arguments are all non-nil
 				// are non-nil
-				argsNonNil := true
-				for _, a := range v.Args {
-					if !nonNilValues[a.ID] {
-						argsNonNil = false
+				if v.Op == OpPhi {
+					argsNonNil := true
+					for _, a := range v.Args {
+						if !nonNilValues[a.ID] {
+							argsNonNil = false
+							break
+						}
 					}
-				}
-				if argsNonNil {
-					nonNilValues[v.ID] = true
+					if argsNonNil {
+						if !nonNilValues[v.ID] {
+							changed = true
+						}
+						nonNilValues[v.ID] = true
+					}
 				}
 			}
 		}
 	}
+
+	// allocate auxiliary date structures for computing store order
+	sset := f.newSparseSet(f.NumValues())
+	defer f.retSparseSet(sset)
+	storeNumber := make([]int32, f.NumValues())
 
 	// perform a depth first walk of the dominee tree
 	for len(work) > 0 {
@@ -82,7 +100,10 @@ func nilcheckelim(f *Func) {
 				}
 			}
 
-			// Next, eliminate any redundant nil checks in this block.
+			// Next, order values in the current block w.r.t. stores.
+			b.Values = storeOrder(b.Values, sset, storeNumber)
+
+			// Next, process values in the block.
 			i := 0
 			for _, v := range b.Values {
 				b.Values[i] = v
@@ -101,35 +122,24 @@ func nilcheckelim(f *Func) {
 						// This is a redundant implicit nil check.
 						// Logging in the style of the former compiler -- and omit line 1,
 						// which is usually in generated code.
-						if f.Config.Debug_checknil() && v.Line > 1 {
-							f.Config.Warnl(v.Line, "removed nil check")
+						if f.fe.Debug_checknil() && v.Pos.Line() > 1 {
+							f.Warnl(v.Pos, "removed nil check")
 						}
 						v.reset(OpUnknown)
 						// TODO: f.freeValue(v)
 						i--
 						continue
 					}
+					// Record the fact that we know ptr is non nil, and remember to
+					// undo that information when this dominator subtree is done.
+					nonNilValues[ptr.ID] = true
+					work = append(work, bp{op: ClearPtr, ptr: ptr})
 				}
 			}
 			for j := i; j < len(b.Values); j++ {
 				b.Values[j] = nil
 			}
 			b.Values = b.Values[:i]
-
-			// Finally, find redundant nil checks for subsequent blocks.
-			// Note that we can't add these until the loop above is done, as the
-			// values in the block are not ordered in any way when this pass runs.
-			// This was the cause of issue #18725.
-			for _, v := range b.Values {
-				if v.Op != OpNilCheck {
-					continue
-				}
-				ptr := v.Args[0]
-				// Record the fact that we know ptr is non nil, and remember to
-				// undo that information when this dominator subtree is done.
-				nonNilValues[ptr.ID] = true
-				work = append(work, bp{op: ClearPtr, ptr: ptr})
-			}
 
 			// Add all dominated blocks to the work list.
 			for w := sdom[node.block.ID].child; w != nil; w = sdom[w.ID].sibling {
@@ -161,8 +171,8 @@ func nilcheckelim2(f *Func) {
 		for i := len(b.Values) - 1; i >= 0; i-- {
 			v := b.Values[i]
 			if opcodeTable[v.Op].nilCheck && unnecessary.contains(v.Args[0].ID) {
-				if f.Config.Debug_checknil() && int(v.Line) > 1 {
-					f.Config.Warnl(v.Line, "removed nil check")
+				if f.fe.Debug_checknil() && v.Pos.Line() > 1 {
+					f.Warnl(v.Pos, "removed nil check")
 				}
 				v.reset(OpUnknown)
 				continue

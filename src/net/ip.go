@@ -12,6 +12,8 @@
 
 package net
 
+import _ "unsafe" // for go:linkname
+
 // IP address lengths (bytes).
 const (
 	IPv4len = 4
@@ -338,7 +340,8 @@ func ipEmptyString(ip IP) string {
 }
 
 // MarshalText implements the encoding.TextMarshaler interface.
-// The encoding is the same as returned by String.
+// The encoding is the same as returned by String, with one exception:
+// When len(ip) is zero, it returns an empty slice.
 func (ip IP) MarshalText() ([]byte, error) {
 	if len(ip) == 0 {
 		return []byte(""), nil
@@ -381,17 +384,9 @@ func (ip IP) Equal(x IP) bool {
 	return false
 }
 
-func bytesEqual(x, y []byte) bool {
-	if len(x) != len(y) {
-		return false
-	}
-	for i, b := range x {
-		if y[i] != b {
-			return false
-		}
-	}
-	return true
-}
+// bytes.Equal is implemented in runtime/asm_$goarch.s
+//go:linkname bytesEqual bytes.Equal
+func bytesEqual(x, y []byte) bool
 
 func (ip IP) matchAddrFamily(x IP) bool {
 	return ip.To4() != nil && x.To4() != nil || ip.To16() != nil && ip.To4() == nil && x.To16() != nil && x.To4() == nil
@@ -667,7 +662,7 @@ func ParseIP(s string) IP {
 // It returns the IP address and the network implied by the IP and
 // prefix length.
 // For example, ParseCIDR("192.0.2.1/24") returns the IP address
-// 198.0.2.1 and the network 198.0.2.0/24.
+// 192.0.2.1 and the network 192.0.2.0/24.
 func ParseCIDR(s string) (IP, *IPNet, error) {
 	i := byteIndex(s, '/')
 	if i < 0 {

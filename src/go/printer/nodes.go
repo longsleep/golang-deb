@@ -887,8 +887,6 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 	default:
 		panic("unreachable")
 	}
-
-	return
 }
 
 func (p *printer) possibleSelectorExpr(expr ast.Expr, prec1, depth int) bool {
@@ -1268,8 +1266,6 @@ func (p *printer) stmt(stmt ast.Stmt, nextIsRBrace bool) {
 	default:
 		panic("unreachable")
 	}
-
-	return
 }
 
 // ----------------------------------------------------------------------------
@@ -1446,6 +1442,9 @@ func (p *printer) spec(spec ast.Spec, n int, doIndent bool) {
 			p.print(blank)
 		} else {
 			p.print(vtab)
+		}
+		if s.Assign.IsValid() {
+			p.print(token.ASSIGN, blank)
 		}
 		p.expr(s.Type)
 		p.setComment(s.Comment)
