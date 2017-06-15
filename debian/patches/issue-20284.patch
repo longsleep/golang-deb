@@ -1,0 +1,37 @@
+Description: Skip test that fails with GOROOT_FINAL set.
+Author: Michael Hudson-Doyle <michael.hudson@ubuntu.com>
+Bug: https://github.com/golang/go/issues/20284
+Last-Update: 2017-06-15
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/src/cmd/go/go_test.go
++++ b/src/cmd/go/go_test.go
+@@ -4001,17 +4001,19 @@
+ 		equal = strings.EqualFold
+ 	}
+ 
++	// This part of the test fails when the go tool was built with
++	// GOROOT_FINAL set, see // https://github.com/golang/go/issues/20284
+ 	// macOS uses a symlink for /tmp.
+-	resolvedTestGOROOT, err := filepath.EvalSymlinks(testGOROOT)
+-	if err != nil {
+-		t.Fatalf("could not eval testgoroot symlinks: %v", err)
+-	}
++	// resolvedTestGOROOT, err := filepath.EvalSymlinks(testGOROOT)
++	// if err != nil {
++	// 	t.Fatalf("could not eval testgoroot symlinks: %v", err)
++	// }
+ 
+-	// Missing GOROOT/pkg/tool, the go tool should fall back to
+-	// its default path.
+-	if got, want := goroot(newGoTool), resolvedTestGOROOT; !equal(got, want) {
+-		t.Fatalf("%s env GOROOT = %q, want %q", newGoTool, got, want)
+-	}
++	// // Missing GOROOT/pkg/tool, the go tool should fall back to
++	// // its default path.
++	// if got, want := goroot(newGoTool), resolvedTestGOROOT; !equal(got, want) {
++	// 	t.Fatalf("%s env GOROOT = %q, want %q", newGoTool, got, want)
++	// }
+ 
+ 	// Now the executable's path looks like a GOROOT.
+ 	tg.tempDir("newgoroot/pkg/tool")
