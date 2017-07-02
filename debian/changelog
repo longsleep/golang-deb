@@ -1,3 +1,10 @@
+golang-1.8 (1.8.3-2ubuntu1~longsleep1-xenial) xenial; urgency=medium
+
+  * Imported Upstream version 1.8.3
+  * Remove P-256 carry patch which is now in upstream
+
+ -- Simon Eisenmann <simon@longsleep.org>  Sun, 02 Jul 2017 11:01:18 +0200
+
 golang-1.8 (1.8.1-1ubuntu1~longsleep0~xenial) xenial; urgency=medium
 
   * Add patch for carry bug in x86-64 P-256
