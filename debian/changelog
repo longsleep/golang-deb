@@ -1,3 +1,10 @@
+golang-1.8 (1.8.3-2) unstable; urgency=medium
+
+  * Add 0001-Fix-FTBFS-with-Perl-526.patch
+  * Rename old style config section [git-dch] to [dch]
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 24 Jul 2017 22:51:01 +0200
+
 golang-1.8 (1.8.3-1) unstable; urgency=medium
 
   * New upstream release. (Closes: 863292, 863307)
