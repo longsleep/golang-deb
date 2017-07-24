@@ -1,0 +1,29 @@
+Description: cmd/vet: make tests safe for perl 5.26
+Author: Josh Bleecher Snyder <josharian@gmail.com>
+Applied-Upstream: https://github.com/golang/go/commit/2e45310caff101ea7de8873523faab96eb3a87ca
+Last-Updated: 2017-07-24
+
+---
+
+Index: golang/src/cmd/vet/testdata/copylock_func.go
+===================================================================
+--- golang.orig/src/cmd/vet/testdata/copylock_func.go
++++ golang/src/cmd/vet/testdata/copylock_func.go
+@@ -87,7 +87,7 @@ func FuncCallInterfaceArg(f func(a int,
+ 	f(2, &t)
+ 	f(3, &sync.Mutex{})
+ 	f(4, m) // ERROR "function call copies lock value: sync.Mutex"
+-	f(5, t) // ERROR "function call copies lock value: struct{lock sync.Mutex} contains sync.Mutex"
++	f(5, t) // ERROR "function call copies lock value: struct.lock sync.Mutex. contains sync.Mutex"
+ }
+ 
+ // Returning lock via interface value
+@@ -103,7 +103,7 @@ func ReturnViaInterface(x int) (int, int
+ 	case 2:
+ 		return 2, m // ERROR "return copies lock value: sync.Mutex"
+ 	default:
+-		return 3, t // ERROR "return copies lock value: struct{lock sync.Mutex} contains sync.Mutex"
++		return 3, t // ERROR "return copies lock value: struct.lock sync.Mutex. contains sync.Mutex"
+ 	}
+ }
+ 
