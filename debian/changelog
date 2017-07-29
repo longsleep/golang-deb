@@ -1,3 +1,9 @@
+golang-1.8 (1.8.3-3~reproducible1) unstable; urgency=medium
+
+  * Add 0002-buildpathprefix.patch to support reproducible builds
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Sat, 29 Jul 2017 10:01:11 +0200
+
 golang-1.8 (1.8.3-2) unstable; urgency=medium
 
   * Add 0001-Fix-FTBFS-with-Perl-526.patch
