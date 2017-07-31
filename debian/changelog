@@ -1,3 +1,9 @@
+golang-1.8 (1.8.3-3~reproducible2) unstable; urgency=medium
+
+  * 0002-buildpathprefix.patch: also rewrite /tmp/go-build for cgo
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Mon, 31 Jul 2017 12:17:46 +0200
+
 golang-1.8 (1.8.3-3~reproducible1) unstable; urgency=medium
 
   * Add 0002-buildpathprefix.patch to support reproducible builds
