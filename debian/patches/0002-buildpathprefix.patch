@@ -81,3 +81,19 @@ Index: reproducible-golang/src/cmd/link/internal/ld/dwarf.go
  		Adduint8(ctxt, ls, 0)
  		Adduint8(ctxt, ls, 0)
  		Adduint8(ctxt, ls, 0)
+Index: reproducible-golang/src/cmd/go/build.go
+===================================================================
+--- reproducible-golang.orig/src/cmd/go/build.go
++++ reproducible-golang/src/cmd/go/build.go
+@@ -2617,7 +2617,10 @@ func (gcToolchain) ld(b *builder, root *
+ 		dir, out = filepath.Split(out)
+ 	}
+ 
+-	return b.run(dir, root.p.ImportPath, nil, buildToolExec, tool("link"), "-o", out, importArgs, ldflags, mainpkg)
++	// Apply the rewrite of $WORK to /tmp/go-build also to DWARF file tables:
++	env := []string{"BUILD_PATH_PREFIX_MAP=/tmp/go-build=" + b.work + ":" + os.Getenv("BUILD_PATH_PREFIX_MAP")}
++
++	return b.run(dir, root.p.ImportPath, env, buildToolExec, tool("link"), "-o", out, importArgs, ldflags, mainpkg)
+ }
+ 
+ func (gcToolchain) ldShared(b *builder, toplevelactions []*action, out string, allactions []*action) error {
