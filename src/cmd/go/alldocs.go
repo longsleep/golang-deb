@@ -523,8 +523,8 @@
 // When checking out or updating a package, get looks for a branch or tag
 // that matches the locally installed version of Go. The most important
 // rule is that if the local installation is running version "go1", get
-// searches for a branch or tag named "go1". If no such version exists it
-// retrieves the most recent version of the package.
+// searches for a branch or tag named "go1". If no such version exists
+// it retrieves the default branch of the package.
 //
 // When go get checks out or updates a Git repository,
 // it also updates any git submodules referenced by the repository.
@@ -849,10 +849,10 @@
 // 		exactly one main package to be listed.
 //
 // 	-buildmode=c-shared
-// 		Build the listed main packages, plus all packages that they
-// 		import, into C shared libraries. The only callable symbols will
+// 		Build the listed main package, plus all packages it imports,
+// 		into a C shared library. The only callable symbols will
 // 		be those functions exported using a cgo //export comment.
-// 		Non-main packages are ignored.
+// 		Requires exactly one main package to be listed.
 //
 // 	-buildmode=default
 // 		Listed main packages are built into executables and listed
@@ -1417,12 +1417,17 @@
 // control the execution of any test:
 //
 // 	-bench regexp
-// 	    Run (sub)benchmarks matching a regular expression.
-// 	    The given regular expression is split into smaller ones by
-// 	    top-level '/', where each must match the corresponding part of a
-// 	    benchmark's identifier.
-// 	    By default, no benchmarks run. To run all benchmarks,
-// 	    use '-bench .' or '-bench=.'.
+// 	    Run only those benchmarks matching a regular expression.
+// 	    By default, no benchmarks are run.
+// 	    To run all benchmarks, use '-bench .' or '-bench=.'.
+// 	    The regular expression is split by unbracketed slash (/)
+// 	    characters into a sequence of regular expressions, and each
+// 	    part of a benchmark's identifier must match the corresponding
+// 	    element in the sequence, if any. Possible parents of matches
+// 	    are run with b.N=1 to identify sub-benchmarks. For example,
+// 	    given -bench=X/Y, top-level benchmarks matching X are run
+// 	    with b.N=1 to find any sub-benchmarks matching Y, which are
+// 	    then run in full.
 //
 // 	-benchtime t
 // 	    Run enough iterations of each benchmark to take t, specified
@@ -1479,9 +1484,13 @@
 //
 // 	-run regexp
 // 	    Run only those tests and examples matching the regular expression.
-// 	    For tests the regular expression is split into smaller ones by
-// 	    top-level '/', where each must match the corresponding part of a
-// 	    test's identifier.
+// 	    For tests, the regular expression is split by unbracketed slash (/)
+// 	    characters into a sequence of regular expressions, and each part
+// 	    of a test's identifier must match the corresponding element in
+// 	    the sequence, if any. Note that possible parents of matches are
+// 	    run too, so that -run=X/Y matches and runs and reports the result
+// 	    of all tests matching X, even those without sub-tests matching Y,
+// 	    because it must run them to look for those sub-tests.
 //
 // 	-short
 // 	    Tell long-running tests to shorten their run time.
@@ -1489,8 +1498,8 @@
 // 	    the Go tree can run a sanity check but not spend time running
 // 	    exhaustive tests.
 //
-// 	-timeout t
-// 	    If a test runs longer than t, panic.
+// 	-timeout d
+// 	    If a test binary runs longer than duration d, panic.
 // 	    The default is 10 minutes (10m).
 //
 // 	-v

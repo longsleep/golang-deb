@@ -382,7 +382,7 @@ type moduledata struct {
 // at link time and a pointer to the runtime abi hash. These are checked in
 // moduledataverify1 below.
 //
-// For each loaded plugin, the the pkghashes slice has a modulehash of the
+// For each loaded plugin, the pkghashes slice has a modulehash of the
 // newly loaded package that can be used to check the plugin's version of
 // a package against any previously loaded version of the package.
 // This is done in plugin.lastmoduleinit.
@@ -409,6 +409,11 @@ var modulesSlice unsafe.Pointer // see activeModules
 //
 // A module is active once its gcdatamask and gcbssmask have been
 // assembled and it is usable by the GC.
+//
+// This is nosplit/nowritebarrier because it is called by the
+// cgo pointer checking code.
+//go:nosplit
+//go:nowritebarrier
 func activeModules() []*moduledata {
 	p := (*[]*moduledata)(atomic.Loadp(unsafe.Pointer(&modulesSlice)))
 	if p == nil {
@@ -573,12 +578,18 @@ func moduledataverify1(datap *moduledata) {
 
 // FuncForPC returns a *Func describing the function that contains the
 // given program counter address, or else nil.
+//
+// If pc represents multiple functions because of inlining, it returns
+// the *Func describing the outermost function.
 func FuncForPC(pc uintptr) *Func {
 	return findfunc(pc)._Func()
 }
 
 // Name returns the name of the function.
 func (f *Func) Name() string {
+	if f == nil {
+		return ""
+	}
 	return funcname(f.funcInfo())
 }
 

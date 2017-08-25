@@ -1167,6 +1167,11 @@ func (c *ctxt5) aclass(a *obj.Addr) int {
 			return C_ADDR
 
 		case obj.NAME_AUTO:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-SP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = c.autosize + a.Offset
 			if t := immaddr(int32(c.instoffset)); t != 0 {
 				if immhalf(int32(c.instoffset)) {
@@ -1185,6 +1190,11 @@ func (c *ctxt5) aclass(a *obj.Addr) int {
 			return C_LAUTO
 
 		case obj.NAME_PARAM:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-FP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = c.autosize + a.Offset + 4
 			if t := immaddr(int32(c.instoffset)); t != 0 {
 				if immhalf(int32(c.instoffset)) {
@@ -1285,10 +1295,20 @@ func (c *ctxt5) aclass(a *obj.Addr) int {
 			return C_LCONADDR
 
 		case obj.NAME_AUTO:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-SP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = c.autosize + a.Offset
 			return c.aconsize()
 
 		case obj.NAME_PARAM:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-FP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = c.autosize + a.Offset + 4
 			return c.aconsize()
 		}
@@ -1341,6 +1361,27 @@ func (c *ctxt5) oplook(p *obj.Prog) *Optab {
 		default:
 			c.ctxt.Diag("invalid register in %v", p)
 		}
+	}
+
+	// check illegal base register
+	switch a1 {
+	case C_SHIFT:
+		if p.From.Reg == 0 { // no base register
+			break
+		}
+		fallthrough
+	case C_SOREG, C_LOREG, C_HOREG, C_FOREG, C_ROREG, C_HFOREG, C_SROREG:
+		if p.From.Reg < REG_R0 || REG_R15 < p.From.Reg {
+			c.ctxt.Diag("illegal base register: %v", p)
+		}
+	default:
+	}
+	switch a3 {
+	case C_SOREG, C_LOREG, C_HOREG, C_FOREG, C_ROREG, C_HFOREG, C_SROREG, C_SHIFT:
+		if p.To.Reg < REG_R0 || REG_R15 < p.To.Reg {
+			c.ctxt.Diag("illegal base register: %v", p)
+		}
+	default:
 	}
 
 	// If current instruction has a .S suffix (flags update),
@@ -1480,10 +1521,10 @@ func buildop(ctxt *obj.Link) {
 
 	deferreturn = ctxt.Lookup("runtime.deferreturn")
 
-	symdiv = ctxt.Lookup("_div")
-	symdivu = ctxt.Lookup("_divu")
-	symmod = ctxt.Lookup("_mod")
-	symmodu = ctxt.Lookup("_modu")
+	symdiv = ctxt.Lookup("runtime._div")
+	symdivu = ctxt.Lookup("runtime._divu")
+	symmod = ctxt.Lookup("runtime._mod")
+	symmodu = ctxt.Lookup("runtime._modu")
 
 	var n int
 
@@ -2249,10 +2290,13 @@ func (c *ctxt5) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		}
 
 		if p.From.Offset&(^0xf) != 0 {
-			c.ctxt.Diag("bad shift in LDRSB")
+			c.ctxt.Diag("bad shift: %v", p)
 		}
 		o1 = c.olhrr(int(p.From.Offset), int(p.From.Reg), int(p.To.Reg), int(p.Scond))
 		o1 ^= 1<<5 | 1<<6
+		if p.Scond&C_UBIT != 0 {
+			o1 &^= 1 << 23
+		}
 
 	case 61: /* movw/b/bu R,R<<[IR](R) -> str indexed */
 		if p.To.Reg == 0 {
@@ -2863,7 +2907,7 @@ func (c *ctxt5) oprrr(p *obj.Prog, a obj.As, sc int) uint32 {
 		return o&(0xf<<28) | 0x12<<20 | 0xa<<4
 
 	case AMULBB:
-		return o&(0xf<<28) | 0x16<<20 | 0xf<<12 | 0x8<<4
+		return o&(0xf<<28) | 0x16<<20 | 0x8<<4
 
 	case AMULAWT:
 		return o&(0xf<<28) | 0x12<<20 | 0xc<<4

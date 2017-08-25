@@ -1149,10 +1149,20 @@ func (c *ctxt7) aclass(a *obj.Addr) int {
 			return C_GOTADDR
 
 		case obj.NAME_AUTO:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-SP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = int64(c.autosize) + a.Offset
 			return autoclass(c.instoffset)
 
 		case obj.NAME_PARAM:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-FP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = int64(c.autosize) + a.Offset + 8
 			return autoclass(c.instoffset)
 
@@ -1228,10 +1238,20 @@ func (c *ctxt7) aclass(a *obj.Addr) int {
 			return C_VCONADDR
 
 		case obj.NAME_AUTO:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-SP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = int64(c.autosize) + a.Offset
 			goto aconsize
 
 		case obj.NAME_PARAM:
+			if a.Reg == REGSP {
+				// unset base register for better printing, since
+				// a.Offset is still relative to pseudo-FP.
+				a.Reg = obj.REG_NONE
+			}
 			c.instoffset = int64(c.autosize) + a.Offset + 8
 			goto aconsize
 		}
@@ -2232,7 +2252,7 @@ func (c *ctxt7) asmout(p *obj.Prog, o *Optab, out []uint32) {
 			o1 = 0
 		}
 
-	case 15: /* mul/mneg/umulh/umull r,[r,]r; madd/msub Rm,Rn,Ra,Rd */
+	case 15: /* mul/mneg/umulh/umull r,[r,]r; madd/msub Rm,Ra,Rn,Rd */
 		o1 = c.oprrr(p, p.As)
 
 		rf := int(p.From.Reg)
@@ -2900,9 +2920,9 @@ func (c *ctxt7) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		o1 = c.opload(p, p.As)
 
 		o1 |= 0x1F << 16
-		o1 |= uint32(p.From.Reg) << 5
+		o1 |= uint32(p.From.Reg&31) << 5
 		if p.Reg != 0 {
-			o1 |= uint32(p.Reg) << 10
+			o1 |= uint32(p.Reg&31) << 10
 		} else {
 			o1 |= 0x1F << 10
 		}
