@@ -2996,6 +2996,8 @@ func http2reqBodyIsNoBody(body io.ReadCloser) bool {
 	return body == NoBody
 }
 
+func http2go18httpNoBody() io.ReadCloser { return NoBody } // for tests only
+
 func http2configureServer19(s *Server, conf *http2Server) error {
 	s.RegisterOnShutdown(conf.state.startGracefulShutdown)
 	return nil
@@ -5944,6 +5946,7 @@ type http2responseWriterState struct {
 	wroteHeader   bool     // WriteHeader called (explicitly or implicitly). Not necessarily sent to user yet.
 	sentHeader    bool     // have we sent the header frame?
 	handlerDone   bool     // handler has finished
+	dirty         bool     // a Write failed; don't reuse this responseWriterState
 
 	sentContentLen int64 // non-zero if handler set a Content-Length header
 	wroteBytes     int64
@@ -6025,6 +6028,7 @@ func (rws *http2responseWriterState) writeChunk(p []byte) (n int, err error) {
 			date:          date,
 		})
 		if err != nil {
+			rws.dirty = true
 			return 0, err
 		}
 		if endStream {
@@ -6046,6 +6050,7 @@ func (rws *http2responseWriterState) writeChunk(p []byte) (n int, err error) {
 	if len(p) > 0 || endStream {
 		// only send a 0 byte DATA frame if we're ending the stream.
 		if err := rws.conn.writeDataFromHandler(rws.stream, p, endStream); err != nil {
+			rws.dirty = true
 			return 0, err
 		}
 	}
@@ -6057,6 +6062,9 @@ func (rws *http2responseWriterState) writeChunk(p []byte) (n int, err error) {
 			trailers:  rws.trailers,
 			endStream: true,
 		})
+		if err != nil {
+			rws.dirty = true
+		}
 		return len(p), err
 	}
 	return len(p), nil
@@ -6196,7 +6204,7 @@ func http2cloneHeader(h Header) Header {
 //
 // * Handler calls w.Write or w.WriteString ->
 // * -> rws.bw (*bufio.Writer) ->
-// * (Handler migth call Flush)
+// * (Handler might call Flush)
 // * -> chunkWriter{rws}
 // * -> responseWriterState.writeChunk(p []byte)
 // * -> responseWriterState.writeChunk (most of the magic; see comment there)
@@ -6235,10 +6243,19 @@ func (w *http2responseWriter) write(lenData int, dataB []byte, dataS string) (n 
 
 func (w *http2responseWriter) handlerDone() {
 	rws := w.rws
+	dirty := rws.dirty
 	rws.handlerDone = true
 	w.Flush()
 	w.rws = nil
-	http2responseWriterStatePool.Put(rws)
+	if !dirty {
+		// Only recycle the pool if all prior Write calls to
+		// the serverConn goroutine completed successfully. If
+		// they returned earlier due to resets from the peer
+		// there might still be write goroutines outstanding
+		// from the serverConn referencing the rws memory. See
+		// issue 20704.
+		http2responseWriterStatePool.Put(rws)
+	}
 }
 
 // Push errors.
@@ -7196,7 +7213,7 @@ func http2checkConnHeaders(req *Request) error {
 // req.ContentLength, where 0 actually means zero (not unknown) and -1
 // means unknown.
 func http2actualContentLength(req *Request) int64 {
-	if req.Body == nil {
+	if req.Body == nil || http2reqBodyIsNoBody(req.Body) {
 		return 0
 	}
 	if req.ContentLength != 0 {
@@ -7227,8 +7244,8 @@ func (cc *http2ClientConn) RoundTrip(req *Request) (*Response, error) {
 	}
 
 	body := req.Body
-	hasBody := body != nil
 	contentLen := http2actualContentLength(req)
+	hasBody := contentLen != 0
 
 	// TODO(bradfitz): this is a copy of the logic in net/http. Unify somewhere?
 	var requestedGzip bool
@@ -8215,16 +8232,27 @@ func (rl *http2clientConnReadLoop) processData(f *http2DataFrame) error {
 		}
 		// Return any padded flow control now, since we won't
 		// refund it later on body reads.
-		if pad := int32(f.Length) - int32(len(data)); pad > 0 {
-			cs.inflow.add(pad)
-			cc.inflow.add(pad)
+		var refund int
+		if pad := int(f.Length) - len(data); pad > 0 {
+			refund += pad
+		}
+		// Return len(data) now if the stream is already closed,
+		// since data will never be read.
+		didReset := cs.didReset
+		if didReset {
+			refund += len(data)
+		}
+		if refund > 0 {
+			cc.inflow.add(int32(refund))
 			cc.wmu.Lock()
-			cc.fr.WriteWindowUpdate(0, uint32(pad))
-			cc.fr.WriteWindowUpdate(cs.ID, uint32(pad))
+			cc.fr.WriteWindowUpdate(0, uint32(refund))
+			if !didReset {
+				cs.inflow.add(int32(refund))
+				cc.fr.WriteWindowUpdate(cs.ID, uint32(refund))
+			}
 			cc.bw.Flush()
 			cc.wmu.Unlock()
 		}
-		didReset := cs.didReset
 		cc.mu.Unlock()
 
 		if len(data) > 0 && !didReset {

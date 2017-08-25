@@ -23,10 +23,10 @@
 // approximately 20 milliseconds, even if the wall clock is changed during
 // the operation being timed:
 //
-//	t := time.Now()
+//	start := time.Now()
 //	... operation that takes 20 milliseconds ...
-//	u := time.Now()
-//	elapsed := t.Sub(u)
+//	t := time.Now()
+//	elapsed := t.Sub(start)
 //
 // Other idioms, such as time.Since(start), time.Until(deadline), and
 // time.Now().Before(deadline), are similarly robust against wall clock
@@ -60,15 +60,10 @@
 // t.UnmarshalJSON, and t.UnmarshalText always create times with
 // no monotonic clock reading.
 //
-// Note that the Go == operator compares not just the time instant but also
-// the Location and the monotonic clock reading. If time values returned
-// from time.Now and time values constructed by other means (for example,
-// by time.Parse or time.Unix) are meant to compare equal when used as map
-// keys, the times returned by time.Now must have the monotonic clock
-// reading stripped, by setting t = t.Round(0). In general, prefer
-// t.Equal(u) to t == u, since t.Equal uses the most accurate comparison
-// available and correctly handles the case when only one of its arguments
-// has a monotonic clock reading.
+// Note that the Go == operator compares not just the time instant but
+// also the Location and the monotonic clock reading. See the
+// documentation for the Time type for a discussion of equality
+// testing for Time values.
 //
 // For debugging, the result of t.String does include the monotonic
 // clock reading if present. If t != u because of different monotonic clock readings,
@@ -375,7 +370,7 @@ func (d Weekday) String() string { return days[d] }
 // everywhere.
 //
 // The calendar runs on an exact 400 year cycle: a 400-year calendar
-// printed for 1970-2469 will apply as well to 2370-2769. Even the days
+// printed for 1970-2369 will apply as well to 2370-2769. Even the days
 // of the week match up. It simplifies the computations to choose the
 // cycle boundaries so that the exceptional years are always delayed as
 // long as possible. That means choosing a year equal to 1 mod 400, so

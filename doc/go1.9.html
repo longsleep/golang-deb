@@ -15,20 +15,16 @@ Do not send CLs removing the interior tags from such phrases.
 ul li { margin: 0.5em 0; }
 </style>
 
-<h2 id="introduction">DRAFT RELEASE NOTES - Introduction to Go 1.9</h2>
-
-<p><strong>
-    Go 1.9 is not yet released. These are work-in-progress
-    release notes. Go 1.9 is expected to be released in August 2017.
-</strong></p>
+<h2 id="introduction">Introduction to Go 1.9</h2>
 
 <p>
   The latest Go release, version 1.9, arrives six months
   after <a href="go1.8">Go 1.8</a> and is the tenth release in
   the <a href="https://golang.org/doc/devel/release.html">Go 1.x
   series</a>.
-  There is one <a href="#language">change to the language</a>, adding
-  support for type aliases.
+  There are two <a href="#language">changes to the language</a>:
+  adding support for type aliases and defining when implementations
+  may fuse floating point operations.
   Most of the changes are in the implementation of the toolchain,
   runtime, and libraries.
   As always, the release maintains the Go 1
@@ -49,7 +45,9 @@ ul li { margin: 0.5em 0; }
 <h2 id="language">Changes to the language</h2>
 
 <p>
-  There is one change to the language.
+  There are two changes to the language.
+</p>
+<p>
   Go now supports type aliases to support gradual code repair while
   moving a type between packages.
   The <a href="https://golang.org/design/18130-type-alias">type alias
@@ -69,6 +67,16 @@ type T1 = T2
   both <code>T1</code> and <code>T2</code> denote the same type.
 </p>
 
+<p> <!-- CL 40391 -->
+  A smaller language change is that the
+  <a href="/ref/spec#Floating_point_operators">language specification
+  now states</a> when implementations are allowed to fuse floating
+  point operations together, such as by using an architecture's "fused
+  multiply and add" (FMA) instruction to compute <code>x*y</code>&nbsp;<code>+</code>&nbsp;<code>z</code>
+  without rounding the intermediate result <code>x*y</code>.
+  To force the intermediate rounding, write <code>float64(x*y)</code>&nbsp;<code>+</code>&nbsp;<code>z</code>.
+</p>
+
 <h2 id="ports">Ports</h2>
 
 <p>
@@ -76,14 +84,31 @@ type T1 = T2
   architectures in this release.
 </p>
 
-<h3 id="power8">ppc64x requires Power8</h3>
+<h3 id="power8">ppc64x requires POWER8</h3>
 
 <p> <!-- CL 36725, CL 36832 -->
   Both <code>GOARCH=ppc64</code> and <code>GOARCH=ppc64le</code> now
-  require at least Power8 support. In previous releases,
-  only <code>GOARCH=ppc64le</code> required Power8 and the big
+  require at least POWER8 support. In previous releases,
+  only <code>GOARCH=ppc64le</code> required POWER8 and the big
   endian <code>ppc64</code> architecture supported older
   hardware.
+<p>
+
+<h3 id="freebsd">FreeBSD</h3>
+
+<p>
+  Go 1.9 is the last release that will run on FreeBSD 9.3,
+  which is already
+  <a href="https://www.freebsd.org/security/unsupported.html">unsupported by FreeBSD</a>.
+  Go 1.10 will require FreeBSD 10.3+.
+</p>
+
+<h3 id="openbsd">OpenBSD 6.0</h3>
+
+<p> <!-- CL 40331 -->
+  Go 1.9 now enables PT_TLS generation for cgo binaries and thus
+  requires OpenBSD 6.0 or newer. Go 1.9 no longer supports
+  OpenBSD 5.9.
 <p>
 
 <h3 id="known_issues">Known Issues</h3>
@@ -95,6 +120,16 @@ type T1 = T2
   Any help in solving this FreeBSD-specific issue would be appreciated.
 </p>
 
+<p>
+  Go stopped running NetBSD builders during the Go 1.9 development
+  cycle due to NetBSD kernel crashes, up to and including NetBSD 7.1.
+  As Go 1.9 is being released, NetBSD 7.1.1 is being released with a fix.
+  However, at this time we have no NetBSD builders passing our test suite.
+  Any help investigating the
+  <a href="https://github.com/golang/go/labels/OS-NetBSD">various NetBSD issues</a>
+  would be appreciated.
+</p>
+
 <h2 id="tools">Tools</h2>
 
 <h3 id="parallel-compile">Parallel Compilation</h3>
@@ -103,8 +138,32 @@ type T1 = T2
   The Go compiler now supports compiling a package's functions in parallel, taking
   advantage of multiple cores. This is in addition to the <code>go</code> command's
   existing support for parallel compilation of separate packages.
-  Parallel compilation is on by default, but can be disabled by setting the
+  Parallel compilation is on by default, but it can be disabled by setting the
   environment variable <code>GO19CONCURRENTCOMPILATION</code> to <code>0</code>.
+</p>
+
+<h3 id="vendor-dotdotdot">Vendor matching with ./...</h3>
+
+<p><!-- CL 38745 -->
+  By popular request, <code>./...</code> no longer matches packages
+  in <code>vendor</code> directories in tools accepting package names,
+  such as <code>go</code> <code>test</code>. To match vendor
+  directories, write <code>./vendor/...</code>.
+</p>
+
+<h3 id="goroot">Moved GOROOT</h3>
+
+<p><!-- CL 42533 -->
+  The <a href="/cmd/go/">go tool</a> will now use the path from which it
+  was invoked to attempt to locate the root of the Go install tree.
+  This means that if the entire Go installation is moved to a new
+  location, the go tool should continue to work as usual.
+  This may be overridden by setting <code>GOROOT</code> in the environment,
+  which should only be done in unusual circumstances.
+  Note that this does not affect the result of
+  the <a href="/pkg/runtime/#GOROOT">runtime.GOROOT</a> function, which
+  will continue to report the original installation location;
+  this may be fixed in later releases.
 </p>
 
 <h3 id="compiler">Compiler Toolchain</h3>
@@ -119,12 +178,59 @@ type T1 = T2
 </p>
 
 <p> <!-- CL 44210, CL 40095 -->
-  The compiler now includes lexical scopes in the generated DWARF, allowing
+  The compiler now includes lexical scopes in the generated DWARF if the
+  <code>-N -l</code> flags are provided, allowing
   debuggers to hide variables that are not in scope. The <code>.debug_info</code>
   section is now DWARF version 4.
 </p>
 
-<h3 id="go-test-list">Go test</h3>
+<p> <!-- CL 43855 -->
+  The values of <code>GOARM</code> and <code>GO386</code> now affect a
+  compiled package's build ID, as used by the <code>go</code> tool's
+  dependency caching.
+</p>
+
+<h3 id="asm">Assembler</h3>
+
+<p> <!-- CL 42028 -->
+  The four-operand ARM <code>MULA</code> instruction is now assembled correctly,
+  with the addend register as the third argument and the result
+  register as the fourth and final argument.
+  In previous releases, the two meanings were reversed.
+  The three-operand form, in which the fourth argument is implicitly
+  the same as the third, is unaffected.
+  Code using four-operand <code>MULA</code> instructions
+  will need to be updated, but we believe this form is very rarely used.
+  <code>MULAWT</code> and <code>MULAWB</code> were already
+  using the correct order in all forms and are unchanged.
+</p>
+
+<p> <!-- CL 42990 -->
+  The assembler now supports <code>ADDSUBPS/PD</code>, completing the
+  two missing x86 SSE3 instructions.
+</p>
+
+<h3 id="go-doc">Doc</h3>
+
+<p><!-- CL 36031 -->
+  Long lists of arguments are now truncated. This improves the readability
+  of <code>go</code> <code>doc</code> on some generated code.
+</p>
+
+<p><!-- CL 38438 -->
+  Viewing documentation on struct fields is now supported.
+  For example, <code>go</code> <code>doc</code> <code>http.Client.Jar</code>.
+</p>
+
+<h3 id="go-env-json">Env</h3>
+
+<p> <!-- CL 38757 -->
+  The new <code>go</code> <code>env</code> <code>-json</code> flag
+  enables JSON output, instead of the default OS-specific output
+  format.
+</p>
+
+<h3 id="go-test-list">Test</h3>
 
 <p> <!-- CL 41195 -->
   The <a href="/cmd/go/#hdr-Description_of_testing_flags"><code>go</code> <code>test</code></a>
@@ -134,17 +240,84 @@ type T1 = T2
 </p>
 
 
-<!-- CL 42028: https://golang.org/cl/42028: cmd/asm: fix operand order of ARM's MULA instruction -->
-<!-- CL 36031: https://golang.org/cl/36031: cmd/doc: truncate long lists of arguments -->
-<!-- CL 38438: https://golang.org/cl/38438: cmd/doc: implement "go doc struct.field" -->
-<!-- CL 38745: https://golang.org/cl/38745: cmd/go: exclude vendored packages from ... matches -->
-<!-- CL 38757: https://golang.org/cl/38757: cmd/go: add -json flag to go env -->
-<!-- CL 40112: https://golang.org/cl/40112: cmd/go: allow full flag processing in go vet -->
-<!-- CL 43855: https://golang.org/cl/43855: cmd/go: include GOARM and GO386 in computed build ID -->
-<!-- CL 42990: https://golang.org/cl/42990: cmd/internal/obj/x86: add ADDSUBPS/PD -->
-<!-- CL 40331: https://golang.org/cl/40331: cmd/link,runtime/cgo: enable PT_TLS generation on OpenBSD -->
-<!-- CL 38343: https://golang.org/cl/38343: cmd/pprof: use proxy from environment -->
+<h3 id="go-tool-pprof">Pprof</h3>
 
+<p> <!-- CL 34192 -->
+  Profiles produced by the <code>runtime/pprof</code> package now
+  include symbol information, so they can be viewed
+  in <code>go</code> <code>tool</code> <code>pprof</code>
+  without the binary that produced the profile.
+</p>
+
+<p> <!-- CL 38343 -->
+  The <code>go</code> <code>tool</code> <code>pprof</code> command now
+  uses the HTTP proxy information defined in the environment, using
+  <a href="/pkg/net/http/#ProxyFromEnvironment"><code>http.ProxyFromEnvironment</code></a>.
+</p>
+
+<h3 id="vet">Vet</h3>
+
+<!-- CL 40112 -->
+<p>
+  The <a href="/cmd/vet/"><code>vet</code> command</a>
+  has been better integrated into the
+  <a href="/cmd/go/"><code>go</code> tool</a>,
+  so <code>go</code> <code>vet</code> now supports all standard build
+  flags while <code>vet</code>'s own flags are now available
+  from <code>go</code> <code>vet</code> as well as
+  from <code>go</code> <code>tool</code> <code>vet</code>.
+</p>
+
+<h3 id="gccgo">Gccgo</h3>
+
+<p>
+Due to the alignment of Go's semiannual release schedule with GCC's
+annual release schedule,
+GCC release 7 contains the Go 1.8.3 version of gccgo.
+We expect that the next release, GCC 8, will contain the Go 1.10
+version of gccgo.
+</p>
+
+<h2 id="runtime">Runtime</h2>
+
+<h3 id="callersframes">Call stacks with inlined frames</h3>
+
+<p>
+  Users of
+  <a href="/pkg/runtime#Callers"><code>runtime.Callers</code></a>
+  should avoid directly inspecting the resulting PC slice and instead use
+  <a href="/pkg/runtime#CallersFrames"><code>runtime.CallersFrames</code></a>
+  to get a complete view of the call stack, or
+  <a href="/pkg/runtime#Caller"><code>runtime.Caller</code></a>
+  to get information about a single caller.
+  This is because an individual element of the PC slice cannot account
+  for inlined frames or other nuances of the call stack.
+</p>
+
+<p>
+  Specifically, code that directly iterates over the PC slice and uses
+  functions such as
+  <a href="/pkg/runtime#FuncForPC"><code>runtime.FuncForPC</code></a>
+  to resolve each PC individually will miss inlined frames.
+  To get a complete view of the stack, such code should instead use
+  <code>CallersFrames</code>.
+  Likewise, code should not assume that the length returned by
+  <code>Callers</code> is any indication of the call depth.
+  It should instead count the number of frames returned by
+  <code>CallersFrames</code>.
+</p>
+
+<p>
+  Code that queries a single caller at a specific depth should use
+  <code>Caller</code> rather than passing a slice of length 1 to
+  <code>Callers</code>.
+</p>
+
+<p>
+  <a href="/pkg/runtime#CallersFrames"><code>runtime.CallersFrames</code></a>
+  has been available since Go 1.7, so code can be updated prior to
+  upgrading to Go 1.9.
+</p>
 
 <h2 id="performance">Performance</h2>
 
@@ -153,13 +326,6 @@ type T1 = T2
   statements about performance are difficult to make.  Most programs
   should run a bit faster, due to speedups in the garbage collector,
   better generated code, and optimizations in the core library.
-</p>
-
-<p> <!-- CL 39203 -->
-  TODO: There have been significant optimizations bringing more than 10% improvements
-  to implementations in the
-  <a href="/pkg/encoding/gob"><code>encoding/gob</code></a>, and ...
-  packages.
 </p>
 
 <h3 id="gc">Garbage Collector</h3>
@@ -214,7 +380,7 @@ type T1 = T2
 <p> <!-- CL 36315 -->
   Go 1.9 includes a new package,
   <a href="/pkg/math/bits/"><code>math/bits</code></a>, with optimized
-  implementations for manipulating bits. On most architectures
+  implementations for manipulating bits. On most architectures,
   functions in this package are additionally recognized by the
   compiler and treated as intrinsics for additional performance.
 </p>
@@ -224,7 +390,7 @@ type T1 = T2
 <p> <!-- CL 38796 -->
   The
   new <a href="/pkg/testing/#T.Helper"><code>(*T).Helper</code></a>
-  an <a href="/pkg/testing/#B.Helper"><code>(*B).Helper</code></a>
+  and <a href="/pkg/testing/#B.Helper"><code>(*B).Helper</code></a>
   methods mark the calling function as a test helper function.  When
   printing file and line information, that function will be skipped.
   This permits writing test helper functions while still having useful
@@ -237,9 +403,26 @@ type T1 = T2
   The new <a href="/pkg/sync/#Map"><code>Map</code></a> type
   in the <a href="/pkg/sync/"><code>sync</code></a> package
   is a concurrent map with amortized-constant-time loads, stores, and
-  deletes. It is safe for multiple goroutines to call a Map's methods
+  deletes. It is safe for multiple goroutines to call a <code>Map</code>'s methods
   concurrently.
 </p>
+
+<h3 id="pprof-labels">Profiler Labels</h3>
+
+<p><!-- CL 34198 -->
+  The <a href="/pkg/runtime/pprof"><code>runtime/pprof</code> package</a>
+  now supports adding labels to <code>pprof</code> profiler records.
+  Labels form a key-value map that is used to distinguish calls of the
+  same function in different contexts when looking at profiles
+  with the <a href="/cmd/pprof/"><code>pprof</code> command</a>.
+  The <code>pprof</code> package's
+  new <a href="/pkg/runtime/pprof/#Do"><code>Do</code> function</a>
+  runs code associated with some provided labels. Other new functions
+  in the package help work with labels.
+</p>
+
+</dl><!-- runtime/pprof -->
+
 
 <h3 id="minor_library_changes">Minor changes to the library</h3>
 
@@ -284,7 +467,7 @@ type T1 = T2
       certificate files directory, respectively.
     </p>
 
-    <p>The FreeBSD path <code>/usr/local/etc/ssl/cert.pem</code> is
+    <p>The FreeBSD file <code>/usr/local/etc/ssl/cert.pem</code> is
       now included in the certificate search path.
     </p>
 
@@ -298,6 +481,15 @@ type T1 = T2
       field
       <a href="/pkg/crypto/x509/#Certificate.ExcludedDNSDomains"><code>ExcludedDNSDomains</code></a>
       populated.
+    </p>
+
+    <p><!-- CL 36696 -->
+
+    If any SAN extension, including with no DNS names, is present
+    in the certificate, then the Common Name from
+    <a href="/pkg/crypto/x509/#Certificate.Subject"><code>Subject</code></a> is ignored.
+    In previous releases, the code tested only whether DNS-name SANs were
+    present in a certificate.
     </p>
 
 </dl><!-- crypto/x509 -->
@@ -321,8 +513,8 @@ type T1 = T2
 
     <p><!-- CL 39031 -->
       <a href="/pkg/database/sql/#Rows.Scan"><code>Rows.Scan</code></a> can now scan user-defined string types.
-      Previously the package supported scanning into numeric types like <code>type Int int64</code>. It now also supports
-      scanning into string types like <code>type String string</code>.
+      Previously the package supported scanning into numeric types like <code>type</code> <code>Int</code> <code>int64</code>. It now also supports
+      scanning into string types like <code>type</code> <code>String</code> <code>string</code>.
     </p>
 
     <p><!-- CL 40694 -->
@@ -343,19 +535,32 @@ type T1 = T2
 	  <a href="/pkg/encoding/asn1/#NullBytes"><code>NullBytes</code></a>
 	  and
 	  <a href="/pkg/encoding/asn1/#NullRawValue"><code>NullRawValue</code></a>
-	  represent the <code>ASN.1 NULL</code> type.
+	  represent the ASN.1 NULL type.
     </p>
 
 </dl><!-- encoding/asn1 -->
 
 <dl id="encoding/base32"><dt><a href="/pkg/encoding/base32/">encoding/base32</a></dt>
   <dd>
-    <p><!-- CL 38634 --> 
+    <p><!-- CL 38634 -->
 	  The new <a href="/pkg/encoding/base32/#Encoding.WithPadding">Encoding.WithPadding</a>
 	  method adds support for custom padding characters and disabling padding.
     </p>
 
 </dl><!-- encoding/base32 -->
+
+<dl id="encoding/csv"><dt><a href="/pkg/encoding/csv/">encoding/csv</a></dt>
+  <dd>
+    <p><!-- CL 41730 -->
+      The new field
+      <a href="/pkg/encoding/csv/#Reader.ReuseRecord"><code>Reader.ReuseRecord</code></a>
+      controls whether calls to
+      <a href="/pkg/encoding/csv/#Reader.Read"><code>Read</code></a>
+      may return a slice sharing the backing array of the previous
+      call's returned slice for improved performance.
+    </p>
+
+</dl><!-- encoding/csv -->
 
 <dl id="fmt"><dt><a href="/pkg/fmt/">fmt</a></dt>
   <dd>
@@ -384,9 +589,11 @@ type T1 = T2
   <dd>
     <p><!-- CL 37880, CL 40936 -->
 	  The package now reports an error if a predefined escaper (one of
-	  "html", "urlquery" and "js") is found in a pipeline and its
-	  rewriting by the contextual auto-escaper could potentially lead
-	  to security or correctness issues.
+	  "html", "urlquery" and "js") is found in a pipeline and does not match
+	  what the auto-escaper would have decided on its own.
+	  This avoids certain security or correctness issues.
+	  Now use of one of these escapers is always either a no-op or an error.
+	  (The no-op case eases migration from <a href="/pkg/text/template/">text/template</a>.)
     </p>
 
 </dl><!-- html/template -->
@@ -459,23 +666,22 @@ type T1 = T2
 <dl id="net"><dt><a href="/pkg/net/">net</a></dt>
   <dd>
     <p><!-- CL 32572 -->
-      TODO: <a href="https://golang.org/cl/32572">https://golang.org/cl/32572</a>: add Resolver.StrictErrors
+      The new
+      <a href="/pkg/net/#Resolver.StrictErrors"><code>Resolver.StrictErrors</code></a>
+      provides control over how Go's built-in DNS resolver handles
+      temporary errors during queries composed of multiple sub-queries,
+      such as an A+AAAA address lookup.
     </p>
 
     <p><!-- CL 37260 -->
-      TODO: <a href="https://golang.org/cl/37260">https://golang.org/cl/37260</a>: allow Resolver to use a custom dialer
-    </p>
-
-    <p><!-- CL 37402 -->
-      TODO: <a href="https://golang.org/cl/37402">https://golang.org/cl/37402</a>: implement deadline functionality on Pipe
+      The new
+      <a href="/pkg/net/#Resolver.Dial"><code>Resolver.Dial</code></a>
+      allows a <code>Resolver</code> to use a custom dial function.
     </p>
 
     <p><!-- CL 40510 -->
-      TODO: <a href="https://golang.org/cl/40510">https://golang.org/cl/40510</a>: don&#39;t enclose non-literal IPv6 addresses in square brackets
-    </p>
-
-    <p><!-- CL 40512 -->
-      TODO: <a href="https://golang.org/cl/40512">https://golang.org/cl/40512</a>: validate network in Dial{,IP} and Listen{Packet,IP} for IP networks
+      <a href="/pkg/net/#JoinHostPort"><code>JoinHostPort</code></a> now only places an address in square brackets if the host contains a colon.
+      In previous releases it would also wrap addresses in square brackets if they contained a percent ('<code>%</code>') sign.
     </p>
 
     <p><!-- CL 37913 -->
@@ -488,10 +694,23 @@ type T1 = T2
       provide access to the connections' underlying file descriptors.
     </p>
 
+    <p><!-- 45088 -->
+      It is now safe to call <a href="/pkg/net/#Dial"><code>Dial</code></a> with the address obtained from
+      <code>(*TCPListener).String()</code> after creating the listener with
+      <code><a href="/pkg/net/#Listen">Listen</a>("tcp", ":0")</code>.
+      Previously it failed on some machines with half-configured IPv6 stacks.
+    </p>
+
 </dl><!-- net -->
 
 <dl id="net/http"><dt><a href="/pkg/net/http/">net/http</a></dt>
   <dd>
+
+    <p><!-- CL 37328 -->
+      The <a href="/pkg/net/http/#Cookie.String"><code>Cookie.String</code></a> method, used for
+      <code>Cookie</code> and <code>Set-Cookie</code> headers, now encloses values in double quotes
+      if the value contains either a space or a comma.
+    </p>
 
     <p>Server changes:</p>
     <ul>
@@ -510,6 +729,17 @@ type T1 = T2
         Frames are scheduled by following HTTP/2 priorities as described in
         <a href="https://tools.ietf.org/html/rfc7540#section-5.3">RFC 7540 Section 5.3</a>.
       </li>
+
+      <li><!-- CL 36483 -->
+        The HTTP handler returned by <a href="/pkg/net/http/#StripPrefix"><code>StripPrefix</code></a>
+        now calls its provided handler with a modified clone of the original <code>*http.Request</code>.
+        Any code storing per-request state in maps keyed by <code>*http.Request</code> should
+        use
+        <a href="/pkg/net/http/#Request.Context"><code>Request.Context</code></a>,
+        <a href="/pkg/net/http/#Request.WithContext"><code>Request.WithContext</code></a>,
+        and
+        <a href="/pkg/context/#WithValue"><code>context.WithValue</code></a> instead.
+      </li>
     </ul>
 
     <p>Client &amp; Transport changes:</p>
@@ -517,7 +747,7 @@ type T1 = T2
       <li><!-- CL 35488 -->
         The <a href="/pkg/net/http/#Transport"><code>Transport</code></a>
         now supports making requests via SOCKS5 proxy when the URL returned by
-        <a href="/net/http/#Transport.Proxy"><code>Transport.Proxy</code></a>
+        <a href="/pkg/net/http/#Transport.Proxy"><code>Transport.Proxy</code></a>
         has the scheme <code>socks5</code>.
       </li>
     </ul>
@@ -553,23 +783,32 @@ type T1 = T2
 
 </dl><!-- net/http/httptest -->
 
-<dl id="net/rpc"><dt><a href="/pkg/net/rpc/">net/rpc</a></dt>
+<dl id="net/http/httputil"><dt><a href="/pkg/net/http/httputil/">net/http/httputil</a></dt>
   <dd>
-    <p><!-- CL 38474 -->
-      TODO: <a href="https://golang.org/cl/38474">https://golang.org/cl/38474</a>: Create empty maps and slices as return type
+    <p><!-- CL 43712 -->
+      The <a href="/pkg/net/http/httputil/#ReverseProxy"><code>ReverseProxy</code></a>
+      now proxies all HTTP/2 response trailers, even those not declared in the initial response
+      header. Such undeclared trailers are used by the gRPC protocol.
     </p>
 
-</dl><!-- net/rpc -->
+</dl><!-- net/http/httputil -->
 
 <dl id="os"><dt><a href="/pkg/os/">os</a></dt>
   <dd>
-    <p><!-- CL 37915 -->
-      TODO: <a href="https://golang.org/cl/37915">https://golang.org/cl/37915</a>: parse command line without shell32.dll
+    <p><!-- CL 36800 -->
+      The <code>os</code> package now uses the internal runtime poller
+      for file I/O.
+      This reduces the number of threads required for read/write
+      operations on pipes, and it eliminates races when one goroutine
+      closes a file while another is using the file for I/O.
     </p>
 
-    <p><!-- CL 41830 -->
-      TODO: <a href="https://golang.org/cl/41830">https://golang.org/cl/41830</a>: do not report ModeDir for symlinks on windows
-    </p>
+  <dd>
+    <p><!-- CL 37915 -->
+      On Windows,
+      <a href="/pkg/os/#Args"><code>Args</code></a>
+      is now populated without <code>shell32.dll</code>, improving process start-up time by 1-7 ms.
+      </p>
 
 </dl><!-- os -->
 
@@ -643,13 +882,15 @@ type T1 = T2
 
 </dl><!-- runtime -->
 
-<dl id="runtime/pprof"><dt><a href="/pkg/runtime/pprof/">runtime/pprof</a></dt>
+<dl id="runtime/debug"><dt><a href="/pkg/runtime/debug/">runtime/debug</a></dt>
   <dd>
-    <p><!-- CL 34198 -->
-      TODO: <a href="https://golang.org/cl/34198">https://golang.org/cl/34198</a>: add definitions of profile label types
+    <p><!-- CL 34013 -->
+      Calling
+      <a href="/pkg/runtime/debug/#SetGCPercent"><code>SetGCPercent</code></a>
+      with a negative value no longer runs an immediate garbage collection.
     </p>
 
-</dl><!-- runtime/pprof -->
+</dl><!-- runtime/debug -->
 
 <dl id="runtime/trace"><dt><a href="/pkg/runtime/trace/">runtime/trace</a></dt>
   <dd>
@@ -688,6 +929,13 @@ type T1 = T2
       to set supplementary groups when starting a new process.
     </p>
 
+    <p><!-- CL 43512 -->
+      The new field
+      <a href="/pkg/syscall/#SysProcAttr.AmbientCaps"><code>SysProcAttr.AmbientCaps</code></a>
+      allows setting ambient capabilities on Linux 4.3+ when creating
+      a new process.
+    </p>
+
     <p><!-- CL 37439 -->
       On 64-bit x86 Linux, process creation latency has been optimized with
       use of <code>CLONE_VFORK</code> and <code>CLONE_VM</code>.
@@ -699,7 +947,7 @@ type T1 = T2
       interface describes some types in the
       <a href="/pkg/net/"><code>net</code></a>
       package that can provide access to their underlying file descriptor
-      using the new 
+      using the new
       <a href="/pkg/syscall/#RawConn"><code>RawConn</code></a>
       interface.
     </p>
@@ -710,10 +958,18 @@ type T1 = T2
 <dl id="testing/quick"><dt><a href="/pkg/testing/quick/">testing/quick</a></dt>
   <dd>
     <p><!-- CL 39152 -->
-	  The package now chooses values in the full range when
-	  generating <code>int64</code> and <code>uint64</code> random
-	  numbers; in earlier releases generated values were always
-	  limited to the [-2<sup>62</sup>, 2<sup>62</sup>) range.
+      The package now chooses values in the full range when
+      generating <code>int64</code> and <code>uint64</code> random
+      numbers; in earlier releases generated values were always
+      limited to the [-2<sup>62</sup>, 2<sup>62</sup>) range.
+    </p>
+
+    <p>
+      In previous releases, using a nil
+      <a href="/pkg/testing/quick/#Config.Rand"><code>Config.Rand</code></a>
+      value caused a fixed deterministic random number generator to be used.
+      It now uses a random number generator seeded with the current time.
+      For the old behavior, set <code>Config.Rand</code> to <code>rand.New(rand.NewSource(0))</code>.
     </p>
 
 </dl><!-- testing/quick -->
@@ -733,14 +989,26 @@ type T1 = T2
     <p><!-- CL 36615 -->
       The new methods
       <a href="/pkg/time/#Duration.Round"><code>Duration.Round</code></a>
-      and 
+      and
       <a href="/pkg/time/#Duration.Truncate"><code>Duration.Truncate</code></a>
-      handle rounding durations away from and towards zero, respectively.
+      handle rounding and truncating durations to multiples of a given duration.
     </p>
 
     <p><!-- CL 35710 -->
       Retrieving the time and sleeping now work correctly under Wine.
     </p>
 
-</dl><!-- time -->
+    <p>
+      If a <code>Time</code> value has a monotonic clock reading, its
+      string representation (as returned by <code>String</code>) now includes a
+      final field <code>"m=±value"</code>, where <code>value</code> is the
+      monotonic clock reading formatted as a decimal number of seconds.
+    </p>
 
+    <p><!-- CL 44832 -->
+      The included <code>tzdata</code> timezone database has been
+      updated to version 2017b. As always, it is only used if the
+      system does not already have the database available.
+    </p>
+
+</dl><!-- time -->

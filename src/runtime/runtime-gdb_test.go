@@ -56,6 +56,10 @@ func checkGdbVersion(t *testing.T) {
 }
 
 func checkGdbPython(t *testing.T) {
+	if runtime.GOOS == "solaris" && testenv.Builder() != "solaris-amd64-smartosbuildlet" {
+		t.Skip("skipping gdb python tests on solaris; see golang.org/issue/20821")
+	}
+
 	cmd := exec.Command("gdb", "-nx", "-q", "--batch", "-iex", "python import sys; print('go gdb python support')")
 	out, err := cmd.CombinedOutput()
 
@@ -91,16 +95,13 @@ func TestGdbPython(t *testing.T) {
 }
 
 func TestGdbPythonCgo(t *testing.T) {
-	if runtime.GOARCH == "mips" || runtime.GOARCH == "mipsle" {
+	if runtime.GOARCH == "mips" || runtime.GOARCH == "mipsle" || runtime.GOARCH == "mips64" {
 		testenv.SkipFlaky(t, 18784)
 	}
 	testGdbPython(t, true)
 }
 
 func testGdbPython(t *testing.T, cgo bool) {
-	if runtime.GOARCH == "mips64" {
-		testenv.SkipFlaky(t, 18173)
-	}
 	if cgo && !build.Default.CgoEnabled {
 		t.Skip("skipping because cgo is not enabled")
 	}
@@ -258,9 +259,6 @@ func TestGdbBacktrace(t *testing.T) {
 	if runtime.GOOS == "netbsd" {
 		testenv.SkipFlaky(t, 15603)
 	}
-	if runtime.GOARCH == "mips64" {
-		testenv.SkipFlaky(t, 18173)
-	}
 
 	t.Parallel()
 	checkGdbEnvironment(t)
@@ -332,10 +330,6 @@ func main() {
 // TestGdbAutotmpTypes ensures that types of autotmp variables appear in .debug_info
 // See bug #17830.
 func TestGdbAutotmpTypes(t *testing.T) {
-	if runtime.GOARCH == "mips64" {
-		testenv.SkipFlaky(t, 18173)
-	}
-
 	t.Parallel()
 	checkGdbEnvironment(t)
 	checkGdbVersion(t)
