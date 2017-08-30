@@ -1,6 +1,10 @@
 golang-1.9 (1.9-1) UNRELEASED; urgency=medium
 
+  [ Michael Hudson-Doyle ]
   * New upstream release.
+  * Suppress some new lintian errors in golang-1.9-src.
+
+  [ Michael Stapelberg ]
   * Add debian/patches/0002-reproducible-BUILD_PATH_PREFIX_MAP.patch
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 15 Jun 2017 13:10:59 +1200
