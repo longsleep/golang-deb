@@ -9,7 +9,7 @@ Maintainer: Go Compiler Team <pkg-golang-devel@lists.alioth.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
-           Michael Hudson-Doyle <michael.hudson@ubuntu.com>
+           Michael Hudson-Doyle <mwhudson@debian.org>
 Vcs-Browser: https://anonscm.debian.org/cgit/pkg-golang/golang.git
 Vcs-Git: https://anonscm.debian.org/git/pkg-golang/golang.git -b golang-1.9
 Build-Depends: debhelper (>= 7.4.10),
