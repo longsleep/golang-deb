@@ -1,6 +1,7 @@
 golang-1.8 (1.8.4-1) UNRELEASED; urgency=medium
 
   * New upstream release.
+  * Use my @debian.org address in Uploaders. 
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 06 Oct 2017 13:15:31 +1300
 
