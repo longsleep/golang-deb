@@ -11,13 +11,86 @@ Files: include/*
  src/libbio/*
  src/runtime/386/*
  src/libmach/*
- src/runtime/arm/vlop.s
- src/runtime/arm/vlrt.c
- src/runtime/arm/memset.s
- src/runtime/arm/memmove.s
- src/runtime/amd64/memmove.s
- src/runtime/amd64/memmove.s
+ src/runtime/memclr_arm.s
+ src/runtime/memmove_386.s
+ src/runtime/memmove_amd64.s
+ src/runtime/memmove_arm.s
+ src/runtime/memmove_plan9_386.s
+ src/runtime/memmove_plan9_amd64.s
+ src/runtime/vlop_386.s
+ src/runtime/vlop_arm.s
+ src/runtime/vlrt.go
  src/math/fltasm_amd64.s
+ src/cmd/compile/internal/gc/gsubr.go
+ src/cmd/internal/objabi/autotype.go
+ src/cmd/internal/objabi/head.go
+ src/cmd/internal/objabi/reloctype.go
+ src/cmd/internal/objabi/symkind.go
+ src/cmd/internal/obj/arm64/a.out.go
+ src/cmd/internal/obj/arm64/asm7.go
+ src/cmd/internal/obj/arm64/list7.go
+ src/cmd/internal/obj/arm64/obj7.go
+ src/cmd/internal/obj/arm/a.out.go
+ src/cmd/internal/obj/arm/asm5.go
+ src/cmd/internal/obj/arm/list5.go
+ src/cmd/internal/obj/arm/obj5.go
+ src/cmd/internal/obj/mips/a.out.go
+ src/cmd/internal/obj/mips/asm0.go
+ src/cmd/internal/obj/mips/list0.go
+ src/cmd/internal/obj/mips/obj0.go
+ src/cmd/internal/obj/ppc64/a.out.go
+ src/cmd/internal/obj/ppc64/asm9.go
+ src/cmd/internal/obj/ppc64/list9.go
+ src/cmd/internal/obj/ppc64/obj9.go
+ src/cmd/internal/obj/s390x/asmz.go
+ src/cmd/internal/obj/s390x/a.out.go
+ src/cmd/internal/obj/s390x/listz.go
+ src/cmd/internal/obj/s390x/objz.go
+ src/cmd/internal/obj/data.go
+ src/cmd/internal/obj/ld.go
+ src/cmd/internal/obj/link.go
+ src/cmd/internal/obj/pass.go
+ src/cmd/internal/obj/sym.go
+ src/cmd/internal/obj/x86/a.out.go
+ src/cmd/internal/obj/x86/asm6.go
+ src/cmd/internal/obj/x86/list6.go
+ src/cmd/internal/obj/x86/obj6.go
+ src/cmd/link/internal/amd64/asm.go
+ src/cmd/link/internal/amd64/l.go
+ src/cmd/link/internal/amd64/obj.go
+ src/cmd/link/internal/arm64/asm.go
+ src/cmd/link/internal/arm64/l.go
+ src/cmd/link/internal/arm64/obj.go
+ src/cmd/link/internal/arm/asm.go
+ src/cmd/link/internal/arm/l.go
+ src/cmd/link/internal/arm/obj.go
+ src/cmd/link/internal/ld/ar.go
+ src/cmd/link/internal/ld/data.go
+ src/cmd/link/internal/ld/ldelf.go
+ src/cmd/link/internal/ld/ldmacho.go
+ src/cmd/link/internal/ld/ld.go
+ src/cmd/link/internal/ld/lib.go
+ src/cmd/link/internal/ld/link.go
+ src/cmd/link/internal/ld/main.go
+ src/cmd/link/internal/ld/symbols.go
+ src/cmd/link/internal/ld/sym.go
+ src/cmd/link/internal/ld/symkind.go
+ src/cmd/link/internal/ld/symtab.go
+ src/cmd/link/internal/mips/asm.go
+ src/cmd/link/internal/mips/l.go
+ src/cmd/link/internal/mips/obj.go
+ src/cmd/link/internal/mips64/asm.go
+ src/cmd/link/internal/mips64/l.go
+ src/cmd/link/internal/mips64/obj.go
+ src/cmd/link/internal/ppc64/asm.go
+ src/cmd/link/internal/ppc64/l.go
+ src/cmd/link/internal/ppc64/obj.go
+ src/cmd/link/internal/s390x/asm.go
+ src/cmd/link/internal/s390x/l.go
+ src/cmd/link/internal/s390x/obj.go
+ src/cmd/link/internal/x86/asm.go
+ src/cmd/link/internal/x86/l.go
+ src/cmd/link/internal/x86/obj.go
  src/cmd/6c/txt.c
  src/cmd/gopack/ar.c
  src/cmd/ld/lib.[ch]
@@ -50,6 +123,7 @@ Files: include/*
  src/cmd/5c/*
  src/cmd/6l/*
  src/cmd/8a/*
+ src/cmd/vendor/golang.org/x/arch/x86/x86asm/testdata/libmach8db.c
 Origin: Plan 9 from User Space include/, src/lib9/, src/libmach/
         Inferno utils/include/, utils/libmach/, utils/6c/, utils/iar/,
                 utils/6l/, utils/6a/, utils/5c/, utils/8c/, utils/iyacc/,
@@ -168,24 +242,49 @@ License: Go
 
 Files: src/debug/elf/elf.go
  src/cmd/ld/elf.h
+ src/cmd/link/internal/ld/elf.go
 Origin: FreeBSD src/sys/sys/elf{32,64,_common}.h, src/sys/*/include/elf.h
 Copyright: © 1996-1998 John D. Polstra.  All rights reserved.
            © 2001 David E. O'Brien
            Portions © 2009 The Go Authors.  All rights reserved.
 License: FreeBSD
 
+Files: src/math/cmplx/asin.go
+ src/math/cmplx/exp.go
+ src/math/cmplx/log.go
+ src/math/cmplx/pow.go
+ src/math/cmplx/sin.go
+ src/math/cmplx/sqrt.go
+ src/math/cmplx/tan.go
+ src/math/atan.go
+ src/math/gamma.go
+ src/math/sin.go
+ src/math/tan.go
+ src/math/tanh.go
+Copyright: © 2009, 2011 The Go Authors. All rights reserved.
+           Based on code © 1984, 1987, 1989, 1992, 2000 by Stephen L. Moshier
+License: Go
+
 Files: src/math/log1p.go
-Origin: Translated and simplified from FreeBSD /usr/src/lib/msun/src/s_log1p.c
+ src/math/acosh.go
+ src/math/asinh.go
+ src/math/atanh.go
+ src/math/cbrt.go
+ src/math/erf.go
+ src/math/exp.go
+ src/math/expm1.go
+ src/math/j0.go
+ src/math/j1.go
+ src/math/jn.go
+ src/math/lgamma.go
+ src/math/log.go
+ src/math/remainder.go
+ src/math/sqrt.go
+ src/runtime/sqrt.go
 Copyright: © 2010 The Go Authors. All rights reserved.
            Based on code © 1993 by Sun Microsystems, Inc. All rights reserved.
 License: Go
 Comment:
- The original C code, the long comment, and the constants
- below are from FreeBSD's /usr/src/lib/msun/src/s_log1p.c
- and came with this notice.  The go code is a simplified
- version of the original C.
- .
- ====================================================
  Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
  .
  Developed at SunPro, a Sun Microsystems, Inc. business.
@@ -274,6 +373,14 @@ Files: lib/codereview/*
 Copyright: © 2007-2009 Google Inc.
 License: Apache-2.0
 
+Files: src/cmd/vendor/github.com/google/pprof
+Copyright: 2014, 2016 Google Inc.
+License: Apache-2.0
+
+Files: src/cmd/vendor/github.com/google/pprof/third_party/svg/svgpan.go
+Copyright: 2009-2010 Andrea Leofreddi <a.leofreddi@itcharm.com>
+License: BSD-2-clause-svgpan
+
 Files: lib/godoc/godoc.html
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: CC-BY-3.0
@@ -341,6 +448,10 @@ Comment:
  http://www.w3.org/Consortium/Legal/copyright-documents
  http://www.w3.org/Consortium/Legal/copyright-software
 
+Files: misc/trace/trace_viewer_lean.html
+Copyright: 2012 The Chromium Authors
+License: BSD-3-clause
+
 Files: debian/*
 Copyright: 2010 Ivan Wong <ivanwyc@gmail.com>
            2010 Ondřej Surý <ondrej@debian.org>
@@ -348,6 +459,33 @@ Copyright: 2010 Ivan Wong <ivanwyc@gmail.com>
            2014 Canonical Ltd
            2014 Tianon Gravi <tianon@debian.org>
 License: Go
+
+License: BSD-3-clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are
+ met:
+ .
+    * Redistributions of source code must retain the above copyright
+ notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+ copyright notice, this list of conditions and the following disclaimer
+ in the documentation and/or other materials provided with the
+ distribution.
+    * Neither the name of Google Inc. nor the names of its
+ contributors may be used to endorse or promote products derived from
+ this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 License: Go
  Copyright © 2009 The Go Authors. All rights reserved.
@@ -1204,3 +1342,29 @@ License: CC-BY-3.0
       rights not granted under this License, such additional rights
       are deemed to be included in the License; this License is not
       intended to restrict the license of any rights under applicable law.
+
+License: BSD-2-clause-svgpan
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+ .
+    1. Redistributions of source code must retain the above copyright notice,
+       this list of conditions and the following disclaimer.
+ .
+    2. Redistributions in binary form must reproduce the above copyright notice,
+       this list of conditions and the following disclaimer in the documentation
+       and/or other materials provided with the distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY Andrea Leofreddi ``AS IS'' AND ANY EXPRESS OR
+ IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+ EVENT SHALL Andrea Leofreddi OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+ OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ .
+ The views and conclusions contained in the software and documentation are those
+ of the authors and should not be interpreted as representing official policies,
+ either expressed or implied, of Andrea Leofreddi.
