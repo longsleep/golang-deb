@@ -1,7 +1,6 @@
 #
 # WARNING: "debian/control" is generated via "debian/rules gencontrol" (sourced from "debian/control.in")
 #
-
 Source: golang-1.9
 Section: devel
 Priority: optional
