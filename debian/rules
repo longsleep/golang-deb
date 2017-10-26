@@ -27,7 +27,6 @@ gencontrol:
 			echo '#'; \
 			echo '# WARNING: "debian/'$$file'" is generated via "debian/rules gencontrol" (sourced from "debian/'$$file'.in")'; \
 			echo '#'; \
-			echo; \
 			sed -e 's/X.Y/$(GOVER)/g' debian/$$file.in; \
 		} > debian/$$file; \
 	done

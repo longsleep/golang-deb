@@ -1,7 +1,6 @@
 #
 # WARNING: "debian/source/lintian-overrides" is generated via "debian/rules gencontrol" (sourced from "debian/source/lintian-overrides.in")
 #
-
 golang-1.8 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf
 golang-1.8 source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
 golang-1.8 source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86.obj
