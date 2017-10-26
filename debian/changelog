@@ -1,3 +1,12 @@
+golang-1.8 (1.8.5-1) unstable; urgency=medium
+
+  * New upstream version 1.8.5
+  * Use my @debian.org address in Uploaders in d/control.in too
+  * Work around debhelper bug #879762
+  * Suppress some new lintian errors
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Thu, 26 Oct 2017 16:12:52 +1300
+
 golang-1.8 (1.8.4-1) unstable; urgency=medium
 
   * New upstream release.
