@@ -1,3 +1,10 @@
+golang-1.9 (1.9.2-2) unstable; urgency=medium
+
+  [ Martín Ferrari ]
+  * Add debian/patches/0003-Do-not-use-SP-as-index-reg.patch (Closes: #877541)
+
+ -- Michael Stapelberg <stapelberg@debian.org>  Fri, 27 Oct 2017 08:55:32 +0200
+
 golang-1.9 (1.9.2-1) unstable; urgency=medium
 
   * New upstream version 1.9.2
