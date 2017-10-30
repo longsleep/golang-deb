@@ -1,3 +1,10 @@
+golang-1.9 (1.9.2-3) unstable; urgency=medium
+
+  * Remove workaround for now fixed debhelper bug #879762
+  * Backport three patches from upstream to fix ftbfs on ppc64el with new kernel.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 31 Oct 2017 12:16:17 +1300
+
 golang-1.9 (1.9.2-2) unstable; urgency=medium
 
   [ Martín Ferrari ]
