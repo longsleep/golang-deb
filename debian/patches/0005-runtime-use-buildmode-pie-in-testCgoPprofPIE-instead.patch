@@ -1,0 +1,39 @@
+From 58de9f358375e87f07605852530383fee0a4b671 Mon Sep 17 00:00:00 2001
+From: Lynn Boger <laboger@linux.vnet.ibm.com>
+Date: Fri, 27 Oct 2017 10:06:40 -0400
+Subject: [PATCH] runtime: use -buildmode=pie in testCgoPprofPIE  instead of
+ -extldflags=-pie
+
+Errors occur in runtime test testCgoPprofPIE when the test
+is built by passing -pie to the external linker with code
+that was not built as PIC. This occurs on ppc64le because
+non-PIC is the default, and fails only on newer distros
+where the address range used for programs is high enough
+to cause relocation overflow. This test should be built
+with -buildmode=pie since that correctly generates PIC
+with -pie.
+
+Related issues are #21954 and #22126.
+
+Updates #22459
+
+Change-Id: Ib641440bc9f94ad2b97efcda14a4b482647be8f7
+Reviewed-on: https://go-review.googlesource.com/73970
+Run-TryBot: Lynn Boger <laboger@linux.vnet.ibm.com>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+Reviewed-by: Ian Lance Taylor <iant@golang.org>
+---
+ src/runtime/crash_cgo_test.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/src/runtime/crash_cgo_test.go
++++ b/src/runtime/crash_cgo_test.go
+@@ -330,7 +330,7 @@
+ }
+ 
+ func TestCgoPprofPIE(t *testing.T) {
+-	testCgoPprof(t, "-ldflags=-extldflags=-pie", "CgoPprof")
++	testCgoPprof(t, "-buildmode=pie", "CgoPprof")
+ }
+ 
+ func TestCgoPprofThread(t *testing.T) {
