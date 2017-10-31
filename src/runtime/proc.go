@@ -96,6 +96,9 @@ var main_init_done chan bool
 //go:linkname main_main main.main
 func main_main()
 
+// mainStarted indicates that the main M has started.
+var mainStarted bool
+
 // runtimeInitTime is the nanotime() at which the runtime started.
 var runtimeInitTime int64
 
@@ -119,8 +122,8 @@ func main() {
 		maxstacksize = 250000000
 	}
 
-	// Record when the world started.
-	runtimeInitTime = nanotime()
+	// Allow newproc to start new Ms.
+	mainStarted = true
 
 	systemstack(func() {
 		newm(sysmon, nil)
@@ -139,6 +142,9 @@ func main() {
 	}
 
 	runtime_init() // must be before defer
+	if nanotime() == 0 {
+		throw("nanotime returning zero")
+	}
 
 	// Defer unlock so that runtime.Goexit during init does the unlock too.
 	needUnlock := true
@@ -147,6 +153,10 @@ func main() {
 			unlockOSThread()
 		}
 	}()
+
+	// Record when the world started. Must be after runtime_init
+	// because nanotime on some platforms depends on startNano.
+	runtimeInitTime = nanotime()
 
 	gcenable()
 
@@ -190,8 +200,17 @@ func main() {
 	// Make racy client program work: if panicking on
 	// another goroutine at the same time as main returns,
 	// let the other goroutine finish printing the panic trace.
-	// Once it does, it will exit. See issue 3934.
-	if panicking != 0 {
+	// Once it does, it will exit. See issues 3934 and 20018.
+	if atomic.Load(&runningPanicDefers) != 0 {
+		// Running deferred functions should not take long.
+		for c := 0; c < 1000; c++ {
+			if atomic.Load(&runningPanicDefers) == 0 {
+				break
+			}
+			Gosched()
+		}
+	}
+	if atomic.Load(&panicking) != 0 {
 		gopark(nil, nil, "panicwait", traceEvGoStop, 1)
 	}
 
@@ -228,26 +247,23 @@ func forcegchelper() {
 		if debug.gctrace > 0 {
 			println("GC forced")
 		}
-		gcStart(gcBackgroundMode, true)
+		// Time-triggered, fully concurrent.
+		gcStart(gcBackgroundMode, gcTrigger{kind: gcTriggerTime, now: nanotime()})
 	}
 }
 
-//go:nosplit
-
 // Gosched yields the processor, allowing other goroutines to run. It does not
 // suspend the current goroutine, so execution resumes automatically.
+//go:nosplit
 func Gosched() {
 	mcall(gosched_m)
 }
 
-var alwaysFalse bool
-
-// goschedguarded does nothing, but is written in a way that guarantees a preemption check in its prologue.
-// Calls to this function are inserted by the compiler in otherwise uninterruptible loops (see insertLoopReschedChecks).
+// goschedguarded yields the processor like gosched, but also checks
+// for forbidden states and opts out of the yield in those cases.
+//go:nosplit
 func goschedguarded() {
-	if alwaysFalse {
-		goschedguarded()
-	}
+	mcall(goschedguarded_m)
 }
 
 // Puts the current goroutine into a waiting state and calls unlockf.
@@ -432,16 +448,6 @@ func allgadd(gp *g) {
 	lock(&allglock)
 	allgs = append(allgs, gp)
 	allglen = uintptr(len(allgs))
-
-	// Grow GC rescan list if necessary.
-	if len(allgs) > cap(work.rescan.list) {
-		lock(&work.rescan.lock)
-		l := work.rescan.list
-		// Let append do the heavy lifting, but keep the
-		// length the same.
-		work.rescan.list = append(l[:cap(l)], 0)[:len(l)]
-		unlock(&work.rescan.lock)
-	}
 	unlock(&allglock)
 }
 
@@ -795,9 +801,8 @@ func casgstatus(gp *g, oldval, newval uint32) {
 			nextYield = nanotime() + yieldDelay/2
 		}
 	}
-	if newval == _Grunning && gp.gcscanvalid {
-		// Run queueRescan on the system stack so it has more space.
-		systemstack(func() { queueRescan(gp) })
+	if newval == _Grunning {
+		gp.gcscanvalid = false
 	}
 }
 
@@ -827,8 +832,6 @@ func scang(gp *g, gcw *gcWork) {
 	// Nothing is racing with us now, but gcscandone might be set to true left over
 	// from an earlier round of stack scanning (we scan twice per GC).
 	// We use gcscandone to record whether the scan has been done during this round.
-	// It is important that the scan happens exactly once: if called twice,
-	// the installation of stack barriers will detect the double scan and die.
 
 	gp.gcscandone = false
 
@@ -941,7 +944,7 @@ func restartg(gp *g) {
 // in panic or being exited, this may not reliably stop all
 // goroutines.
 func stopTheWorld(reason string) {
-	semacquire(&worldsema, 0)
+	semacquire(&worldsema)
 	getg().m.preemptoff = reason
 	systemstack(stopTheWorldWithSema)
 }
@@ -1416,6 +1419,7 @@ func needm(x byte) {
 	// running at all (that is, there's no garbage collection
 	// running right now).
 	mp.needextram = mp.schedlink == 0
+	extraMCount--
 	unlockextra(mp.schedlink.ptr())
 
 	// Save and block signals before installing g.
@@ -1441,6 +1445,10 @@ func needm(x byte) {
 	// Initialize this thread to use the m.
 	asminit()
 	minit()
+
+	// mp.curg is now a real goroutine.
+	casgstatus(mp.curg, _Gdead, _Gsyscall)
+	atomic.Xadd(&sched.ngsys, -1)
 }
 
 var earlycgocallback = []byte("fatal error: cgo callback before cgo call\n")
@@ -1481,12 +1489,13 @@ func oneNewExtraM() {
 	gp.syscallpc = gp.sched.pc
 	gp.syscallsp = gp.sched.sp
 	gp.stktopsp = gp.sched.sp
-	gp.gcscanvalid = true // fresh G, so no dequeueRescan necessary
+	gp.gcscanvalid = true
 	gp.gcscandone = true
-	gp.gcRescan = -1
-	// malg returns status as Gidle, change to Gsyscall before adding to allg
-	// where GC will see it.
-	casgstatus(gp, _Gidle, _Gsyscall)
+	// malg returns status as _Gidle. Change to _Gdead before
+	// adding to allg where GC can see it. We use _Gdead to hide
+	// this from tracebacks and stack scans since it isn't a
+	// "real" goroutine until needm grabs it.
+	casgstatus(gp, _Gidle, _Gdead)
 	gp.m = mp
 	mp.curg = gp
 	mp.locked = _LockInternal
@@ -1499,9 +1508,16 @@ func oneNewExtraM() {
 	// put on allg for garbage collector
 	allgadd(gp)
 
+	// gp is now on the allg list, but we don't want it to be
+	// counted by gcount. It would be more "proper" to increment
+	// sched.ngfree, but that requires locking. Incrementing ngsys
+	// has the same effect.
+	atomic.Xadd(&sched.ngsys, +1)
+
 	// Add m to the extra list.
 	mnext := lockextra(true)
 	mp.schedlink.set(mnext)
+	extraMCount++
 	unlockextra(mp)
 }
 
@@ -1534,6 +1550,10 @@ func dropm() {
 	// with no pointer manipulation.
 	mp := getg().m
 
+	// Return mp.curg to dead state.
+	casgstatus(mp.curg, _Gsyscall, _Gdead)
+	atomic.Xadd(&sched.ngsys, +1)
+
 	// Block signals before unminit.
 	// Unminit unregisters the signal handling stack (but needs g on some systems).
 	// Setg(nil) clears g, which is the signal handler's cue not to run Go handlers.
@@ -1543,6 +1563,7 @@ func dropm() {
 	unminit()
 
 	mnext := lockextra(true)
+	extraMCount++
 	mp.schedlink.set(mnext)
 
 	setg(nil)
@@ -1559,6 +1580,7 @@ func getm() uintptr {
 }
 
 var extram uintptr
+var extraMCount uint32 // Protected by lockextra
 var extraMWaiters uint32
 
 // lockextra locks the extra list and returns the list head.
@@ -1603,6 +1625,10 @@ func unlockextra(mp *m) {
 	atomic.Storeuintptr(&extram, uintptr(unsafe.Pointer(mp)))
 }
 
+// execLock serializes exec and clone to avoid bugs or unspecified behaviour
+// around exec'ing while creating/destroying threads.  See issue #19546.
+var execLock rwmutex
+
 // Create a new m. It will start off with a call to fn, or else the scheduler.
 // fn needs to be static and not a heap allocated closure.
 // May run with m.p==nil, so write barriers are not allowed.
@@ -1622,10 +1648,14 @@ func newm(fn func(), _p_ *p) {
 		if msanenabled {
 			msanwrite(unsafe.Pointer(&ts), unsafe.Sizeof(ts))
 		}
+		execLock.rlock() // Prevent process clone.
 		asmcgocall(_cgo_thread_start, unsafe.Pointer(&ts))
+		execLock.runlock()
 		return
 	}
+	execLock.rlock() // Prevent process clone.
 	newosproc(mp, unsafe.Pointer(mp.g0.stack.hi))
+	execLock.runlock()
 }
 
 // Stops execution of the current m until new work is available.
@@ -1879,7 +1909,7 @@ func execute(gp *g, inheritTime bool) {
 	// Check whether the profiler needs to be turned on or off.
 	hz := sched.profilehz
 	if _g_.m.profilehz != hz {
-		resetcpuprofiler(hz)
+		setThreadCPUProfiler(hz)
 	}
 
 	if trace.enabled {
@@ -1916,6 +1946,9 @@ top:
 		if gp := wakefing(); gp != nil {
 			ready(gp, 0, true)
 		}
+	}
+	if *cgo_yield != nil {
+		asmcgocall(*cgo_yield, nil)
 	}
 
 	// local runq
@@ -2074,7 +2107,7 @@ stop:
 	}
 
 	// poll network
-	if netpollinited() && atomic.Xchg64(&sched.lastpoll, 0) != 0 {
+	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && atomic.Xchg64(&sched.lastpoll, 0) != 0 {
 		if _g_.m.p != 0 {
 			throw("findrunnable: netpoll with p")
 		}
@@ -2115,7 +2148,7 @@ func pollWork() bool {
 	if !runqempty(p) {
 		return true
 	}
-	if netpollinited() && sched.lastpoll != 0 {
+	if netpollinited() && atomic.Load(&netpollWaiters) > 0 && sched.lastpoll != 0 {
 		if gp := netpoll(false); gp != nil {
 			injectglist(gp)
 			return true
@@ -2263,7 +2296,7 @@ func park_m(gp *g) {
 	_g_ := getg()
 
 	if trace.enabled {
-		traceGoPark(_g_.m.waittraceev, _g_.m.waittraceskip, gp)
+		traceGoPark(_g_.m.waittraceev, _g_.m.waittraceskip)
 	}
 
 	casgstatus(gp, _Grunning, _Gwaiting)
@@ -2308,6 +2341,19 @@ func gosched_m(gp *g) {
 	goschedImpl(gp)
 }
 
+// goschedguarded is a forbidden-states-avoided version of gosched_m
+func goschedguarded_m(gp *g) {
+
+	if gp.m.locks != 0 || gp.m.mallocing != 0 || gp.m.preemptoff != "" || gp.m.p.ptr().status != _Prunning {
+		gogo(&gp.sched) // never return
+	}
+
+	if trace.enabled {
+		traceGoSched()
+	}
+	goschedImpl(gp)
+}
+
 func gopreempt_m(gp *g) {
 	if trace.enabled {
 		traceGoPreempt()
@@ -2343,10 +2389,11 @@ func goexit0(gp *g) {
 	gp.writebuf = nil
 	gp.waitreason = ""
 	gp.param = nil
+	gp.labels = nil
+	gp.timer = nil
 
 	// Note that gp's stack scan is now "valid" because it has no
-	// stack. We could dequeueRescan, but that takes a lock and
-	// isn't really necessary.
+	// stack.
 	gp.gcscanvalid = true
 	dropg()
 
@@ -2775,12 +2822,12 @@ func exitsyscall0(gp *g) {
 func beforefork() {
 	gp := getg().m.curg
 
-	// Fork can hang if preempted with signals frequently enough (see issue 5517).
-	// Ensure that we stay on the same M where we disable profiling.
+	// Block signals during a fork, so that the child does not run
+	// a signal handler before exec if a signal is sent to the process
+	// group. See issue #18600.
 	gp.m.locks++
-	if gp.m.profilehz != 0 {
-		resetcpuprofiler(0)
-	}
+	msigsave(gp.m)
+	sigblock()
 
 	// This function is called before fork in syscall package.
 	// Code between fork and exec must not allocate memory nor even try to grow stack.
@@ -2799,13 +2846,11 @@ func syscall_runtime_BeforeFork() {
 func afterfork() {
 	gp := getg().m.curg
 
-	// See the comment in beforefork.
+	// See the comments in beforefork.
 	gp.stackguard0 = gp.stack.lo + _StackGuard
 
-	hz := sched.profilehz
-	if hz != 0 {
-		resetcpuprofiler(hz)
-	}
+	msigrestore(gp.m.sigmask)
+
 	gp.m.locks--
 }
 
@@ -2816,17 +2861,60 @@ func syscall_runtime_AfterFork() {
 	systemstack(afterfork)
 }
 
+// inForkedChild is true while manipulating signals in the child process.
+// This is used to avoid calling libc functions in case we are using vfork.
+var inForkedChild bool
+
+// Called from syscall package after fork in child.
+// It resets non-sigignored signals to the default handler, and
+// restores the signal mask in preparation for the exec.
+//
+// Because this might be called during a vfork, and therefore may be
+// temporarily sharing address space with the parent process, this must
+// not change any global variables or calling into C code that may do so.
+//
+//go:linkname syscall_runtime_AfterForkInChild syscall.runtime_AfterForkInChild
+//go:nosplit
+//go:nowritebarrierrec
+func syscall_runtime_AfterForkInChild() {
+	// It's OK to change the global variable inForkedChild here
+	// because we are going to change it back. There is no race here,
+	// because if we are sharing address space with the parent process,
+	// then the parent process can not be running concurrently.
+	inForkedChild = true
+
+	clearSignalHandlers()
+
+	// When we are the child we are the only thread running,
+	// so we know that nothing else has changed gp.m.sigmask.
+	msigrestore(getg().m.sigmask)
+
+	inForkedChild = false
+}
+
+// Called from syscall package before Exec.
+//go:linkname syscall_runtime_BeforeExec syscall.runtime_BeforeExec
+func syscall_runtime_BeforeExec() {
+	// Prevent thread creation during exec.
+	execLock.lock()
+}
+
+// Called from syscall package after Exec.
+//go:linkname syscall_runtime_AfterExec syscall.runtime_AfterExec
+func syscall_runtime_AfterExec() {
+	execLock.unlock()
+}
+
 // Allocate a new g, with a stack big enough for stacksize bytes.
 func malg(stacksize int32) *g {
 	newg := new(g)
 	if stacksize >= 0 {
 		stacksize = round2(_StackSystem + stacksize)
 		systemstack(func() {
-			newg.stack, newg.stkbar = stackalloc(uint32(stacksize))
+			newg.stack = stackalloc(uint32(stacksize))
 		})
 		newg.stackguard0 = newg.stack.lo + _StackGuard
 		newg.stackguard1 = ^uintptr(0)
-		newg.stackAlloc = uintptr(stacksize)
 	}
 	return newg
 }
@@ -2874,7 +2962,6 @@ func newproc1(fn *funcval, argp *uint8, narg int32, nret int32, callerpc uintptr
 	if newg == nil {
 		newg = malg(_StackMin)
 		casgstatus(newg, _Gidle, _Gdead)
-		newg.gcRescan = -1
 		allgadd(newg) // publishes with a g->status of Gdead so GC scanner doesn't look at uninitialized stack.
 	}
 	if newg.stack.hi == 0 {
@@ -2920,20 +3007,13 @@ func newproc1(fn *funcval, argp *uint8, narg int32, nret int32, callerpc uintptr
 	gostartcallfn(&newg.sched, fn)
 	newg.gopc = callerpc
 	newg.startpc = fn.fn
+	if _g_.m.curg != nil {
+		newg.labels = _g_.m.curg.labels
+	}
 	if isSystemGoroutine(newg) {
 		atomic.Xadd(&sched.ngsys, +1)
 	}
-	// The stack is dirty from the argument frame, so queue it for
-	// scanning. Do this before setting it to runnable so we still
-	// own the G. If we're recycling a G, it may already be on the
-	// rescan list.
-	if newg.gcRescan == -1 {
-		queueRescan(newg)
-	} else {
-		// The recycled G is already on the rescan list. Just
-		// mark the stack dirty.
-		newg.gcscanvalid = false
-	}
+	newg.gcscanvalid = false
 	casgstatus(newg, _Gdead, _Grunnable)
 
 	if _p_.goidcache == _p_.goidcacheend {
@@ -2954,7 +3034,7 @@ func newproc1(fn *funcval, argp *uint8, narg int32, nret int32, callerpc uintptr
 	}
 	runqput(_p_, newg, true)
 
-	if atomic.Load(&sched.npidle) != 0 && atomic.Load(&sched.nmspinning) == 0 && runtimeInitTime != 0 {
+	if atomic.Load(&sched.npidle) != 0 && atomic.Load(&sched.nmspinning) == 0 && mainStarted {
 		wakep()
 	}
 	_g_.m.locks--
@@ -2971,20 +3051,14 @@ func gfput(_p_ *p, gp *g) {
 		throw("gfput: bad status (not Gdead)")
 	}
 
-	stksize := gp.stackAlloc
+	stksize := gp.stack.hi - gp.stack.lo
 
 	if stksize != _FixedStack {
 		// non-standard stack size - free it.
-		stackfree(gp.stack, gp.stackAlloc)
+		stackfree(gp.stack)
 		gp.stack.lo = 0
 		gp.stack.hi = 0
 		gp.stackguard0 = 0
-		gp.stkbar = nil
-		gp.stkbarPos = 0
-	} else {
-		// Reset stack barriers.
-		gp.stkbar = gp.stkbar[:0]
-		gp.stkbarPos = 0
 	}
 
 	gp.schedlink.set(_p_.gfree)
@@ -3041,16 +3115,15 @@ retry:
 		if gp.stack.lo == 0 {
 			// Stack was deallocated in gfput. Allocate a new one.
 			systemstack(func() {
-				gp.stack, gp.stkbar = stackalloc(_FixedStack)
+				gp.stack = stackalloc(_FixedStack)
 			})
 			gp.stackguard0 = gp.stack.lo + _StackGuard
-			gp.stackAlloc = _FixedStack
 		} else {
 			if raceenabled {
-				racemalloc(unsafe.Pointer(gp.stack.lo), gp.stackAlloc)
+				racemalloc(unsafe.Pointer(gp.stack.lo), gp.stack.hi-gp.stack.lo)
 			}
 			if msanenabled {
-				msanmalloc(unsafe.Pointer(gp.stack.lo), gp.stackAlloc)
+				msanmalloc(unsafe.Pointer(gp.stack.lo), gp.stack.hi-gp.stack.lo)
 			}
 		}
 	}
@@ -3145,8 +3218,7 @@ func badunlockosthread() {
 
 func gcount() int32 {
 	n := int32(allglen) - sched.ngfree - int32(atomic.Load(&sched.ngsys))
-	for i := 0; ; i++ {
-		_p_ := allp[i]
+	for _, _p_ := range &allp {
 		if _p_ == nil {
 			break
 		}
@@ -3166,13 +3238,18 @@ func mcount() int32 {
 }
 
 var prof struct {
-	lock uint32
-	hz   int32
+	signalLock uint32
+	hz         int32
 }
 
-func _System()       { _System() }
-func _ExternalCode() { _ExternalCode() }
-func _GC()           { _GC() }
+func _System()                    { _System() }
+func _ExternalCode()              { _ExternalCode() }
+func _LostExternalCode()          { _LostExternalCode() }
+func _GC()                        { _GC() }
+func _LostSIGPROFDuringAtomic64() { _LostSIGPROFDuringAtomic64() }
+
+// Counts SIGPROFs received while in atomic64 critical section, on mips{,le}
+var lostAtomic64Count uint64
 
 // Called if we receive a SIGPROF signal.
 // Called by the signal handler, may run during STW.
@@ -3180,6 +3257,21 @@ func _GC()           { _GC() }
 func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 	if prof.hz == 0 {
 		return
+	}
+
+	// On mips{,le}, 64bit atomics are emulated with spinlocks, in
+	// runtime/internal/atomic. If SIGPROF arrives while the program is inside
+	// the critical section, it creates a deadlock (when writing the sample).
+	// As a workaround, create a counter of SIGPROFs while in critical section
+	// to store the count, and pass it to sigprof.add() later when SIGPROF is
+	// received from somewhere else (with _LostSIGPROFDuringAtomic64 as pc).
+	if GOARCH == "mips" || GOARCH == "mipsle" {
+		if f := findfunc(pc); f.valid() {
+			if hasprefix(funcname(f), "runtime/internal/atomic") {
+				lostAtomic64Count++
+				return
+			}
+		}
 	}
 
 	// Profiling runs concurrently with GC, so it must not allocate.
@@ -3260,7 +3352,6 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 		traceback = false
 	}
 	var stk [maxCPUProfStack]uintptr
-	var haveStackLock *g
 	n := 0
 	if mp.ncgo > 0 && mp.curg != nil && mp.curg.syscallpc != 0 && mp.curg.syscallsp != 0 {
 		cgoOff := 0
@@ -3278,26 +3369,9 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 		}
 
 		// Collect Go stack that leads to the cgo call.
-		if gcTryLockStackBarriers(mp.curg) {
-			haveStackLock = mp.curg
-			n = gentraceback(mp.curg.syscallpc, mp.curg.syscallsp, 0, mp.curg, 0, &stk[cgoOff], len(stk)-cgoOff, nil, nil, 0)
-		}
+		n = gentraceback(mp.curg.syscallpc, mp.curg.syscallsp, 0, mp.curg, 0, &stk[cgoOff], len(stk)-cgoOff, nil, nil, 0)
 	} else if traceback {
-		var flags uint = _TraceTrap
-		if gp.m.curg != nil && gcTryLockStackBarriers(gp.m.curg) {
-			// It's safe to traceback the user stack.
-			haveStackLock = gp.m.curg
-			flags |= _TraceJumpStack
-		}
-		// Traceback is safe if we're on the system stack (if
-		// necessary, flags will stop it before switching to
-		// the user stack), or if we locked the user stack.
-		if gp != gp.m.curg || haveStackLock != nil {
-			n = gentraceback(pc, sp, lr, gp, 0, &stk[0], len(stk), nil, nil, flags)
-		}
-	}
-	if haveStackLock != nil {
-		gcUnlockStackBarriers(haveStackLock)
+		n = gentraceback(pc, sp, lr, gp, 0, &stk[0], len(stk), nil, nil, _TraceTrap|_TraceJumpStack)
 	}
 
 	if n <= 0 {
@@ -3307,10 +3381,7 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 		if GOOS == "windows" && mp.libcallg != 0 && mp.libcallpc != 0 && mp.libcallsp != 0 {
 			// Libcall, i.e. runtime syscall on windows.
 			// Collect Go stack that leads to the call.
-			if gcTryLockStackBarriers(mp.libcallg.ptr()) {
-				n = gentraceback(mp.libcallpc, mp.libcallsp, 0, mp.libcallg.ptr(), 0, &stk[0], len(stk), nil, nil, 0)
-				gcUnlockStackBarriers(mp.libcallg.ptr())
-			}
+			n = gentraceback(mp.libcallpc, mp.libcallsp, 0, mp.libcallg.ptr(), 0, &stk[0], len(stk), nil, nil, 0)
 		}
 		if n == 0 {
 			// If all of the above has failed, account it against abstract "System" or "GC".
@@ -3329,14 +3400,11 @@ func sigprof(pc, sp, lr uintptr, gp *g, mp *m) {
 	}
 
 	if prof.hz != 0 {
-		// Simple cas-lock to coordinate with setcpuprofilerate.
-		for !atomic.Cas(&prof.lock, 0, 1) {
-			osyield()
+		if (GOARCH == "mips" || GOARCH == "mipsle") && lostAtomic64Count > 0 {
+			cpuprof.addLostAtomic64(lostAtomic64Count)
+			lostAtomic64Count = 0
 		}
-		if prof.hz != 0 {
-			cpuprof.add(stk[:n])
-		}
-		atomic.Store(&prof.lock, 0)
+		cpuprof.add(gp, stk[:n])
 	}
 	getg().m.mallocing--
 }
@@ -3359,15 +3427,7 @@ func sigprofNonGo() {
 		for n < len(sigprofCallers) && sigprofCallers[n] != 0 {
 			n++
 		}
-
-		// Simple cas-lock to coordinate with setcpuprofilerate.
-		for !atomic.Cas(&prof.lock, 0, 1) {
-			osyield()
-		}
-		if prof.hz != 0 {
-			cpuprof.addNonGo(sigprofCallers[:n])
-		}
-		atomic.Store(&prof.lock, 0)
+		cpuprof.addNonGo(sigprofCallers[:n])
 	}
 
 	atomic.Store(&sigprofCallersUse, 0)
@@ -3380,19 +3440,11 @@ func sigprofNonGo() {
 //go:nowritebarrierrec
 func sigprofNonGoPC(pc uintptr) {
 	if prof.hz != 0 {
-		pc := []uintptr{
+		stk := []uintptr{
 			pc,
 			funcPC(_ExternalCode) + sys.PCQuantum,
 		}
-
-		// Simple cas-lock to coordinate with setcpuprofilerate.
-		for !atomic.Cas(&prof.lock, 0, 1) {
-			osyield()
-		}
-		if prof.hz != 0 {
-			cpuprof.addNonGo(pc)
-		}
-		atomic.Store(&prof.lock, 0)
+		cpuprof.addNonGo(stk)
 	}
 }
 
@@ -3408,7 +3460,7 @@ func sigprofNonGoPC(pc uintptr) {
 // or putting one on the stack at the right offset.
 func setsSP(pc uintptr) bool {
 	f := findfunc(pc)
-	if f == nil {
+	if !f.valid() {
 		// couldn't find the function for this PC,
 		// so assume the worst and stop traceback
 		return true
@@ -3420,8 +3472,9 @@ func setsSP(pc uintptr) bool {
 	return false
 }
 
-// Arrange to call fn with a traceback hz times a second.
-func setcpuprofilerate_m(hz int32) {
+// setcpuprofilerate sets the CPU profiling rate to hz times per second.
+// If hz <= 0, setcpuprofilerate turns off CPU profiling.
+func setcpuprofilerate(hz int32) {
 	// Force sane arguments.
 	if hz < 0 {
 		hz = 0
@@ -3435,20 +3488,23 @@ func setcpuprofilerate_m(hz int32) {
 	// Stop profiler on this thread so that it is safe to lock prof.
 	// if a profiling signal came in while we had prof locked,
 	// it would deadlock.
-	resetcpuprofiler(0)
+	setThreadCPUProfiler(0)
 
-	for !atomic.Cas(&prof.lock, 0, 1) {
+	for !atomic.Cas(&prof.signalLock, 0, 1) {
 		osyield()
 	}
-	prof.hz = hz
-	atomic.Store(&prof.lock, 0)
+	if prof.hz != hz {
+		setProcessCPUProfiler(hz)
+		prof.hz = hz
+	}
+	atomic.Store(&prof.signalLock, 0)
 
 	lock(&sched.lock)
 	sched.profilehz = hz
 	unlock(&sched.lock)
 
 	if hz != 0 {
-		resetcpuprofiler(hz)
+		setThreadCPUProfiler(hz)
 	}
 
 	_g_.m.locks--
@@ -3802,7 +3858,25 @@ func sysmon() {
 				if scavengelimit < forcegcperiod {
 					maxsleep = scavengelimit / 2
 				}
+				shouldRelax := true
+				if osRelaxMinNS > 0 {
+					lock(&timers.lock)
+					if timers.sleeping {
+						now := nanotime()
+						next := timers.sleepUntil
+						if next-now < osRelaxMinNS {
+							shouldRelax = false
+						}
+					}
+					unlock(&timers.lock)
+				}
+				if shouldRelax {
+					osRelax(true)
+				}
 				notetsleep(&sched.sysmonnote, maxsleep)
+				if shouldRelax {
+					osRelax(false)
+				}
 				lock(&sched.lock)
 				atomic.Store(&sched.sysmonwait, 0)
 				noteclear(&sched.sysmonnote)
@@ -3811,10 +3885,13 @@ func sysmon() {
 			}
 			unlock(&sched.lock)
 		}
+		// trigger libc interceptors if needed
+		if *cgo_yield != nil {
+			asmcgocall(*cgo_yield, nil)
+		}
 		// poll network if not polled for more than 10ms
 		lastpoll := int64(atomic.Load64(&sched.lastpoll))
 		now := nanotime()
-		unixnow := unixnanotime()
 		if lastpoll != 0 && lastpoll+10*1000*1000 < now {
 			atomic.Cas64(&sched.lastpoll, uint64(lastpoll), uint64(now))
 			gp := netpoll(false) // non-blocking - returns list of goroutines
@@ -3839,8 +3916,7 @@ func sysmon() {
 			idle++
 		}
 		// check if we need to force a GC
-		lastgc := int64(atomic.Load64(&memstats.last_gc))
-		if gcphase == _GCoff && lastgc != 0 && unixnow-lastgc > forcegcperiod && atomic.Load(&forcegc.idle) != 0 {
+		if t := (gcTrigger{kind: gcTriggerTime, now: now}); t.test() && atomic.Load(&forcegc.idle) != 0 {
 			lock(&forcegc.lock)
 			forcegc.idle = 0
 			forcegc.g.schedlink = 0
@@ -3860,7 +3936,7 @@ func sysmon() {
 	}
 }
 
-var pdesc [_MaxGomaxprocs]struct {
+type sysmontick struct {
 	schedtick   uint32
 	schedwhen   int64
 	syscalltick uint32
@@ -3878,7 +3954,7 @@ func retake(now int64) uint32 {
 		if _p_ == nil {
 			continue
 		}
-		pd := &pdesc[i]
+		pd := &_p_.sysmontick
 		s := _p_.status
 		if s == _Psyscall {
 			// Retake P from syscall if it's there for more than 1 sysmon tick (at least 20us).
@@ -4274,7 +4350,7 @@ func runqputslow(_p_ *p, gp *g, h, t uint32) bool {
 
 	if randomizeScheduler {
 		for i := uint32(1); i <= n; i++ {
-			j := fastrand() % (i + 1)
+			j := fastrandn(i + 1)
 			batch[i], batch[j] = batch[j], batch[i]
 		}
 	}

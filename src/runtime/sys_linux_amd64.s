@@ -138,8 +138,8 @@ TEXT runtime·mincore(SB),NOSPLIT,$0-28
 	MOVL	AX, ret+24(FP)
 	RET
 
-// func now() (sec int64, nsec int32)
-TEXT time·now(SB),NOSPLIT,$16
+// func walltime() (sec int64, nsec int32)
+TEXT runtime·walltime(SB),NOSPLIT,$16
 	// Be careful. We're calling a function with gcc calling convention here.
 	// We're guaranteed 128 bytes on entry, and we've taken 16, and the
 	// call uses another 8.
@@ -393,7 +393,7 @@ TEXT runtime·callCgoMmap(SB),NOSPLIT,$16
 	MOVQ	AX, ret+32(FP)
 	RET
 
-TEXT runtime·munmap(SB),NOSPLIT,$0
+TEXT runtime·sysMunmap(SB),NOSPLIT,$0
 	MOVQ	addr+0(FP), DI
 	MOVQ	n+8(FP), SI
 	MOVQ	$11, AX	// munmap
@@ -401,6 +401,19 @@ TEXT runtime·munmap(SB),NOSPLIT,$0
 	CMPQ	AX, $0xfffffffffffff001
 	JLS	2(PC)
 	MOVL	$0xf1, 0xf1  // crash
+	RET
+
+// Call the function stored in _cgo_munmap using the GCC calling convention.
+// This must be called on the system stack.
+TEXT runtime·callCgoMunmap(SB),NOSPLIT,$16-16
+	MOVQ	addr+0(FP), DI
+	MOVQ	n+8(FP), SI
+	MOVQ	_cgo_munmap(SB), AX
+	MOVQ	SP, BX
+	ANDQ	$~15, SP	// alignment as per amd64 psABI
+	MOVQ	BX, 0(SP)
+	CALL	AX
+	MOVQ	0(SP), SP
 	RET
 
 TEXT runtime·madvise(SB),NOSPLIT,$0
@@ -600,4 +613,13 @@ TEXT runtime·socket(SB),NOSPLIT,$0-20
 	MOVL	$41, AX  // syscall entry
 	SYSCALL
 	MOVL	AX, ret+16(FP)
+	RET
+
+// func sbrk0() uintptr
+TEXT runtime·sbrk0(SB),NOSPLIT,$0-8
+	// Implemented as brk(NULL).
+	MOVQ	$0, DI
+	MOVL	$12, AX  // syscall entry
+	SYSCALL
+	MOVQ	AX, ret+0(FP)
 	RET

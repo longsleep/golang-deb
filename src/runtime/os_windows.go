@@ -50,6 +50,7 @@ const (
 //go:cgo_import_dynamic runtime._WriteConsoleW WriteConsoleW%5 "kernel32.dll"
 //go:cgo_import_dynamic runtime._WriteFile WriteFile%5 "kernel32.dll"
 //go:cgo_import_dynamic runtime._timeBeginPeriod timeBeginPeriod%1 "winmm.dll"
+//go:cgo_import_dynamic runtime._timeEndPeriod timeEndPeriod%1 "winmm.dll"
 
 type stdFunction unsafe.Pointer
 
@@ -73,9 +74,12 @@ var (
 	_GetQueuedCompletionStatus,
 	_GetStdHandle,
 	_GetSystemInfo,
+	_GetSystemTimeAsFileTime,
 	_GetThreadContext,
 	_LoadLibraryW,
 	_LoadLibraryA,
+	_QueryPerformanceCounter,
+	_QueryPerformanceFrequency,
 	_ResumeThread,
 	_SetConsoleCtrlHandler,
 	_SetErrorMode,
@@ -93,6 +97,7 @@ var (
 	_WriteConsoleW,
 	_WriteFile,
 	_timeBeginPeriod,
+	_timeEndPeriod,
 	_ stdFunction
 
 	// Following syscalls are only available on some Windows PCs.
@@ -188,6 +193,11 @@ func loadOptionalSyscalls() {
 		throw("ntdll.dll not found")
 	}
 	_NtWaitForSingleObject = windowsFindfunc(n32, []byte("NtWaitForSingleObject\000"))
+
+	if windowsFindfunc(n32, []byte("wine_get_version\000")) != nil {
+		// running on Wine
+		initWine(k32)
+	}
 }
 
 //go:nosplit
@@ -260,6 +270,27 @@ var useLoadLibraryEx bool
 
 var timeBeginPeriodRetValue uint32
 
+// osRelaxMinNS indicates that sysmon shouldn't osRelax if the next
+// timer is less than 60 ms from now. Since osRelaxing may reduce
+// timer resolution to 15.6 ms, this keeps timer error under roughly 1
+// part in 4.
+const osRelaxMinNS = 60 * 1e6
+
+// osRelax is called by the scheduler when transitioning to and from
+// all Ps being idle.
+//
+// On Windows, it adjusts the system-wide timer resolution. Go needs a
+// high resolution timer while running and there's little extra cost
+// if we're already using the CPU, but if all Ps are idle there's no
+// need to consume extra power to drive the high-res timer.
+func osRelax(relax bool) uint32 {
+	if relax {
+		return uint32(stdcall1(_timeEndPeriod, 1))
+	} else {
+		return uint32(stdcall1(_timeBeginPeriod, 1))
+	}
+}
+
 func osinit() {
 	asmstdcallAddr = unsafe.Pointer(funcPC(asmstdcall))
 	usleep2Addr = unsafe.Pointer(funcPC(usleep2))
@@ -279,7 +310,7 @@ func osinit() {
 
 	stdcall2(_SetConsoleCtrlHandler, funcPC(ctrlhandler), 1)
 
-	timeBeginPeriodRetValue = uint32(stdcall1(_timeBeginPeriod, 1))
+	timeBeginPeriodRetValue = osRelax(false)
 
 	ncpu = getproccount()
 
@@ -290,6 +321,79 @@ func osinit() {
 	// equivalent threads that all do a mix of GUI, IO, computations, etc.
 	// In such context dynamic priority boosting does nothing but harm, so we turn it off.
 	stdcall2(_SetProcessPriorityBoost, currentProcess, 1)
+}
+
+func nanotime() int64
+
+// useQPCTime controls whether time.now and nanotime use QueryPerformanceCounter.
+// This is only set to 1 when running under Wine.
+var useQPCTime uint8
+
+var qpcStartCounter int64
+var qpcMultiplier int64
+
+//go:nosplit
+func nanotimeQPC() int64 {
+	var counter int64 = 0
+	stdcall1(_QueryPerformanceCounter, uintptr(unsafe.Pointer(&counter)))
+
+	// returns number of nanoseconds
+	return (counter - qpcStartCounter) * qpcMultiplier
+}
+
+//go:nosplit
+func nowQPC() (sec int64, nsec int32, mono int64) {
+	var ft int64
+	stdcall1(_GetSystemTimeAsFileTime, uintptr(unsafe.Pointer(&ft)))
+
+	t := (ft - 116444736000000000) * 100
+
+	sec = t / 1000000000
+	nsec = int32(t - sec*1000000000)
+
+	mono = nanotimeQPC()
+	return
+}
+
+func initWine(k32 uintptr) {
+	_GetSystemTimeAsFileTime = windowsFindfunc(k32, []byte("GetSystemTimeAsFileTime\000"))
+	if _GetSystemTimeAsFileTime == nil {
+		throw("could not find GetSystemTimeAsFileTime() syscall")
+	}
+
+	_QueryPerformanceCounter = windowsFindfunc(k32, []byte("QueryPerformanceCounter\000"))
+	_QueryPerformanceFrequency = windowsFindfunc(k32, []byte("QueryPerformanceFrequency\000"))
+	if _QueryPerformanceCounter == nil || _QueryPerformanceFrequency == nil {
+		throw("could not find QPC syscalls")
+	}
+
+	// We can not simply fallback to GetSystemTimeAsFileTime() syscall, since its time is not monotonic,
+	// instead we use QueryPerformanceCounter family of syscalls to implement monotonic timer
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/dn553408(v=vs.85).aspx
+
+	var tmp int64
+	stdcall1(_QueryPerformanceFrequency, uintptr(unsafe.Pointer(&tmp)))
+	if tmp == 0 {
+		throw("QueryPerformanceFrequency syscall returned zero, running on unsupported hardware")
+	}
+
+	// This should not overflow, it is a number of ticks of the performance counter per second,
+	// its resolution is at most 10 per usecond (on Wine, even smaller on real hardware), so it will be at most 10 millions here,
+	// panic if overflows.
+	if tmp > (1<<31 - 1) {
+		throw("QueryPerformanceFrequency overflow 32 bit divider, check nosplit discussion to proceed")
+	}
+	qpcFrequency := int32(tmp)
+	stdcall1(_QueryPerformanceCounter, uintptr(unsafe.Pointer(&qpcStartCounter)))
+
+	// Since we are supposed to run this time calls only on Wine, it does not lose precision,
+	// since Wine's timer is kind of emulated at 10 Mhz, so it will be a nice round multiplier of 100
+	// but for general purpose system (like 3.3 Mhz timer on i7) it will not be very precise.
+	// We have to do it this way (or similar), since multiplying QPC counter by 100 millions overflows
+	// int64 and resulted time will always be invalid.
+	qpcMultiplier = int64(timediv(1000000000, qpcFrequency, nil))
+
+	useQPCTime = 1
 }
 
 //go:nosplit
@@ -518,7 +622,9 @@ func semacreate(mp *m) {
 //go:nosplit
 func newosproc(mp *m, stk unsafe.Pointer) {
 	const _STACK_SIZE_PARAM_IS_A_RESERVATION = 0x00010000
-	thandle := stdcall6(_CreateThread, 0, 0x20000,
+	// stackSize must match SizeOfStackReserve in cmd/link/internal/ld/pe.go.
+	const stackSize = 0x00200000*_64bit + 0x00020000*(1-_64bit)
+	thandle := stdcall6(_CreateThread, 0, stackSize,
 		funcPC(tstart_stdcall), uintptr(unsafe.Pointer(mp)),
 		_STACK_SIZE_PARAM_IS_A_RESERVATION, 0)
 
@@ -559,6 +665,11 @@ func msigrestore(sigmask sigset) {
 }
 
 //go:nosplit
+//go:nowritebarrierrec
+func clearSignalHandlers() {
+}
+
+//go:nosplit
 func sigblock() {
 }
 
@@ -576,51 +687,6 @@ func unminit() {
 	tp := &getg().m.thread
 	stdcall1(_CloseHandle, *tp)
 	*tp = 0
-}
-
-// Described in http://www.dcl.hpi.uni-potsdam.de/research/WRK/2007/08/getting-os-information-the-kuser_shared_data-structure/
-type _KSYSTEM_TIME struct {
-	LowPart   uint32
-	High1Time int32
-	High2Time int32
-}
-
-const (
-	_INTERRUPT_TIME = 0x7ffe0008
-	_SYSTEM_TIME    = 0x7ffe0014
-)
-
-//go:nosplit
-func systime(addr uintptr) int64 {
-	timeaddr := (*_KSYSTEM_TIME)(unsafe.Pointer(addr))
-
-	var t _KSYSTEM_TIME
-	for i := 1; i < 10000; i++ {
-		// these fields must be read in that order (see URL above)
-		t.High1Time = timeaddr.High1Time
-		t.LowPart = timeaddr.LowPart
-		t.High2Time = timeaddr.High2Time
-		if t.High1Time == t.High2Time {
-			return int64(t.High1Time)<<32 | int64(t.LowPart)
-		}
-		if (i % 100) == 0 {
-			osyield()
-		}
-	}
-	systemstack(func() {
-		throw("interrupt/system time is changing too fast")
-	})
-	return 0
-}
-
-//go:nosplit
-func unixnano() int64 {
-	return (systime(_SYSTEM_TIME) - 116444736000000000) * 100
-}
-
-//go:nosplit
-func nanotime() int64 {
-	return systime(_INTERRUPT_TIME) * 100
 }
 
 // Calling stdcall on os stack.
@@ -787,10 +853,7 @@ func profileloop1(param uintptr) uint32 {
 	}
 }
 
-var cpuprofilerlock mutex
-
-func resetcpuprofiler(hz int32) {
-	lock(&cpuprofilerlock)
+func setProcessCPUProfiler(hz int32) {
 	if profiletimer == 0 {
 		timer := stdcall3(_CreateWaitableTimerA, 0, 0, 0)
 		atomic.Storeuintptr(&profiletimer, timer)
@@ -798,8 +861,9 @@ func resetcpuprofiler(hz int32) {
 		stdcall2(_SetThreadPriority, thread, _THREAD_PRIORITY_HIGHEST)
 		stdcall1(_CloseHandle, thread)
 	}
-	unlock(&cpuprofilerlock)
+}
 
+func setThreadCPUProfiler(hz int32) {
 	ms := int32(0)
 	due := ^int64(^uint64(1 << 63))
 	if hz > 0 {

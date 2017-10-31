@@ -29,8 +29,12 @@ type bulkBvec struct {
 
 func bvbulkalloc(nbit int32, count int32) bulkBvec {
 	nword := (nbit + WORDBITS - 1) / WORDBITS
+	size := int64(nword) * int64(count)
+	if int64(int32(size*4)) != size*4 {
+		Fatalf("bvbulkalloc too big: nbit=%d count=%d nword=%d size=%d", nbit, count, nword, size)
+	}
 	return bulkBvec{
-		words: make([]uint32, nword*count),
+		words: make([]uint32, size),
 		nbit:  nbit,
 		nword: nword,
 	}
@@ -55,9 +59,7 @@ func (bv1 bvec) Eq(bv2 bvec) bool {
 }
 
 func (dst bvec) Copy(src bvec) {
-	for i, x := range src.b {
-		dst.b[i] = x
-	}
+	copy(dst.b, src.b)
 }
 
 func (bv bvec) Get(i int32) bool {
@@ -74,6 +76,14 @@ func (bv bvec) Set(i int32) {
 	}
 	mask := uint32(1 << uint(i%WORDBITS))
 	bv.b[i/WORDBITS] |= mask
+}
+
+func (bv bvec) Unset(i int32) {
+	if i < 0 || i >= bv.n {
+		Fatalf("bvunset: index %d is out of bounds with length %d\n", i, bv.n)
+	}
+	mask := uint32(1 << uint(i%WORDBITS))
+	bv.b[i/WORDBITS] &^= mask
 }
 
 // bvnext returns the smallest index >= i for which bvget(bv, i) == 1.

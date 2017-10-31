@@ -26,10 +26,10 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
 	MOVQ	SP, (g_stack+stack_hi)(DI)
 
 	// find out information about the processor we're on
-	MOVQ	$0, AX
+	MOVL	$0, AX
 	CPUID
-	MOVQ	AX, SI
-	CMPQ	AX, $0
+	MOVL	AX, SI
+	CMPL	AX, $0
 	JE	nocpuinfo
 
 	// Figure out how to serialize RDTSC.
@@ -41,60 +41,77 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
 	JNE	notintel
 	CMPL	CX, $0x6C65746E  // "ntel"
 	JNE	notintel
+	MOVB	$1, runtime·isIntel(SB)
 	MOVB	$1, runtime·lfenceBeforeRdtsc(SB)
 notintel:
 
 	// Load EAX=1 cpuid flags
-	MOVQ	$1, AX
+	MOVL	$1, AX
 	CPUID
-	MOVL	CX, runtime·cpuid_ecx(SB)
-	MOVL	DX, runtime·cpuid_edx(SB)
+	MOVL	AX, runtime·processorVersionInfo(SB)
 
+	TESTL	$(1<<26), DX // SSE2
+	SETNE	runtime·support_sse2(SB)
+
+	TESTL	$(1<<9), CX // SSSE3
+	SETNE	runtime·support_ssse3(SB)
+
+	TESTL	$(1<<19), CX // SSE4.1
+	SETNE	runtime·support_sse41(SB)
+
+	TESTL	$(1<<20), CX // SSE4.2
+	SETNE	runtime·support_sse42(SB)
+
+	TESTL	$(1<<23), CX // POPCNT
+	SETNE	runtime·support_popcnt(SB)
+
+	TESTL	$(1<<25), CX // AES
+	SETNE	runtime·support_aes(SB)
+
+	TESTL	$(1<<27), CX // OSXSAVE
+	SETNE	runtime·support_osxsave(SB)
+
+	// If OS support for XMM and YMM is not present
+	// support_avx will be set back to false later.
+	TESTL	$(1<<28), CX // AVX
+	SETNE	runtime·support_avx(SB)
+
+eax7:
 	// Load EAX=7/ECX=0 cpuid flags
-	CMPQ	SI, $7
-	JLT	no7
+	CMPL	SI, $7
+	JLT	osavx
 	MOVL	$7, AX
 	MOVL	$0, CX
 	CPUID
-	MOVL	BX, runtime·cpuid_ebx7(SB)
-no7:
-	// Detect AVX and AVX2 as per 14.7.1  Detection of AVX2 chapter of [1]
-	// [1] 64-ia-32-architectures-software-developer-manual-325462.pdf
-	// http://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-manual-325462.pdf
-	MOVL	runtime·cpuid_ecx(SB), CX
-	ANDL    $0x18000000, CX // check for OSXSAVE and AVX bits
-	CMPL    CX, $0x18000000
-	JNE     noavx
-	MOVL    $0, CX
+
+	TESTL	$(1<<3), BX // BMI1
+	SETNE	runtime·support_bmi1(SB)
+
+	// If OS support for XMM and YMM is not present
+	// support_avx2 will be set back to false later.
+	TESTL	$(1<<5), BX
+	SETNE	runtime·support_avx2(SB)
+
+	TESTL	$(1<<8), BX // BMI2
+	SETNE	runtime·support_bmi2(SB)
+
+	TESTL	$(1<<9), BX // ERMS
+	SETNE	runtime·support_erms(SB)
+
+osavx:
+	CMPB	runtime·support_osxsave(SB), $1
+	JNE	noavx
+	MOVL	$0, CX
 	// For XGETBV, OSXSAVE bit is required and sufficient
 	XGETBV
-	ANDL    $6, AX
-	CMPL    AX, $6 // Check for OS support of YMM registers
-	JNE     noavx
-	MOVB    $1, runtime·support_avx(SB)
-	TESTL   $(1<<5), runtime·cpuid_ebx7(SB) // check for AVX2 bit
-	JEQ     noavx2
-	MOVB    $1, runtime·support_avx2(SB)
-	JMP     testbmi1
+	ANDL	$6, AX
+	CMPL	AX, $6 // Check for OS support of XMM and YMM registers.
+	JE nocpuinfo
 noavx:
-	MOVB    $0, runtime·support_avx(SB)
-noavx2:
-	MOVB    $0, runtime·support_avx2(SB)
-testbmi1:
-	// Detect BMI1 and BMI2 extensions as per
-	// 5.1.16.1 Detection of VEX-encoded GPR Instructions,
-	//   LZCNT and TZCNT, PREFETCHW chapter of [1]
-	MOVB    $0, runtime·support_bmi1(SB)
-	TESTL   $(1<<3), runtime·cpuid_ebx7(SB) // check for BMI1 bit
-	JEQ     testbmi2
-	MOVB    $1, runtime·support_bmi1(SB)
-testbmi2:
-	MOVB    $0, runtime·support_bmi2(SB)
-	TESTL   $(1<<8), runtime·cpuid_ebx7(SB) // check for BMI2 bit
-	JEQ     nocpuinfo
-	MOVB    $1, runtime·support_bmi2(SB)
-nocpuinfo:	
-	
+	MOVB $0, runtime·support_avx(SB)
+	MOVB $0, runtime·support_avx2(SB)
+
+nocpuinfo:
 	// if there is an _cgo_init, call it.
 	MOVQ	_cgo_init(SB), AX
 	TESTQ	AX, AX
@@ -404,28 +421,6 @@ TEXT runtime·morestack(SB),NOSPLIT,$0-0
 TEXT runtime·morestack_noctxt(SB),NOSPLIT,$0
 	MOVL	$0, DX
 	JMP	runtime·morestack(SB)
-
-TEXT runtime·stackBarrier(SB),NOSPLIT,$0
-	// We came here via a RET to an overwritten return PC.
-	// AX may be live. Other registers are available.
-
-	// Get the original return PC, g.stkbar[g.stkbarPos].savedLRVal.
-	get_tls(CX)
-	MOVQ	g(CX), CX
-	MOVQ	(g_stkbar+slice_array)(CX), DX
-	MOVQ	g_stkbarPos(CX), BX
-	IMULQ	$stkbar__size, BX	// Too big for SIB.
-	MOVQ	stkbar_savedLRPtr(DX)(BX*1), R8
-	MOVQ	stkbar_savedLRVal(DX)(BX*1), BX
-	// Assert that we're popping the right saved LR.
-	ADDQ	$8, R8
-	CMPQ	R8, SP
-	JEQ	2(PC)
-	MOVL	$0, 0
-	// Record that this stack barrier was hit.
-	ADDQ	$1, g_stkbarPos(CX)
-	// Jump to the original return PC.
-	JMP	BX
 
 // reflectcall: call a function with the given argument list
 // func call(argtype *_type, f *FuncVal, arg *byte, argsize, retoffset uint32).
@@ -841,27 +836,7 @@ TEXT runtime·stackcheck(SB), NOSPLIT, $0-0
 TEXT runtime·getcallerpc(SB),NOSPLIT,$8-16
 	MOVQ	argp+0(FP),AX		// addr of first arg
 	MOVQ	-8(AX),AX		// get calling pc
-	CMPQ	AX, runtime·stackBarrierPC(SB)
-	JNE	nobar
-	// Get original return PC.
-	CALL	runtime·nextBarrierPC(SB)
-	MOVQ	0(SP), AX
-nobar:
 	MOVQ	AX, ret+8(FP)
-	RET
-
-TEXT runtime·setcallerpc(SB),NOSPLIT,$8-16
-	MOVQ	argp+0(FP),AX		// addr of first arg
-	MOVQ	pc+8(FP), BX
-	MOVQ	-8(AX), CX
-	CMPQ	CX, runtime·stackBarrierPC(SB)
-	JEQ	setbar
-	MOVQ	BX, -8(AX)		// set calling pc
-	RET
-setbar:
-	// Set the stack barrier return PC.
-	MOVQ	BX, 0(SP)
-	CALL	runtime·setNextBarrierPC(SB)
 	RET
 
 // func cputicks() int64
@@ -1728,17 +1703,6 @@ big_loop_avx2_exit:
 	VZEROUPPER
 	JMP loop
 
-
-TEXT strings·supportAVX2(SB),NOSPLIT,$0-1
-	MOVBLZX runtime·support_avx2(SB), AX
-	MOVB AX, ret+0(FP)
-	RET
-
-TEXT bytes·supportAVX2(SB),NOSPLIT,$0-1
-	MOVBLZX runtime·support_avx2(SB), AX
-	MOVB AX, ret+0(FP)
-	RET
-
 TEXT strings·indexShortStr(SB),NOSPLIT,$0-40
 	MOVQ s+0(FP), DI
 	// We want len in DX and AX, because PCMPESTRI implicitly consumes them
@@ -1967,9 +1931,8 @@ success_avx2:
 	VZEROUPPER
 	JMP success
 sse42:
-	MOVL runtime·cpuid_ecx(SB), CX
-	ANDL $0x100000, CX
-	JZ no_sse42
+	CMPB runtime·support_sse42(SB), $1
+	JNE no_sse42
 	CMPQ AX, $12
 	// PCMPESTRI is slower than normal compare,
 	// so using it makes sense only if we advance 4+ bytes per compare
@@ -2163,17 +2126,194 @@ eqret:
 	MOVB	$0, ret+48(FP)
 	RET
 
-TEXT runtime·fastrand(SB), NOSPLIT, $0-4
-	get_tls(CX)
-	MOVQ	g(CX), AX
-	MOVQ	g_m(AX), AX
-	MOVL	m_fastrand(AX), DX
-	ADDL	DX, DX
-	MOVL	DX, BX
-	XORL	$0x88888eef, DX
-	CMOVLMI	BX, DX
-	MOVL	DX, m_fastrand(AX)
-	MOVL	DX, ret+0(FP)
+
+TEXT bytes·countByte(SB),NOSPLIT,$0-40
+	MOVQ s+0(FP), SI
+	MOVQ s_len+8(FP), BX
+	MOVB c+24(FP), AL
+	LEAQ ret+32(FP), R8
+	JMP  runtime·countByte(SB)
+
+TEXT strings·countByte(SB),NOSPLIT,$0-32
+	MOVQ s+0(FP), SI
+	MOVQ s_len+8(FP), BX
+	MOVB c+16(FP), AL
+	LEAQ ret+24(FP), R8
+	JMP  runtime·countByte(SB)
+
+// input:
+//   SI: data
+//   BX: data len
+//   AL: byte sought
+//   R8: address to put result
+// This requires the POPCNT instruction
+TEXT runtime·countByte(SB),NOSPLIT,$0
+	// Shuffle X0 around so that each byte contains
+	// the character we're looking for.
+	MOVD AX, X0
+	PUNPCKLBW X0, X0
+	PUNPCKLBW X0, X0
+	PSHUFL $0, X0, X0
+
+	CMPQ BX, $16
+	JLT small
+
+	MOVQ $0, R12 // Accumulator
+
+	MOVQ SI, DI
+
+	CMPQ BX, $32
+	JA avx2
+sse:
+	LEAQ	-16(SI)(BX*1), AX	// AX = address of last 16 bytes
+	JMP	sseloopentry
+
+sseloop:
+	// Move the next 16-byte chunk of the data into X1.
+	MOVOU	(DI), X1
+	// Compare bytes in X0 to X1.
+	PCMPEQB	X0, X1
+	// Take the top bit of each byte in X1 and put the result in DX.
+	PMOVMSKB X1, DX
+	// Count number of matching bytes
+	POPCNTL DX, DX
+	// Accumulate into R12
+	ADDQ DX, R12
+	// Advance to next block.
+	ADDQ	$16, DI
+sseloopentry:
+	CMPQ	DI, AX
+	JBE	sseloop
+
+	// Get the number of bytes to consider in the last 16 bytes
+	ANDQ $15, BX
+	JZ end
+
+	// Create mask to ignore overlap between previous 16 byte block
+	// and the next.
+	MOVQ $16,CX
+	SUBQ BX, CX
+	MOVQ $0xFFFF, R10
+	SARQ CL, R10
+	SALQ CL, R10
+
+	// Process the last 16-byte chunk. This chunk may overlap with the
+	// chunks we've already searched so we need to mask part of it.
+	MOVOU	(AX), X1
+	PCMPEQB	X0, X1
+	PMOVMSKB X1, DX
+	// Apply mask
+	ANDQ R10, DX
+	POPCNTL DX, DX
+	ADDQ DX, R12
+end:
+	MOVQ R12, (R8)
+	RET
+
+// handle for lengths < 16
+small:
+	TESTQ	BX, BX
+	JEQ	endzero
+
+	// Check if we'll load across a page boundary.
+	LEAQ	16(SI), AX
+	TESTW	$0xff0, AX
+	JEQ	endofpage
+
+	// We must ignore high bytes as they aren't part of our slice.
+	// Create mask.
+	MOVB BX, CX
+	MOVQ $1, R10
+	SALQ CL, R10
+	SUBQ $1, R10
+
+	// Load data
+	MOVOU	(SI), X1
+	// Compare target byte with each byte in data.
+	PCMPEQB	X0, X1
+	// Move result bits to integer register.
+	PMOVMSKB X1, DX
+	// Apply mask
+	ANDQ R10, DX
+	POPCNTL DX, DX
+	// Directly return DX, we don't need to accumulate
+	// since we have <16 bytes.
+	MOVQ	DX, (R8)
+	RET
+endzero:
+	MOVQ $0, (R8)
+	RET
+
+endofpage:
+	// We must ignore low bytes as they aren't part of our slice.
+	MOVQ $16,CX
+	SUBQ BX, CX
+	MOVQ $0xFFFF, R10
+	SARQ CL, R10
+	SALQ CL, R10
+
+	// Load data into the high end of X1.
+	MOVOU	-16(SI)(BX*1), X1
+	// Compare target byte with each byte in data.
+	PCMPEQB	X0, X1
+	// Move result bits to integer register.
+	PMOVMSKB X1, DX
+	// Apply mask
+	ANDQ R10, DX
+	// Directly return DX, we don't need to accumulate
+	// since we have <16 bytes.
+	POPCNTL DX, DX
+	MOVQ	DX, (R8)
+	RET
+
+avx2:
+	CMPB   runtime·support_avx2(SB), $1
+	JNE sse
+	MOVD AX, X0
+	LEAQ -32(SI)(BX*1), R11
+	VPBROADCASTB  X0, Y1
+avx2_loop:
+	VMOVDQU (DI), Y2
+	VPCMPEQB Y1, Y2, Y3
+	VPMOVMSKB Y3, DX
+	POPCNTL DX, DX
+	ADDQ DX, R12
+	ADDQ $32, DI
+	CMPQ DI, R11
+	JLE avx2_loop
+
+	// If last block is already processed,
+	// skip to the end.
+	CMPQ DI, R11
+	JEQ endavx
+
+	// Load address of the last 32 bytes.
+	// There is an overlap with the previous block.
+	MOVQ R11, DI
+	VMOVDQU (DI), Y2
+	VPCMPEQB Y1, Y2, Y3
+	VPMOVMSKB Y3, DX
+	// Exit AVX mode.
+	VZEROUPPER
+
+	// Create mask to ignore overlap between previous 32 byte block
+	// and the next.
+	ANDQ $31, BX
+	MOVQ $32,CX
+	SUBQ BX, CX
+	MOVQ $0xFFFFFFFF, R10
+	SARQ CL, R10
+	SALQ CL, R10
+	// Apply mask
+	ANDQ R10, DX
+	POPCNTL DX, DX
+	ADDQ DX, R12
+	MOVQ R12, (R8)
+	RET
+endavx:
+	// Exit AVX mode.
+	VZEROUPPER
+	MOVQ R12, (R8)
 	RET
 
 TEXT runtime·return0(SB), NOSPLIT, $0

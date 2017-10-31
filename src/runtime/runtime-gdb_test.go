@@ -56,6 +56,10 @@ func checkGdbVersion(t *testing.T) {
 }
 
 func checkGdbPython(t *testing.T) {
+	if runtime.GOOS == "solaris" && testenv.Builder() != "solaris-amd64-smartosbuildlet" {
+		t.Skip("skipping gdb python tests on solaris; see golang.org/issue/20821")
+	}
+
 	cmd := exec.Command("gdb", "-nx", "-q", "--batch", "-iex", "python import sys; print('go gdb python support')")
 	out, err := cmd.CombinedOutput()
 
@@ -69,6 +73,7 @@ func checkGdbPython(t *testing.T) {
 
 const helloSource = `
 import "fmt"
+import "runtime"
 var gslice []string
 func main() {
 	mapvar := make(map[string]string,5)
@@ -78,9 +83,10 @@ func main() {
 	ptrvar := &strvar
 	slicevar := make([]string, 0, 16)
 	slicevar = append(slicevar, mapvar["abc"])
-	fmt.Println("hi") // line 12
+	fmt.Println("hi") // line 13
 	_ = ptrvar
 	gslice = slicevar
+	runtime.KeepAlive(mapvar)
 }
 `
 
@@ -89,13 +95,13 @@ func TestGdbPython(t *testing.T) {
 }
 
 func TestGdbPythonCgo(t *testing.T) {
+	if runtime.GOARCH == "mips" || runtime.GOARCH == "mipsle" || runtime.GOARCH == "mips64" {
+		testenv.SkipFlaky(t, 18784)
+	}
 	testGdbPython(t, true)
 }
 
 func testGdbPython(t *testing.T, cgo bool) {
-	if runtime.GOARCH == "mips64" {
-		testenv.SkipFlaky(t, 18173)
-	}
 	if cgo && !build.Default.CgoEnabled {
 		t.Skip("skipping because cgo is not enabled")
 	}
@@ -152,6 +158,9 @@ func testGdbPython(t *testing.T, cgo bool) {
 		"-ex", "info locals",
 		"-ex", "echo END\n",
 		"-ex", "down", // back to fmt.Println (goroutine 2 below only works at bottom of stack.  TODO: fix that)
+		"-ex", "echo BEGIN goroutine 1 bt\n",
+		"-ex", "goroutine 1 bt",
+		"-ex", "echo END\n",
 		"-ex", "echo BEGIN goroutine 2 bt\n",
 		"-ex", "goroutine 2 bt",
 		"-ex", "echo END\n",
@@ -208,8 +217,13 @@ func testGdbPython(t *testing.T, cgo bool) {
 		t.Fatalf("info locals failed: %s", bl)
 	}
 
-	btGoroutineRe := regexp.MustCompile(`^#0\s+runtime.+at`)
-	if bl := blocks["goroutine 2 bt"]; !btGoroutineRe.MatchString(bl) {
+	btGoroutine1Re := regexp.MustCompile(`(?m)^#0\s+(0x[0-9a-f]+\s+in\s+)?fmt\.Println.+at`)
+	if bl := blocks["goroutine 1 bt"]; !btGoroutine1Re.MatchString(bl) {
+		t.Fatalf("goroutine 1 bt failed: %s", bl)
+	}
+
+	btGoroutine2Re := regexp.MustCompile(`(?m)^#0\s+(0x[0-9a-f]+\s+in\s+)?runtime.+at`)
+	if bl := blocks["goroutine 2 bt"]; !btGoroutine2Re.MatchString(bl) {
 		t.Fatalf("goroutine 2 bt failed: %s", bl)
 	}
 }
@@ -244,9 +258,6 @@ func main() {
 func TestGdbBacktrace(t *testing.T) {
 	if runtime.GOOS == "netbsd" {
 		testenv.SkipFlaky(t, 15603)
-	}
-	if runtime.GOARCH == "mips64" {
-		testenv.SkipFlaky(t, 18173)
 	}
 
 	t.Parallel()
@@ -319,10 +330,6 @@ func main() {
 // TestGdbAutotmpTypes ensures that types of autotmp variables appear in .debug_info
 // See bug #17830.
 func TestGdbAutotmpTypes(t *testing.T) {
-	if runtime.GOARCH == "mips64" {
-		testenv.SkipFlaky(t, 18173)
-	}
-
 	t.Parallel()
 	checkGdbEnvironment(t)
 	checkGdbVersion(t)

@@ -4,7 +4,10 @@
 
 package ssa
 
-import "fmt"
+import (
+	"cmd/internal/src"
+	"fmt"
+)
 
 // Block represents a basic block in the control flow graph of a function.
 type Block struct {
@@ -12,8 +15,8 @@ type Block struct {
 	// these IDs densely, but no guarantees.
 	ID ID
 
-	// Line number for block's control operation
-	Line int32
+	// Source position for block's control operation
+	Pos src.XPos
 
 	// The kind of block this is.
 	Kind BlockKind
@@ -98,7 +101,7 @@ func (e Edge) Index() int {
 //     Exit        return mem                []
 //    Plain               nil            [next]
 //       If   a boolean Value      [then, else]
-//    Defer               mem  [nopanic, panic]  (control opcode should be OpDeferCall)
+//    Defer               mem  [nopanic, panic]  (control opcode should be OpStaticCall to runtime.deferproc)
 type BlockKind int8
 
 // short form print

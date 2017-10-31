@@ -88,6 +88,11 @@ func msigrestore(sigmask sigset) {
 }
 
 //go:nosplit
+//go:nowritebarrierrec
+func clearSignalHandlers() {
+}
+
+//go:nosplit
 func sigblock() {
 }
 
@@ -273,7 +278,8 @@ func raisebadsignal(sig uint32) {
 
 func madvise(addr unsafe.Pointer, n uintptr, flags int32) {}
 func munmap(addr unsafe.Pointer, n uintptr)               {}
-func resetcpuprofiler(hz int32)                           {}
+func setProcessCPUProfiler(hz int32)                      {}
+func setThreadCPUProfiler(hz int32)                       {}
 func sigdisable(uint32)                                   {}
 func sigenable(uint32)                                    {}
 func sigignore(uint32)                                    {}
