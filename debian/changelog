@@ -1,3 +1,10 @@
+golang-1.9 (1.9.2-1ubuntu1~longsleep1+xenial) xenial; urgency=medium
+
+  * Update to Go 1.9
+  * Imported Upstream version 1.9.2
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 31 Oct 2017 10:23:32 +0100
+
 golang-1.8 (1.8.5-1ubuntu1~longsleep1+xenial) xenial; urgency=medium
 
   * Imported Upstream version 1.8.5
