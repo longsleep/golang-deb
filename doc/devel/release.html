@@ -15,19 +15,38 @@ git checkout <i>release-branch</i>
 <h2 id="policy">Release Policy</h2>
 
 <p>
-Each major Go release obsoletes and ends support for the previous one.
-For example, if Go 1.5 has been released, then it is the current release
-and Go 1.4 and earlier are no longer supported.
-We fix critical problems in the current release as needed by issuing minor revisions
-(for example, Go 1.5.1, Go 1.5.2, and so on).
+Each major Go release is supported until there are two newer major releases.
+For example, Go 1.8 is supported until Go 1.10 is released,
+and Go 1.9 is supported until Go 1.11 is released.
+We fix critical problems, including <a href="/security">critical security problems</a>,
+in supported releases as needed by issuing minor revisions
+(for example, Go 1.9.1, Go 1.9.2, and so on).
+</p>
+
+<h2 id="go1.9">go1.9 (released 2017/08/24)</h2>
+
+<p>
+Go 1.9 is a major release of Go.
+Read the <a href="/doc/go1.9">Go 1.9 Release Notes</a> for more information.
+</p>
+
+<h3 id="go1.9.minor">Minor revisions</h3>
+
+<p>
+go1.9.1 (released 2017/10/04) includes two security fixes.
+See the <a href="https://github.com/golang/go/issues?q=milestone%3AGo1.9.1">Go
+1.9.1 milestone</a> on our issue tracker for details.
 </p>
 
 <p>
-As a special case, we issue minor revisions for critical security problems
-in both the current release and the previous release.
-For example, if Go 1.5 is the current release then we will issue minor revisions
-to fix critical security problems in both Go 1.4 and Go 1.5 as they arise.
-See the <a href="/security">security policy</a> for more details.
+go1.9.2 (released 2017/10/25) includes fixes to the compiler, linker, runtime,
+documentation, <code>go</code> command,
+and the <code>crypto/x509</code>, <code>database/sql</code>, <code>log</code>,
+and <code>net/smtp</code> packages.
+It includes a fix to a bug introduced in Go 1.9.1 that broke <code>go</code> <code>get</code>
+of non-Git repositories under certain conditions.
+See the <a href="https://github.com/golang/go/issues?q=milestone%3AGo1.9.2">Go
+1.9.2 milestone</a> on our issue tracker for details.
 </p>
 
 <h2 id="go1.8">go1.8 (released 2017/02/16)</h2>
@@ -68,16 +87,6 @@ go1.8.4 (released 2017/10/04) includes two security fixes.
 It contains the same fixes as Go 1.9.1 and was released at the same time.
 See the <a href="https://github.com/golang/go/issues?q=milestone%3AGo1.8.4">Go
 1.8.4 milestone</a> on our issue tracker for details.
-</p>
-
-<p>
-go1.8.5 (released 2017/10/25) includes fixes to the compiler, linker, runtime,
-documentation, <code>go</code> command,
-and the <code>crypto/x509</code> and <code>net/smtp</code> packages.
-It includes a fix to a bug introduced in Go 1.8.4 that broke <code>go</code> <code>get</code>
-of non-Git repositories under certain conditions.
-See the <a href="https://github.com/golang/go/issues?q=milestone%3AGo1.8.5">Go
-1.8.5 milestone</a> on our issue tracker for details.
 </p>
 
 <h2 id="go1.7">go1.7 (released 2016/08/15)</h2>

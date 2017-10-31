@@ -16,6 +16,7 @@
 #define SYS_close                 6
 #define SYS_getpid               20
 #define SYS_kill                 37
+#define SYS_brk			 45
 #define SYS_fcntl                55
 #define SYS_gettimeofday         78
 #define SYS_mmap                 90
@@ -169,8 +170,8 @@ TEXT runtime·mincore(SB),NOSPLIT|NOFRAME,$0-28
 	MOVW	R2, ret+24(FP)
 	RET
 
-// func now() (sec int64, nsec int32)
-TEXT time·now(SB),NOSPLIT,$16
+// func walltime() (sec int64, nsec int32)
+TEXT runtime·walltime(SB),NOSPLIT,$16
 	MOVW	$0, R2 // CLOCK_REALTIME
 	MOVD	$tp-16(SP), R3
 	MOVW	$SYS_clock_gettime, R1
@@ -433,4 +434,13 @@ TEXT runtime·closeonexec(SB),NOSPLIT|NOFRAME,$0
 	MOVD    $1, R4  // FD_CLOEXEC
 	MOVW	$SYS_fcntl, R1
 	SYSCALL
+	RET
+
+// func sbrk0() uintptr
+TEXT runtime·sbrk0(SB),NOSPLIT|NOFRAME,$0-8
+	// Implemented as brk(NULL).
+	MOVD	$0, R2
+	MOVW	$SYS_brk, R1
+	SYSCALL
+	MOVD	R2, ret+0(FP)
 	RET

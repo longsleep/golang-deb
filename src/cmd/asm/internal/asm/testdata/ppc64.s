@@ -6,7 +6,9 @@
 // the old assembler's (9a's) grammar and hand-writing complete
 // instructions for each rule, to guarantee we cover the same space.
 
-TEXT foo(SB),7,$0
+#include "../../../../../runtime/textflag.h"
+
+TEXT foo(SB),DUPOK|NOSPLIT,$0
 
 //inst:
 //
@@ -22,7 +24,7 @@ TEXT foo(SB),7,$0
 //	{
 //		outcode(int($1), &$2, 0, &$4);
 //	}
-	MOVW	foo<>+3(SB), R2
+	MOVW	foo<>+4(SB), R2
 	MOVW	16(R1), R2
 
 //	LMOVW regaddr ',' rreg
@@ -59,7 +61,7 @@ TEXT foo(SB),7,$0
 //	{
 //		outcode(int($1), &$2, 0, &$4);
 //	}
-	FMOVD	foo<>+3(SB), F2
+	FMOVD	foo<>+4(SB), F2
 	FMOVD	16(R1), F2
 
 //	LFMOV regaddr ',' freg
@@ -84,7 +86,7 @@ TEXT foo(SB),7,$0
 //	{
 //		outcode(int($1), &$2, 0, &$4);
 //	}
-	FMOVD	F2, foo<>+3(SB)
+	FMOVD	F2, foo<>+4(SB)
 	FMOVD	F2, 16(R1)
 
 //	LFMOV freg ',' regaddr
@@ -130,7 +132,7 @@ TEXT foo(SB),7,$0
 //	{
 //		outcode(int($1), &$2, 0, &$4);
 //	}
-	FMOVD	F1, foo<>+3(SB)
+	FMOVD	F1, foo<>+4(SB)
 	FMOVD	F1, 16(R2)
 
 //	LMOVW freg ',' regaddr
@@ -540,6 +542,14 @@ label1:
 //	}
 //	FCMPU	F1, F2, CR0
 
+//	FTDIV FRA, FRB, BF produces
+//	ftdiv BF, FRA, FRB
+	FTDIV F1,F2,$7
+
+//	FTSQRT	FRB, BF produces
+//	ftsqrt	BF, FRB
+	FTSQRT	F2,$7
+
 //
 // CMP
 //
@@ -566,6 +576,19 @@ label1:
 //		outcode(int($1), &$2, int($6.Reg), &$4);
 //	}
 	CMP	R1, $4, CR0 // CMP R1, CR0, $4
+
+//	CMPB  RS,RB,RA produces
+//	cmpb  RA,RS,RB
+	CMPB  R2,R2,R1
+
+//
+// rotate extended mnemonics map onto other shift instructions
+//
+
+	ROTL	$12,R2,R3
+	ROTL	R2,R3,R4
+	ROTLW	$9,R2,R3
+	ROTLW	R2,R3,R4
 
 //
 // rotate and mask
@@ -602,6 +625,17 @@ label1:
 	RLDICL	$1, R2, $61, R6
 
 	RLDIMI  $7, R2, $52, R7
+
+// opcodes for right and left shifts, const and reg shift counts
+
+	SLD	$4, R3, R4
+	SLD	R2, R3, R4
+	SLW	$4, R3, R4
+	SLW	R2, R3, R4
+	SRD	$8, R3, R4
+	SRD	R2, R3, R4
+	SRW	$8, R3, R4
+	SRW	R2, R3, R4
 
 //
 // load/store multiple
@@ -673,6 +707,13 @@ label1:
 	DCBF	(R1)
 	DCBF	(R1+R2) // DCBF	(R1)(R2*1)
 
+//	Population count, X-form
+//	<MNEMONIC> RS,RA produces
+//	<mnemonic> RA,RS
+	POPCNTD	R1,R2
+	POPCNTW	R1,R2
+	POPCNTB R1,R2
+
 //	VMX instructions
 
 //	Described as:
@@ -703,14 +744,14 @@ label1:
 //	Vector AND, VX-form
 //	<MNEMONIC> VRA,VRB,VRT produces
 //	<mnemonic> VRT,VRA,VRB
-	VANDL	V10, V9, V8
+	VAND	V10, V9, V8
 	VANDC	V15, V14, V13
 	VNAND	V19, V18, V17
 
 //	Vector OR, VX-form
 //	<MNEMONIC> VRA,VRB,VRT produces
 //	<mnemonic> VRT,VRA,VRB
-	VORL	V26, V25, V24
+	VOR	V26, V25, V24
 	VORC	V23, V22, V21
 	VNOR	V20, V19, V18
 	VXOR	V17, V16, V15
@@ -738,6 +779,14 @@ label1:
 //	<mnemonic> VRT,VRA,VRB,VRC
 	VADDEUQM V4, V3, V2, V1
 	VADDECUQ V4, V3, V2, V1
+
+//	Vector polynomial multiply-sum, VX-form
+//	<MNEMONIC>  VRA,VRB,VRT produces
+//	<mnemonic>  VRT,VRA,VRB
+	VPMSUMB	V2, V3, V1
+	VPMSUMH	V2, V3, V1
+	VPMSUMW	V2, V3, V1
+	VPMSUMD	V2, V3, V1
 
 //	Vector SUB, VX-form
 //	<MNEMONIC> VRA,VRB,VRT produces

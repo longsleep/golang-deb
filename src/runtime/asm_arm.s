@@ -340,23 +340,6 @@ TEXT runtime·morestack_noctxt(SB),NOSPLIT,$-4-0
 	MOVW	$0, R7
 	B runtime·morestack(SB)
 
-TEXT runtime·stackBarrier(SB),NOSPLIT,$0
-	// We came here via a RET to an overwritten LR.
-	// R0 may be live. Other registers are available.
-
-	// Get the original return PC, g.stkbar[g.stkbarPos].savedLRVal.
-	MOVW	(g_stkbar+slice_array)(g), R4
-	MOVW	g_stkbarPos(g), R5
-	MOVW	$stkbar__size, R6
-	MUL	R5, R6
-	ADD	R4, R6
-	MOVW	stkbar_savedLRVal(R6), R6
-	// Record that this stack barrier was hit.
-	ADD	$1, R5
-	MOVW	R5, g_stkbarPos(g)
-	// Jump to the original return PC.
-	B	(R6)
-
 // reflectcall: call a function with the given argument list
 // func call(argtype *_type, f *FuncVal, arg *byte, argsize, retoffset uint32).
 // we don't have variable-sized frames, so we use a small number
@@ -696,28 +679,7 @@ TEXT setg<>(SB),NOSPLIT,$-4-0
 
 TEXT runtime·getcallerpc(SB),NOSPLIT,$4-8
 	MOVW	8(R13), R0		// LR saved by caller
-	MOVW	runtime·stackBarrierPC(SB), R1
-	CMP	R0, R1
-	BNE	nobar
-	// Get original return PC.
-	BL	runtime·nextBarrierPC(SB)
-	MOVW	4(R13), R0
-nobar:
 	MOVW	R0, ret+4(FP)
-	RET
-
-TEXT runtime·setcallerpc(SB),NOSPLIT,$4-8
-	MOVW	pc+4(FP), R0
-	MOVW	8(R13), R1
-	MOVW	runtime·stackBarrierPC(SB), R2
-	CMP	R1, R2
-	BEQ	setbar
-	MOVW	R0, 8(R13)		// set LR in caller
-	RET
-setbar:
-	// Set the stack barrier return PC.
-	MOVW	R0, 4(R13)
-	BL	runtime·setNextBarrierPC(SB)
 	RET
 
 TEXT runtime·emptyfunc(SB),0,$0-0
@@ -971,15 +933,6 @@ _sib_notfound:
 	MOVW	R0, ret+12(FP)
 	RET
 
-TEXT runtime·fastrand(SB),NOSPLIT,$-4-4
-	MOVW	g_m(g), R1
-	MOVW	m_fastrand(R1), R0
-	ADD.S	R0, R0
-	EOR.MI	$0x88888eef, R0
-	MOVW	R0, m_fastrand(R1)
-	MOVW	R0, ret+0(FP)
-	RET
-
 TEXT runtime·return0(SB),NOSPLIT,$0
 	MOVW	$0, R0
 	RET
@@ -988,6 +941,7 @@ TEXT runtime·procyield(SB),NOSPLIT,$-4
 	MOVW	cycles+0(FP), R1
 	MOVW	$0, R0
 yieldloop:
+	WORD	$0xe320f001	// YIELD (NOP pre-ARMv6K)
 	CMP	R0, R1
 	B.NE	2(PC)
 	RET
@@ -1057,11 +1011,13 @@ TEXT runtime·sigreturn(SB),NOSPLIT,$0-0
 
 #ifndef GOOS_nacl
 // This is called from .init_array and follows the platform, not Go, ABI.
-TEXT runtime·addmoduledata(SB),NOSPLIT,$0-4
+TEXT runtime·addmoduledata(SB),NOSPLIT,$0-8
 	MOVW	R9, saver9-4(SP) // The access to global variables below implicitly uses R9, which is callee-save
+	MOVW	R11, saver11-8(SP) // Likewise, R11 is the temp register, but callee-save in C ABI
 	MOVW	runtime·lastmoduledatap(SB), R1
 	MOVW	R0, moduledata_next(R1)
 	MOVW	R0, runtime·lastmoduledatap(SB)
+	MOVW	saver11-8(SP), R11
 	MOVW	saver9-4(SP), R9
 	RET
 #endif

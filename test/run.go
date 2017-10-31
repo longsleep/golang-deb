@@ -193,8 +193,9 @@ func goFiles(dir string) []string {
 
 type runCmd func(...string) ([]byte, error)
 
-func compileFile(runcmd runCmd, longname string) (out []byte, err error) {
+func compileFile(runcmd runCmd, longname string, flags []string) (out []byte, err error) {
 	cmd := []string{"go", "tool", "compile", "-e"}
+	cmd = append(cmd, flags...)
 	if *linkshared {
 		cmd = append(cmd, "-dynlink", "-installsuffix=dynlink")
 	}
@@ -479,7 +480,7 @@ func (t *test) run() {
 		action = "rundir"
 	case "cmpout":
 		action = "run" // the run case already looks for <dir>/<test>.out files
-	case "compile", "compiledir", "build", "run", "buildrun", "runoutput", "rundir":
+	case "compile", "compiledir", "build", "builddir", "run", "buildrun", "runoutput", "rundir":
 		// nothing to do
 	case "errorcheckandrundir":
 		wantError = false // should be no error if also will run
@@ -585,7 +586,8 @@ func (t *test) run() {
 		t.err = fmt.Errorf("unimplemented action %q", action)
 
 	case "errorcheck":
-		cmdline := []string{"go", "tool", "compile", "-e", "-o", "a.o"}
+		// TODO(gri) remove need for -C (disable printing of columns in error messages)
+		cmdline := []string{"go", "tool", "compile", "-C", "-e", "-o", "a.o"}
 		// No need to add -dynlink even if linkshared if we're just checking for errors...
 		cmdline = append(cmdline, flags...)
 		cmdline = append(cmdline, long)
@@ -608,7 +610,7 @@ func (t *test) run() {
 		return
 
 	case "compile":
-		_, t.err = compileFile(runcmd, long)
+		_, t.err = compileFile(runcmd, long, flags)
 
 	case "compiledir":
 		// Compile all files in the directory in lexicographic order.
@@ -704,6 +706,63 @@ func (t *test) run() {
 			t.err = err
 		}
 
+	case "builddir":
+		// Build an executable from all the .go and .s files in a subdirectory.
+		useTmp = true
+		longdir := filepath.Join(cwd, t.goDirName())
+		files, dirErr := ioutil.ReadDir(longdir)
+		if dirErr != nil {
+			t.err = dirErr
+			break
+		}
+		var gos []os.FileInfo
+		var asms []os.FileInfo
+		for _, file := range files {
+			switch filepath.Ext(file.Name()) {
+			case ".go":
+				gos = append(gos, file)
+			case ".s":
+				asms = append(asms, file)
+			}
+
+		}
+		var objs []string
+		cmd := []string{"go", "tool", "compile", "-e", "-D", ".", "-I", ".", "-o", "go.o"}
+		for _, file := range gos {
+			cmd = append(cmd, filepath.Join(longdir, file.Name()))
+		}
+		_, err := runcmd(cmd...)
+		if err != nil {
+			t.err = err
+			break
+		}
+		objs = append(objs, "go.o")
+		if len(asms) > 0 {
+			cmd = []string{"go", "tool", "asm", "-e", "-I", ".", "-o", "asm.o"}
+			for _, file := range asms {
+				cmd = append(cmd, filepath.Join(longdir, file.Name()))
+			}
+			_, err = runcmd(cmd...)
+			if err != nil {
+				t.err = err
+				break
+			}
+			objs = append(objs, "asm.o")
+		}
+		cmd = []string{"go", "tool", "pack", "c", "all.a"}
+		cmd = append(cmd, objs...)
+		_, err = runcmd(cmd...)
+		if err != nil {
+			t.err = err
+			break
+		}
+		cmd = []string{"go", "tool", "link", "all.a"}
+		_, err = runcmd(cmd...)
+		if err != nil {
+			t.err = err
+			break
+		}
+
 	case "buildrun": // build binary, then run binary, instead of go run. Useful for timeout tests where failure mode is infinite loop.
 		// TODO: not supported on NaCl
 		useTmp = true
@@ -736,6 +795,7 @@ func (t *test) run() {
 		if *linkshared {
 			cmd = append(cmd, "-linkshared")
 		}
+		cmd = append(cmd, flags...)
 		cmd = append(cmd, t.goFileName())
 		out, err := runcmd(append(cmd, args...)...)
 		if err != nil {

@@ -7,6 +7,7 @@ package gc
 import (
 	"bufio"
 	"bytes"
+	"cmd/compile/internal/types"
 	"cmd/internal/bio"
 	"fmt"
 	"unicode"
@@ -15,12 +16,10 @@ import (
 
 var (
 	Debug_export int // if set, print debugging information about export data
-	exportsize   int
 )
 
 func exportf(format string, args ...interface{}) {
-	n, _ := fmt.Fprintf(bout, format, args...)
-	exportsize += n
+	fmt.Fprintf(bout, format, args...)
 	if Debug_export != 0 {
 		fmt.Printf(format, args...)
 	}
@@ -33,21 +32,21 @@ func exportsym(n *Node) {
 	if n == nil || n.Sym == nil {
 		return
 	}
-	if n.Sym.Flags&(SymExport|SymPackage) != 0 {
-		if n.Sym.Flags&SymPackage != 0 {
-			yyerror("export/package mismatch: %v", n.Sym)
+	if n.Sym.Export() || n.Sym.Package() {
+		if n.Sym.Package() {
+			Fatalf("export/package mismatch: %v", n.Sym)
 		}
 		return
 	}
 
-	n.Sym.Flags |= SymExport
+	n.Sym.SetExport(true)
 	if Debug['E'] != 0 {
 		fmt.Printf("export symbol %v\n", n.Sym)
 	}
 
-	// Ensure original object is on exportlist before aliases.
-	if n.Sym.Flags&SymAlias != 0 {
-		exportlist = append(exportlist, n.Sym.Def)
+	// Ensure original types are on exportlist before type aliases.
+	if IsAlias(n.Sym) {
+		exportlist = append(exportlist, asNode(n.Sym.Def))
 	}
 
 	exportlist = append(exportlist, n)
@@ -67,7 +66,7 @@ func initname(s string) bool {
 
 // exportedsym reports whether a symbol will be visible
 // to files that import our package.
-func exportedsym(sym *Sym) bool {
+func exportedsym(sym *types.Sym) bool {
 	// Builtins are visible everywhere.
 	if sym.Pkg == builtinpkg || sym.Origpkg == builtinpkg {
 		return true
@@ -83,15 +82,15 @@ func autoexport(n *Node, ctxt Class) {
 	if (ctxt != PEXTERN && ctxt != PFUNC) || dclcontext != PEXTERN {
 		return
 	}
-	if n.Name.Param != nil && n.Name.Param.Ntype != nil && n.Name.Param.Ntype.Op == OTFUNC && n.Name.Param.Ntype.Left != nil { // method
+	if n.Type != nil && n.Type.IsKind(TFUNC) && n.Type.Recv() != nil { // method
 		return
 	}
 
 	if exportname(n.Sym.Name) || initname(n.Sym.Name) {
 		exportsym(n)
 	}
-	if asmhdr != "" && n.Sym.Pkg == localpkg && n.Sym.Flags&SymAsm == 0 {
-		n.Sym.Flags |= SymAsm
+	if asmhdr != "" && n.Sym.Pkg == localpkg && !n.Sym.Asm() {
+		n.Sym.SetAsm(true)
 		asmlist = append(asmlist, n)
 	}
 }
@@ -111,7 +110,7 @@ func reexportdep(n *Node) {
 	//print("reexportdep %+hN\n", n);
 	switch n.Op {
 	case ONAME:
-		switch n.Class {
+		switch n.Class() {
 		// methods will be printed along with their type
 		// nodes for T.Method expressions
 		case PFUNC:
@@ -138,7 +137,7 @@ func reexportdep(n *Node) {
 	case ODCL:
 		t := n.Left.Type
 
-		if t != Types[t.Etype] && t != idealbool && t != idealstring {
+		if t != types.Types[t.Etype] && t != types.Idealbool && t != types.Idealstring {
 			if t.IsPtr() {
 				t = t.Elem()
 			}
@@ -146,13 +145,13 @@ func reexportdep(n *Node) {
 				if Debug['E'] != 0 {
 					fmt.Printf("reexport type %v from declaration\n", t.Sym)
 				}
-				exportlist = append(exportlist, t.Sym.Def)
+				exportlist = append(exportlist, asNode(t.Sym.Def))
 			}
 		}
 
 	case OLITERAL:
 		t := n.Type
-		if t != Types[n.Type.Etype] && t != idealbool && t != idealstring {
+		if t != types.Types[n.Type.Etype] && t != types.Idealbool && t != types.Idealstring {
 			if t.IsPtr() {
 				t = t.Elem()
 			}
@@ -160,7 +159,7 @@ func reexportdep(n *Node) {
 				if Debug['E'] != 0 {
 					fmt.Printf("reexport literal type %v\n", t.Sym)
 				}
-				exportlist = append(exportlist, t.Sym.Def)
+				exportlist = append(exportlist, asNode(t.Sym.Def))
 			}
 		}
 		fallthrough
@@ -203,7 +202,7 @@ func reexportdep(n *Node) {
 			if Debug['E'] != 0 {
 				fmt.Printf("reexport type for expression %v\n", t.Sym)
 			}
-			exportlist = append(exportlist, t.Sym.Def)
+			exportlist = append(exportlist, asNode(t.Sym.Def))
 		}
 	}
 
@@ -216,7 +215,7 @@ func reexportdep(n *Node) {
 }
 
 // methodbyname sorts types by symbol name.
-type methodbyname []*Field
+type methodbyname []*types.Field
 
 func (x methodbyname) Len() int           { return len(x) }
 func (x methodbyname) Swap(i, j int)      { x[i], x[j] = x[j], x[i] }
@@ -247,15 +246,9 @@ func dumpexport() {
 
 		// verify that we can read the copied export data back in
 		// (use empty package map to avoid collisions)
-		savedPkgMap := pkgMap
-		savedPkgs := pkgs
-		pkgMap = make(map[string]*Pkg)
-		pkgs = nil
-		importpkg = mkpkg("")
-		Import(bufio.NewReader(&copy)) // must not die
-		importpkg = nil
-		pkgs = savedPkgs
-		pkgMap = savedPkgMap
+		types.CleanroomDo(func() {
+			Import(types.NewPkg("", ""), bufio.NewReader(&copy)) // must not die
+		})
 	} else {
 		size = export(bout.Writer, Debug_export != 0)
 	}
@@ -267,45 +260,48 @@ func dumpexport() {
 }
 
 // importsym declares symbol s as an imported object representable by op.
-func importsym(s *Sym, op Op) {
-	if s.Def != nil && s.Def.Op != op {
-		pkgstr := fmt.Sprintf("during import %q", importpkg.Path)
+// pkg is the package being imported
+func importsym(pkg *types.Pkg, s *types.Sym, op Op) {
+	if asNode(s.Def) != nil && asNode(s.Def).Op != op {
+		pkgstr := fmt.Sprintf("during import %q", pkg.Path)
 		redeclare(s, pkgstr)
 	}
 
 	// mark the symbol so it is not reexported
-	if s.Def == nil {
+	if asNode(s.Def) == nil {
 		if exportname(s.Name) || initname(s.Name) {
-			s.Flags |= SymExport
+			s.SetExport(true)
 		} else {
-			s.Flags |= SymPackage // package scope
+			s.SetPackage(true) // package scope
 		}
 	}
 }
 
 // pkgtype returns the named type declared by symbol s.
 // If no such type has been declared yet, a forward declaration is returned.
-func pkgtype(s *Sym) *Type {
-	importsym(s, OTYPE)
-	if s.Def == nil || s.Def.Op != OTYPE {
-		t := typ(TFORW)
+// pkg is the package being imported
+func pkgtype(pkg *types.Pkg, s *types.Sym) *types.Type {
+	importsym(pkg, s, OTYPE)
+	if asNode(s.Def) == nil || asNode(s.Def).Op != OTYPE {
+		t := types.New(TFORW)
 		t.Sym = s
-		s.Def = typenod(t)
-		s.Def.Name = new(Name)
+		s.Def = asTypesNode(typenod(t))
+		asNode(s.Def).Name = new(Name)
 	}
 
-	if s.Def.Type == nil {
-		yyerror("pkgtype %v", s)
+	if asNode(s.Def).Type == nil {
+		Fatalf("pkgtype %v", s)
 	}
-	return s.Def.Type
+	return asNode(s.Def).Type
 }
 
 // importconst declares symbol s as an imported constant with type t and value n.
-func importconst(s *Sym, t *Type, n *Node) {
-	importsym(s, OLITERAL)
+// pkg is the package being imported
+func importconst(pkg *types.Pkg, s *types.Sym, t *types.Type, n *Node) {
+	importsym(pkg, s, OLITERAL)
 	n = convlit(n, t)
 
-	if s.Def != nil { // TODO: check if already the same.
+	if asNode(s.Def) != nil { // TODO: check if already the same.
 		return
 	}
 
@@ -329,22 +325,45 @@ func importconst(s *Sym, t *Type, n *Node) {
 }
 
 // importvar declares symbol s as an imported variable with type t.
-func importvar(s *Sym, t *Type) {
-	importsym(s, ONAME)
-	if s.Def != nil && s.Def.Op == ONAME {
-		if eqtype(t, s.Def.Type) {
+// pkg is the package being imported
+func importvar(pkg *types.Pkg, s *types.Sym, t *types.Type) {
+	importsym(pkg, s, ONAME)
+	if asNode(s.Def) != nil && asNode(s.Def).Op == ONAME {
+		if eqtype(t, asNode(s.Def).Type) {
 			return
 		}
-		yyerror("inconsistent definition for var %v during import\n\t%v (in %q)\n\t%v (in %q)", s, s.Def.Type, s.Importdef.Path, t, importpkg.Path)
+		yyerror("inconsistent definition for var %v during import\n\t%v (in %q)\n\t%v (in %q)", s, asNode(s.Def).Type, s.Importdef.Path, t, pkg.Path)
 	}
 
 	n := newname(s)
-	s.Importdef = importpkg
+	s.Importdef = pkg
 	n.Type = t
 	declare(n, PEXTERN)
 
 	if Debug['E'] != 0 {
 		fmt.Printf("import var %v %L\n", s, t)
+	}
+}
+
+// importalias declares symbol s as an imported type alias with type t.
+// pkg is the package being imported
+func importalias(pkg *types.Pkg, s *types.Sym, t *types.Type) {
+	importsym(pkg, s, OTYPE)
+	if asNode(s.Def) != nil && asNode(s.Def).Op == OTYPE {
+		if eqtype(t, asNode(s.Def).Type) {
+			return
+		}
+		yyerror("inconsistent definition for type alias %v during import\n\t%v (in %q)\n\t%v (in %q)", s, asNode(s.Def).Type, s.Importdef.Path, t, pkg.Path)
+	}
+
+	n := newname(s)
+	n.Op = OTYPE
+	s.Importdef = pkg
+	n.Type = t
+	declare(n, PEXTERN)
+
+	if Debug['E'] != 0 {
+		fmt.Printf("import type %v = %L\n", s, t)
 	}
 }
 
@@ -355,7 +374,7 @@ func dumpasmhdr() {
 	}
 	fmt.Fprintf(b, "// generated by compile -asmhdr from package %s\n\n", localpkg.Name)
 	for _, n := range asmlist {
-		if isblanksym(n.Sym) {
+		if n.Sym.IsBlank() {
 			continue
 		}
 		switch n.Op {
@@ -369,7 +388,7 @@ func dumpasmhdr() {
 			}
 			fmt.Fprintf(b, "#define %s__size %d\n", t.Sym.Name, int(t.Width))
 			for _, t := range t.Fields().Slice() {
-				if !isblanksym(t.Sym) {
+				if !t.Sym.IsBlank() {
 					fmt.Fprintf(b, "#define %s_%s %d\n", n.Sym.Name, t.Sym.Name, int(t.Offset))
 				}
 			}

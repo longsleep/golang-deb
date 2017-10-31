@@ -142,8 +142,8 @@ TEXT runtime·setitimer(SB), NOSPLIT, $-8
 	SYSCALL
 	RET
 
-// func now() (sec int64, nsec int32)
-TEXT time·now(SB), NOSPLIT, $32
+// func walltime() (sec int64, nsec int32)
+TEXT runtime·walltime(SB), NOSPLIT, $32
 	MOVL	$232, AX // clock_gettime
 	MOVQ	$0, DI		// CLOCK_REALTIME
 	LEAQ	8(SP), SI
@@ -353,4 +353,18 @@ TEXT runtime·closeonexec(SB),NOSPLIT,$0
 	MOVQ	$1, DX		// FD_CLOEXEC
 	MOVL	$92, AX		// fcntl
 	SYSCALL
+	RET
+
+// func cpuset_getaffinity(level int, which int, id int64, size int, mask *byte) int32
+TEXT runtime·cpuset_getaffinity(SB), NOSPLIT, $0-44
+	MOVQ	level+0(FP), DI
+	MOVQ	which+8(FP), SI
+	MOVQ	id+16(FP), DX
+	MOVQ	size+24(FP), R10
+	MOVQ	mask+32(FP), R8
+	MOVL	$487, AX
+	SYSCALL
+	JCC	2(PC)
+	NEGQ	AX
+	MOVL	AX, ret+40(FP)
 	RET

@@ -28,16 +28,92 @@ TEXT runtime·rt0_go(SB),NOSPLIT,$0
 	MOVL	SP, (g_stack+stack_hi)(DI)
 
 	// find out information about the processor we're on
-	MOVQ	$0, AX
+	MOVL	$0, AX
 	CPUID
-	CMPQ	AX, $0
+	CMPL	AX, $0
 	JE	nocpuinfo
-	MOVQ	$1, AX
+
+	CMPL	BX, $0x756E6547  // "Genu"
+	JNE	notintel
+	CMPL	DX, $0x49656E69  // "ineI"
+	JNE	notintel
+	CMPL	CX, $0x6C65746E  // "ntel"
+	JNE	notintel
+	MOVB	$1, runtime·isIntel(SB)
+notintel:
+
+	// Load EAX=1 cpuid flags
+	MOVL	$1, AX
 	CPUID
-	MOVL	CX, runtime·cpuid_ecx(SB)
-	MOVL	DX, runtime·cpuid_edx(SB)
-nocpuinfo:	
-	
+	MOVL	AX, runtime·processorVersionInfo(SB)
+
+	TESTL	$(1<<26), DX // SSE2
+	SETNE	runtime·support_sse2(SB)
+
+	TESTL	$(1<<9), CX // SSSE3
+	SETNE	runtime·support_ssse3(SB)
+
+	TESTL	$(1<<19), CX // SSE4.1
+	SETNE	runtime·support_sse41(SB)
+
+	TESTL	$(1<<20), CX // SSE4.2
+	SETNE	runtime·support_sse42(SB)
+
+	TESTL	$(1<<23), CX // POPCNT
+	SETNE	runtime·support_popcnt(SB)
+
+	TESTL	$(1<<25), CX // AES
+	SETNE	runtime·support_aes(SB)
+
+	TESTL	$(1<<27), CX // OSXSAVE
+	SETNE	runtime·support_osxsave(SB)
+
+	// If OS support for XMM and YMM is not present
+	// support_avx will be set back to false later.
+	TESTL	$(1<<28), CX // AVX
+	SETNE	runtime·support_avx(SB)
+
+eax7:
+	// Load EAX=7/ECX=0 cpuid flags
+	CMPL	SI, $7
+	JLT	osavx
+	MOVL	$7, AX
+	MOVL	$0, CX
+	CPUID
+
+	TESTL	$(1<<3), BX // BMI1
+	SETNE	runtime·support_bmi1(SB)
+
+	// If OS support for XMM and YMM is not present
+	// support_avx2 will be set back to false later.
+	TESTL	$(1<<5), BX
+	SETNE	runtime·support_avx2(SB)
+
+	TESTL	$(1<<8), BX // BMI2
+	SETNE	runtime·support_bmi2(SB)
+
+	TESTL	$(1<<9), BX // ERMS
+	SETNE	runtime·support_erms(SB)
+
+osavx:
+	// nacl does not support XGETBV to test
+	// for XMM and YMM OS support.
+#ifndef GOOS_nacl
+	CMPB	runtime·support_osxsave(SB), $1
+	JNE	noavx
+	MOVL	$0, CX
+	// For XGETBV, OSXSAVE bit is required and sufficient
+	XGETBV
+	ANDL	$6, AX
+	CMPL	AX, $6 // Check for OS support of XMM and YMM registers.
+	JE nocpuinfo
+#endif
+noavx:
+	MOVB $0, runtime·support_avx(SB)
+	MOVB $0, runtime·support_avx2(SB)
+
+nocpuinfo:
+
 needtls:
 	LEAL	runtime·m0+m_tls(SB), DI
 	CALL	runtime·settls(SB)
@@ -309,23 +385,6 @@ TEXT runtime·morestack_noctxt(SB),NOSPLIT,$0
 	MOVL	$0, DX
 	JMP	runtime·morestack(SB)
 
-TEXT runtime·stackBarrier(SB),NOSPLIT,$0
-	// We came here via a RET to an overwritten return PC.
-	// AX may be live. Other registers are available.
-
-	// Get the original return PC, g.stkbar[g.stkbarPos].savedLRVal.
-	get_tls(CX)
-	MOVL	g(CX), CX
-	MOVL	(g_stkbar+slice_array)(CX), DX
-	MOVL	g_stkbarPos(CX), BX
-	IMULL	$stkbar__size, BX	// Too big for SIB.
-	ADDL	DX, BX
-	MOVL	stkbar_savedLRVal(BX), BX
-	// Record that this stack barrier was hit.
-	ADDL	$1, g_stkbarPos(CX)
-	// Jump to the original return PC.
-	JMP	BX
-
 // reflectcall: call a function with the given argument list
 // func call(argtype *_type, f *FuncVal, arg *byte, argsize, retoffset uint32).
 // we don't have variable-sized frames, so we use a small number
@@ -521,27 +580,7 @@ TEXT runtime·memclrNoHeapPointers(SB),NOSPLIT,$0-8
 TEXT runtime·getcallerpc(SB),NOSPLIT,$8-12
 	MOVL	argp+0(FP),AX		// addr of first arg
 	MOVL	-8(AX),AX		// get calling pc
-	CMPL	AX, runtime·stackBarrierPC(SB)
-	JNE	nobar
-	// Get original return PC.
-	CALL	runtime·nextBarrierPC(SB)
-	MOVL	0(SP), AX
-nobar:
 	MOVL	AX, ret+8(FP)
-	RET
-
-TEXT runtime·setcallerpc(SB),NOSPLIT,$8-8
-	MOVL	argp+0(FP),AX		// addr of first arg
-	MOVL	pc+4(FP), BX		// pc to set
-	MOVL	-8(AX), CX
-	CMPL	CX, runtime·stackBarrierPC(SB)
-	JEQ	setbar
-	MOVQ	BX, -8(AX)		// set calling pc
-	RET
-setbar:
-	// Set the stack barrier return PC.
-	MOVL	BX, 0(SP)
-	CALL	runtime·setNextBarrierPC(SB)
 	RET
 
 // int64 runtime·cputicks(void)
@@ -989,19 +1028,6 @@ TEXT bytes·Equal(SB),NOSPLIT,$0-25
 	CALL	runtime·memeqbody(SB)
 eqret:
 	MOVB	AX, ret+24(FP)
-	RET
-
-TEXT runtime·fastrand(SB), NOSPLIT, $0-4
-	get_tls(CX)
-	MOVL	g(CX), AX
-	MOVL	g_m(AX), AX
-	MOVL	m_fastrand(AX), DX
-	ADDL	DX, DX
-	MOVL	DX, BX
-	XORL	$0x88888eef, DX
-	CMOVLMI	BX, DX
-	MOVL	DX, m_fastrand(AX)
-	MOVL	DX, ret+0(FP)
 	RET
 
 TEXT runtime·return0(SB), NOSPLIT, $0

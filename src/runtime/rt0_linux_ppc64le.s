@@ -8,6 +8,8 @@ TEXT _rt0_ppc64le_linux_lib(SB),NOSPLIT,$-8
 	// Start with standard C stack frame layout and linkage.
 	MOVD	LR, R0
 	MOVD	R0, 16(R1) // Save LR in caller's frame.
+	MOVW	CR, R0     // Save CR in caller's frame
+	MOVD	R0, 8(R1)
 	MOVD	R2, 24(R1) // Save TOC in caller's frame.
 	MOVDU	R1, -320(R1) // Allocate frame.
 	
@@ -53,6 +55,9 @@ TEXT _rt0_ppc64le_linux_lib(SB),NOSPLIT,$-8
 	MOVD	R4, _rt0_ppc64le_linux_lib_argv<>(SB)
 
 	// Synchronous initialization.
+	MOVD	$runtime·reginit(SB), R12
+	MOVD	R12, CTR
+	BL	(CTR)
 	MOVD	$runtime·libpreinit(SB), R12
 	MOVD	R12, CTR
 	BL	(CTR)
@@ -117,6 +122,8 @@ done:
 
 	ADD	$320, R1
 	MOVD	24(R1), R2
+	MOVD	8(R1), R0
+	MOVFL	R0, $0xff
 	MOVD	16(R1), R0
 	MOVD	R0, LR
 	RET

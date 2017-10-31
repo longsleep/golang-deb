@@ -31,6 +31,7 @@ var timers struct {
 	created      bool
 	sleeping     bool
 	rescheduling bool
+	sleepUntil   int64
 	waitnote     note
 	t            []*timer
 }
@@ -50,7 +51,12 @@ func timeSleep(ns int64) {
 		return
 	}
 
-	t := new(timer)
+	t := getg().timer
+	if t == nil {
+		t = new(timer)
+		getg().timer = t
+	}
+	*t = timer{}
 	t.when = nanotime() + ns
 	t.f = goroutineReady
 	t.arg = getg()
@@ -204,6 +210,7 @@ func timerproc() {
 		}
 		// At least one timer pending. Sleep until then.
 		timers.sleeping = true
+		timers.sleepUntil = now + delta
 		noteclear(&timers.waitnote)
 		unlock(&timers.lock)
 		notetsleepg(&timers.waitnote, delta)
@@ -292,8 +299,8 @@ func siftdownTimer(i int) {
 
 // Entry points for net, time to call nanotime.
 
-//go:linkname net_runtimeNano net.runtimeNano
-func net_runtimeNano() int64 {
+//go:linkname poll_runtimeNano internal/poll.runtimeNano
+func poll_runtimeNano() int64 {
 	return nanotime()
 }
 
@@ -301,3 +308,11 @@ func net_runtimeNano() int64 {
 func time_runtimeNano() int64 {
 	return nanotime()
 }
+
+// Monotonic times are reported as offsets from startNano.
+// We initialize startNano to nanotime() - 1 so that on systems where
+// monotonic time resolution is fairly low (e.g. Windows 2008
+// which appears to have a default resolution of 15ms),
+// we avoid ever reporting a nanotime of 0.
+// (Callers may want to use 0 as "time not set".)
+var startNano int64 = nanotime() - 1
