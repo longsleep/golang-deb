@@ -11,10 +11,11 @@ __goos__deb_arch_os() {
 
 __goarch__deb_arch_cpu() {
 	case "$1" in
-		amd64|arm|arm64|ppc64|s390x) echo "$1" ;;
+		amd64|arm|arm64|mips|ppc64|s390x) echo "$1" ;;
 		i386) echo 386 ;;
-		ppc64el) echo ppc64le ;;
 		mips64el) echo mips64le ;;
+		mipsel) echo mipsle ;;
+		ppc64el) echo ppc64le ;;
 		*) echo >&2 "error: unrecongized DEB_*_ARCH_CPU: $1"; exit 1 ;;
 	esac
 }
