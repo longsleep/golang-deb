@@ -1,3 +1,10 @@
+golang-1.10 (1.10~beta1-1) UNRELEASED; urgency=medium
+
+  * New upstream version 1.10~beta1
+  * Disable 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch for now. Remove all other patches.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 08 Dec 2017 14:35:16 +1300
+
 golang-1.9 (1.9.2-4) unstable; urgency=medium
 
   * Enable building on mips, mipsel and mips64. (Closes: 879764)
