@@ -1,3 +1,9 @@
+golang-1.9 (1.9.2-4) unstable; urgency=medium
+
+  * Enable building on mips, mipsel and mips64. (Closes: 879764)
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 08 Dec 2017 14:09:24 +1300
+
 golang-1.9 (1.9.2-3) unstable; urgency=medium
 
   * Remove workaround for now fixed debhelper bug #879762
