@@ -1,5 +1,4 @@
 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch
-0003-Do-not-use-SP-as-index-reg.patch
 0004-cmd-dist-use-buildmode-pie-for-pie-testing.patch
 0005-runtime-use-buildmode-pie-in-testCgoPprofPIE-instead.patch
 0006-misc-cgo-testcarchive-use-no-pie-where-needed.patch
