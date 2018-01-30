@@ -1,0 +1,35 @@
+From 52644d69a77492707bcc89bfeb775aa336f1dcdb Mon Sep 17 00:00:00 2001
+From: Michael Hudson-Doyle <michael.hudson@canonical.com>
+Date: Wed, 31 Jan 2018 11:11:39 +1300
+Subject: [PATCH] cmd/vendor/github.com/google/pprof: cherry-pick fix to cope
+ with $HOME not being writable
+
+Upstream PRs: https://github.com/google/pprof/pull/305,
+https://github.com/google/pprof/pull/306.
+
+Change-Id: I28969118f52ee08fcaf3572ad5da015ae756fd7a
+---
+ .../github.com/google/pprof/internal/driver/fetch_test.go    | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+--- a/src/cmd/vendor/github.com/google/pprof/internal/driver/fetch_test.go
++++ b/src/cmd/vendor/github.com/google/pprof/internal/driver/fetch_test.go
+@@ -362,6 +362,18 @@
+ 	if runtime.GOOS == "nacl" {
+ 		t.Skip("test assumes tcp available")
+ 	}
++	saveHome := os.Getenv(homeEnv())
++	tempdir, err := ioutil.TempDir("", "home")
++	if err != nil {
++		t.Fatal("creating temp dir: ", err)
++	}
++	defer os.RemoveAll(tempdir)
++
++	// pprof writes to $HOME/pprof by default which is not necessarily
++	// writeable (e.g. on a Debian buildd) so set $HOME to something we
++	// know we can write to for the duration of the test.
++	os.Setenv(homeEnv(), tempdir)
++	defer os.Setenv(homeEnv(), saveHome)
+ 
+ 	baseVars := pprofVariables
+ 	pprofVariables = baseVars.makeCopy()
