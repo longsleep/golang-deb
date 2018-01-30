@@ -1,6 +1,6 @@
-golang-1.10 (1.10~beta1-1) UNRELEASED; urgency=medium
+golang-1.10 (1.10~rc1-1) UNRELEASED; urgency=medium
 
-  * New upstream version 1.10~beta1
+  * New upstream version 1.10~rc1
   * Disable 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch for now. Remove all other patches.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 08 Dec 2017 14:35:16 +1300
