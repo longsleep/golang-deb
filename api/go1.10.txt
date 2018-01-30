@@ -573,6 +573,7 @@ pkg encoding/xml, type TokenReader interface, Token() (Token, error)
 pkg flag, method (*FlagSet) ErrorHandling() ErrorHandling
 pkg flag, method (*FlagSet) Name() string
 pkg flag, method (*FlagSet) Output() io.Writer
+pkg html/template, type Srcset string
 pkg math, func Erfcinv(float64) float64
 pkg math, func Erfinv(float64) float64
 pkg math, func Round(float64) float64
@@ -594,7 +595,6 @@ pkg os, method (*SyscallError) Timeout() bool
 pkg os, var ErrNoDeadline error
 pkg strings, method (*Builder) Grow(int)
 pkg strings, method (*Builder) Len() int
-pkg strings, method (*Builder) ReadFrom(io.Reader) (int64, error)
 pkg strings, method (*Builder) Reset()
 pkg strings, method (*Builder) String() string
 pkg strings, method (*Builder) Write([]uint8) (int, error)

@@ -341,67 +341,27 @@ in unexpected and unpredictable ways.
 Special cases
 
 A few special C types which would normally be represented by a pointer
-type in Go are instead represented by a uintptr. Those types are
-the CF*Ref types from the CoreFoundation library on Darwin, including:
+type in Go are instead represented by a uintptr. Those include:
 
-	CFAllocatorRef
-	CFArrayRef
-	CFAttributedStringRef
-	CFBagRef
-	CFBinaryHeapRef
-	CFBitVectorRef
-	CFBooleanRef
-	CFBundleRef
-	CFCalendarRef
-	CFCharacterSetRef
-	CFDataRef
-	CFDateFormatterRef
-	CFDateRef
-	CFDictionaryRef
-	CFErrorRef
-	CFFileDescriptorRef
-	CFFileSecurityRef
-	CFLocaleRef
-	CFMachPortRef
-	CFMessagePortRef
-	CFMutableArrayRef
-	CFMutableAttributedStringRef
-	CFMutableBagRef
-	CFMutableBitVectorRef
-	CFMutableCharacterSetRef
-	CFMutableDataRef
-	CFMutableDictionaryRef
-	CFMutableSetRef
-	CFMutableStringRef
-	CFNotificationCenterRef
-	CFNullRef
-	CFNumberFormatterRef
-	CFNumberRef
-	CFPlugInInstanceRef
-	CFPlugInRef
-	CFPropertyListRef
-	CFReadStreamRef
-	CFRunLoopObserverRef
-	CFRunLoopRef
-	CFRunLoopSourceRef
-	CFRunLoopTimerRef
-	CFSetRef
-	CFSocketRef
-	CFStringRef
-	CFStringTokenizerRef
-	CFTimeZoneRef
-	CFTreeRef
-	CFTypeRef
-	CFURLCreateFromFSRef
-	CFURLEnumeratorRef
-	CFURLGetFSRef
-	CFURLRef
-	CFUUIDRef
-	CFUserNotificationRef
-	CFWriteStreamRef
-	CFXMLNodeRef
-	CFXMLParserRef
-	CFXMLTreeRef
+1. The *Ref types on Darwin, rooted at CoreFoundation's CFTypeRef type.
+
+2. The object types from Java's JNI interface:
+
+	jobject
+	jclass
+	jthrowable
+	jstring
+	jarray
+	jbooleanArray
+	jbyteArray
+	jcharArray
+	jshortArray
+	jintArray
+	jlongArray
+	jfloatArray
+	jdoubleArray
+	jobjectArray
+	jweak
 
 These types are uintptr on the Go side because they would otherwise
 confuse the Go garbage collector; they are sometimes not really
@@ -409,10 +369,11 @@ pointers but data structures encoded in a pointer type. All operations
 on these types must happen in C. The proper constant to initialize an
 empty such reference is 0, not nil.
 
-This special case was introduced in Go 1.10. For auto-updating code
-from Go 1.9 and earlier, use the cftype rewrite in the Go fix tool:
+These special cases were introduced in Go 1.10. For auto-updating code
+from Go 1.9 and earlier, use the cftype or jni rewrites in the Go fix tool:
 
 	go tool fix -r cftype <pkg>
+	go tool fix -r jni <pkg>
 
 It will replace nil with 0 in the appropriate places.
 
