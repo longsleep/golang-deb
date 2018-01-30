@@ -1,9 +1,9 @@
-golang-1.9 (1.9.3-1) UNRELEASED; urgency=medium
+golang-1.9 (1.9.3-1) unstable; urgency=medium
 
   * New upstream version.
     - d/patches/0003-Do-not-use-SP-as-index-reg.patch: remove, included upstream.
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 30 Jan 2018 12:50:16 +1300
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 30 Jan 2018 15:01:08 +1300
 
 golang-1.9 (1.9.2-4) unstable; urgency=medium
 
