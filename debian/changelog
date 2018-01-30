@@ -1,7 +1,10 @@
 golang-1.10 (1.10~rc1-1) UNRELEASED; urgency=medium
 
   * New upstream version 1.10~rc1
-  * Disable 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch for now. Remove all other patches.
+  * Disable 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch for now. Remove all
+    other patches.
+  * d/patches/{0001-fix-pprof-tests.patch, 0003-fix-signal-tests.patch}: add
+    to fix test failures running in a chroot.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 08 Dec 2017 14:35:16 +1300
 
