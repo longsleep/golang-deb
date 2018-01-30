@@ -1,8 +1,10 @@
 golang-1.10 (1.10~rc1-1) UNRELEASED; urgency=medium
 
-  * New upstream version 1.10~rc1
-  * Disable 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch for now. Remove all
-    other patches.
+  * New upstream version 1.10~rc1.
+  * d/patches/0004-cmd-dist-use-buildmode-pie-for-pie-testing.patch,
+    d/patches/0006-misc-cgo-testcarchive-use-no-pie-where-needed.patch,
+    d/patches/0003-Do-not-use-SP-as-index-reg.patch: removed, included upstream.
+  * d/patches/0002-reproducible-BUILD_PATH_PREFIX_MAP.patch: refreshed.
   * d/patches/0001-os-signal-skip-TestTerminalSignal-if-posix_openpt-fa.patch:
     Add to fix test failure in chroot.
   * d/patches/0003-cmd-vendor-github.com-google-pprof-cherry-pick-fix-t.patch:
