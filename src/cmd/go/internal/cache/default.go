@@ -68,6 +68,14 @@ func DefaultDir() string {
 	switch runtime.GOOS {
 	case "windows":
 		dir = os.Getenv("LocalAppData")
+		if dir == "" {
+			// Fall back to %AppData%, the old name of
+			// %LocalAppData% on Windows XP.
+			dir = os.Getenv("AppData")
+		}
+		if dir == "" {
+			return "off"
+		}
 
 	case "darwin":
 		dir = os.Getenv("HOME")
