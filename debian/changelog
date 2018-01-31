@@ -1,4 +1,4 @@
-golang-1.10 (1.10~rc1-1) UNRELEASED; urgency=medium
+golang-1.10 (1.10~rc1-1) unstable; urgency=medium
 
   * New upstream version 1.10~rc1.
   * d/patches/0004-cmd-dist-use-buildmode-pie-for-pie-testing.patch,
@@ -11,7 +11,7 @@ golang-1.10 (1.10~rc1-1) UNRELEASED; urgency=medium
     Add to fix test failure when $HOME is not writable.
   * d/rules: Set GOCACHE to "off" during build to avoid shipping cache files.
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 08 Dec 2017 14:35:16 +1300
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 31 Jan 2018 14:46:12 +1300
 
 golang-1.9 (1.9.2-4) unstable; urgency=medium
 
