@@ -9,6 +9,7 @@ golang-1.10 (1.10~rc1-1) UNRELEASED; urgency=medium
     Add to fix test failure in chroot.
   * d/patches/0003-cmd-vendor-github.com-google-pprof-cherry-pick-fix-t.patch:
     Add to fix test failure when $HOME is not writable.
+  * d/rules: Set GOCACHE to "off" during build to avoid shipping cache files.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 08 Dec 2017 14:35:16 +1300
 
