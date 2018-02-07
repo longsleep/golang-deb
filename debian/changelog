@@ -1,3 +1,9 @@
+golang-1.9 (1.9.4-1) UNRELEASED; urgency=medium
+
+  * New upstream version, fixing CVE-2018-6574.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Thu, 08 Feb 2018 10:37:36 +1300
+
 golang-1.9 (1.9.3-1) unstable; urgency=medium
 
   * New upstream version.
