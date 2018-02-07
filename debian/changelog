@@ -1,11 +1,11 @@
-golang-1.10 (1.10~rc1-2) UNRELEASED; urgency=medium
+golang-1.10 (1.10~rc1-2) unstable; urgency=medium
 
   * d/patches/0004-cmd-link-internal-loadelf-fix-logic-for-computing-EL.patch:
     Backport from upstream to fix build issues on armhf (causes ftbfs on
     Ubuntu but not Debian for some reason, but could produce broken binaries
     on Debian too).
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 07 Feb 2018 22:07:10 +1300
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 07 Feb 2018 22:10:22 +1300
 
 golang-1.10 (1.10~rc1-1) unstable; urgency=medium
 
