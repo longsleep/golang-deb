@@ -1,4 +1,4 @@
-golang-1.10 (1.10~rc2-1) UNRELEASED; urgency=medium
+golang-1.10 (1.10~rc2-1) unstable; urgency=medium
 
   * New upstream version, fixing CVE-2018-6574.
   * d/patches/0001-os-signal-skip-TestTerminalSignal-if-posix_openpt-fa.patch,
@@ -6,7 +6,7 @@ golang-1.10 (1.10~rc2-1) UNRELEASED; urgency=medium
     d/patches/0004-cmd-link-internal-loadelf-fix-logic-for-computing-EL.patch:
     removed, now included upstream.
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Thu, 08 Feb 2018 10:41:32 +1300
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Thu, 08 Feb 2018 10:46:52 +1300
 
 golang-1.10 (1.10~rc1-2) unstable; urgency=medium
 
