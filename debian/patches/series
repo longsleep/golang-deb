@@ -1,3 +1,4 @@
 0001-os-signal-skip-TestTerminalSignal-if-posix_openpt-fa.patch
 0002-reproducible-BUILD_PATH_PREFIX_MAP.patch
 0003-cmd-vendor-github.com-google-pprof-cherry-pick-fix-t.patch
+0004-cmd-link-internal-loadelf-fix-logic-for-computing-EL.patch
