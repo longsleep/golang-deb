@@ -1,3 +1,12 @@
+golang-1.10 (1.10.0-1ubuntu1~longsleep1+xenial) xenial; urgency=medium
+
+  * Update to Go 1.10
+  * Imported Upstream version 1.10.0
+  * Import patches from Debian upstream
+  * Update patches to Go 1.10
+
+ -- Simon Eisenmann <simon@longsleep.org>  Mon, 19 Feb 2018 11:20:00 +0100
+
 golang-1.9 (1.9.4-1ubuntu1~longsleep1+xenial) xenial; urgency=medium
 
   * Imported Upstream version 1.9.4
