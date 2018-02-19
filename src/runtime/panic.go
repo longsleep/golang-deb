@@ -83,7 +83,7 @@ func deferproc(siz int32, fn *funcval) { // arguments of fn follow fn
 	// Until the copy completes, we can only call nosplit routines.
 	sp := getcallersp(unsafe.Pointer(&siz))
 	argp := uintptr(unsafe.Pointer(&fn)) + unsafe.Sizeof(fn)
-	callerpc := getcallerpc(unsafe.Pointer(&siz))
+	callerpc := getcallerpc()
 
 	d := newdefer(siz)
 	if d._panic != nil {
@@ -244,36 +244,47 @@ func freedefer(d *_defer) {
 		freedeferfn()
 	}
 	sc := deferclass(uintptr(d.siz))
-	if sc < uintptr(len(p{}.deferpool)) {
-		pp := getg().m.p.ptr()
-		if len(pp.deferpool[sc]) == cap(pp.deferpool[sc]) {
-			// Transfer half of local cache to the central cache.
-			//
-			// Take this slow path on the system stack so
-			// we don't grow freedefer's stack.
-			systemstack(func() {
-				var first, last *_defer
-				for len(pp.deferpool[sc]) > cap(pp.deferpool[sc])/2 {
-					n := len(pp.deferpool[sc])
-					d := pp.deferpool[sc][n-1]
-					pp.deferpool[sc][n-1] = nil
-					pp.deferpool[sc] = pp.deferpool[sc][:n-1]
-					if first == nil {
-						first = d
-					} else {
-						last.link = d
-					}
-					last = d
-				}
-				lock(&sched.deferlock)
-				last.link = sched.deferpool[sc]
-				sched.deferpool[sc] = first
-				unlock(&sched.deferlock)
-			})
-		}
-		*d = _defer{}
-		pp.deferpool[sc] = append(pp.deferpool[sc], d)
+	if sc >= uintptr(len(p{}.deferpool)) {
+		return
 	}
+	pp := getg().m.p.ptr()
+	if len(pp.deferpool[sc]) == cap(pp.deferpool[sc]) {
+		// Transfer half of local cache to the central cache.
+		//
+		// Take this slow path on the system stack so
+		// we don't grow freedefer's stack.
+		systemstack(func() {
+			var first, last *_defer
+			for len(pp.deferpool[sc]) > cap(pp.deferpool[sc])/2 {
+				n := len(pp.deferpool[sc])
+				d := pp.deferpool[sc][n-1]
+				pp.deferpool[sc][n-1] = nil
+				pp.deferpool[sc] = pp.deferpool[sc][:n-1]
+				if first == nil {
+					first = d
+				} else {
+					last.link = d
+				}
+				last = d
+			}
+			lock(&sched.deferlock)
+			last.link = sched.deferpool[sc]
+			sched.deferpool[sc] = first
+			unlock(&sched.deferlock)
+		})
+	}
+
+	// These lines used to be simply `*d = _defer{}` but that
+	// started causing a nosplit stack overflow via typedmemmove.
+	d.siz = 0
+	d.started = false
+	d.sp = 0
+	d.pc = 0
+	d.fn = nil
+	d._panic = nil
+	d.link = nil
+
+	pp.deferpool[sc] = append(pp.deferpool[sc], d)
 }
 
 // Separate function so that it can split stack.
@@ -336,7 +347,7 @@ func deferreturn(arg0 uintptr) {
 
 // Goexit terminates the goroutine that calls it. No other goroutine is affected.
 // Goexit runs all deferred calls before terminating the goroutine. Because Goexit
-// is not panic, however, any recover calls in those deferred functions will return nil.
+// is not a panic, any recover calls in those deferred functions will return nil.
 //
 // Calling Goexit from the main goroutine terminates that goroutine
 // without func main returning. Since func main has not returned,
@@ -397,12 +408,15 @@ func preprintpanics(p *_panic) {
 }
 
 // Print all currently active panics. Used when crashing.
+// Should only be called after preprintpanics.
 func printpanics(p *_panic) {
 	if p.link != nil {
 		printpanics(p.link)
 		print("\t")
 	}
 	print("panic: ")
+	// Because of preprintpanics, p.arg cannot be an error or
+	// stringer, so this won't call into user code.
 	printany(p.arg)
 	if p.recovered {
 		print(" [recovered]")
@@ -580,7 +594,7 @@ func startpanic() {
 
 //go:nosplit
 func dopanic(unused int) {
-	pc := getcallerpc(unsafe.Pointer(&unused))
+	pc := getcallerpc()
 	sp := getcallersp(unsafe.Pointer(&unused))
 	gp := getg()
 	systemstack(func() {
@@ -643,14 +657,22 @@ func recovery(gp *g) {
 	gogo(&gp.sched)
 }
 
+// startpanic_m prepares for an unrecoverable panic.
+//
+// It can have write barriers because the write barrier explicitly
+// ignores writes once dying > 0.
+//
+//go:yeswritebarrierrec
 func startpanic_m() {
 	_g_ := getg()
 	if mheap_.cachealloc.size == 0 { // very early
 		print("runtime: panic before malloc heap initialized\n")
-		_g_.m.mallocing = 1 // tell rest of panic not to try to malloc
-	} else if _g_.m.mcache == nil { // can happen if called from signal handler or throw
-		_g_.m.mcache = allocmcache()
 	}
+	// Disallow malloc during an unrecoverable panic. A panic
+	// could happen in a signal handler, or in a throw, or inside
+	// malloc itself. We want to catch if an allocation ever does
+	// happen (even if we're not in one of these situations).
+	_g_.m.mallocing++
 
 	switch _g_.m.dying {
 	case 0:
@@ -679,7 +701,7 @@ func startpanic_m() {
 		exit(4)
 		fallthrough
 	default:
-		// Can't even print!  Just exit.
+		// Can't even print! Just exit.
 		exit(5)
 	}
 }
@@ -735,6 +757,9 @@ func dopanic_m(gp *g, pc, sp uintptr) {
 	exit(2)
 }
 
+// canpanic returns false if a signal should throw instead of
+// panicking.
+//
 //go:nosplit
 func canpanic(gp *g) bool {
 	// Note that g is m->gsignal, different from gp.

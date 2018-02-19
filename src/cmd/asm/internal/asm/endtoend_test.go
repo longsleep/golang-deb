@@ -186,7 +186,7 @@ Diff:
 		t.Errorf(format, args...)
 		ok = false
 	}
-	obj.Flushplist(ctxt, pList, nil)
+	obj.Flushplist(ctxt, pList, nil, "")
 
 	for p := top; p != nil; p = p.Link {
 		if p.As == obj.ATEXT {
@@ -290,7 +290,7 @@ func testErrors(t *testing.T, goarch, file string) {
 		errBuf.WriteString(s)
 	}
 	pList.Firstpc, ok = parser.Parse()
-	obj.Flushplist(ctxt, pList, nil)
+	obj.Flushplist(ctxt, pList, nil, "")
 	if ok && !failed {
 		t.Errorf("asm: %s had no errors", goarch)
 	}
@@ -385,12 +385,17 @@ func TestARM64Encoder(t *testing.T) {
 	testEndToEnd(t, "arm64", "arm64enc")
 }
 
+func TestARM64Errors(t *testing.T) {
+	testErrors(t, "arm64", "arm64error")
+}
+
 func TestAMD64EndToEnd(t *testing.T) {
 	testEndToEnd(t, "amd64", "amd64")
 }
 
 func TestAMD64Encoder(t *testing.T) {
 	testEndToEnd(t, "amd64", "amd64enc")
+	testEndToEnd(t, "amd64", "amd64enc_extra")
 }
 
 func TestAMD64Errors(t *testing.T) {

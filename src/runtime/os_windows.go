@@ -623,7 +623,7 @@ func semacreate(mp *m) {
 func newosproc(mp *m, stk unsafe.Pointer) {
 	const _STACK_SIZE_PARAM_IS_A_RESERVATION = 0x00010000
 	// stackSize must match SizeOfStackReserve in cmd/link/internal/ld/pe.go.
-	const stackSize = 0x00200000*_64bit + 0x00020000*(1-_64bit)
+	const stackSize = 0x00200000*_64bit + 0x00100000*(1-_64bit)
 	thandle := stdcall6(_CreateThread, 0, stackSize,
 		funcPC(tstart_stdcall), uintptr(unsafe.Pointer(mp)),
 		_STACK_SIZE_PARAM_IS_A_RESERVATION, 0)
@@ -640,6 +640,9 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 		print("runtime: failed to create new OS thread (have ", mcount(), " already; errno=", getlasterror(), ")\n")
 		throw("runtime.newosproc")
 	}
+
+	// Close thandle to avoid leaking the thread object if it exits.
+	stdcall1(_CloseHandle, thandle)
 }
 
 // Used by the C library build mode. On Linux this function would allocate a
@@ -649,6 +652,12 @@ func newosproc(mp *m, stk unsafe.Pointer) {
 //go:nosplit
 func newosproc0(mp *m, stk unsafe.Pointer) {
 	newosproc(mp, stk)
+}
+
+func exitThread(wait *uint32) {
+	// We should never reach exitThread on Windows because we let
+	// the OS clean up threads.
+	throw("exitThread")
 }
 
 // Called to initialize a new m (including the bootstrap m).
@@ -701,7 +710,7 @@ func stdcall(fn stdFunction) uintptr {
 	if mp.profilehz != 0 {
 		// leave pc/sp for cpu profiler
 		mp.libcallg.set(gp)
-		mp.libcallpc = getcallerpc(unsafe.Pointer(&fn))
+		mp.libcallpc = getcallerpc()
 		// sp must be the last, because once async cpu profiler finds
 		// all three values to be non-zero, it will use them
 		mp.libcallsp = getcallersp(unsafe.Pointer(&fn))

@@ -56,9 +56,8 @@ func (file *File) Stat() (FileInfo, error) {
 	}, nil
 }
 
-// Stat returns a FileInfo structure describing the named file.
-// If there is an error, it will be of type *PathError.
-func Stat(name string) (FileInfo, error) {
+// statNolog implements Stat for Windows.
+func statNolog(name string) (FileInfo, error) {
 	if len(name) == 0 {
 		return nil, &PathError{"Stat", name, syscall.Errno(syscall.ERROR_PATH_NOT_FOUND)}
 	}
@@ -69,7 +68,7 @@ func Stat(name string) (FileInfo, error) {
 	if err != nil {
 		return nil, &PathError{"Stat", name, err}
 	}
-	// Apparently (see https://github.com/golang/go/issues/19922#issuecomment-300031421)
+	// Apparently (see https://golang.org/issues/19922#issuecomment-300031421)
 	// GetFileAttributesEx is fastest approach to get file info.
 	// It does not work for symlinks. But symlinks are rare,
 	// so try GetFileAttributesEx first.
@@ -156,11 +155,8 @@ func statWithFindFirstFile(name string, namep *uint16) (FileInfo, error) {
 	}, nil
 }
 
-// Lstat returns the FileInfo structure describing the named file.
-// If the file is a symbolic link, the returned FileInfo
-// describes the symbolic link. Lstat makes no attempt to follow the link.
-// If there is an error, it will be of type *PathError.
-func Lstat(name string) (FileInfo, error) {
+// lstatNolog implements Lstat for Windows.
+func lstatNolog(name string) (FileInfo, error) {
 	if len(name) == 0 {
 		return nil, &PathError{"Lstat", name, syscall.Errno(syscall.ERROR_PATH_NOT_FOUND)}
 	}

@@ -292,6 +292,7 @@ var tests = []test{
 			`unexportedField.*int.*Comment on line with unexported field.`,
 			`ExportedEmbeddedType.*Comment on line with exported embedded field.`,
 			`\*ExportedEmbeddedType.*Comment on line with exported embedded \*field.`,
+			`\*qualified.ExportedEmbeddedType.*Comment on line with exported embedded \*selector.field.`,
 			`unexportedType.*Comment on line with unexported embedded field.`,
 			`\*unexportedType.*Comment on line with unexported embedded \*field.`,
 			`io.Reader.*Comment on line with embedded Reader.`,
@@ -445,6 +446,19 @@ var tests = []test{
 			`CaseMatch`,
 		},
 	},
+
+	// No dups with -u. Issue 21797.
+	{
+		"case matching on, no dups",
+		[]string{"-u", p, `duplicate`},
+		[]string{
+			`Duplicate`,
+			`duplicate`,
+		},
+		[]string{
+			"\\)\n+const", // This will appear if the const decl appears twice.
+		},
+	},
 }
 
 func TestDoc(t *testing.T) {
@@ -537,6 +551,54 @@ func TestMultiplePackages(t *testing.T) {
 			if !strings.Contains(errStr, "math/rand") {
 				t.Errorf("error %q should contain math/rand", errStr)
 			}
+		}
+	}
+}
+
+// Test the code to look up packages when given two args. First test case is
+//	go doc binary BigEndian
+// This needs to find encoding/binary.BigEndian, which means
+// finding the package encoding/binary given only "binary".
+// Second case is
+//	go doc rand Float64
+// which again needs to find math/rand and not give up after crypto/rand,
+// which has no such function.
+func TestTwoArgLookup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("scanning file system takes too long")
+	}
+	maybeSkip(t)
+	var b bytes.Buffer // We don't care about the output.
+	{
+		var flagSet flag.FlagSet
+		err := do(&b, &flagSet, []string{"binary", "BigEndian"})
+		if err != nil {
+			t.Errorf("unexpected error %q from binary BigEndian", err)
+		}
+	}
+	{
+		var flagSet flag.FlagSet
+		err := do(&b, &flagSet, []string{"rand", "Float64"})
+		if err != nil {
+			t.Errorf("unexpected error %q from rand Float64", err)
+		}
+	}
+	{
+		var flagSet flag.FlagSet
+		err := do(&b, &flagSet, []string{"bytes", "Foo"})
+		if err == nil {
+			t.Errorf("expected error from bytes Foo")
+		} else if !strings.Contains(err.Error(), "no symbol Foo") {
+			t.Errorf("unexpected error %q from bytes Foo", err)
+		}
+	}
+	{
+		var flagSet flag.FlagSet
+		err := do(&b, &flagSet, []string{"nosuchpackage", "Foo"})
+		if err == nil {
+			// actually present in the user's filesystem
+		} else if !strings.Contains(err.Error(), "no such package") {
+			t.Errorf("unexpected error %q from nosuchpackage Foo", err)
 		}
 	}
 }
