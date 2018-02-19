@@ -20,7 +20,6 @@ import (
 )
 
 func parseFiles(filenames []string) uint {
-	var lines uint
 	var noders []*noder
 	// Limit the number of simultaneously open files.
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0)+10)
@@ -46,6 +45,7 @@ func parseFiles(filenames []string) uint {
 		}(filename)
 	}
 
+	var lines uint
 	for _, p := range noders {
 		for e := range p.err {
 			yyerrorpos(e.Pos, "%s", e.Msg)
@@ -88,15 +88,15 @@ type noder struct {
 	scope      ScopeID
 }
 
-func (p *noder) funchdr(n *Node, pos src.Pos) ScopeID {
+func (p *noder) funchdr(n *Node) ScopeID {
 	old := p.scope
 	p.scope = 0
 	funchdr(n)
 	return old
 }
 
-func (p *noder) funcbody(n *Node, pos src.Pos, old ScopeID) {
-	funcbody(n)
+func (p *noder) funcbody(old ScopeID) {
+	funcbody()
 	p.scope = old
 }
 
@@ -225,15 +225,14 @@ func (p *noder) importDecl(imp *syntax.ImportDecl) {
 	pack.Sym = my
 	pack.Name.Pkg = ipkg
 
-	if my.Name == "." {
+	switch my.Name {
+	case ".":
 		importdot(ipkg, pack)
 		return
-	}
-	if my.Name == "init" {
+	case "init":
 		yyerrorl(pack.Pos, "cannot import package as init - init must be a func")
 		return
-	}
-	if my.Name == "_" {
+	case "_":
 		return
 	}
 	if my.Def != nil {
@@ -323,7 +322,6 @@ func (p *noder) typeDecl(decl *syntax.TypeDecl) *Node {
 	n := p.declName(decl.Name)
 	n.Op = OTYPE
 	declare(n, dclcontext)
-	n.SetLocal(true)
 
 	// decl.Type may be nil but in that case we got a syntax error during parsing
 	typ := p.typeExprOrNil(decl.Type)
@@ -392,9 +390,8 @@ func (p *noder) funcDecl(fun *syntax.FuncDecl) *Node {
 		declare(f.Func.Nname, PFUNC)
 	}
 
-	oldScope := p.funchdr(f, fun.Pos())
+	oldScope := p.funchdr(f)
 
-	endPos := fun.Pos()
 	if fun.Body != nil {
 		if f.Noescape() {
 			yyerrorl(f.Pos, "can only use //go:noescape with external func implementations")
@@ -406,7 +403,6 @@ func (p *noder) funcDecl(fun *syntax.FuncDecl) *Node {
 		}
 		f.Nbody.Set(body)
 
-		endPos = fun.Body.Rbrace
 		lineno = Ctxt.PosTable.XPos(fun.Body.Rbrace)
 		f.Func.Endlineno = lineno
 	} else {
@@ -415,7 +411,7 @@ func (p *noder) funcDecl(fun *syntax.FuncDecl) *Node {
 		}
 	}
 
-	p.funcbody(f, endPos, oldScope)
+	p.funcbody(oldScope)
 	return f
 }
 
@@ -542,6 +538,9 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 		// ntype? Shrug, doesn't matter here.
 		return p.nod(expr, ODOTTYPE, p.expr(expr.X), p.expr(expr.Type))
 	case *syntax.Operation:
+		if expr.Op == syntax.Add && expr.Y != nil {
+			return p.sum(expr)
+		}
 		x := p.expr(expr.X)
 		if expr.Y == nil {
 			if expr.Op == syntax.And {
@@ -600,6 +599,82 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 		return n
 	}
 	panic("unhandled Expr")
+}
+
+// sum efficiently handles very large summation expressions (such as
+// in issue #16394). In particular, it avoids left recursion and
+// collapses string literals.
+func (p *noder) sum(x syntax.Expr) *Node {
+	// While we need to handle long sums with asymptotic
+	// efficiency, the vast majority of sums are very small: ~95%
+	// have only 2 or 3 operands, and ~99% of string literals are
+	// never concatenated.
+
+	adds := make([]*syntax.Operation, 0, 2)
+	for {
+		add, ok := x.(*syntax.Operation)
+		if !ok || add.Op != syntax.Add || add.Y == nil {
+			break
+		}
+		adds = append(adds, add)
+		x = add.X
+	}
+
+	// nstr is the current rightmost string literal in the
+	// summation (if any), and chunks holds its accumulated
+	// substrings.
+	//
+	// Consider the expression x + "a" + "b" + "c" + y. When we
+	// reach the string literal "a", we assign nstr to point to
+	// its corresponding Node and initialize chunks to {"a"}.
+	// Visiting the subsequent string literals "b" and "c", we
+	// simply append their values to chunks. Finally, when we
+	// reach the non-constant operand y, we'll join chunks to form
+	// "abc" and reassign the "a" string literal's value.
+	//
+	// N.B., we need to be careful about named string constants
+	// (indicated by Sym != nil) because 1) we can't modify their
+	// value, as doing so would affect other uses of the string
+	// constant, and 2) they may have types, which we need to
+	// handle correctly. For now, we avoid these problems by
+	// treating named string constants the same as non-constant
+	// operands.
+	var nstr *Node
+	chunks := make([]string, 0, 1)
+
+	n := p.expr(x)
+	if Isconst(n, CTSTR) && n.Sym == nil {
+		nstr = n
+		chunks = append(chunks, nstr.Val().U.(string))
+	}
+
+	for i := len(adds) - 1; i >= 0; i-- {
+		add := adds[i]
+
+		r := p.expr(add.Y)
+		if Isconst(r, CTSTR) && r.Sym == nil {
+			if nstr != nil {
+				// Collapse r into nstr instead of adding to n.
+				chunks = append(chunks, r.Val().U.(string))
+				continue
+			}
+
+			nstr = r
+			chunks = append(chunks, nstr.Val().U.(string))
+		} else {
+			if len(chunks) > 1 {
+				nstr.SetVal(Val{U: strings.Join(chunks, "")})
+			}
+			nstr = nil
+			chunks = chunks[:0]
+		}
+		n = p.nod(add, OADD, n, r)
+	}
+	if len(chunks) > 1 {
+		nstr.SetVal(Val{U: strings.Join(chunks, "")})
+	}
+
+	return n
 }
 
 func (p *noder) typeExpr(typ syntax.Expr) *Node {
@@ -701,7 +776,11 @@ func (p *noder) embedded(typ syntax.Expr) *Node {
 		}
 		typ = op.X
 	}
-	n := embedded(p.packname(typ), localpkg)
+
+	sym := p.packname(typ)
+	n := nod(ODCLFIELD, newname(lookup(sym.Name)), oldname(sym))
+	n.SetEmbedded(true)
+
 	if isStar {
 		n.Right = p.nod(op, OIND, n.Right, nil)
 	}
@@ -709,9 +788,13 @@ func (p *noder) embedded(typ syntax.Expr) *Node {
 }
 
 func (p *noder) stmts(stmts []syntax.Stmt) []*Node {
+	return p.stmtsFall(stmts, false)
+}
+
+func (p *noder) stmtsFall(stmts []syntax.Stmt, fallOK bool) []*Node {
 	var nodes []*Node
-	for _, stmt := range stmts {
-		s := p.stmt(stmt)
+	for i, stmt := range stmts {
+		s := p.stmtFall(stmt, fallOK && i+1 == len(stmts))
 		if s == nil {
 		} else if s.Op == OBLOCK && s.Ninit.Len() == 0 {
 			nodes = append(nodes, s.List.Slice()...)
@@ -723,12 +806,16 @@ func (p *noder) stmts(stmts []syntax.Stmt) []*Node {
 }
 
 func (p *noder) stmt(stmt syntax.Stmt) *Node {
+	return p.stmtFall(stmt, false)
+}
+
+func (p *noder) stmtFall(stmt syntax.Stmt, fallOK bool) *Node {
 	p.lineno(stmt)
 	switch stmt := stmt.(type) {
 	case *syntax.EmptyStmt:
 		return nil
 	case *syntax.LabeledStmt:
-		return p.labeledStmt(stmt)
+		return p.labeledStmt(stmt, fallOK)
 	case *syntax.BlockStmt:
 		l := p.blockStmt(stmt)
 		if len(l) == 0 {
@@ -750,15 +837,10 @@ func (p *noder) stmt(stmt syntax.Stmt) *Node {
 			return n
 		}
 
-		lhs := p.exprList(stmt.Lhs)
-		rhs := p.exprList(stmt.Rhs)
-
 		n := p.nod(stmt, OAS, nil, nil) // assume common case
 
-		if stmt.Op == syntax.Def {
-			n.SetColas(true)
-			colasdefn(lhs, n) // modifies lhs, call before using lhs[0] in common case
-		}
+		rhs := p.exprList(stmt.Rhs)
+		lhs := p.assignList(stmt.Lhs, n, stmt.Op == syntax.Def)
 
 		if len(lhs) == 1 && len(rhs) == 1 {
 			// common case
@@ -779,7 +861,10 @@ func (p *noder) stmt(stmt syntax.Stmt) *Node {
 		case syntax.Continue:
 			op = OCONTINUE
 		case syntax.Fallthrough:
-			op = OXFALL
+			if !fallOK {
+				yyerror("fallthrough statement out of place")
+			}
+			op = OFALL
 		case syntax.Goto:
 			op = OGOTO
 		default:
@@ -788,9 +873,6 @@ func (p *noder) stmt(stmt syntax.Stmt) *Node {
 		n := p.nod(stmt, op, nil, nil)
 		if stmt.Label != nil {
 			n.Left = p.newname(stmt.Label)
-		}
-		if op == OXFALL {
-			n.Xoffset = int64(types.Block)
 		}
 		return n
 	case *syntax.CallStmt:
@@ -837,6 +919,66 @@ func (p *noder) stmt(stmt syntax.Stmt) *Node {
 	panic("unhandled Stmt")
 }
 
+func (p *noder) assignList(expr syntax.Expr, defn *Node, colas bool) []*Node {
+	if !colas {
+		return p.exprList(expr)
+	}
+
+	defn.SetColas(true)
+
+	var exprs []syntax.Expr
+	if list, ok := expr.(*syntax.ListExpr); ok {
+		exprs = list.ElemList
+	} else {
+		exprs = []syntax.Expr{expr}
+	}
+
+	res := make([]*Node, len(exprs))
+	seen := make(map[*types.Sym]bool, len(exprs))
+
+	newOrErr := false
+	for i, expr := range exprs {
+		p.lineno(expr)
+		res[i] = nblank
+
+		name, ok := expr.(*syntax.Name)
+		if !ok {
+			yyerrorpos(expr.Pos(), "non-name %v on left side of :=", p.expr(expr))
+			newOrErr = true
+			continue
+		}
+
+		sym := p.name(name)
+		if sym.IsBlank() {
+			continue
+		}
+
+		if seen[sym] {
+			yyerrorpos(expr.Pos(), "%v repeated on left side of :=", sym)
+			newOrErr = true
+			continue
+		}
+		seen[sym] = true
+
+		if sym.Block == types.Block {
+			res[i] = oldname(sym)
+			continue
+		}
+
+		newOrErr = true
+		n := newname(sym)
+		declare(n, dclcontext)
+		n.Name.Defn = defn
+		defn.Ninit.Append(nod(ODCL, n, nil))
+		res[i] = n
+	}
+
+	if !newOrErr {
+		yyerrorl(defn.Pos, "no new variables on left side of :=")
+	}
+	return res
+}
+
 func (p *noder) blockStmt(stmt *syntax.BlockStmt) []*Node {
 	p.openScope(stmt.Pos())
 	nodes := p.stmts(stmt.List)
@@ -876,12 +1018,7 @@ func (p *noder) forStmt(stmt *syntax.ForStmt) *Node {
 
 		n = p.nod(r, ORANGE, nil, p.expr(r.X))
 		if r.Lhs != nil {
-			lhs := p.exprList(r.Lhs)
-			n.List.Set(lhs)
-			if r.Def {
-				n.SetColas(true)
-				colasdefn(lhs, n)
-			}
+			n.List.Set(p.assignList(r.Lhs, n, r.Def))
 		}
 	} else {
 		n = p.nod(stmt, OFOR, nil, nil)
@@ -911,7 +1048,7 @@ func (p *noder) switchStmt(stmt *syntax.SwitchStmt) *Node {
 	}
 
 	tswitch := n.Left
-	if tswitch != nil && (tswitch.Op != OTYPESW || tswitch.Left == nil) {
+	if tswitch != nil && tswitch.Op != OTYPESW {
 		tswitch = nil
 	}
 	n.List.Set(p.caseClauses(stmt.Body, tswitch, stmt.Rbrace))
@@ -933,15 +1070,35 @@ func (p *noder) caseClauses(clauses []*syntax.CaseClause, tswitch *Node, rbrace 
 		if clause.Cases != nil {
 			n.List.Set(p.exprList(clause.Cases))
 		}
-		if tswitch != nil {
+		if tswitch != nil && tswitch.Left != nil {
 			nn := newname(tswitch.Left.Sym)
 			declare(nn, dclcontext)
 			n.Rlist.Set1(nn)
 			// keep track of the instances for reporting unused
 			nn.Name.Defn = tswitch
 		}
-		n.Xoffset = int64(types.Block)
-		n.Nbody.Set(p.stmts(clause.Body))
+
+		// Trim trailing empty statements. We omit them from
+		// the Node AST anyway, and it's easier to identify
+		// out-of-place fallthrough statements without them.
+		body := clause.Body
+		for len(body) > 0 {
+			if _, ok := body[len(body)-1].(*syntax.EmptyStmt); !ok {
+				break
+			}
+			body = body[:len(body)-1]
+		}
+
+		n.Nbody.Set(p.stmtsFall(body, true))
+		if l := n.Nbody.Len(); l > 0 && n.Nbody.Index(l-1).Op == OFALL {
+			if tswitch != nil {
+				yyerror("cannot fallthrough in type switch")
+			}
+			if i+1 == len(clauses) {
+				yyerror("cannot fallthrough final case in switch")
+			}
+		}
+
 		nodes = append(nodes, n)
 	}
 	if len(clauses) > 0 {
@@ -969,7 +1126,6 @@ func (p *noder) commClauses(clauses []*syntax.CommClause, rbrace src.Pos) []*Nod
 		if clause.Comm != nil {
 			n.List.Set1(p.stmt(clause.Comm))
 		}
-		n.Xoffset = int64(types.Block)
 		n.Nbody.Set(p.stmts(clause.Body))
 		nodes = append(nodes, n)
 	}
@@ -979,12 +1135,12 @@ func (p *noder) commClauses(clauses []*syntax.CommClause, rbrace src.Pos) []*Nod
 	return nodes
 }
 
-func (p *noder) labeledStmt(label *syntax.LabeledStmt) *Node {
+func (p *noder) labeledStmt(label *syntax.LabeledStmt, fallOK bool) *Node {
 	lhs := p.nod(label, OLABEL, p.newname(label.Label), nil)
 
 	var ls *Node
 	if label.Stmt != nil { // TODO(mdempsky): Should always be present.
-		ls = p.stmt(label.Stmt)
+		ls = p.stmtFall(label.Stmt, fallOK)
 	}
 
 	lhs.Name.Defn = ls
@@ -1190,8 +1346,22 @@ func (p *noder) pragma(pos src.Pos, text string) syntax.Pragma {
 		}
 		p.linknames = append(p.linknames, linkname{pos, f[1], f[2]})
 
+	case strings.HasPrefix(text, "go:cgo_import_dynamic "):
+		// This is permitted for general use because Solaris
+		// code relies on it in golang.org/x/sys/unix and others.
+		fields := pragmaFields(text)
+		if len(fields) >= 4 {
+			lib := strings.Trim(fields[3], `"`)
+			if lib != "" && !safeArg(lib) && !isCgoGeneratedFile(pos) {
+				p.error(syntax.Error{Pos: pos, Msg: fmt.Sprintf("invalid library name %q in cgo_import_dynamic directive", lib)})
+			}
+			p.pragcgobuf += p.pragcgo(pos, text)
+			return pragmaValue("go:cgo_import_dynamic")
+		}
+		fallthrough
 	case strings.HasPrefix(text, "go:cgo_"):
-		// For security, we disallow //go:cgo_* directives outside cgo-generated files.
+		// For security, we disallow //go:cgo_* directives other
+		// than cgo_import_dynamic outside cgo-generated files.
 		// Exception: they are allowed in the standard library, for runtime and syscall.
 		if !isCgoGeneratedFile(pos) && !compiling_std {
 			p.error(syntax.Error{Pos: pos, Msg: fmt.Sprintf("//%s only allowed in cgo-generated code", text)})
@@ -1225,6 +1395,18 @@ func (p *noder) pragma(pos src.Pos, text string) syntax.Pragma {
 // See golang.org/issue/23672.
 func isCgoGeneratedFile(pos src.Pos) bool {
 	return strings.HasPrefix(filepath.Base(filepath.Clean(pos.AbsFilename())), "_cgo_")
+}
+
+// safeArg reports whether arg is a "safe" command-line argument,
+// meaning that when it appears in a command-line, it probably
+// doesn't have some special meaning other than its own name.
+// This is copied from SafeArg in cmd/go/internal/load/pkg.go.
+func safeArg(name string) bool {
+	if name == "" {
+		return false
+	}
+	c := name[0]
+	return '0' <= c && c <= '9' || 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '.' || c == '_' || c == '/' || c >= utf8.RuneSelf
 }
 
 func mkname(sym *types.Sym) *Node {

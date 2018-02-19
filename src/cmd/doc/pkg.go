@@ -594,6 +594,11 @@ func (pkg *Package) symbolDoc(symbol string) bool {
 	// Constants and variables behave the same.
 	values := pkg.findValues(symbol, pkg.doc.Consts)
 	values = append(values, pkg.findValues(symbol, pkg.doc.Vars)...)
+	// A declaration like
+	//	const ( c = 1; C = 2 )
+	// could be printed twice if the -u flag is set, as it matches twice.
+	// So we remember which declarations we've printed to avoid duplication.
+	printed := make(map[*ast.GenDecl]bool)
 	for _, value := range values {
 		// Print each spec only if there is at least one exported symbol in it.
 		// (See issue 11008.)
@@ -628,7 +633,7 @@ func (pkg *Package) symbolDoc(symbol string) bool {
 				}
 			}
 		}
-		if len(specs) == 0 {
+		if len(specs) == 0 || printed[value.Decl] {
 			continue
 		}
 		value.Decl.Specs = specs
@@ -636,6 +641,7 @@ func (pkg *Package) symbolDoc(symbol string) bool {
 			pkg.packageClause(true)
 		}
 		pkg.emit(value.Doc, value.Decl)
+		printed[value.Decl] = true
 		found = true
 	}
 	// Types.
@@ -696,9 +702,16 @@ func trimUnexportedFields(fields *ast.FieldList, isInterface bool) *ast.FieldLis
 	for _, field := range fields.List {
 		names := field.Names
 		if len(names) == 0 {
-			// Embedded type. Use the name of the type. It must be of type ident or *ident.
+			// Embedded type. Use the name of the type. It must be of the form ident or
+			// pkg.ident (for structs and interfaces), or *ident or *pkg.ident (structs only).
 			// Nothing else is allowed.
-			switch ident := field.Type.(type) {
+			ty := field.Type
+			if se, ok := field.Type.(*ast.StarExpr); !isInterface && ok {
+				// The form *ident or *pkg.ident is only valid on
+				// embedded types in structs.
+				ty = se.X
+			}
+			switch ident := ty.(type) {
 			case *ast.Ident:
 				if isInterface && ident.Name == "error" && ident.Obj == nil {
 					// For documentation purposes, we consider the builtin error
@@ -708,12 +721,6 @@ func trimUnexportedFields(fields *ast.FieldList, isInterface bool) *ast.FieldLis
 					continue
 				}
 				names = []*ast.Ident{ident}
-			case *ast.StarExpr:
-				// Must have the form *identifier.
-				// This is only valid on embedded types in structs.
-				if ident, ok := ident.X.(*ast.Ident); ok && !isInterface {
-					names = []*ast.Ident{ident}
-				}
 			case *ast.SelectorExpr:
 				// An embedded type may refer to a type in another package.
 				names = []*ast.Ident{ident.Sel}

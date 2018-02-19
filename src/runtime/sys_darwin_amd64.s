@@ -25,12 +25,25 @@ TEXT runtime·exit(SB),NOSPLIT,$0
 
 // Exit this OS thread (like pthread_exit, which eventually
 // calls __bsdthread_terminate).
-TEXT runtime·exit1(SB),NOSPLIT,$0
-	MOVL	code+0(FP), DI		// arg 1 exit status
+TEXT exit1<>(SB),NOSPLIT,$0
+	// Because of exitThread below, this must not use the stack.
+	// __bsdthread_terminate takes 4 word-size arguments.
+	// Set them all to 0. (None are an exit status.)
+	MOVL	$0, DI
+	MOVL	$0, SI
+	MOVL	$0, DX
+	MOVL	$0, R10
 	MOVL	$(0x2000000+361), AX	// syscall entry
 	SYSCALL
 	MOVL	$0xf1, 0xf1  // crash
 	RET
+
+// func exitThread(wait *uint32)
+TEXT runtime·exitThread(SB),NOSPLIT,$0-8
+	MOVQ	wait+0(FP), AX
+	// We're done using the stack.
+	MOVL	$0, (AX)
+	JMP	exit1<>(SB)
 
 TEXT runtime·open(SB),NOSPLIT,$0
 	MOVQ	name+0(FP), DI		// arg 1 pathname
@@ -107,15 +120,22 @@ TEXT runtime·madvise(SB), NOSPLIT, $0
 	RET
 
 // OS X comm page time offsets
-// http://www.opensource.apple.com/source/xnu/xnu-1699.26.8/osfmk/i386/cpu_capabilities.h
+// https://opensource.apple.com/source/xnu/xnu-4570.1.46/osfmk/i386/cpu_capabilities.h
+
 #define	nt_tsc_base	0x50
 #define	nt_scale	0x58
 #define	nt_shift	0x5c
 #define	nt_ns_base	0x60
 #define	nt_generation	0x68
-#define	gtod_generation	0x6c
-#define	gtod_ns_base	0x70
-#define	gtod_sec_base	0x78
+#define	gtod_generation	0x6c  // obsolete since Darwin v17 (High Sierra)
+#define	gtod_ns_base	0x70  // obsolete since Darwin v17 (High Sierra)
+#define	gtod_sec_base	0x78  // obsolete since Darwin v17 (High Sierra)
+
+#define	v17_gtod_ns_base	0xd0
+#define	v17_gtod_sec_ofs	0xd8
+#define	v17_gtod_frac_ofs	0xe0
+#define	v17_gtod_scale		0xe8
+#define	v17_gtod_tkspersec	0xf0
 
 TEXT runtime·nanotime(SB),NOSPLIT,$0-8
 	MOVQ	$0x7fffffe00000, BP	/* comm page base */
@@ -151,6 +171,75 @@ TEXT time·now(SB), NOSPLIT, $32-24
 	// are used in the systime fallback, as the timeval address
 	// filled in by the system call.
 	MOVQ	$0x7fffffe00000, BP	/* comm page base */
+	CMPQ	runtime·darwinVersion(SB), $17
+	JB		legacy /* sierra and older */
+
+	// This is the new code, for macOS High Sierra (Darwin v17) and newer.
+v17:
+	// Loop trying to take a consistent snapshot
+	// of the time parameters.
+timeloop17:
+	MOVQ 	v17_gtod_ns_base(BP), R12
+
+	MOVL	nt_generation(BP), CX
+	TESTL	CX, CX
+	JZ		timeloop17
+	RDTSC
+	MOVQ	nt_tsc_base(BP), SI
+	MOVL	nt_scale(BP), DI
+	MOVQ	nt_ns_base(BP), BX
+	CMPL	nt_generation(BP), CX
+	JNE		timeloop17
+
+	MOVQ 	v17_gtod_sec_ofs(BP), R8
+	MOVQ 	v17_gtod_frac_ofs(BP), R9
+	MOVQ 	v17_gtod_scale(BP), R10
+	MOVQ 	v17_gtod_tkspersec(BP), R11
+	CMPQ 	v17_gtod_ns_base(BP), R12
+	JNE 	timeloop17
+
+	// Compute monotonic time
+	//	mono = ((tsc - nt_tsc_base) * nt_scale) >> 32 + nt_ns_base
+	// The multiply and shift extracts the top 64 bits of the 96-bit product.
+	SHLQ	$32, DX
+	ADDQ	DX, AX
+	SUBQ	SI, AX
+	MULQ	DI
+	SHRQ	$32, AX:DX
+	ADDQ	BX, AX
+
+	// Subtract startNano base to return the monotonic runtime timer
+	// which is an offset from process boot.
+	MOVQ	AX, BX
+	MOVQ	runtime·startNano(SB), CX
+	SUBQ	CX, BX
+	MOVQ	BX, monotonic+16(FP)
+
+	// Now compute the 128-bit wall time:
+	//  wall = ((mono - gtod_ns_base) * gtod_scale) + gtod_offs
+	// The parameters are updated every second, so if we found them
+	// outdated (that is, more than one second is passed from the ns base),
+	// fallback to the syscall.
+	TESTQ	R12, R12
+	JZ		systime
+	SUBQ	R12, AX
+	CMPQ	R11, AX
+	JB		systime
+	MULQ 	R10
+	ADDQ	R9, AX
+	ADCQ	R8, DX
+
+	// Convert the 128-bit wall time into (sec,nsec).
+	// High part (seconds) is already good to go, while low part
+	// (fraction of seconds) must be converted to nanoseconds.
+	MOVQ	DX, sec+0(FP)
+	MOVQ 	$1000000000, CX
+	MULQ	CX
+	MOVQ	DX, nsec+8(FP)
+	RET
+
+	// This is the legacy code needed for macOS Sierra (Darwin v16) and older.
+legacy:
 	// Loop trying to take a consistent snapshot
 	// of the time parameters.
 timeloop:
@@ -283,7 +372,13 @@ TEXT runtime·mmap(SB),NOSPLIT,$0
 	MOVL	off+28(FP), R9		// arg 6 offset
 	MOVL	$(0x2000000+197), AX	// syscall entry
 	SYSCALL
-	MOVQ	AX, ret+32(FP)
+	JCC	ok
+	MOVQ	$0, p+32(FP)
+	MOVQ	AX, err+40(FP)
+	RET
+ok:
+	MOVQ	AX, p+32(FP)
+	MOVQ	$0, err+40(FP)
 	RET
 
 TEXT runtime·munmap(SB),NOSPLIT,$0
@@ -375,7 +470,7 @@ TEXT runtime·bsdthread_start(SB),NOSPLIT,$0
 	MOVQ	CX, g_m(AX)
 	CALL	runtime·stackcheck(SB)	// smashes AX, CX
 	CALL	DX	// fn
-	CALL	runtime·exit1(SB)
+	CALL	exit1<>(SB)
 	RET
 
 // func bsdthread_register() int32
