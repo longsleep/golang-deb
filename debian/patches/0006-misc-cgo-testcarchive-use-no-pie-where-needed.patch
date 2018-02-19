@@ -1,0 +1,61 @@
+From c15c44ec48fa278330b5d205cf7b4508250496fe Mon Sep 17 00:00:00 2001
+From: Lynn Boger <laboger@linux.vnet.ibm.com>
+Date: Wed, 11 Oct 2017 16:02:59 -0400
+Subject: [PATCH] misc/cgo/testcarchive: use -no-pie where needed
+
+Starting in gcc 6, -pie is passed to the linker by default
+on some platforms, including ppc64le. If the objects
+being linked are not built for -pie then in some cases the
+executable could be in error. To avoid that problem, -no-pie
+should be used with gcc to override the default -pie option
+and generate a correct executable that can be run without error.
+
+Fixes #22126
+
+Change-Id: I4a052bba8b9b3bd6706f5d27ca9a7cebcb504c95
+Reviewed-on: https://go-review.googlesource.com/70072
+Run-TryBot: Lynn Boger <laboger@linux.vnet.ibm.com>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+Reviewed-by: Ian Lance Taylor <iant@golang.org>
+---
+ misc/cgo/testcarchive/carchive_test.go | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+--- a/misc/cgo/testcarchive/carchive_test.go
++++ b/misc/cgo/testcarchive/carchive_test.go
+@@ -6,6 +6,7 @@
+ 
+ import (
+ 	"bufio"
++	"bytes"
+ 	"debug/elf"
+ 	"fmt"
+ 	"io/ioutil"
+@@ -605,9 +606,26 @@
+ 	}
+ 
+ 	exe := "./testnoshared" + exeSuffix
+-	ccArgs := append(cc, "-o", exe, "main5.c", "libgo2.a")
++
++	// In some cases, -no-pie is needed here, but not accepted everywhere. First try
++	// if -no-pie is accepted. See #22126.
++	ccArgs := append(cc, "-o", exe, "-no-pie", "main5.c", "libgo2.a")
+ 	t.Log(ccArgs)
+ 	out, err = exec.Command(ccArgs[0], ccArgs[1:]...).CombinedOutput()
++
++	// If -no-pie unrecognized, try -nopie if this is possibly clang
++	if err != nil && bytes.Contains(out, []byte("unknown")) && !strings.Contains(cc[0], "gcc") {
++		ccArgs = append(cc, "-o", exe, "-nopie", "main5.c", "libgo2.a")
++		t.Log(ccArgs)
++		out, err = exec.Command(ccArgs[0], ccArgs[1:]...).CombinedOutput()
++	}
++
++	// Don't use either -no-pie or -nopie
++	if err != nil && bytes.Contains(out, []byte("unrecognized")) {
++		ccArgs := append(cc, "-o", exe, "main5.c", "libgo2.a")
++		t.Log(ccArgs)
++		out, err = exec.Command(ccArgs[0], ccArgs[1:]...).CombinedOutput()
++	}
+ 	t.Logf("%s", out)
+ 	if err != nil {
+ 		t.Fatal(err)

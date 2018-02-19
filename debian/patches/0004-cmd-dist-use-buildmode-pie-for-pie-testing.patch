@@ -1,0 +1,99 @@
+From ca8c361d867d62bd46013c5abbaaad0b2ca6077f Mon Sep 17 00:00:00 2001
+From: Lynn Boger <laboger@linux.vnet.ibm.com>
+Date: Thu, 28 Sep 2017 10:26:39 -0400
+Subject: [PATCH] cmd/dist: use -buildmode=pie for pie testing
+
+Some tests in misc/cgo/test are run with various options including
+'-linkmode=external "-extldflags=-pie"'. On ppc64x passing -pie to
+the external linker with code that was not compiled as position
+independent is incorrect. This works by luck in many cases but is
+not guaranteed to work. I suspect it is an issue on other targets
+as well.
+
+This will now run the tests using -buildmode=pie for the platforms
+that support that buildmode option.
+
+Fixes #21954
+
+Change-Id: I25fc7573f2d3cb5b0d1c691a0ac91aef7715404f
+Reviewed-on: https://go-review.googlesource.com/66870
+Run-TryBot: Lynn Boger <laboger@linux.vnet.ibm.com>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+Reviewed-by: Ian Lance Taylor <iant@golang.org>
+---
+ src/cmd/dist/test.go | 41 ++++++++++++++---------------------------
+ 1 file changed, 14 insertions(+), 27 deletions(-)
+
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -852,6 +852,16 @@
+ 			return true
+ 		}
+ 		return false
++	case "pie":
++		switch pair {
++		case "linux-386", "linux-amd64", "linux-arm", "linux-arm64", "linux-ppc64le", "linux-s390x",
++			"android-amd64", "android-arm", "android-arm64", "android-386":
++			return true
++		case "darwin-amd64":
++			return true
++		}
++		return false
++
+ 	default:
+ 		log.Fatalf("internal error: unknown buildmode %s", mode)
+ 		return false
+@@ -928,49 +938,15 @@
+ 			// static linking on FreeBSD/ARM with clang. (cgo depends on
+ 			// -fPIC fundamentally.)
+ 		default:
+-			cc := mustEnv("CC")
+-			cmd := t.dirCmd("misc/cgo/test",
+-				cc, "-xc", "-o", "/dev/null", "-static", "-")
+-			cmd.Env = env
+-			cmd.Stdin = strings.NewReader("int main() {}")
+-			if err := cmd.Run(); err != nil {
+-				fmt.Println("No support for static linking found (lacks libc.a?), skip cgo static linking test.")
+-			} else {
+-				if t.goos != "android" {
+-					cmd = t.addCmd(dt, "misc/cgo/testtls", "go", "test", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`)
+-					cmd.Env = env
+-				}
+-
+-				cmd = t.addCmd(dt, "misc/cgo/nocgo", "go", "test")
++			if t.supportedBuildmode("pie") {
++				cmd := t.addCmd(dt, "misc/cgo/test", "go", "test", "-buildmode=pie")
+ 				cmd.Env = env
+ 
+-				cmd = t.addCmd(dt, "misc/cgo/nocgo", "go", "test", "-ldflags", `-linkmode=external`)
++				cmd = t.addCmd(dt, "misc/cgo/testtls", "go", "test", "-buildmode=pie")
+ 				cmd.Env = env
+ 
+-				if t.goos != "android" {
+-					cmd = t.addCmd(dt, "misc/cgo/nocgo", "go", "test", "-ldflags", `-linkmode=external -extldflags "-static -pthread"`)
+-					cmd.Env = env
+-				}
+-			}
+-
+-			if pair != "freebsd-amd64" { // clang -pie fails to link misc/cgo/test
+-				cmd := t.dirCmd("misc/cgo/test",
+-					cc, "-xc", "-o", "/dev/null", "-pie", "-")
++				cmd = t.addCmd(dt, "misc/cgo/nocgo", "go", "test", "-buildmode=pie")
+ 				cmd.Env = env
+-				cmd.Stdin = strings.NewReader("int main() {}")
+-				if err := cmd.Run(); err != nil {
+-					fmt.Println("No support for -pie found, skip cgo PIE test.")
+-				} else {
+-					cmd = t.addCmd(dt, "misc/cgo/test", "go", "test", "-ldflags", `-linkmode=external -extldflags "-pie"`)
+-					cmd.Env = env
+-
+-					cmd = t.addCmd(dt, "misc/cgo/testtls", "go", "test", "-ldflags", `-linkmode=external -extldflags "-pie"`)
+-					cmd.Env = env
+-
+-					cmd = t.addCmd(dt, "misc/cgo/nocgo", "go", "test", "-ldflags", `-linkmode=external -extldflags "-pie"`)
+-					cmd.Env = env
+-
+-				}
+ 			}
+ 		}
+ 	}
