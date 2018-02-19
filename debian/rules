@@ -6,6 +6,7 @@ export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-par
 
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
+export GOCACHE := off
 
 DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
 RUN_TESTS := true
@@ -17,10 +18,6 @@ endif
 ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
 	RUN_TESTS := false
 endif
-
-shlib_archs = $(shell GOVER=$(GOVER) perl debian/helpers/getshlibarches.pl)
-
-multiarch := $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
 
 %:
 	+dh --parallel $(opt_no_act) $@
@@ -51,7 +48,7 @@ override_dh_auto_clean: gencontrol
 
 override_dh_prep:
 	dh_prep
-	@set -e; cd debian; for x in *golang-X.Y-*; do \
+	@set -e; cd debian; for x in golang-X.Y-*; do \
 		sed -e 's/X.Y/$(GOVER)/g' $$x > golang-$(GOVER)-$${x##golang-X.Y-}; \
 	done
 
@@ -84,9 +81,6 @@ override_dh_install-indep:
 	dh_install --fail-missing
 
 override_dh_install-arch:
-	set -ex; \
-		export PATH="$(GOROOT)/bin:$$PATH"; \
-		$(CURDIR)/debian/helpers/installshlib.sh
 	dh_install --fail-missing
 	# Remove .syso files of the race detector; they are binary files that
 	# are not built from source in the go source distribution.
@@ -105,21 +99,12 @@ override_dh_strip:
 override_dh_shlibdeps:
 	dh_shlibdeps -Xtestdata -Xtest
 
-override_dh_makeshlibs:
-	LDIR=$(CURDIR)/debian/libgolang-$(GOVER)-std1/usr/lib/$(multiarch); \
-	HASH=$$(LD_LIBRARY_PATH=$$LDIR:$$LD_LIBRARY_PATH $(CURDIR)/bin/readabihash $$LDIR/libgolang-$(GOVER)-std.so.1); \
-	dh_makeshlibs -Vlibgolang-$(GOVER)-std1-$$HASH; \
-	echo "golang:Provides=libgolang-$(GOVER)-std1-$$HASH" >> $(CURDIR)/debian/libgolang-$(GOVER)-std1.substvars
-
 override_dh_auto_build-arch:
 	[ -f VERSION ] || echo "debian snapshot +$$(dpkg-parsechangelog -SVersion)" > VERSION
 	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
 		&& cd src \
 		&& $(CURDIR)/debian/helpers/goenv.sh \
 			bash ./make.bash --no-banner
-	$(CURDIR)/bin/go install -v -buildmode=shared \
-		-ldflags '-extldflags "-Wl,-soname=libgolang-$(GOVER)-std.so.1"' \
-		std
 
 opt_no_act :=
 ifneq (,$(findstring n,$(MAKEFLAGS)))

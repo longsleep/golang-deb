@@ -5,6 +5,20 @@ Last-Update: 2017-08-25
 
 ---
 
+--- a/src/cmd/go/internal/work/gc.go
++++ b/src/cmd/go/internal/work/gc.go
+@@ -456,7 +456,10 @@
+ 		dir, out = filepath.Split(out)
+ 	}
+ 
+-	return b.run(root, dir, root.Package.ImportPath, nil, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
++	// Apply the rewrite of $WORK to /tmp/go-build also to DWARF file tables:
++	env := []string{"BUILD_PATH_PREFIX_MAP=/tmp/go-build=" + b.WorkDir + ":" + os.Getenv("BUILD_PATH_PREFIX_MAP")}
++
++	return b.run(root, dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
+ }
+ 
+ func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, out, importcfg string, allactions []*Action) error {
 --- /dev/null
 +++ b/src/cmd/link/internal/ld/buildpathprefix.go
 @@ -0,0 +1,56 @@
@@ -66,7 +80,7 @@ Last-Update: 2017-08-25
 +}
 --- a/src/cmd/link/internal/ld/dwarf.go
 +++ b/src/cmd/link/internal/ld/dwarf.go
-@@ -1131,7 +1131,7 @@ func writelines(ctxt *Link, lib *sym.Lib
+@@ -1131,7 +1131,7 @@
  	newattr(dwinfo, dwarf.DW_AT_language, dwarf.DW_CLS_CONSTANT, int64(lang), 0)
  	newattr(dwinfo, dwarf.DW_AT_stmt_list, dwarf.DW_CLS_PTR, ls.Size, ls)
  	// OS X linker requires compilation dir or absolute path in comp unit name to output debug info.
@@ -75,7 +89,7 @@ Last-Update: 2017-08-25
  	// TODO: Make this be the actual compilation directory, not
  	// the linker directory. If we move CU construction into the
  	// compiler, this should happen naturally.
-@@ -1186,7 +1186,7 @@ func writelines(ctxt *Link, lib *sym.Lib
+@@ -1186,7 +1186,7 @@
  			}
  			// File indexes are 1-based.
  			fileNums[int(f.Value)] = len(fileNums) + 1
@@ -84,18 +98,9 @@ Last-Update: 2017-08-25
  			ls.AddUint8(0)
  			ls.AddUint8(0)
  			ls.AddUint8(0)
-@@ -1206,7 +1206,7 @@ func writelines(ctxt *Link, lib *sym.Lib
- 			_, ok := fileNums[int(r.Sym.Value)]
- 			if !ok {
- 				fileNums[int(r.Sym.Value)] = len(fileNums) + 1
--				Addstring(ls, r.Sym.Name)
-+				Addstring(ls, applyBuildPathPrefixMap(r.Sym.Name))
- 				ls.AddUint8(0)
- 				ls.AddUint8(0)
- 				ls.AddUint8(0)
 --- a/src/cmd/link/internal/ld/pcln.go
 +++ b/src/cmd/link/internal/ld/pcln.go
-@@ -301,7 +301,7 @@ func (ctxt *Link) pclntab() {
+@@ -301,7 +301,7 @@
  		off = int32(ftab.SetAddr(ctxt.Arch, int64(off), s))
  
  		// name int32
@@ -104,7 +109,7 @@ Last-Update: 2017-08-25
  		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(nameoff)))
  
  		// args int32
-@@ -411,7 +411,7 @@ func (ctxt *Link) pclntab() {
+@@ -411,7 +411,7 @@
  	ftab.SetUint32(ctxt.Arch, int64(start), uint32(len(ctxt.Filesyms)+1))
  	for i := len(ctxt.Filesyms) - 1; i >= 0; i-- {
  		s := ctxt.Filesyms[i]
@@ -113,16 +118,3 @@ Last-Update: 2017-08-25
  	}
  
  	ftab.Size = int64(len(ftab.P))
---- a/src/cmd/go/internal/work/gc.go
-+++ b/src/cmd/go/internal/work/gc.go
-@@ -456,7 +456,9 @@ func (gcToolchain) ld(b *Builder, root *
- 		dir, out = filepath.Split(out)
- 	}
- 
--	return b.run(root, dir, root.Package.ImportPath, nil, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
-+	// Apply the rewrite of $WORK to /tmp/go-build also to DWARF file tables:
-+	env := []string{"BUILD_PATH_PREFIX_MAP=/tmp/go-build=" + b.WorkDir + ":" + os.Getenv("BUILD_PATH_PREFIX_MAP")}
-+	return b.run(root, dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
- }
- 
- func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, out, importcfg string, allactions []*Action) error {

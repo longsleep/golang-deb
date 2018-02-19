@@ -6,7 +6,7 @@ XSBC-Original-Maintainer: Go Compiler Team <pkg-golang-devel@lists.alioth.debian
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
-           Michael Hudson-Doyle <michael.hudson@ubuntu.com>
+           Michael Hudson-Doyle <mwhudson@debian.org>
 Vcs-Browser: https://anonscm.debian.org/cgit/pkg-golang/golang.git
 Vcs-Git: https://anonscm.debian.org/git/pkg-golang/golang.git -b golang-X.Y
 Build-Depends: debhelper (>= 7.4.10),
@@ -16,7 +16,7 @@ Standards-Version: 3.9.8
 Homepage: https://golang.org
 
 Package: golang-X.Y-go
-Architecture: amd64 arm64 armel armhf i386 ppc64 ppc64el s390x
+Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el s390x
 Depends: golang-X.Y-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
@@ -44,7 +44,7 @@ Description: Go programming language compiler, linker, compiled stdlib
  pre-compile the standard library inside GOROOT for cross-compilation to work.
 
 Package: golang-X.Y-src
-Architecture: amd64 arm64 armel armhf i386 ppc64 ppc64el s390x
+Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el s390x
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
@@ -97,25 +97,3 @@ Description: Go programming language compiler - metapackage
  .
  This package is a metapackage that, when installed, guarantees
  that (most of) a full Go development environment is installed.
-
-Package: libgolang-X.Y-std1
-Architecture: amd64 arm64 armhf i386 ppc64el s390x
-Pre-Depends: ${misc:Pre-Depends}
-Provides: ${golang:Provides}
-Depends: ${misc:Depends}, ${perl:Depends}, ${shlibs:Depends}
-Description: Go standard shared library
- This package contains the Go standard library built as a shared library.
- Packages should not depend on this package directly but rather the ABI-stamped
- value in Provides:. dpkg-shlibdeps will do this automatically.
-
-Package: golang-X.Y-go-shared-dev
-Architecture: amd64 arm64 armhf i386 ppc64el s390x
-Pre-Depends: ${misc:Pre-Depends}
-Depends: golang-X.Y-go (= ${binary:Version}),
-         libgolang-X.Y-std1 (= ${binary:Version}),
-         ${misc:Depends},
-         ${perl:Depends},
-         ${shlibs:Depends}
-Description: Go standard shared library support files
- This package contains the files necessary to link against the shared
- library packaged in libgolang-X.Y-std1.
