@@ -2,6 +2,7 @@ golang-1.10 (1.10-2) UNRELEASED; urgency=medium
 
   * d/patches/0002-reproducible-BUILD_PATH_PREFIX_MAP.patch: update patch tags
     to reference upstream discussion of this topic.
+  * d/control, d/control.in: Update Vcs-* to point to salsa. 
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Mon, 19 Feb 2018 09:48:15 +1300
 
