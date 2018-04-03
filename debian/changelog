@@ -1,5 +1,6 @@
-golang-1.10 (1.10-2) UNRELEASED; urgency=medium
+golang-1.10 (1.10.1-1) UNRELEASED; urgency=medium
 
+  * New upstream version 1.10.1.
   * d/patches/0002-reproducible-BUILD_PATH_PREFIX_MAP.patch: update patch tags
     to reference upstream discussion of this topic.
   * d/control, d/control.in: Update Vcs-* to point to salsa. 
