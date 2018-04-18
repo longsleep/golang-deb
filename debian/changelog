@@ -12,7 +12,7 @@ golang-1.10 (1.10.1-1) unstable; urgency=medium
   * New upstream version 1.10.1.
   * d/patches/0002-reproducible-BUILD_PATH_PREFIX_MAP.patch: update patch tags
     to reference upstream discussion of this topic.
-  * d/control, d/control.in: Update Vcs-* to point to salsa. 
+  * d/control, d/control.in: Update Vcs-* to point to salsa.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 03 Apr 2018 15:34:12 +1200
 
@@ -139,20 +139,20 @@ golang-1.8 (1.8~rc2-1) unstable; urgency=medium
 
 golang-1.8 (1.8~rc1-1) unstable; urgency=medium
 
-  * New upstream release. 
+  * New upstream release.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Mon, 16 Jan 2017 15:51:54 +1300
 
 golang-1.8 (1.8~beta2-1) unstable; urgency=medium
 
-  * New upstream release. 
+  * New upstream release.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Tue, 20 Dec 2016 14:19:55 +1300
 
 golang-1.8 (1.8~beta1-1) unstable; urgency=medium
 
   * New upstream release.
-  * Remove d/patches/cl-29995--tzdata-2016g.patch, included upstream. 
+  * Remove d/patches/cl-29995--tzdata-2016g.patch, included upstream.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Wed, 07 Dec 2016 17:38:57 -0800
 
@@ -168,7 +168,7 @@ golang-1.7 (1.7.4-1) unstable; urgency=medium
 golang-1.7 (1.7.3-1) unstable; urgency=medium
 
   * New upstream release.
-  * Delete d/patches/cl-28850.patch, applied upstream. 
+  * Delete d/patches/cl-28850.patch, applied upstream.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 20 Oct 2016 09:10:47 +1300
 
@@ -187,7 +187,7 @@ golang-1.7 (1.7.1-2) unstable; urgency=medium
 golang-1.7 (1.7.1-1) unstable; urgency=medium
 
   * New upstream release.
-  * Re-enable tests on s390x now that gcc-6 has been fixed in unstable. 
+  * Re-enable tests on s390x now that gcc-6 has been fixed in unstable.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 08 Sep 2016 13:04:33 +1200
 
@@ -222,8 +222,8 @@ golang-1.7 (1.7~rc3-1) unstable; urgency=medium
 
   [ Michael Hudson-Doyle ]
   * New upstream release.
-  * Suppress inaccurate source-is-missing lintian warnings. 
-  * Update Standards-Version to 3.9.8 (no changes required). 
+  * Suppress inaccurate source-is-missing lintian warnings.
+  * Update Standards-Version to 3.9.8 (no changes required).
 
  -- Tianon Gravi <tianon@debian.org>  Mon, 11 Jul 2016 18:31:57 -0700
 
@@ -274,7 +274,7 @@ golang-1.6 (1.6.1-1) unstable; urgency=medium
 
 golang (2:1.6.1-2) unstable; urgency=medium
 
-  * Don't strip testdata files, causes build failures on some platforms. 
+  * Don't strip testdata files, causes build failures on some platforms.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Wed, 13 Apr 2016 15:47:46 -0700
 
@@ -769,7 +769,7 @@ golang (2:1-1) unstable; urgency=low
     + Czech (Michal Simunek).  (Closes: #665385)
     + Spanish; (Camaleón).  (Closes: #666177)
     + Danish (Joe Hansen).  (Closes: #666526)
-  
+
  -- Ondřej Surý <ondrej@debian.org>  Fri, 06 Apr 2012 16:04:17 +0200
 
 golang (1:60.3-2) unstable; urgency=low
@@ -979,7 +979,7 @@ golang (2011.02.15-2) unstable; urgency=low
   * goinstall: don't report to dashboard by default
   * Add a README.Debian about local modifications to goinstall
   * Add warning about local modifications also directly to goinstall command
-  
+
   [ Florian Weimer ]
   * Fix syntax error in 004-
     dont_reinstall_dependencies_in_goinstall.patch
