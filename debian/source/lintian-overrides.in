@@ -1,14 +1,35 @@
+golang-X.Y source: source-contains-prebuilt-binary src/cmd/internal/buildid/testdata/a.elf
+golang-X.Y source: source-contains-prebuilt-binary src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/hello
+golang-X.Y source: source-contains-prebuilt-binary src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/cycle.elf
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/line-clang.elf
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/line-gcc.elf
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/ranges.elf
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/split.elf
 golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf
-golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
-golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86.obj
+golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf4
 golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-386-freebsd-exec
-golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-openbsd-debug-with-rela.obj
-golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
-golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.obj
-golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.obj
-golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-X.Y source: source-contains-prebuilt-binary src/debug/elf/testdata/*.obj
+golang-X.Y source: source-contains-prebuilt-binary src/go/internal/gccgoimporter/testdata/escapeinfo.gox
+golang-X.Y source: source-contains-prebuilt-binary src/go/internal/gccgoimporter/testdata/time.gox
+golang-X.Y source: source-contains-prebuilt-binary src/go/internal/gccgoimporter/testdata/unicode.gox
+golang-X.Y source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test32
+golang-X.Y source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test32be
+golang-X.Y source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test64
+golang-X.Y source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test64be
 golang-X.Y source: source-contains-prebuilt-binary src/runtime/race/*.syso
+golang-X.Y source: source-contains-prebuilt-windows-binary src/cmd/internal/buildid/testdata/a.pe
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/dwarf/testdata/line-gcc-win.bin
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
+golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-amd64-mingw-exec
+
 golang-X.Y source: source-is-missing src/runtime/race/*.syso
+golang-X.Y source: source-is-missing src/cmd/internal/buildid/testdata/a.elf
+golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/hello
+golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
 
 # All these files are compiled from src/debug/elf/testdata/hello.c
 # with various toolchain and options to be used as test data for the
