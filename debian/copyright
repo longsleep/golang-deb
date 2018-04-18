@@ -6,21 +6,7 @@ Files: *
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
-Files: include/*
- src/lib9/*
- src/libbio/*
- src/runtime/386/*
- src/libmach/*
- src/runtime/memclr_arm.s
- src/runtime/memmove_386.s
- src/runtime/memmove_amd64.s
- src/runtime/memmove_arm.s
- src/runtime/memmove_plan9_386.s
- src/runtime/memmove_plan9_amd64.s
- src/runtime/vlop_386.s
- src/runtime/vlop_arm.s
- src/runtime/vlrt.go
- src/math/fltasm_amd64.s
+Files:
  src/cmd/compile/internal/gc/gsubr.go
  src/cmd/internal/objabi/autotype.go
  src/cmd/internal/objabi/head.go
@@ -66,15 +52,11 @@ Files: include/*
  src/cmd/link/internal/arm/obj.go
  src/cmd/link/internal/ld/ar.go
  src/cmd/link/internal/ld/data.go
- src/cmd/link/internal/ld/ldelf.go
- src/cmd/link/internal/ld/ldmacho.go
  src/cmd/link/internal/ld/ld.go
  src/cmd/link/internal/ld/lib.go
  src/cmd/link/internal/ld/link.go
  src/cmd/link/internal/ld/main.go
- src/cmd/link/internal/ld/symbols.go
  src/cmd/link/internal/ld/sym.go
- src/cmd/link/internal/ld/symkind.go
  src/cmd/link/internal/ld/symtab.go
  src/cmd/link/internal/mips/asm.go
  src/cmd/link/internal/mips/l.go
@@ -88,42 +70,22 @@ Files: include/*
  src/cmd/link/internal/s390x/asm.go
  src/cmd/link/internal/s390x/l.go
  src/cmd/link/internal/s390x/obj.go
+ src/cmd/link/internal/sym/segment.go
+ src/cmd/link/internal/sym/symbols.go
+ src/cmd/link/internal/sym/symkind.go
  src/cmd/link/internal/x86/asm.go
  src/cmd/link/internal/x86/l.go
  src/cmd/link/internal/x86/obj.go
- src/cmd/6c/txt.c
- src/cmd/gopack/ar.c
- src/cmd/ld/lib.[ch]
- src/cmd/6a/a.[yh]
- src/cmd/6a/lex.c
- src/cmd/5g/gobj.c
- src/cmd/5g/list.c
- src/cmd/5g/gsubr.c
- src/cmd/5g/opt.h
- src/cmd/8c/*
- src/cmd/goyacc/goyacc.go
- src/cmd/5l/*
- src/cmd/6g/reg.c
- src/cmd/6g/gobj.c
- src/cmd/6g/peep.c
- src/cmd/6g/list.c
- src/cmd/6g/gsubr.c
- src/cmd/6g/opt.c
- src/cmd/8l/*
- src/cmd/nm/nm.c
- src/cmd/gc/bits.c
- src/cmd/cc/*
- src/cmd/5a/*
- src/cmd/8g/reg.c
- src/cmd/8g/gobj.c
- src/cmd/8g/peep.c
- src/cmd/8g/list.c
- src/cmd/8g/gsubr.c
- src/cmd/8g/opt.h
- src/cmd/5c/*
- src/cmd/6l/*
- src/cmd/8a/*
  src/cmd/vendor/golang.org/x/arch/x86/x86asm/testdata/libmach8db.c
+ src/runtime/memclr_arm.s
+ src/runtime/memmove_386.s
+ src/runtime/memmove_amd64.s
+ src/runtime/memmove_arm.s
+ src/runtime/memmove_plan9_386.s
+ src/runtime/memmove_plan9_amd64.s
+ src/runtime/vlop_386.s
+ src/runtime/vlop_arm.s
+ src/runtime/vlrt.go
 Origin: Plan 9 from User Space include/, src/lib9/, src/libmach/
         Inferno utils/include/, utils/libmach/, utils/6c/, utils/iar/,
                 utils/6l/, utils/6a/, utils/5c/, utils/8c/, utils/iyacc/,
@@ -139,109 +101,29 @@ Copyright: © 1994-1999 Lucent Technologies Inc.  All rights reserved.
            Portions © 2009 The Go Authors.  All rights reserved.
 License: X11
 
-Files: src/lib9/goos.c
- src/lib9/win32.c
- src/lib9/Makefile
- src/runtime/386/asm.s
- src/runtime/386/closure.c
- src/runtime/arm/asm.s
- src/runtime/arm/closure.c
- src/runtime/arm/cas5.s
- src/libmach/fakeobj.c
- src/libmach/macho.h
- src/cmd/6c/doc.go
- src/cmd/6c/Makefile
- src/cmd/8c/doc.go
- src/cmd/8c/Makefile
- src/cmd/5l/doc.go
- src/cmd/5l/softfloat.c
- src/cmd/5l/Makefile
- src/cmd/8l/doc.go
- src/cmd/8l/Makefile
- src/cmd/cc/doc.go
- src/cmd/cc/Makefile
- src/cmd/5a/doc.go
- src/cmd/5a/Makefile
- src/cmd/5c/doc.go
- src/cmd/5c/Makefile
- src/cmd/6l/doc.go
- src/cmd/6l/Makefile
- src/cmd/8a/doc.go
- src/cmd/8a/Makefile
-Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
-License: Go
-
-Files: include/fmt.h
- src/lib9/utf/*
- src/lib9/fmt/*
- src/runtime/rune.c
-Copyright: © 1998-2002 by Lucent Technologies.
-           Portions © 2004 Google Inc.
-           Portions © 2009 The Go Authors.  All rights reserved.
-License: MIT-Inspired
- The authors of this software are Rob Pike and Ken Thompson,
- with contributions from Mike Burrows and Sean Dorward.
-              Copyright (c) 1998-2006 by Lucent Technologies.
-              Portions Copyright (c) 2004 Google Inc.
-              Portions Copyright (c) 2009 The Go Authors.  All rights reserved.
- Permission to use, copy, modify, and distribute this software for any
- purpose without fee is hereby granted, provided that this entire notice
- is included in all copies of any software which is or includes a copy
- or modification of this software and in all copies of the supporting
- documentation for such software.
- THIS SOFTWARE IS BEING PROVIDED "AS IS", WITHOUT ANY EXPRESS OR IMPLIED
- WARRANTY.  IN PARTICULAR, NEITHER THE AUTHORS NOR LUCENT TECHNOLOGIES MAKE ANY
- REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
- OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
-
-Files: src/lib9/utf/mkrunetype.c
-Copyright: © 2009, The Go Authors.  All rights reserved.
-License: Go
-
-Files: src/cmd/cov/tree.[ch]
-Copyright: © 2003-2007 Russ Cox, Tom Bergan, Austin Clements,
-                       Massachusetts Institute of Technology
-           Portions © 2009 The Go Authors. All rights reserved.
-License: X11
-
-Files: src/cmd/prof/gopprof
-Origin: based on src/pprof from google-perftools
-Copyright: © 1998-2007, Google Inc.
-License: Perftools
-Notes:
- This is a copy of http://google-perftools.googlecode.com/svn/trunk/src/pprof
- with local modifications to handle generation of SVG images and
- the Go-style pprof paths.  These modifications will probably filter
- back into the official source before long.
- It's convenient to have a copy here because we need just the one
- Perl script, not all the C++ libraries that surround it.
-
-Files: src/runtime/tiny/bootblock
-Origin: Xv6 rev3
-Copyright: © 2006-2009 Frans Kaashoek, Robert Morris, Russ Cox,
-                       Massachusetts Institute of Technology
-License: X11
-
 Files: src/debug/dwarf/testdata/typedef.macho
  src/debug/dwarf/testdata/typedef.elf
 Source: src/debug/dwarf/testdata/typedef.c
 Copyright: © 2009, The Go Authors.  All rights reserved.
 License: Go
 
-Files: src/debug/macho/testdata/gcc-amd64-darwin-exec-debug
- src/debug/macho/testdata/gcc-386-darwin-exec
- src/debug/macho/testdata/gcc-amd64-darwin-exec
- src/debug/elf/testdata/go-relocation-test-gcc424-x86-64.o
- src/debug/elf/testdata/gcc-amd64-linux-exec
- src/debug/elf/testdata/go-relocation-test-gcc441-x86.o
- src/debug/elf/testdata/gcc-386-freebsd-exec
- src/debug/elf/testdata/go-relocation-test-gcc441-x86-64.o
+Files:
+ src/debug/macho/testdata/fat-gcc*
+ src/debug/macho/testdata/clang*
+ src/debug/macho/testdata/gcc*
+Source: src/debug/macho/testdata/hello.c
+Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
+License: Go
+
+Files:
+ src/debug/elf/testdata/*-exec
+ src/debug/elf/testdata/*.obj
+ src/debug/elf/testdata/hello-world-core.gz
 Source: src/debug/elf/testdata/hello.c
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
 Files: src/debug/elf/elf.go
- src/cmd/ld/elf.h
  src/cmd/link/internal/ld/elf.go
 Origin: FreeBSD src/sys/sys/elf{32,64,_common}.h, src/sys/*/include/elf.h
 Copyright: © 1996-1998 John D. Polstra.  All rights reserved.
@@ -299,79 +181,12 @@ Origin: Translated from idct.c in the MPEG-2 (ISO/IEC 13818-4)
 Copyright: © 1996, MPEG Software Simulation Group. All Rights Reserved.
 License: MPEG
 
-Files: src/exp/spacewar/pdp1.go
- src/exp/spacewar/spacewar.go
-Origin: Translated from the Java emulator pdp1.java in Spacewar!
-Copyright: © 1996 Barry Silverman, Brian Silverman, Vadim Gerasimov.
-           Portions © 2009 The Go Authors.
-License: Spacewar!
-
-Files: src/exp/spacewar/code.go
-Origin: The original Spacewar!
-Copyright: See license
-License: PD
- This file contains the assembly language and machine code for
- Spacewar!, the original PDP-1 video game.  It is downloaded from
- http://spacewar.oversigma.com/sources/sources.zip which has
- the following notice at http://spacewar.oversigma.com/:
- .
-      Spacewar! was conceived in 1961 by Martin Graetz, Stephen Russell,
-      and Wayne Wiitanen. It was first realized on the PDP-1 in 1962 by
-      Stephen Russell, Peter Samson, Dan Edwards, and Martin Graetz,
-      together with Alan Kotok, Steve Piner, and Robert A Saunders.
-      Spacewar! is in the public domain, but this credit paragraph must
-      accompany all distributed versions of the program.
- .
-      This is the original version! Martin Graetz provided us with a
-      printed version of the source. We typed in in again - it was about
-      40 pages long - and re-assembled it with a PDP-1 assembler written
-      in PERL. The resulting binary runs on a PDP-1 emulator written as
-      a Java applet. The code is extremely faithful to the original. There
-      are only two changes. 1)The spaceships have been made bigger and
-      2) The overall timing has been special cased to deal with varying
-      machine speeds.
- .
-      The "a", "s", "d", "f" keys control one of the spaceships. The "k",
-      "l", ";", "'" keys control the other. The controls are spin one
-      way, spin the other, thrust, and fire.
- .
-      Barry Silverman
-      Brian Silverman
-      Vadim Gerasimov
-
-Files: src/exp/4s/xs.go
- src/exp/4s/data.go
-Origin: Derived from Plan 9's /sys/src/games/xs.c
-Copyright: © 2003, Lucent Technologies Inc. and others. All Rights Reserved.
-           Portions © 2009 The Go Authors.  All Rights Reserved.
-License: Plan9
-
-Files: src/cmd/goyacc/units.txt
-Origin: Plan9's /lib/units
-Copyright: © 2003, Lucent Technologies Inc. and others. All Rights Reserved.
-License: Plan9
-
-Files: src/cmd/goyacc/units.y
-Origin: Derived from Plan9's /sys/src/cmd/units.y
-Copyright: © 2003, Lucent Technologies Inc. and others. All Rights Reserved.
-           Portions © 2009 The Go Authors.  All Rights Reserved.
-License: Plan9
-
-Files: src/html/testdata/webkit/*
-Origin: WebKit LayoutTests/html5lib/resources/
-Copyright: © 2009, Apple Inc. All rights reserved.
-License: WebKit
-
 Files: src/image/png/testdata/pngsuite/*
 Origin: libpng 1.2.40, contrib/pngsuite/*
 Copyright: © Willem van Schaik, 1999
 License: noderivs
  Permission to use, copy, and distribute these images for any purpose and
  without fee is hereby granted.
-
-Files: lib/codereview/*
-Copyright: © 2007-2009 Google Inc.
-License: Apache-2.0
 
 Files: src/cmd/vendor/github.com/google/pprof
 Copyright: 2014, 2016 Google Inc.
@@ -380,25 +195,6 @@ License: Apache-2.0
 Files: src/cmd/vendor/github.com/google/pprof/third_party/svg/svgpan.go
 Copyright: 2009-2010 Andrea Leofreddi <a.leofreddi@itcharm.com>
 License: BSD-2-clause-svgpan
-
-Files: lib/godoc/godoc.html
-Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
-License: CC-BY-3.0
-Comment:
- Except as noted, this content is licensed under Creative Commons
- Attribution 3.0
-
-Files: misc/cgo/gmp/pi.go
-Copyright: Brent Fulgham
-Authors: contributed by The Go Authors.
-         based on pidigits.c (by Paolo Bonzini & Sean Bartlett,
-                              modified by Michael Mellor)
-License: Shootout
-
-Files: test/garbage/tree.go
- test/bench/*
-Copyright: Brent Fulgham
-License: Shootout
 
 Files: favicon.ico
  doc/gopher/*
@@ -415,40 +211,7 @@ Comment:
  Creative Commons Attribution 3.0 <http://creativecommons.org/licenses/by/3.0>
  license.
 
-Files: doc/*
-Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
-License: CC-BY-3.0
-Comment:
- Except as noted, this content is licensed under Creative Commons
- Attribution 3.0
-
-Files: doc/htmlgen.go
- doc/makehtml
- doc/popups.js
- doc/style.css
- doc/Makefile
- doc/codelab/wiki/Makefile
- doc/prog.sh
- doc/progs/*
- doc/codewalk/codewalk.css
- doc/codewalk/codewalk.js
- doc/codewalk/urlpoll.go
- doc/talks/io2010/*.go
-Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
-License: Go
-
-Files: doc/talks/slidy.*
-Origin: http://www.w3.org/Talks/Tools/Slidy/
-Copyright: © 2005 W3C (MIT, ERCIM, Keio), All Rights Reserved.
-License: W3C
-Comment:
- W3C liability, trademark, document use and software licensing
- rules apply, see:
- .
- http://www.w3.org/Consortium/Legal/copyright-documents
- http://www.w3.org/Consortium/Legal/copyright-software
-
-Files: misc/trace/trace_viewer_lean.html
+Files: misc/trace/*
 Copyright: 2012 The Chromium Authors
 License: BSD-3-clause
 
@@ -612,407 +375,6 @@ License: MPEG
  are subject to royalty fees to patent holders.  Many of these patents are
  general enough such that they are unavoidable regardless of implementation
  design.
-
-License: Perftools
- Copyright (c) 1998-2007, Google Inc.
- All rights reserved.
- .
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions are
- met:
- .
-     * Redistributions of source code must retain the above copyright
- notice, this list of conditions and the following disclaimer.
-     * Redistributions in binary form must reproduce the above
- copyright notice, this list of conditions and the following disclaimer
- in the documentation and/or other materials provided with the
- distribution.
-     * Neither the name of Google Inc. nor the names of its
- contributors may be used to endorse or promote products derived from
- this software without specific prior written permission.
- .
- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-License: Shootout
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions are met:
- .
-     * Redistributions of source code must retain the above copyright
-     notice, this list of conditions and the following disclaimer.
- .
-     * Redistributions in binary form must reproduce the above copyright
-     notice, this list of conditions and the following disclaimer in the
-     documentation and/or other materials provided with the distribution.
- .
-     * Neither the name of "The Computer Language Benchmarks Game" nor the
-     name of "The Computer Language Shootout Benchmarks" nor the names of
-     its contributors may be used to endorse or promote products derived
-     from this software without specific prior written permission.
- .
- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- POSSIBILITY OF SUCH DAMAGE.
-
-License: WebKit
- Copyright (C) 2009 Apple Inc. All rights reserved.
- .
- Redistribution and use in source and binary forms, with or without
- modification, are permitted provided that the following conditions are met:
- .
- 1. Redistributions of source code must retain the above copyright notice,
- this list of conditions and the following disclaimer.
- .
- 2. Redistributions in binary form must reproduce the above copyright notice,
- this list of conditions and the following disclaimer in the documentation
- and/or other materials provided with the distribution.
- .
- THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS "AS IS" AND ANY
- EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS BE LIABLE FOR ANY
- DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
- ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-License: Spacewar!
- Copyright (c) 1996 Barry Silverman, Brian Silverman, Vadim Gerasimov.
- Portions Copyright (c) 2009 The Go Authors.
- .
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
- .
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
- .
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- THE SOFTWARE.
- .
- This package and spacewar.go implement a simple PDP-1 emulator
- complete enough to run the original PDP-1 video game Spacewar!
- See nacl/README for details on running them.
- .
- They are a translation of the Java emulator pdp1.java in
- http://spacewar.oversigma.com/sources/sources.zip.
- .
- See also the PDP-1 handbook at http://www.dbit.com/~greeng3/pdp1/pdp1.html
- .
- http://spacewar.oversigma.com/readme.html begins:
- .
-      Spacewar! was conceived in 1961 by Martin Graetz, Stephen Russell,
-      and Wayne Wiitanen. It was first realized on the PDP-1 in 1962 by
-      Stephen Russell, Peter Samson, Dan Edwards, and Martin Graetz,
-      together with Alan Kotok, Steve Piner, and Robert A Saunders.
-      Spacewar! is in the public domain, but this credit paragraph must
-      accompany all distributed versions of the program.
-
-License: Plan9
- Lucent Public License Version 1.02
- .
- THE ACCOMPANYING PROGRAM IS PROVIDED UNDER THE TERMS OF THIS PUBLIC LICENSE
- ("AGREEMENT"). ANY USE, REPRODUCTION OR DISTRIBUTION OF THE PROGRAM CONSTITUTES
- RECIPIENT'S ACCEPTANCE OF THIS AGREEMENT.
- .
- 1. DEFINITIONS
- .
- "Contribution" means:
- .
-   a. in the case of Lucent Technologies Inc. ("LUCENT"), the Original Program,
-      and
-   b. in the case of each Contributor,
-       i. changes to the Program, and
-      ii. additions to the Program;
-     where such changes and/or additions to the Program were added to the
-     Program by such Contributor itself or anyone acting on such Contributor's
-     behalf, and the Contributor explicitly consents, in accordance with
-     Section 3C, to characterization of the changes and/or additions as
-     Contributions.
- .
- "Contributor" means LUCENT and any other entity that has Contributed a
- Contribution to the Program.
- .
- "Distributor" means a Recipient that distributes the Program, modifications to
- the Program, or any part thereof.
- .
- "Licensed Patents" mean patent claims licensable by a Contributor which are
- necessarily infringed by the use or sale of its Contribution alone or when
- combined with the Program.
- .
- "Original Program" means the original version of the software accompanying
- this Agreement as released by LUCENT, including source code, object code and
- documentation, if any.
- .
- "Program" means the Original Program and Contributions or any part thereof
- .
- "Recipient" means anyone who receives the Program under this Agreement,
- including all Contributors.
- .
- 2. GRANT OF RIGHTS
- .
-   a. Subject to the terms of this Agreement, each Contributor hereby grants
-      Recipient a non-exclusive, worldwide, royalty-free copyright license to
-      reproduce, prepare derivative works of, publicly display, publicly
-      perform, distribute and sublicense the Contribution of such Contributor,
-      if any, and such derivative works, in source code and object code form.
- .
-   b. Subject to the terms of this Agreement, each Contributor hereby grants
-      Recipient a non-exclusive, worldwide, royalty-free patent license under
-      Licensed Patents to make, use, sell, offer to sell, import and otherwise
-      transfer the Contribution of such Contributor, if any, in source code and
-      object code form. The patent license granted by a Contributor shall also
-      apply to the combination of the Contribution of that Contributor and the
-      Program if, at the time the Contribution is added by the Contributor,
-      such addition of the Contribution causes such combination to be covered
-      by the Licensed Patents. The patent license granted by a Contributor
-      shall not apply to (i) any other combinations which include the
-      Contribution, nor to (ii) Contributions of other Contributors. No
-      hardware per se is licensed hereunder.
- .
-   c. Recipient understands that although each Contributor grants the licenses
-      to its Contributions set forth herein, no assurances are provided by any
-      Contributor that the Program does not infringe the patent or other
-      intellectual property rights of any other entity. Each Contributor
-      disclaims any liability to Recipient for claims brought by any other
-      entity based on infringement of intellectual property rights or
-      otherwise. As a condition to exercising the rights and licenses granted
-      hereunder, each Recipient hereby assumes sole responsibility to secure
-      any other intellectual property rights needed, if any. For example, if a
-      third party patent license is required to allow Recipient to distribute
-      the Program, it is Recipient's responsibility to acquire that license
-      before distributing the Program.
- .
-   d. Each Contributor represents that to its knowledge it has sufficient
-      copyright rights in its Contribution, if any, to grant the copyright
-      license set forth in this Agreement.
- .
- 3. REQUIREMENTS
- .
- A. Distributor may choose to distribute the Program in any form under this
- Agreement or under its own license agreement, provided that:
- .
-   a. it complies with the terms and conditions of this Agreement;
- .
-   b. if the Program is distributed in source code or other tangible form, a
-      copy of this Agreement or Distributor's own license agreement is included
-      with each copy of the Program; and
- .
-   c. if distributed under Distributor's own license agreement, such license
-      agreement:
-       i. effectively disclaims on behalf of all Contributors all warranties
-          and conditions, express and implied, including warranties or
-          conditions of title and non-infringement, and implied warranties or
-          conditions of merchantability and fitness for a particular purpose;
-      ii. effectively excludes on behalf of all Contributors all liability for
-          damages, including direct, indirect, special, incidental and
-          consequential damages, such as lost profits; and
-     iii. states that any provisions which differ from this Agreement are
-          offered by that Contributor alone and not by any other party.
- .
- B. Each Distributor must include the following in a conspicuous location in
- the Program:
- .
-     Copyright (C) 2003, Lucent Technologies Inc. and others. All Rights Reserved.
- .
- C. In addition, each Contributor must identify itself as the originator of its
- Contribution in a manner that reasonably allows subsequent Recipients to
- identify the originator of the Contribution. Also, each Contributor must agree
- that the additions and/or changes are intended to be a Contribution. Once a
- Contribution is contributed, it may not thereafter be revoked.
- .
- 4. COMMERCIAL DISTRIBUTION
- .
- Commercial distributors of software may accept certain responsibilities with
- respect to end users, business partners and the like. While this license is
- intended to facilitate the commercial use of the Program, the Distributor who
- includes the Program in a commercial product offering should do so in a manner
- which does not create potential liability for Contributors. Therefore, if a
- Distributor includes the Program in a commercial product offering, such
- Distributor ("Commercial Distributor") hereby agrees to defend and indemnify
- every Contributor ("Indemnified Contributor") against any losses, damages and
- costs (collectively "Losses") arising from claims, lawsuits and other legal
- actions brought by a third party against the Indemnified Contributor to the
- extent caused by the acts or omissions of such Commercial Distributor in
- connection with its distribution of the Program in a commercial product
- offering. The obligations in this section do not apply to any claims or Losses
- relating to any actual or alleged intellectual property infringement. In order
- to qualify, an Indemnified Contributor must: a) promptly notify the Commercial
- Distributor in writing of such claim, and b) allow the Commercial Distributor
- to control, and cooperate with the Commercial Distributor in, the defense and
- any related settlement negotiations. The Indemnified Contributor may
- participate in any such claim at its own expense.
- .
- For example, a Distributor might include the Program in a commercial product
- offering, Product X. That Distributor is then a Commercial Distributor. If
- that Commercial Distributor then makes performance claims, or offers
- warranties related to Product X, those performance claims and warranties are
- such Commercial Distributor's responsibility alone. Under this section, the
- Commercial Distributor would have to defend claims against the Contributors
- related to those performance claims and warranties, and if a court requires
- any Contributor to pay any damages as a result, the Commercial Distributor
- must pay those damages.
- .
- 5. NO WARRANTY
- .
- EXCEPT AS EXPRESSLY SET FORTH IN THIS AGREEMENT, THE PROGRAM IS PROVIDED ON AN
- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR
- IMPLIED INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OR CONDITIONS OF TITLE,
- NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE. Each
- Recipient is solely responsible for determining the appropriateness of using
- and distributing the Program and assumes all risks associated with its
- exercise of rights under this Agreement, including but not limited to the
- risks and costs of program errors, compliance with applicable laws, damage to
- or loss of data, programs or equipment, and unavailability or interruption of
- operations.
- .
- 6. DISCLAIMER OF LIABILITY
- .
- EXCEPT AS EXPRESSLY SET FORTH IN THIS AGREEMENT, NEITHER RECIPIENT NOR ANY
- CONTRIBUTORS SHALL HAVE ANY LIABILITY FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING WITHOUT LIMITATION
- LOST PROFITS), HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- ARISING IN ANY WAY OUT OF THE USE OR DISTRIBUTION OF THE PROGRAM OR THE
- EXERCISE OF ANY RIGHTS GRANTED HEREUNDER, EVEN IF ADVISED OF THE POSSIBILITY
- OF SUCH DAMAGES.
- .
- 7. EXPORT CONTROL
- .
- Recipient agrees that Recipient alone is responsible for compliance with the
- United States export administration regulations (and the export control laws
- and regulation of any other countries).
- .
- 8. GENERAL
- .
- If any provision of this Agreement is invalid or unenforceable under
- applicable law, it shall not affect the validity or enforceability of the
- remainder of the terms of this Agreement, and without further action by the
- parties hereto, such provision shall be reformed to the minimum extent
- necessary to make such provision valid and enforceable.
- .
- If Recipient institutes patent litigation against a Contributor with respect
- to a patent applicable to software (including a cross-claim or counterclaim in
- a lawsuit), then any patent licenses granted by that Contributor to such
- Recipient under this Agreement shall terminate as of the date such litigation
- is filed. In addition, if Recipient institutes patent litigation against any
- entity (including a cross-claim or counterclaim in a lawsuit) alleging that
- the Program itself (excluding combinations of the Program with other software
- or hardware) infringes such Recipient's patent(s), then such Recipient's
- rights granted under Section 2(b) shall terminate as of the date such
- litigation is filed.
- .
- All Recipient's rights under this Agreement shall terminate if it fails to
- comply with any of the material terms or conditions of this Agreement and does
- not cure such failure in a reasonable period of time after becoming aware of
- such noncompliance. If all Recipient's rights under this Agreement terminate,
- Recipient agrees to cease use and distribution of the Program as soon as
- reasonably practicable. However, Recipient's obligations under this Agreement
- and any licenses granted by Recipient relating to the Program shall continue
- and survive.
- .
- LUCENT may publish new versions (including revisions) of this Agreement from
- time to time. Each new version of the Agreement will be given a distinguishing
- version number. The Program (including Contributions) may always be
- distributed subject to the version of the Agreement under which it was
- received. In addition, after a new version of the Agreement is published,
- Contributor may elect to distribute the Program (including its Contributions)
- under the new version. No one other than LUCENT has the right to modify this
- Agreement. Except as expressly stated in Sections 2(a) and 2(b) above,
- Recipient receives no rights or licenses to the intellectual property of any
- Contributor under this Agreement, whether expressly, by implication, estoppel
- or otherwise. All rights in the Program not expressly granted under this
- Agreement are reserved.
- .
- This Agreement is governed by the laws of the State of New York and the
- intellectual property laws of the United States of America. No party to this
- Agreement will bring a legal action under this Agreement more than one year
- after the cause of action arose. Each party waives its rights to a jury trial
- in any resulting litigation.
-
-License: W3C
- This work (and included software, documentation such as READMEs, or
- other related items) is being provided by the copyright holders under
- the following license.
- .
- By obtaining, using and/or copying this work, you (the licensee)
- agree that you have read, understood, and will comply with the
- following terms and conditions.
- .
- Permission to copy, modify, and distribute this software and its
- documentation, with or without modification, for any purpose and
- without fee or royalty is hereby granted, provided that you include
- the following on ALL copies of the software and documentation or
- portions thereof, including modifications:
- .
-   * The full text of this NOTICE in a location viewable to users of
-     the redistributed or derivative work.
- .
-   * Any pre-existing intellectual property disclaimers, notices, or
-     terms and conditions. If none exist, the W3C Software Short
-     Notice should be included (hypertext is preferred, text is
-     permitted) within the body of any redistributed or derivative
-     code.
- .
-   * Notice of any changes or modifications to the files, including
-     the date changes were made. (We recommend you provide URIs to the
-     location from which the code is derived.)
- .
- THIS SOFTWARE AND DOCUMENTATION IS PROVIDED "AS IS," AND COPYRIGHT
- HOLDERS MAKE NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR IMPLIED,
- INCLUDING BUT NOT LIMITED TO, WARRANTIES OF MERCHANTABILITY OR FITNESS
- FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF THE SOFTWARE OR
- DOCUMENTATION WILL NOT INFRINGE ANY THIRD PARTY PATENTS, COPYRIGHTS,
- TRADEMARKS OR OTHER RIGHTS.
- .
- COPYRIGHT HOLDERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL
- OR CONSEQUENTIAL DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR
- DOCUMENTATION.
- .
- The name and trademarks of copyright holders may NOT be used in
- advertising or publicity pertaining to the software without specific,
- written prior permission. Title to copyright in this software and any
- associated documentation will at all times remain with copyright
- holders.
- .
- This version: http://www.w3.org/Consortium/Legal/2002/copyright-software-20021231
- .
- This formulation of W3C's notice and license became active on December
- 31 2002. This version removes the copyright ownership notice such that
- this license can be used with materials other than those owned by the
- W3C, reflects that ERCIM is now a host of the W3C, includes references
- to this specific dated version of the license, and removes the
- ambiguous grant of "use". Otherwise, this version is the same as the
- previous version and is written so as to preserve the Free Software
- Foundation's assessment of GPL compatibility and OSI's certification
- under the Open Source Definition.
 
 License: CC-BY-3.0
  THE WORK (AS DEFINED BELOW) IS PROVIDED UNDER THE TERMS OF THIS
