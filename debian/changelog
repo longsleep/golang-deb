@@ -1,3 +1,11 @@
+golang-1.10 (1.10.1-3) UNRELEASED; urgency=medium
+
+  * Install the 'misc' and 'api' directories as part of the golang-1.10-src
+    package as some tools (vgo, go tool trace) expect them to be there.
+    (Closes: 894992¸ LP: #1743598)
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Mon, 23 Apr 2018 09:06:28 +1200
+
 golang-1.10 (1.10.1-2) unstable; urgency=medium
 
   * Team upload.
