@@ -1,0 +1,58 @@
+From 423111081b87c6c4e61c4d94c94bfdf1853fa01f Mon Sep 17 00:00:00 2001
+From: James Cowgill <james.cowgill@mips.com>
+Date: Wed, 28 Feb 2018 16:10:14 +0000
+Subject: [PATCH] cmd/internal/obj/mips: load/store even float registers first
+
+There is a bug in Octeon III processors where storing an odd floating
+point register after it has recently been written to by a double
+floating point operation will store the old value from before the double
+operation (there are some extra details - the operation and store
+must be a certain number of cycles apart). However, this bug does not
+occur if the even register is stored first. Currently the bug only
+happens on big endian because go always loads the even register first on
+little endian.
+
+Workaround the bug by always loading / storing the even floating point
+register first. Since this is just an instruction reordering, it should
+have no performance penalty. This follows other compilers like GCC which
+will always store the even register first (although you do have to set
+the ISA level to MIPS I to prevent it from using SDC1).
+
+Change-Id: I5e73daa4d724ca1df7bf5228aab19f53f26a4976
+Reviewed-on: https://go-review.googlesource.com/97735
+Reviewed-by: Keith Randall <khr@golang.org>
+---
+
+--- a/src/cmd/internal/obj/mips/obj0.go
++++ b/src/cmd/internal/obj/mips/obj0.go
+@@ -531,20 +531,22 @@
+ 			p.Link = q
+ 			p1 = q.Link
+ 
+-			var regOff int16
++			var addrOff int64
+ 			if c.ctxt.Arch.ByteOrder == binary.BigEndian {
+-				regOff = 1 // load odd register first
++				addrOff = 4 // swap load/save order
+ 			}
+ 			if p.From.Type == obj.TYPE_MEM {
+ 				reg := REG_F0 + (p.To.Reg-REG_F0)&^1
+-				p.To.Reg = reg + regOff
+-				q.To.Reg = reg + 1 - regOff
+-				q.From.Offset += 4
++				p.To.Reg = reg
++				q.To.Reg = reg + 1
++				p.From.Offset += addrOff
++				q.From.Offset += 4 - addrOff
+ 			} else if p.To.Type == obj.TYPE_MEM {
+ 				reg := REG_F0 + (p.From.Reg-REG_F0)&^1
+-				p.From.Reg = reg + regOff
+-				q.From.Reg = reg + 1 - regOff
+-				q.To.Offset += 4
++				p.From.Reg = reg
++				q.From.Reg = reg + 1
++				p.To.Offset += addrOff
++				q.To.Offset += 4 - addrOff
+ 			}
+ 		}
+ 	}

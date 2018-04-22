@@ -16,11 +16,9 @@ TryBot-Result: Gobot Gobot <gobot@golang.org>
 Reviewed-by: Ian Lance Taylor <iant@golang.org>
 ---
 
-diff --git a/src/cmd/link/internal/ld/lib.go b/src/cmd/link/internal/ld/lib.go
-index 4356609..80a7632 100644
 --- a/src/cmd/link/internal/ld/lib.go
 +++ b/src/cmd/link/internal/ld/lib.go
-@@ -1266,7 +1266,7 @@
+@@ -1265,7 +1265,7 @@
  	// does not work, the resulting programs will not run. See
  	// issue #17847. To avoid this problem pass -no-pie to the
  	// toolchain if it is supported.
