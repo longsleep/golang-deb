@@ -1,3 +1,10 @@
+golang-1.10 (1.10.1-3~bpo9+2) stretch-backports; urgency=medium
+
+  * Team upload.
+  * Fix bootstrapping issue in mips & s390x.
+
+ -- Martín Ferrari <tincho@debian.org>  Mon, 30 Apr 2018 13:35:23 +0000
+
 golang-1.10 (1.10.1-3~bpo9+1) stretch-backports; urgency=medium
 
   * Team upload.
