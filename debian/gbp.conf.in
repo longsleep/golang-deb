@@ -1,4 +1,6 @@
 [DEFAULT]
+dist=stretch-backports
+debian-branch = debian/X.Y/stretch-backports
 debian-branch = golang-X.Y
 debian-tag = debian/%(version)s
 upstream-branch = upstream-X.Y
