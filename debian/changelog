@@ -1,8 +1,8 @@
-golang-1.10 (1.10.3-1~bpo9+1) UNRELEASED; urgency=medium
+golang-1.10 (1.10.3-1~bpo9+1) stretch-backports; urgency=medium
 
   * Rebuild for stretch-backports.
 
- -- Martín Ferrari <tincho@debian.org>  Tue, 03 Jul 2018 15:16:44 +0000
+ -- Martín Ferrari <tincho@debian.org>  Tue, 03 Jul 2018 15:16:55 +0000
 
 golang-1.10 (1.10.3-1) unstable; urgency=medium
 
