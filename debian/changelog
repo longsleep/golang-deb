@@ -1,3 +1,9 @@
+golang-1.10 (1.10.3-1~bpo9+1) UNRELEASED; urgency=medium
+
+  * Rebuild for stretch-backports.
+
+ -- Martín Ferrari <tincho@debian.org>  Tue, 03 Jul 2018 15:16:44 +0000
+
 golang-1.10 (1.10.3-1) unstable; urgency=medium
 
   * New upstream version 1.10.3
