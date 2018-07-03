@@ -3235,6 +3235,10 @@ func TestGoVetWithOnlyTestFiles(t *testing.T) {
 
 // Issue 24193.
 func TestVetWithOnlyCgoFiles(t *testing.T) {
+	if !canCgo {
+		t.Skip("skipping because cgo not enabled")
+	}
+
 	tg := testgo(t)
 	defer tg.cleanup()
 	tg.parallel()
@@ -5068,6 +5072,28 @@ func TestCacheOutput(t *testing.T) {
 		t.Errorf("cache did not reproduce output:\n\nstdout1:\n%s\n\nstdout2:\n%s\n\nstderr1:\n%s\n\nstderr2:\n%s",
 			stdout1, stdout2, stderr1, stderr2)
 	}
+}
+
+func TestCacheListStale(t *testing.T) {
+	tooSlow(t)
+	if strings.Contains(os.Getenv("GODEBUG"), "gocacheverify") {
+		t.Skip("GODEBUG gocacheverify")
+	}
+	tg := testgo(t)
+	defer tg.cleanup()
+	tg.parallel()
+	tg.makeTempdir()
+	tg.setenv("GOCACHE", tg.path("cache"))
+	tg.tempFile("gopath/src/p/p.go", "package p; import _ \"q\"; func F(){}\n")
+	tg.tempFile("gopath/src/q/q.go", "package q; func F(){}\n")
+	tg.tempFile("gopath/src/m/m.go", "package main; import _ \"q\"; func main(){}\n")
+
+	tg.setenv("GOPATH", tg.path("gopath"))
+	tg.run("install", "p", "m")
+	tg.run("list", "-f={{.ImportPath}} {{.Stale}}", "m", "q", "p")
+	tg.grepStdout("^m false", "m should not be stale")
+	tg.grepStdout("^q true", "q should be stale")
+	tg.grepStdout("^p false", "p should not be stale")
 }
 
 func TestCacheCoverage(t *testing.T) {

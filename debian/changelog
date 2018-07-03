@@ -1,3 +1,19 @@
+golang-1.10 (1.10.3-1) unstable; urgency=medium
+
+  * New upstream version 1.10.3
+  * Restore changelog entry for 1.10.1-3, and fix that for 1.10.2-1, oops.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Thu, 14 Jun 2018 14:55:58 +1200
+
+golang-1.10 (1.10.2-1) unstable; urgency=medium
+
+  * New upstream version 1.10.2.
+    - d/patches/0003-Backport_nopie_fix.patch: removed, now included upstream.
+    - d/patches/0004-Backport_mips_octeon3_fp_fix.patch: removed, also included
+      upstream.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 23 May 2018 15:24:03 +1200
+
 golang-1.10 (1.10.1-3~bpo9+3) stretch-backports; urgency=medium
 
   * The previous upload was a no-op (failed to update debian/control.in),
