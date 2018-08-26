@@ -7,11 +7,30 @@ package main
 import (
 	"bytes"
 	"flag"
+	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	// Clear GOPATH so we don't access the user's own packages in the test.
+	buildCtx.GOPATH = ""
+	testGOPATH = true // force GOPATH mode; module test is in cmd/go/testdata/script/mod_doc.txt
+
+	// Add $GOROOT/src/cmd/doc/testdata explicitly so we can access its contents in the test.
+	// Normally testdata directories are ignored, but sending it to dirs.scan directly is
+	// a hack that works around the check.
+	testdataDir, err := filepath.Abs("testdata")
+	if err != nil {
+		panic(err)
+	}
+	dirsInit(Dir{"testdata", testdataDir}, Dir{"testdata/nested", filepath.Join(testdataDir, "nested")}, Dir{"testdata/nested/nested", filepath.Join(testdataDir, "nested", "nested")})
+
+	os.Exit(m.Run())
+}
 
 func maybeSkip(t *testing.T) {
 	if strings.HasPrefix(runtime.GOOS, "nacl") {
@@ -19,6 +38,39 @@ func maybeSkip(t *testing.T) {
 	}
 	if runtime.GOOS == "darwin" && strings.HasPrefix(runtime.GOARCH, "arm") {
 		t.Skip("darwin/arm does not have a full file tree")
+	}
+}
+
+type isDotSlashTest struct {
+	str    string
+	result bool
+}
+
+var isDotSlashTests = []isDotSlashTest{
+	{``, false},
+	{`x`, false},
+	{`...`, false},
+	{`.../`, false},
+	{`...\`, false},
+
+	{`.`, true},
+	{`./`, true},
+	{`.\`, true},
+	{`./x`, true},
+	{`.\x`, true},
+
+	{`..`, true},
+	{`../`, true},
+	{`..\`, true},
+	{`../x`, true},
+	{`..\x`, true},
+}
+
+func TestIsDotSlashPath(t *testing.T) {
+	for _, test := range isDotSlashTests {
+		if result := isDotSlash(test.str); result != test.result {
+			t.Errorf("isDotSlash(%q) = %t; expected %t", test.str, result, test.result)
+		}
 	}
 }
 
@@ -72,7 +124,7 @@ var tests = []test{
 			`var MultiLineVar = map\[struct{ ... }\]struct{ ... }{ ... }`,  // Multi line variable.
 			`func MultiLineFunc\(x interface{ ... }\) \(r struct{ ... }\)`, // Multi line function.
 			`var LongLine = newLongLine\(("someArgument[1-4]", ){4}...\)`,  // Long list of arguments.
-			`type T1 = T2`, // Type alias
+			`type T1 = T2`,                                                 // Type alias
 		},
 		[]string{
 			`const internalConstant = 2`,        // No internal constants.
@@ -459,6 +511,24 @@ var tests = []test{
 			"\\)\n+const", // This will appear if the const decl appears twice.
 		},
 	},
+	{
+		"non-imported: pkg.sym",
+		[]string{"nested.Foo"},
+		[]string{"Foo struct"},
+		nil,
+	},
+	{
+		"non-imported: pkg only",
+		[]string{"nested"},
+		[]string{"Foo struct"},
+		nil,
+	},
+	{
+		"non-imported: pkg sym",
+		[]string{"nested", "Foo"},
+		[]string{"Foo struct"},
+		nil,
+	},
 }
 
 func TestDoc(t *testing.T) {
@@ -468,7 +538,7 @@ func TestDoc(t *testing.T) {
 		var flagSet flag.FlagSet
 		err := do(&b, &flagSet, test.args)
 		if err != nil {
-			t.Fatalf("%s: %s\n", test.name, err)
+			t.Fatalf("%s %v: %s\n", test.name, test.args, err)
 		}
 		output := b.Bytes()
 		failed := false
@@ -600,6 +670,37 @@ func TestTwoArgLookup(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "no such package") {
 			t.Errorf("unexpected error %q from nosuchpackage Foo", err)
 		}
+	}
+}
+
+// Test the code to look up packages when the first argument starts with "./".
+// Our test case is in effect "cd src/text; doc ./template". This should get
+// text/template but before Issue 23383 was fixed would give html/template.
+func TestDotSlashLookup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("scanning file system takes too long")
+	}
+	maybeSkip(t)
+	where := pwd()
+	defer func() {
+		if err := os.Chdir(where); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	if err := os.Chdir(filepath.Join(buildCtx.GOROOT, "src", "text")); err != nil {
+		t.Fatal(err)
+	}
+	var b bytes.Buffer
+	var flagSet flag.FlagSet
+	err := do(&b, &flagSet, []string{"./template"})
+	if err != nil {
+		t.Errorf("unexpected error %q from ./template", err)
+	}
+	// The output should contain information about the text/template package.
+	const want = `package template // import "text/template"`
+	output := b.String()
+	if !strings.HasPrefix(output, want) {
+		t.Fatalf("wrong package: %.*q...", len(want), output)
 	}
 }
 

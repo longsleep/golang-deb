@@ -39,6 +39,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -69,6 +70,7 @@ func usage() {
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("doc: ")
+	dirsInit()
 	err := do(os.Stdout, flag.CommandLine, os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
@@ -170,24 +172,40 @@ func failMessage(paths []string, symbol, method string) error {
 // is rand.Float64, we must scan both crypto/rand and math/rand
 // to find the symbol, and the first call will return crypto/rand, true.
 func parseArgs(args []string) (pkg *build.Package, path, symbol string, more bool) {
+	if len(args) == 0 {
+		// Easy: current directory.
+		return importDir(pwd()), "", "", false
+	}
+	arg := args[0]
+	// We have an argument. If it is a directory name beginning with . or ..,
+	// use the absolute path name. This discriminates "./errors" from "errors"
+	// if the current directory contains a non-standard errors package.
+	if isDotSlash(arg) {
+		arg = filepath.Join(pwd(), arg)
+	}
 	switch len(args) {
 	default:
 		usage()
-	case 0:
-		// Easy: current directory.
-		return importDir(pwd()), "", "", false
 	case 1:
 		// Done below.
 	case 2:
 		// Package must be findable and importable.
-		packagePath, ok := findPackage(args[0])
-		if !ok {
-			return nil, args[0], args[1], false
+		pkg, err := build.Import(args[0], "", build.ImportComment)
+		if err == nil {
+			return pkg, args[0], args[1], false
 		}
-		return importDir(packagePath), args[0], args[1], true
+		for {
+			packagePath, ok := findNextPackage(arg)
+			if !ok {
+				break
+			}
+			if pkg, err := build.ImportDir(packagePath, build.ImportComment); err == nil {
+				return pkg, arg, args[1], true
+			}
+		}
+		return nil, args[0], args[1], false
 	}
 	// Usual case: one argument.
-	arg := args[0]
 	// If it contains slashes, it begins with a package path.
 	// First, is it a complete package path as it is? If so, we are done.
 	// This avoids confusion over package paths that have other
@@ -233,9 +251,15 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 		}
 		// See if we have the basename or tail of a package, as in json for encoding/json
 		// or ivy/value for robpike.io/ivy/value.
-		path, ok := findPackage(arg[0:period])
-		if ok {
-			return importDir(path), arg[0:period], symbol, true
+		pkgName := arg[:period]
+		for {
+			path, ok := findNextPackage(pkgName)
+			if !ok {
+				break
+			}
+			if pkg, err = build.ImportDir(path, build.ImportComment); err == nil {
+				return pkg, arg[0:period], symbol, true
+			}
 		}
 		dirs.Reset() // Next iteration of for loop must scan all the directories again.
 	}
@@ -245,6 +269,31 @@ func parseArgs(args []string) (pkg *build.Package, path, symbol string, more boo
 	}
 	// Guess it's a symbol in the current directory.
 	return importDir(pwd()), "", arg, false
+}
+
+// dotPaths lists all the dotted paths legal on Unix-like and
+// Windows-like file systems. We check them all, as the chance
+// of error is minute and even on Windows people will use ./
+// sometimes.
+var dotPaths = []string{
+	`./`,
+	`../`,
+	`.\`,
+	`..\`,
+}
+
+// isDotSlash reports whether the path begins with a reference
+// to the local . or .. directory.
+func isDotSlash(arg string) bool {
+	if arg == "." || arg == ".." {
+		return true
+	}
+	for _, dotPath := range dotPaths {
+		if strings.HasPrefix(arg, dotPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // importDir is just an error-catching wrapper for build.ImportDir.
@@ -305,27 +354,37 @@ func isUpper(name string) bool {
 	return unicode.IsUpper(ch)
 }
 
-// findPackage returns the full file name path that first matches the
+// findNextPackage returns the next full file name path that matches the
 // (perhaps partial) package path pkg. The boolean reports if any match was found.
-func findPackage(pkg string) (string, bool) {
+func findNextPackage(pkg string) (string, bool) {
 	if pkg == "" || isUpper(pkg) { // Upper case symbol cannot be a package name.
 		return "", false
 	}
-	pkgString := filepath.Clean(string(filepath.Separator) + pkg)
+	if filepath.IsAbs(pkg) {
+		if dirs.offset == 0 {
+			dirs.offset = -1
+			return pkg, true
+		}
+		return "", false
+	}
+	pkg = path.Clean(pkg)
+	pkgSuffix := "/" + pkg
 	for {
-		path, ok := dirs.Next()
+		d, ok := dirs.Next()
 		if !ok {
 			return "", false
 		}
-		if strings.HasSuffix(path, pkgString) {
-			return path, true
+		if d.importPath == pkg || strings.HasSuffix(d.importPath, pkgSuffix) {
+			return d.dir, true
 		}
 	}
 }
 
+var buildCtx = build.Default
+
 // splitGopath splits $GOPATH into a list of roots.
 func splitGopath() []string {
-	return filepath.SplitList(build.Default.GOPATH)
+	return filepath.SplitList(buildCtx.GOPATH)
 }
 
 // pwd returns the current directory.

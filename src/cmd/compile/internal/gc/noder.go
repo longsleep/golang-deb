@@ -19,36 +19,43 @@ import (
 	"cmd/internal/src"
 )
 
+// parseFiles concurrently parses files into *syntax.File structures.
+// Each declaration in every *syntax.File is converted to a syntax tree
+// and its root represented by *Node is appended to xtop.
+// Returns the total count of parsed lines.
 func parseFiles(filenames []string) uint {
 	var noders []*noder
 	// Limit the number of simultaneously open files.
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0)+10)
 
 	for _, filename := range filenames {
-		p := &noder{err: make(chan syntax.Error)}
+		p := &noder{
+			basemap: make(map[*syntax.PosBase]*src.PosBase),
+			err:     make(chan syntax.Error),
+		}
 		noders = append(noders, p)
 
 		go func(filename string) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			defer close(p.err)
-			base := src.NewFileBase(filename, absFilename(filename))
+			base := syntax.NewFileBase(filename)
 
 			f, err := os.Open(filename)
 			if err != nil {
-				p.error(syntax.Error{Pos: src.MakePos(base, 0, 0), Msg: err.Error()})
+				p.error(syntax.Error{Pos: syntax.MakePos(base, 0, 0), Msg: err.Error()})
 				return
 			}
 			defer f.Close()
 
-			p.file, _ = syntax.Parse(base, f, p.error, p.pragma, fileh, syntax.CheckBranches) // errors are tracked via p.error
+			p.file, _ = syntax.Parse(base, f, p.error, p.pragma, syntax.CheckBranches) // errors are tracked via p.error
 		}(filename)
 	}
 
 	var lines uint
 	for _, p := range noders {
 		for e := range p.err {
-			yyerrorpos(e.Pos, "%s", e.Msg)
+			p.yyerrorpos(e.Pos, "%s", e.Msg)
 		}
 
 		p.node()
@@ -62,15 +69,50 @@ func parseFiles(filenames []string) uint {
 		testdclstack()
 	}
 
+	localpkg.Height = myheight
+
 	return lines
 }
 
-func yyerrorpos(pos src.Pos, format string, args ...interface{}) {
-	yyerrorl(Ctxt.PosTable.XPos(pos), format, args...)
+// makeSrcPosBase translates from a *syntax.PosBase to a *src.PosBase.
+func (p *noder) makeSrcPosBase(b0 *syntax.PosBase) *src.PosBase {
+	// fast path: most likely PosBase hasn't changed
+	if p.basecache.last == b0 {
+		return p.basecache.base
+	}
+
+	b1, ok := p.basemap[b0]
+	if !ok {
+		fn := b0.Filename()
+		if b0.IsFileBase() {
+			b1 = src.NewFileBase(fn, absFilename(fn))
+		} else {
+			// line directive base
+			p0 := b0.Pos()
+			p1 := src.MakePos(p.makeSrcPosBase(p0.Base()), p0.Line(), p0.Col())
+			b1 = src.NewLinePragmaBase(p1, fn, fileh(fn), b0.Line(), b0.Col())
+		}
+		p.basemap[b0] = b1
+	}
+
+	// update cache
+	p.basecache.last = b0
+	p.basecache.base = b1
+
+	return b1
+}
+
+func (p *noder) makeXPos(pos syntax.Pos) (_ src.XPos) {
+	return Ctxt.PosTable.XPos(src.MakePos(p.makeSrcPosBase(pos.Base()), pos.Line(), pos.Col()))
+}
+
+func (p *noder) yyerrorpos(pos syntax.Pos, format string, args ...interface{}) {
+	yyerrorl(p.makeXPos(pos), format, args...)
 }
 
 var pathPrefix string
 
+// TODO(gri) Can we eliminate fileh in favor of absFilename?
 func fileh(name string) string {
 	return objabi.AbsFile("", name, pathPrefix)
 }
@@ -81,48 +123,94 @@ func absFilename(name string) string {
 
 // noder transforms package syntax's AST into a Node tree.
 type noder struct {
+	basemap   map[*syntax.PosBase]*src.PosBase
+	basecache struct {
+		last *syntax.PosBase
+		base *src.PosBase
+	}
+
 	file       *syntax.File
 	linknames  []linkname
-	pragcgobuf string
+	pragcgobuf [][]string
 	err        chan syntax.Error
 	scope      ScopeID
+
+	// scopeVars is a stack tracking the number of variables declared in the
+	// current function at the moment each open scope was opened.
+	scopeVars []int
+
+	lastCloseScopePos syntax.Pos
 }
 
-func (p *noder) funchdr(n *Node) ScopeID {
-	old := p.scope
+func (p *noder) funcBody(fn *Node, block *syntax.BlockStmt) {
+	oldScope := p.scope
 	p.scope = 0
-	funchdr(n)
-	return old
-}
+	funchdr(fn)
 
-func (p *noder) funcbody(old ScopeID) {
+	if block != nil {
+		body := p.stmts(block.List)
+		if body == nil {
+			body = []*Node{nod(OEMPTY, nil, nil)}
+		}
+		fn.Nbody.Set(body)
+
+		lineno = p.makeXPos(block.Rbrace)
+		fn.Func.Endlineno = lineno
+	}
+
 	funcbody()
-	p.scope = old
+	p.scope = oldScope
 }
 
-func (p *noder) openScope(pos src.Pos) {
+func (p *noder) openScope(pos syntax.Pos) {
 	types.Markdcl()
 
 	if trackScopes {
 		Curfn.Func.Parents = append(Curfn.Func.Parents, p.scope)
+		p.scopeVars = append(p.scopeVars, len(Curfn.Func.Dcl))
 		p.scope = ScopeID(len(Curfn.Func.Parents))
 
 		p.markScope(pos)
 	}
 }
 
-func (p *noder) closeScope(pos src.Pos) {
+func (p *noder) closeScope(pos syntax.Pos) {
+	p.lastCloseScopePos = pos
 	types.Popdcl()
 
 	if trackScopes {
+		scopeVars := p.scopeVars[len(p.scopeVars)-1]
+		p.scopeVars = p.scopeVars[:len(p.scopeVars)-1]
+		if scopeVars == len(Curfn.Func.Dcl) {
+			// no variables were declared in this scope, so we can retract it.
+
+			if int(p.scope) != len(Curfn.Func.Parents) {
+				Fatalf("scope tracking inconsistency, no variables declared but scopes were not retracted")
+			}
+
+			p.scope = Curfn.Func.Parents[p.scope-1]
+			Curfn.Func.Parents = Curfn.Func.Parents[:len(Curfn.Func.Parents)-1]
+
+			nmarks := len(Curfn.Func.Marks)
+			Curfn.Func.Marks[nmarks-1].Scope = p.scope
+			prevScope := ScopeID(0)
+			if nmarks >= 2 {
+				prevScope = Curfn.Func.Marks[nmarks-2].Scope
+			}
+			if Curfn.Func.Marks[nmarks-1].Scope == prevScope {
+				Curfn.Func.Marks = Curfn.Func.Marks[:nmarks-1]
+			}
+			return
+		}
+
 		p.scope = Curfn.Func.Parents[p.scope-1]
 
 		p.markScope(pos)
 	}
 }
 
-func (p *noder) markScope(pos src.Pos) {
-	xpos := Ctxt.PosTable.XPos(pos)
+func (p *noder) markScope(pos syntax.Pos) {
+	xpos := p.makeXPos(pos)
 	if i := len(Curfn.Func.Marks); i > 0 && Curfn.Func.Marks[i-1].Pos == xpos {
 		Curfn.Func.Marks[i-1].Scope = p.scope
 	} else {
@@ -135,17 +223,12 @@ func (p *noder) markScope(pos src.Pos) {
 // "if" statements, as their implicit blocks always end at the same
 // position as an explicit block.
 func (p *noder) closeAnotherScope() {
-	types.Popdcl()
-
-	if trackScopes {
-		p.scope = Curfn.Func.Parents[p.scope-1]
-		Curfn.Func.Marks[len(Curfn.Func.Marks)-1].Scope = p.scope
-	}
+	p.closeScope(p.lastCloseScopePos)
 }
 
 // linkname records a //go:linkname directive.
 type linkname struct {
-	pos    src.Pos
+	pos    syntax.Pos
 	local  string
 	remote string
 }
@@ -163,11 +246,11 @@ func (p *noder) node() {
 		if imported_unsafe {
 			lookup(n.local).Linkname = n.remote
 		} else {
-			yyerrorpos(n.pos, "//go:linkname only allowed in Go files that import \"unsafe\"")
+			p.yyerrorpos(n.pos, "//go:linkname only allowed in Go files that import \"unsafe\"")
 		}
 	}
 
-	pragcgobuf += p.pragcgobuf
+	pragcgobuf = append(pragcgobuf, p.pragcgobuf...)
 	lineno = src.NoXPos
 	clearImports()
 }
@@ -236,8 +319,7 @@ func (p *noder) importDecl(imp *syntax.ImportDecl) {
 		return
 	}
 	if my.Def != nil {
-		lineno = pack.Pos
-		redeclare(my, "as imported package name")
+		redeclare(pack.Pos, my, "as imported package name")
 	}
 	my.Def = asTypesNode(pack)
 	my.Lastlineno = pack.Pos
@@ -348,8 +430,7 @@ func (p *noder) declNames(names []*syntax.Name) []*Node {
 }
 
 func (p *noder) declName(name *syntax.Name) *Node {
-	// TODO(mdempsky): Set lineno?
-	return dclname(p.name(name))
+	return p.setlineno(name, dclname(p.name(name)))
 }
 
 func (p *noder) funcDecl(fun *syntax.FuncDecl) *Node {
@@ -375,7 +456,7 @@ func (p *noder) funcDecl(fun *syntax.FuncDecl) *Node {
 		name = nblank.Sym // filled in by typecheckfunc
 	}
 
-	f.Func.Nname = newfuncname(name)
+	f.Func.Nname = p.setlineno(fun.Name, newfuncname(name))
 	f.Func.Nname.Name.Defn = f
 	f.Func.Nname.Name.Param.Ntype = t
 
@@ -390,28 +471,18 @@ func (p *noder) funcDecl(fun *syntax.FuncDecl) *Node {
 		declare(f.Func.Nname, PFUNC)
 	}
 
-	oldScope := p.funchdr(f)
+	p.funcBody(f, fun.Body)
 
 	if fun.Body != nil {
 		if f.Noescape() {
 			yyerrorl(f.Pos, "can only use //go:noescape with external func implementations")
 		}
-
-		body := p.stmts(fun.Body.List)
-		if body == nil {
-			body = []*Node{p.nod(fun, OEMPTY, nil, nil)}
-		}
-		f.Nbody.Set(body)
-
-		lineno = Ctxt.PosTable.XPos(fun.Body.Rbrace)
-		f.Func.Endlineno = lineno
 	} else {
 		if pure_go || strings.HasPrefix(f.funcname(), "init.") {
 			yyerrorl(f.Pos, "missing function body")
 		}
 	}
 
-	p.funcbody(oldScope)
 	return f
 }
 
@@ -435,13 +506,13 @@ func (p *noder) params(params []*syntax.Field, dddOk bool) []*Node {
 }
 
 func (p *noder) param(param *syntax.Field, dddOk, final bool) *Node {
-	var name *Node
+	var name *types.Sym
 	if param.Name != nil {
-		name = p.newname(param.Name)
+		name = p.name(param.Name)
 	}
 
 	typ := p.typeExpr(param.Type)
-	n := p.nod(param, ODCLFIELD, name, typ)
+	n := p.nodSym(param, ODCLFIELD, typ, name)
 
 	// rewrite ...T parameter
 	if typ.Op == ODDD {
@@ -497,10 +568,11 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 			l[i] = p.wrapname(expr.ElemList[i], e)
 		}
 		n.List.Set(l)
-		lineno = Ctxt.PosTable.XPos(expr.Rbrace)
+		lineno = p.makeXPos(expr.Rbrace)
 		return n
 	case *syntax.KeyValueExpr:
-		return p.nod(expr, OKEY, p.expr(expr.Key), p.wrapname(expr.Value, p.expr(expr.Value)))
+		// use position of expr.Key rather than of expr (which has position of ':')
+		return p.nod(expr.Key, OKEY, p.expr(expr.Key), p.wrapname(expr.Value, p.expr(expr.Value)))
 	case *syntax.FuncLit:
 		return p.funcLit(expr)
 	case *syntax.ParenExpr:
@@ -530,13 +602,7 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 		n.SetSliceBounds(index[0], index[1], index[2])
 		return n
 	case *syntax.AssertExpr:
-		if expr.Type == nil {
-			panic("unexpected AssertExpr")
-		}
-		// TODO(mdempsky): parser.pexpr uses p.expr(), but
-		// seems like the type field should be parsed with
-		// ntype? Shrug, doesn't matter here.
-		return p.nod(expr, ODOTTYPE, p.expr(expr.X), p.expr(expr.Type))
+		return p.nod(expr, ODOTTYPE, p.expr(expr.X), p.typeExpr(expr.Type))
 	case *syntax.Operation:
 		if expr.Op == syntax.Add && expr.Y != nil {
 			return p.sum(expr)
@@ -547,9 +613,7 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 				x = unparen(x) // TODO(mdempsky): Needed?
 				if x.Op == OCOMPLIT {
 					// Special case for &T{...}: turn into (*T){...}.
-					// TODO(mdempsky): Switch back to p.nod after we
-					// get rid of gcCompat.
-					x.Right = nod(OIND, x.Right, nil)
+					x.Right = p.nod(expr, OIND, x.Right, nil)
 					x.Right.SetImplicit(true)
 					return x
 				}
@@ -585,14 +649,14 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 		return p.nod(expr, OTMAP, p.typeExpr(expr.Key), p.typeExpr(expr.Value))
 	case *syntax.ChanType:
 		n := p.nod(expr, OTCHAN, p.typeExpr(expr.Elem), nil)
-		n.Etype = types.EType(p.chanDir(expr.Dir))
+		n.SetTChanDir(p.chanDir(expr.Dir))
 		return n
 
 	case *syntax.TypeSwitchGuard:
 		n := p.nod(expr, OTYPESW, nil, p.expr(expr.X))
 		if expr.Lhs != nil {
 			n.Left = p.declName(expr.Lhs)
-			if isblank(n.Left) {
+			if n.Left.isBlank() {
 				yyerror("invalid variable name %v in type switch", n.Left)
 			}
 		}
@@ -709,7 +773,7 @@ func (p *noder) structType(expr *syntax.StructType) *Node {
 		if field.Name == nil {
 			n = p.embedded(field.Type)
 		} else {
-			n = p.nod(field, ODCLFIELD, p.newname(field.Name), p.typeExpr(field.Type))
+			n = p.nodSym(field, ODCLFIELD, p.typeExpr(field.Type), p.name(field.Name))
 		}
 		if i < len(expr.TagList) && expr.TagList[i] != nil {
 			n.SetVal(p.basicLit(expr.TagList[i]))
@@ -729,12 +793,12 @@ func (p *noder) interfaceType(expr *syntax.InterfaceType) *Node {
 		p.lineno(method)
 		var n *Node
 		if method.Name == nil {
-			n = p.nod(method, ODCLFIELD, nil, oldname(p.packname(method.Type)))
+			n = p.nodSym(method, ODCLFIELD, oldname(p.packname(method.Type)), nil)
 		} else {
-			mname := p.newname(method.Name)
+			mname := p.name(method.Name)
 			sig := p.typeExpr(method.Type)
 			sig.Left = fakeRecv()
-			n = p.nod(method, ODCLFIELD, mname, sig)
+			n = p.nodSym(method, ODCLFIELD, sig, mname)
 			ifacedcl(n)
 		}
 		l = append(l, n)
@@ -778,11 +842,11 @@ func (p *noder) embedded(typ syntax.Expr) *Node {
 	}
 
 	sym := p.packname(typ)
-	n := nod(ODCLFIELD, newname(lookup(sym.Name)), oldname(sym))
+	n := p.nodSym(typ, ODCLFIELD, oldname(sym), lookup(sym.Name))
 	n.SetEmbedded(true)
 
 	if isStar {
-		n.Right = p.nod(op, OIND, n.Right, nil)
+		n.Left = p.nod(op, OIND, n.Left, nil)
 	}
 	return n
 }
@@ -833,7 +897,7 @@ func (p *noder) stmtFall(stmt syntax.Stmt, fallOK bool) *Node {
 		if stmt.Op != 0 && stmt.Op != syntax.Def {
 			n := p.nod(stmt, OASOP, p.expr(stmt.Lhs), p.expr(stmt.Rhs))
 			n.SetImplicit(stmt.Rhs == syntax.ImplicitOne)
-			n.Etype = types.EType(p.binOp(stmt.Op))
+			n.SetSubOp(p.binOp(stmt.Op))
 			return n
 		}
 
@@ -943,7 +1007,7 @@ func (p *noder) assignList(expr syntax.Expr, defn *Node, colas bool) []*Node {
 
 		name, ok := expr.(*syntax.Name)
 		if !ok {
-			yyerrorpos(expr.Pos(), "non-name %v on left side of :=", p.expr(expr))
+			p.yyerrorpos(expr.Pos(), "non-name %v on left side of :=", p.expr(expr))
 			newOrErr = true
 			continue
 		}
@@ -954,7 +1018,7 @@ func (p *noder) assignList(expr syntax.Expr, defn *Node, colas bool) []*Node {
 		}
 
 		if seen[sym] {
-			yyerrorpos(expr.Pos(), "%v repeated on left side of :=", sym)
+			p.yyerrorpos(expr.Pos(), "%v repeated on left side of :=", sym)
 			newOrErr = true
 			continue
 		}
@@ -1057,7 +1121,7 @@ func (p *noder) switchStmt(stmt *syntax.SwitchStmt) *Node {
 	return n
 }
 
-func (p *noder) caseClauses(clauses []*syntax.CaseClause, tswitch *Node, rbrace src.Pos) []*Node {
+func (p *noder) caseClauses(clauses []*syntax.CaseClause, tswitch *Node, rbrace syntax.Pos) []*Node {
 	var nodes []*Node
 	for i, clause := range clauses {
 		p.lineno(clause)
@@ -1113,7 +1177,7 @@ func (p *noder) selectStmt(stmt *syntax.SelectStmt) *Node {
 	return n
 }
 
-func (p *noder) commClauses(clauses []*syntax.CommClause, rbrace src.Pos) []*Node {
+func (p *noder) commClauses(clauses []*syntax.CommClause, rbrace syntax.Pos) []*Node {
 	var nodes []*Node
 	for i, clause := range clauses {
 		p.lineno(clause)
@@ -1292,13 +1356,17 @@ func (p *noder) nod(orig syntax.Node, op Op, left, right *Node) *Node {
 	return p.setlineno(orig, nod(op, left, right))
 }
 
+func (p *noder) nodSym(orig syntax.Node, op Op, left *Node, sym *types.Sym) *Node {
+	return p.setlineno(orig, nodSym(op, left, sym))
+}
+
 func (p *noder) setlineno(src_ syntax.Node, dst *Node) *Node {
 	pos := src_.Pos()
 	if !pos.IsKnown() {
 		// TODO(mdempsky): Shouldn't happen. Fix package syntax.
 		return dst
 	}
-	dst.Pos = Ctxt.PosTable.XPos(pos)
+	dst.Pos = p.makeXPos(pos)
 	return dst
 }
 
@@ -1311,7 +1379,7 @@ func (p *noder) lineno(n syntax.Node) {
 		// TODO(mdempsky): Shouldn't happen. Fix package syntax.
 		return
 	}
-	lineno = Ctxt.PosTable.XPos(pos)
+	lineno = p.makeXPos(pos)
 }
 
 // error is called concurrently if files are parsed concurrently.
@@ -1332,7 +1400,7 @@ var allowedStdPragmas = map[string]bool{
 }
 
 // pragma is called concurrently if files are parsed concurrently.
-func (p *noder) pragma(pos src.Pos, text string) syntax.Pragma {
+func (p *noder) pragma(pos syntax.Pos, text string) syntax.Pragma {
 	switch {
 	case strings.HasPrefix(text, "line "):
 		// line directives are handled by syntax package
@@ -1355,7 +1423,7 @@ func (p *noder) pragma(pos src.Pos, text string) syntax.Pragma {
 			if lib != "" && !safeArg(lib) && !isCgoGeneratedFile(pos) {
 				p.error(syntax.Error{Pos: pos, Msg: fmt.Sprintf("invalid library name %q in cgo_import_dynamic directive", lib)})
 			}
-			p.pragcgobuf += p.pragcgo(pos, text)
+			p.pragcgo(pos, text)
 			return pragmaValue("go:cgo_import_dynamic")
 		}
 		fallthrough
@@ -1366,7 +1434,7 @@ func (p *noder) pragma(pos src.Pos, text string) syntax.Pragma {
 		if !isCgoGeneratedFile(pos) && !compiling_std {
 			p.error(syntax.Error{Pos: pos, Msg: fmt.Sprintf("//%s only allowed in cgo-generated code", text)})
 		}
-		p.pragcgobuf += p.pragcgo(pos, text)
+		p.pragcgo(pos, text)
 		fallthrough // because of //go:cgo_unsafe_args
 	default:
 		verb := text
@@ -1393,8 +1461,8 @@ func (p *noder) pragma(pos src.Pos, text string) syntax.Pragma {
 // contain cgo directives, and for security reasons
 // (primarily misuse of linker flags), other files are not.
 // See golang.org/issue/23672.
-func isCgoGeneratedFile(pos src.Pos) bool {
-	return strings.HasPrefix(filepath.Base(filepath.Clean(pos.AbsFilename())), "_cgo_")
+func isCgoGeneratedFile(pos syntax.Pos) bool {
+	return strings.HasPrefix(filepath.Base(filepath.Clean(fileh(pos.Base().Filename()))), "_cgo_")
 }
 
 // safeArg reports whether arg is a "safe" command-line argument,

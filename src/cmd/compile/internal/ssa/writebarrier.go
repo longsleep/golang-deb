@@ -8,6 +8,7 @@ import (
 	"cmd/compile/internal/types"
 	"cmd/internal/obj"
 	"cmd/internal/src"
+	"strings"
 )
 
 // needwb returns whether we need write barrier for store op v.
@@ -31,7 +32,7 @@ func needwb(v *Value) bool {
 // and runtime calls, like
 //
 // if writeBarrier.enabled {
-//   writebarrierptr(ptr, val)
+//   gcWriteBarrier(ptr, val)	// Not a regular Go call
 // } else {
 //   *ptr = val
 // }
@@ -44,7 +45,7 @@ func writebarrier(f *Func) {
 	}
 
 	var sb, sp, wbaddr, const0 *Value
-	var writebarrierptr, typedmemmove, typedmemclr, gcWriteBarrier *obj.LSym
+	var typedmemmove, typedmemclr, gcWriteBarrier *obj.LSym
 	var stores, after []*Value
 	var sset *sparseSet
 	var storeNumber []int32
@@ -96,13 +97,10 @@ func writebarrier(f *Func) {
 			}
 			wbsym := f.fe.Syslook("writeBarrier")
 			wbaddr = f.Entry.NewValue1A(initpos, OpAddr, f.Config.Types.UInt32Ptr, wbsym, sb)
-			writebarrierptr = f.fe.Syslook("writebarrierptr")
-			if !f.fe.Debug_eagerwb() {
-				gcWriteBarrier = f.fe.Syslook("gcWriteBarrier")
-			}
+			gcWriteBarrier = f.fe.Syslook("gcWriteBarrier")
 			typedmemmove = f.fe.Syslook("typedmemmove")
 			typedmemclr = f.fe.Syslook("typedmemclr")
-			const0 = f.ConstInt32(initpos, f.Config.Types.UInt32, 0)
+			const0 = f.ConstInt32(f.Config.Types.UInt32, 0)
 
 			// allocate auxiliary data structures for computing store order
 			sset = f.newSparseSet(f.NumValues())
@@ -113,6 +111,7 @@ func writebarrier(f *Func) {
 		// order values in store order
 		b.Values = storeOrder(b.Values, sset, storeNumber)
 
+		firstSplit := true
 	again:
 		// find the start and end of the last contiguous WB store sequence.
 		// a branch will be inserted there. values after it will be moved
@@ -198,7 +197,6 @@ func writebarrier(f *Func) {
 			var val *Value
 			switch w.Op {
 			case OpStoreWB:
-				fn = writebarrierptr
 				val = w.Args[1]
 				nWBops--
 			case OpMoveWB:
@@ -217,11 +215,13 @@ func writebarrier(f *Func) {
 			switch w.Op {
 			case OpStoreWB, OpMoveWB, OpZeroWB:
 				volatile := w.Op == OpMoveWB && isVolatile(val)
-				if w.Op == OpStoreWB && !f.fe.Debug_eagerwb() {
+				if w.Op == OpStoreWB {
 					memThen = bThen.NewValue3A(pos, OpWB, types.TypeMem, gcWriteBarrier, ptr, val, memThen)
 				} else {
 					memThen = wbcall(pos, bThen, fn, typ, ptr, val, memThen, sp, sb, volatile)
 				}
+				// Note that we set up a writebarrier function call.
+				f.fe.SetWBPos(pos)
 			case OpVarDef, OpVarLive, OpVarKill:
 				memThen = bThen.NewValue1A(pos, w.Op, types.TypeMem, w.Aux, memThen)
 			}
@@ -238,11 +238,6 @@ func writebarrier(f *Func) {
 				memElse.Aux = w.Aux
 			case OpVarDef, OpVarLive, OpVarKill:
 				memElse = bElse.NewValue1A(pos, w.Op, types.TypeMem, w.Aux, memElse)
-			}
-
-			if fn != nil {
-				// Note that we set up a writebarrier function call.
-				f.fe.SetWBPos(pos)
 			}
 		}
 
@@ -274,6 +269,23 @@ func writebarrier(f *Func) {
 			w.Block = bEnd
 		}
 
+		// Preemption is unsafe between loading the write
+		// barrier-enabled flag and performing the write
+		// because that would allow a GC phase transition,
+		// which would invalidate the flag. Remember the
+		// conditional block so liveness analysis can disable
+		// safe-points. This is somewhat subtle because we're
+		// splitting b bottom-up.
+		if firstSplit {
+			// Add b itself.
+			b.Func.WBLoads = append(b.Func.WBLoads, b)
+			firstSplit = false
+		} else {
+			// We've already split b, so we just pushed a
+			// write barrier test into bEnd.
+			b.Func.WBLoads = append(b.Func.WBLoads, bEnd)
+		}
+
 		// if we have more stores in this block, do this block again
 		if nWBops > 0 {
 			goto again
@@ -291,10 +303,10 @@ func wbcall(pos src.XPos, b *Block, fn, typ *obj.LSym, ptr, val, mem, sp, sb *Va
 		// Copy to temp location if the source is volatile (will be clobbered by
 		// a function call). Marshaling the args to typedmemmove might clobber the
 		// value we're trying to move.
-		t := val.Type.ElemType()
+		t := val.Type.Elem()
 		tmp = b.Func.fe.Auto(val.Pos, t)
 		mem = b.NewValue1A(pos, OpVarDef, types.TypeMem, tmp, mem)
-		tmpaddr := b.NewValue1A(pos, OpAddr, t.PtrTo(), tmp, sp)
+		tmpaddr := b.NewValue2A(pos, OpLocalAddr, t.PtrTo(), tmp, sp, mem)
 		siz := t.Size()
 		mem = b.NewValue3I(pos, OpMove, types.TypeMem, siz, tmpaddr, val, mem)
 		mem.Aux = t
@@ -347,10 +359,36 @@ func IsStackAddr(v *Value) bool {
 		v = v.Args[0]
 	}
 	switch v.Op {
-	case OpSP:
+	case OpSP, OpLocalAddr:
+		return true
+	}
+	return false
+}
+
+// IsSanitizerSafeAddr reports whether v is known to be an address
+// that doesn't need instrumentation.
+func IsSanitizerSafeAddr(v *Value) bool {
+	for v.Op == OpOffPtr || v.Op == OpAddPtr || v.Op == OpPtrIndex || v.Op == OpCopy {
+		v = v.Args[0]
+	}
+	switch v.Op {
+	case OpSP, OpLocalAddr:
+		// Stack addresses are always safe.
+		return true
+	case OpITab, OpStringPtr, OpGetClosurePtr:
+		// Itabs, string data, and closure fields are
+		// read-only once initialized.
 		return true
 	case OpAddr:
-		return v.Args[0].Op == OpSP
+		sym := v.Aux.(*obj.LSym)
+		// TODO(mdempsky): Find a cleaner way to
+		// detect this. It would be nice if we could
+		// test sym.Type==objabi.SRODATA, but we don't
+		// initialize sym.Type until after function
+		// compilation.
+		if strings.HasPrefix(sym.Name, `"".statictmp_`) {
+			return true
+		}
 	}
 	return false
 }
