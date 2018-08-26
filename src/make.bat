@@ -47,6 +47,7 @@ setlocal
 :nolocal
 
 set GOBUILDFAIL=0
+set GOFLAGS=
 
 if exist make.bat goto ok
 echo Must run make.bat from Go src directory.
@@ -121,7 +122,7 @@ goto end
 
 :bootstrapfail
 echo ERROR: Cannot find %GOROOT_BOOTSTRAP%\bin\go.exe
-echo "Set GOROOT_BOOTSTRAP to a working Go tree >= Go 1.4."
+echo Set GOROOT_BOOTSTRAP to a working Go tree ^>= Go 1.4.
 
 :fail
 set GOBUILDFAIL=1

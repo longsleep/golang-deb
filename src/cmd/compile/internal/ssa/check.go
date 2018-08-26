@@ -102,7 +102,7 @@ func checkFunc(f *Func) {
 				f.Fatalf("plain/dead block %s has a control value", b)
 			}
 		}
-		if len(b.Succs) > 2 && b.Likely != BranchUnknown {
+		if len(b.Succs) != 2 && b.Likely != BranchUnknown {
 			f.Fatalf("likeliness prediction %d for block %s with %d successors", b.Likely, b, len(b.Succs))
 		}
 
@@ -160,6 +160,11 @@ func checkFunc(f *Func) {
 				}
 				canHaveAuxInt = true
 				canHaveAux = true
+			case auxCCop:
+				if _, ok := v.Aux.(Op); !ok {
+					f.Fatalf("bad type %T for CCop in %v", v.Aux, v)
+				}
+				canHaveAux = true
 			default:
 				f.Fatalf("unknown aux type for %s", v.Op)
 			}
@@ -198,8 +203,20 @@ func checkFunc(f *Func) {
 				if len(v.Args) == 0 {
 					f.Fatalf("no args for OpAddr %s", v.LongString())
 				}
-				if v.Args[0].Op != OpSP && v.Args[0].Op != OpSB {
+				if v.Args[0].Op != OpSB {
 					f.Fatalf("bad arg to OpAddr %v", v)
+				}
+			}
+
+			if v.Op == OpLocalAddr {
+				if len(v.Args) != 2 {
+					f.Fatalf("wrong # of args for OpLocalAddr %s", v.LongString())
+				}
+				if v.Args[0].Op != OpSP {
+					f.Fatalf("bad arg 0 to OpLocalAddr %v", v)
+				}
+				if !v.Args[1].Type.IsMemory() {
+					f.Fatalf("bad arg 1 to OpLocalAddr %v", v)
 				}
 			}
 
@@ -207,8 +224,17 @@ func checkFunc(f *Func) {
 				f.Fatalf("unexpected floating-point type %v", v.LongString())
 			}
 
+			// Check types.
+			// TODO: more type checks?
+			switch c := f.Config; v.Op {
+			case OpSP, OpSB:
+				if v.Type != c.Types.Uintptr {
+					f.Fatalf("bad %s type: want uintptr, have %s",
+						v.Op, v.Type.String())
+				}
+			}
+
 			// TODO: check for cycles in values
-			// TODO: check type
 		}
 	}
 
@@ -464,10 +490,6 @@ func memCheck(f *Func) {
 				case OpPhi:
 					if seenNonPhi {
 						f.Fatalf("phi after non-phi @ %s: %s", b, v)
-					}
-				case OpRegKill:
-					if f.RegAlloc == nil {
-						f.Fatalf("RegKill seen before register allocation @ %s: %s", b, v)
 					}
 				default:
 					seenNonPhi = true

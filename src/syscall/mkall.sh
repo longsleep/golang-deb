@@ -189,6 +189,36 @@ linux_arm64)
 	# API consistent between platforms.
 	mktypes="GOARCH=$GOARCH go tool cgo -godefs -- -fsigned-char"
 	;;
+linux_mips)
+	GOOSARCH_in=syscall_linux_mipsx.go
+	unistd_h=/usr/include/asm/unistd.h
+	mksyscall="./mksyscall.pl -b32 -arm"
+	mkerrors="$mkerrors"
+	mksysnum="./mksysnum_linux.pl $unistd_h"
+	mktypes="GOARCH=$GOARCH go tool cgo -godefs"
+	;;
+linux_mipsle)
+	GOOSARCH_in=syscall_linux_mipsx.go
+	unistd_h=/usr/include/asm/unistd.h
+	mksyscall="./mksyscall.pl -l32 -arm"
+	mkerrors="$mkerrors"
+	mksysnum="./mksysnum_linux.pl $unistd_h"
+	mktypes="GOARCH=$GOARCH go tool cgo -godefs"
+	;;
+linux_mips64)
+	GOOSARCH_in=syscall_linux_mips64x.go
+	unistd_h=/usr/include/asm/unistd.h
+	mkerrors="$mkerrors -m64"
+	mksysnum="./mksysnum_linux.pl $unistd_h"
+	mktypes="GOARCH=$GOARCH go tool cgo -godefs"
+	;;
+linux_mips64le)
+	GOOSARCH_in=syscall_linux_mips64x.go
+	unistd_h=/usr/include/asm/unistd.h
+	mkerrors="$mkerrors -m64"
+	mksysnum="./mksysnum_linux.pl $unistd_h"
+	mktypes="GOARCH=$GOARCH go tool cgo -godefs"
+	;;
 linux_ppc64)
 	GOOSARCH_in=syscall_linux_ppc64x.go
 	unistd_h=/usr/include/asm/unistd.h
@@ -231,6 +261,12 @@ netbsd_386)
 netbsd_amd64)
 	mkerrors="$mkerrors -m64"
 	mksyscall="./mksyscall.pl -netbsd"
+	mksysnum="curl -s 'http://cvsweb.netbsd.org/bsdweb.cgi/~checkout~/src/sys/kern/syscalls.master' | ./mksysnum_netbsd.pl"
+	mktypes="GOARCH=$GOARCH go tool cgo -godefs"
+	;;
+netbsd_arm)
+	mkerrors="$mkerrors -m32"
+	mksyscall="./mksyscall.pl -l32 -netbsd -arm"
 	mksysnum="curl -s 'http://cvsweb.netbsd.org/bsdweb.cgi/~checkout~/src/sys/kern/syscalls.master' | ./mksysnum_netbsd.pl"
 	mktypes="GOARCH=$GOARCH go tool cgo -godefs"
 	;;
