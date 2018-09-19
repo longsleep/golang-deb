@@ -1,10 +1,10 @@
-golang-1.10 (1.10.4-1) UNRELEASED; urgency=medium
+golang-1.10 (1.10.4-1) unstable; urgency=medium
 
   * New upstream version.
   * d/patches/only-consider-executable-segments.patch: backport ftbfs fix from
     upstream. 
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 19 Sep 2018 08:55:19 +0200
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 19 Sep 2018 10:03:11 +0200
 
 golang-1.10 (1.10.3-1) unstable; urgency=medium
 
