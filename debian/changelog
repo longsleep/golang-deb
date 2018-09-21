@@ -1,9 +1,9 @@
-golang-1.10 (1.10.4-2) UNRELEASED; urgency=medium
+golang-1.10 (1.10.4-2) unstable; urgency=medium
 
   * d/patches/arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch:
     backport another ftbfs fix from upstream.
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 21 Sep 2018 11:27:44 +0200
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 21 Sep 2018 11:30:09 +0200
 
 golang-1.10 (1.10.4-1) unstable; urgency=medium
 
