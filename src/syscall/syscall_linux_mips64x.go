@@ -15,6 +15,7 @@ const (
 //sys	Dup2(oldfd int, newfd int) (err error)
 //sys	Fchown(fd int, uid int, gid int) (err error)
 //sys	Fstatfs(fd int, buf *Statfs_t) (err error)
+//sys	fstatat(dirfd int, path string, stat *Stat_t, flags int) (err error) = SYS_NEWFSTATAT
 //sys	Ftruncate(fd int, length int64) (err error)
 //sysnb	Getegid() (egid int)
 //sysnb	Geteuid() (euid int)
@@ -57,6 +58,7 @@ const (
 //sys	recvmsg(s int, msg *Msghdr, flags int) (n int, err error)
 //sys	sendmsg(s int, msg *Msghdr, flags int) (n int, err error)
 //sys	mmap(addr uintptr, length uintptr, prot int, flags int, fd int, offset int64) (xaddr uintptr, err error)
+//sys	EpollWait(epfd int, events []EpollEvent, msec int) (n int, err error)
 
 type sigset_t struct {
 	X__val [16]uint64
@@ -65,8 +67,11 @@ type sigset_t struct {
 //sys	pselect(nfd int, r *FdSet, w *FdSet, e *FdSet, timeout *Timespec, sigmask *sigset_t) (n int, err error) = SYS_PSELECT6
 
 func Select(nfd int, r *FdSet, w *FdSet, e *FdSet, timeout *Timeval) (n int, err error) {
-	ts := Timespec{Sec: timeout.Sec, Nsec: timeout.Usec * 1000}
-	return pselect(nfd, r, w, e, &ts, nil)
+	var ts *Timespec
+	if timeout != nil {
+		ts = &Timespec{Sec: timeout.Sec, Nsec: timeout.Usec * 1000}
+	}
+	return pselect(nfd, r, w, e, ts, nil)
 }
 
 //sysnb	Gettimeofday(tv *Timeval) (err error)

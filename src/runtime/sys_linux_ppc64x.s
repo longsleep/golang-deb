@@ -23,19 +23,16 @@
 #define SYS_kill		 37
 #define SYS_brk			 45
 #define SYS_fcntl		 55
-#define SYS_gettimeofday	 78
-#define SYS_select		 82	// always return -ENOSYS
 #define SYS_mmap		 90
 #define SYS_munmap		 91
 #define SYS_setitimer		104
 #define SYS_clone		120
-#define SYS_newselect		142
 #define SYS_sched_yield		158
+#define SYS_nanosleep		162
 #define SYS_rt_sigreturn	172
 #define SYS_rt_sigaction	173
 #define SYS_rt_sigprocmask	174
 #define SYS_sigaltstack		185
-#define SYS_ugetrlimit		190
 #define SYS_madvise		205
 #define SYS_mincore		206
 #define SYS_gettid		207
@@ -103,30 +100,21 @@ TEXT runtime·read(SB),NOSPLIT|NOFRAME,$0-28
 	MOVW	R3, ret+24(FP)
 	RET
 
-TEXT runtime·getrlimit(SB),NOSPLIT|NOFRAME,$0-20
-	MOVW	kind+0(FP), R3
-	MOVD	limit+8(FP), R4
-	SYSCALL	$SYS_ugetrlimit
-	MOVW	R3, ret+16(FP)
-	RET
-
 TEXT runtime·usleep(SB),NOSPLIT,$16-4
 	MOVW	usec+0(FP), R3
 	MOVD	R3, R5
 	MOVW	$1000000, R4
 	DIVD	R4, R3
 	MOVD	R3, 8(R1)
+	MOVW	$1000, R4
 	MULLD	R3, R4
 	SUB	R4, R5
 	MOVD	R5, 16(R1)
 
-	// select(0, 0, 0, 0, &tv)
-	MOVW	$0, R3
+	// nanosleep(&ts, 0)
+	ADD	$8, R1, R3
 	MOVW	$0, R4
-	MOVW	$0, R5
-	MOVW	$0, R6
-	ADD	$8, R1, R7
-	SYSCALL	$SYS_newselect
+	SYSCALL	$SYS_nanosleep
 	RET
 
 TEXT runtime·gettid(SB),NOSPLIT,$0-4
@@ -205,6 +193,8 @@ TEXT runtime·rt_sigaction(SB),NOSPLIT|NOFRAME,$0-36
 	MOVD	old+16(FP), R5
 	MOVD	size+24(FP), R6
 	SYSCALL	$SYS_rt_sigaction
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+32(FP)
 	RET
 
@@ -400,6 +390,8 @@ TEXT runtime·futex(SB),NOSPLIT|NOFRAME,$0
 	MOVD	addr2+24(FP), R7
 	MOVW	val3+32(FP), R8
 	SYSCALL	$SYS_futex
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+40(FP)
 	RET
 
@@ -421,6 +413,8 @@ TEXT runtime·clone(SB),NOSPLIT|NOFRAME,$0
 	MOVD	R7, -32(R4)
 
 	SYSCALL $SYS_clone
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 
 	// In parent, return.
 	CMP	R3, $0
@@ -484,6 +478,8 @@ TEXT runtime·sched_getaffinity(SB),NOSPLIT|NOFRAME,$0
 	MOVD	len+8(FP), R4
 	MOVD	buf+16(FP), R5
 	SYSCALL	$SYS_sched_getaffinity
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+24(FP)
 	RET
 
@@ -491,6 +487,8 @@ TEXT runtime·sched_getaffinity(SB),NOSPLIT|NOFRAME,$0
 TEXT runtime·epollcreate(SB),NOSPLIT|NOFRAME,$0
 	MOVW    size+0(FP), R3
 	SYSCALL	$SYS_epoll_create
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+8(FP)
 	RET
 
@@ -498,6 +496,8 @@ TEXT runtime·epollcreate(SB),NOSPLIT|NOFRAME,$0
 TEXT runtime·epollcreate1(SB),NOSPLIT|NOFRAME,$0
 	MOVW	flags+0(FP), R3
 	SYSCALL	$SYS_epoll_create1
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+8(FP)
 	RET
 
@@ -508,6 +508,7 @@ TEXT runtime·epollctl(SB),NOSPLIT|NOFRAME,$0
 	MOVW	fd+8(FP), R5
 	MOVD	ev+16(FP), R6
 	SYSCALL	$SYS_epoll_ctl
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+24(FP)
 	RET
 
@@ -518,6 +519,8 @@ TEXT runtime·epollwait(SB),NOSPLIT|NOFRAME,$0
 	MOVW	nev+16(FP), R5
 	MOVW	timeout+20(FP), R6
 	SYSCALL	$SYS_epoll_wait
+	BVC	2(PC)
+	NEG	R3	// caller expects negative errno
 	MOVW	R3, ret+24(FP)
 	RET
 
