@@ -790,6 +790,7 @@ func TestRebuilding(t *testing.T) {
 	// If the .a file is newer than the .so, the .so is rebuilt (but not the .a)
 	t.Run("newarchive", func(t *testing.T) {
 		resetFileStamps()
+		AssertNotRebuilt(t, "new .a file before build", filepath.Join(gopathInstallDir, "depBase.a"))
 		goCmd(t, "list", "-linkshared", "-f={{.ImportPath}} {{.Stale}} {{.StaleReason}} {{.Target}}", "depBase")
 		AssertNotRebuilt(t, "new .a file before build", filepath.Join(gopathInstallDir, "depBase.a"))
 		cleanup := touch(t, filepath.Join(gopathInstallDir, "depBase.a"))
@@ -903,4 +904,10 @@ func TestGlobal(t *testing.T) {
 	run(t, "global executable", "./bin/global")
 	AssertIsLinkedTo(t, "./bin/global", soname)
 	AssertHasRPath(t, "./bin/global", gorootInstallDir)
+}
+
+// Run a test using -linkshared of an installed shared package.
+// Issue 26400.
+func TestTestInstalledShared(t *testing.T) {
+	goCmd(nil, "test", "-linkshared", "-test.short", "sync/atomic")
 }

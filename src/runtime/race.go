@@ -187,10 +187,10 @@ type symbolizeDataContext struct {
 }
 
 func raceSymbolizeData(ctx *symbolizeDataContext) {
-	if _, x, n := findObject(unsafe.Pointer(ctx.addr)); x != nil {
+	if base, span, _ := findObject(ctx.addr, 0, 0); base != 0 {
 		ctx.heap = 1
-		ctx.start = uintptr(x)
-		ctx.size = n
+		ctx.start = base
+		ctx.size = span.elemsize
 		ctx.res = 1
 	}
 }
@@ -292,6 +292,7 @@ var racearenastart uintptr
 var racearenaend uintptr
 
 func racefuncenter(uintptr)
+func racefuncenterfp()
 func racefuncexit()
 func racereadrangepc1(uintptr, uintptr, uintptr)
 func racewriterangepc1(uintptr, uintptr, uintptr)

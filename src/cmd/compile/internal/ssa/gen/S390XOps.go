@@ -110,12 +110,14 @@ func init() {
 
 	// Common individual register masks
 	var (
-		sp = buildReg("SP")
-		sb = buildReg("SB")
-		r0 = buildReg("R0")
+		sp  = buildReg("SP")
+		sb  = buildReg("SB")
+		r0  = buildReg("R0")
+		tmp = buildReg("R11") // R11 is used as a temporary in a small number of instructions.
 
-		// R10 and R11 are reserved by the assembler.
-		gp   = buildReg("R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R12 R14")
+		// R10 is reserved by the assembler.
+		gp   = buildReg("R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R11 R12 R14")
+		gpg  = gp | buildReg("g")
 		gpsp = gp | sp
 
 		// R0 is considered to contain the value 0 in address calculations.
@@ -124,7 +126,7 @@ func init() {
 		ptrspsb = ptrsp | sb
 
 		fp         = buildReg("F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15")
-		callerSave = gp | fp
+		callerSave = gp | fp | buildReg("g") // runtime.setg (and anything calling it) may clobber g
 	)
 	// Common slices of register masks
 	var (
@@ -134,11 +136,12 @@ func init() {
 
 	// Common regInfo
 	var (
-		gp01   = regInfo{inputs: []regMask{}, outputs: gponly}
-		gp11   = regInfo{inputs: []regMask{gp}, outputs: gponly}
-		gp11sp = regInfo{inputs: []regMask{gpsp}, outputs: gponly}
-		gp21   = regInfo{inputs: []regMask{gp, gp}, outputs: gponly}
-		gp21sp = regInfo{inputs: []regMask{gpsp, gp}, outputs: gponly}
+		gp01    = regInfo{inputs: []regMask{}, outputs: gponly}
+		gp11    = regInfo{inputs: []regMask{gp}, outputs: gponly}
+		gp11sp  = regInfo{inputs: []regMask{gpsp}, outputs: gponly}
+		gp21    = regInfo{inputs: []regMask{gp, gp}, outputs: gponly}
+		gp21sp  = regInfo{inputs: []regMask{gpsp, gp}, outputs: gponly}
+		gp21tmp = regInfo{inputs: []regMask{gp &^ tmp, gp &^ tmp}, outputs: []regMask{gp &^ tmp}, clobbers: tmp}
 
 		// R0 evaluates to 0 when used as the number of bits to shift
 		// so we need to exclude it from that operand.
@@ -149,7 +152,6 @@ func init() {
 
 		gp2flags  = regInfo{inputs: []regMask{gpsp, gpsp}}
 		gp1flags  = regInfo{inputs: []regMask{gpsp}}
-		flagsgp   = regInfo{outputs: gponly}
 		gp2flags1 = regInfo{inputs: []regMask{gp, gp}, outputs: gponly}
 
 		gpload       = regInfo{inputs: []regMask{ptrspsb, 0}, outputs: gponly}
@@ -254,19 +256,19 @@ func init() {
 		{name: "MULLDload", argLength: 3, reg: gpopload, asm: "MULLD", aux: "SymOff", resultInArg0: true, clobberFlags: true, faultOnNilArg1: true, symEffect: "Read"}, // arg0 * *arg1. arg2=mem
 		{name: "MULLWload", argLength: 3, reg: gpopload, asm: "MULLW", aux: "SymOff", resultInArg0: true, clobberFlags: true, faultOnNilArg1: true, symEffect: "Read"}, // arg0 * *arg1. arg2=mem
 
-		{name: "MULHD", argLength: 2, reg: gp21, asm: "MULHD", typ: "Int64", commutative: true, resultInArg0: true, clobberFlags: true},   // (arg0 * arg1) >> width
-		{name: "MULHDU", argLength: 2, reg: gp21, asm: "MULHDU", typ: "Int64", commutative: true, resultInArg0: true, clobberFlags: true}, // (arg0 * arg1) >> width
+		{name: "MULHD", argLength: 2, reg: gp21tmp, asm: "MULHD", typ: "Int64", commutative: true, resultInArg0: true, clobberFlags: true},   // (arg0 * arg1) >> width
+		{name: "MULHDU", argLength: 2, reg: gp21tmp, asm: "MULHDU", typ: "Int64", commutative: true, resultInArg0: true, clobberFlags: true}, // (arg0 * arg1) >> width
 
-		{name: "DIVD", argLength: 2, reg: gp21, asm: "DIVD", resultInArg0: true, clobberFlags: true},   // arg0 / arg1
-		{name: "DIVW", argLength: 2, reg: gp21, asm: "DIVW", resultInArg0: true, clobberFlags: true},   // arg0 / arg1
-		{name: "DIVDU", argLength: 2, reg: gp21, asm: "DIVDU", resultInArg0: true, clobberFlags: true}, // arg0 / arg1
-		{name: "DIVWU", argLength: 2, reg: gp21, asm: "DIVWU", resultInArg0: true, clobberFlags: true}, // arg0 / arg1
+		{name: "DIVD", argLength: 2, reg: gp21tmp, asm: "DIVD", resultInArg0: true, clobberFlags: true},   // arg0 / arg1
+		{name: "DIVW", argLength: 2, reg: gp21tmp, asm: "DIVW", resultInArg0: true, clobberFlags: true},   // arg0 / arg1
+		{name: "DIVDU", argLength: 2, reg: gp21tmp, asm: "DIVDU", resultInArg0: true, clobberFlags: true}, // arg0 / arg1
+		{name: "DIVWU", argLength: 2, reg: gp21tmp, asm: "DIVWU", resultInArg0: true, clobberFlags: true}, // arg0 / arg1
 
-		{name: "MODD", argLength: 2, reg: gp21, asm: "MODD", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
-		{name: "MODW", argLength: 2, reg: gp21, asm: "MODW", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
+		{name: "MODD", argLength: 2, reg: gp21tmp, asm: "MODD", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
+		{name: "MODW", argLength: 2, reg: gp21tmp, asm: "MODW", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
 
-		{name: "MODDU", argLength: 2, reg: gp21, asm: "MODDU", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
-		{name: "MODWU", argLength: 2, reg: gp21, asm: "MODWU", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
+		{name: "MODDU", argLength: 2, reg: gp21tmp, asm: "MODDU", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
+		{name: "MODWU", argLength: 2, reg: gp21tmp, asm: "MODWU", resultInArg0: true, clobberFlags: true}, // arg0 % arg1
 
 		{name: "AND", argLength: 2, reg: gp21, asm: "AND", commutative: true, clobberFlags: true},                                                                    // arg0 & arg1
 		{name: "ANDW", argLength: 2, reg: gp21, asm: "ANDW", commutative: true, clobberFlags: true},                                                                  // arg0 & arg1
@@ -330,10 +332,6 @@ func init() {
 		{name: "NOTW", argLength: 1, reg: gp11, resultInArg0: true, clobberFlags: true}, // ^arg0
 
 		{name: "FSQRT", argLength: 1, reg: fp11, asm: "FSQRT"}, // sqrt(arg0)
-
-		{name: "SUBEcarrymask", argLength: 1, reg: flagsgp, asm: "SUBE"},  // (int64)(-1) if carry is set, 0 if carry is clear.
-		{name: "SUBEWcarrymask", argLength: 1, reg: flagsgp, asm: "SUBE"}, // (int32)(-1) if carry is set, 0 if carry is clear.
-		// Note: 32-bits subtraction is not implemented in S390X. Temporarily use SUBE (64-bits).
 
 		{name: "MOVDEQ", argLength: 3, reg: gp2flags1, resultInArg0: true, asm: "MOVDEQ"}, // extract == condition from arg0
 		{name: "MOVDNE", argLength: 3, reg: gp2flags1, resultInArg0: true, asm: "MOVDNE"}, // extract != condition from arg0
@@ -444,21 +442,24 @@ func init() {
 		// Scheduler ensures LoweredGetClosurePtr occurs only in entry block,
 		// and sorts it to the very beginning of the block to prevent other
 		// use of R12 (the closure pointer)
-		{name: "LoweredGetClosurePtr", reg: regInfo{outputs: []regMask{buildReg("R12")}}},
+		{name: "LoweredGetClosurePtr", reg: regInfo{outputs: []regMask{buildReg("R12")}}, zeroWidth: true},
 		// arg0=ptr,arg1=mem, returns void.  Faults if ptr is nil.
 		// LoweredGetCallerSP returns the SP of the caller of the current function.
 		{name: "LoweredGetCallerSP", reg: gp01, rematerializeable: true},
+		// LoweredGetCallerPC evaluates to the PC to which its "caller" will return.
+		// I.e., if f calls g "calls" getcallerpc,
+		// the result should be the PC within f that g will return to.
+		// See runtime/stubs.go for a more detailed discussion.
+		{name: "LoweredGetCallerPC", reg: gp01, rematerializeable: true},
 		{name: "LoweredNilCheck", argLength: 2, reg: regInfo{inputs: []regMask{ptrsp}}, clobberFlags: true, nilCheck: true, faultOnNilArg0: true},
 		// Round ops to block fused-multiply-add extraction.
-		{name: "LoweredRound32F", argLength: 1, reg: fp11, resultInArg0: true},
-		{name: "LoweredRound64F", argLength: 1, reg: fp11, resultInArg0: true},
+		{name: "LoweredRound32F", argLength: 1, reg: fp11, resultInArg0: true, zeroWidth: true},
+		{name: "LoweredRound64F", argLength: 1, reg: fp11, resultInArg0: true, zeroWidth: true},
 
-		// MOVDconvert converts between pointers and integers.
-		// We have a special op for this so as to not confuse GC
-		// (particularly stack maps). It takes a memory arg so it
-		// gets correctly ordered with respect to GC safepoints.
-		// arg0=ptr/int arg1=mem, output=int/ptr
-		{name: "MOVDconvert", argLength: 2, reg: gp11sp, asm: "MOVD"},
+		// LoweredWB invokes runtime.gcWriteBarrier. arg0=destptr, arg1=srcptr, arg2=mem, aux=runtime.gcWriteBarrier
+		// It saves all GP registers if necessary,
+		// but clobbers R14 (LR) because it's a call.
+		{name: "LoweredWB", argLength: 3, reg: regInfo{inputs: []regMask{buildReg("R2"), buildReg("R3")}, clobbers: (callerSave &^ gpg) | buildReg("R14")}, clobberFlags: true, aux: "Sym", symEffect: "None"},
 
 		// Constant flag values. For any comparison, there are 5 possible
 		// outcomes: the three from the signed total order (<,==,>) and the

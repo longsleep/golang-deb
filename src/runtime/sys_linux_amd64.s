@@ -24,6 +24,7 @@
 #define SYS_sched_yield 	24
 #define SYS_mincore		27
 #define SYS_madvise		28
+#define SYS_nanosleep		35
 #define SYS_setittimer		38
 #define SYS_getpid		39
 #define SYS_socket		41
@@ -32,7 +33,6 @@
 #define SYS_exit		60
 #define SYS_kill		62
 #define SYS_fcntl		72
-#define SYS_getrlimit		97
 #define SYS_sigaltstack 	131
 #define SYS_arch_prctl		158
 #define SYS_gettid		186
@@ -44,7 +44,6 @@
 #define SYS_epoll_ctl		233
 #define SYS_openat		257
 #define SYS_faccessat		269
-#define SYS_pselect6		270
 #define SYS_epoll_pwait		281
 #define SYS_epoll_create1	291
 
@@ -114,14 +113,6 @@ TEXT runtime·read(SB),NOSPLIT,$0-28
 	MOVL	AX, ret+24(FP)
 	RET
 
-TEXT runtime·getrlimit(SB),NOSPLIT,$0-20
-	MOVL	kind+0(FP), DI
-	MOVQ	limit+8(FP), SI
-	MOVL	$SYS_getrlimit, AX
-	SYSCALL
-	MOVL	AX, ret+16(FP)
-	RET
-
 TEXT runtime·usleep(SB),NOSPLIT,$16
 	MOVL	$0, DX
 	MOVL	usec+0(FP), AX
@@ -132,14 +123,10 @@ TEXT runtime·usleep(SB),NOSPLIT,$16
 	MULL	DX
 	MOVQ	AX, 8(SP)
 
-	// pselect6(0, 0, 0, 0, &ts, 0)
-	MOVL	$0, DI
+	// nanosleep(&ts, 0)
+	MOVQ	SP, DI
 	MOVL	$0, SI
-	MOVL	$0, DX
-	MOVL	$0, R10
-	MOVQ	SP, R8
-	MOVL	$0, R9
-	MOVL	$SYS_pselect6, AX
+	MOVL	$SYS_nanosleep, AX
 	SYSCALL
 	RET
 
@@ -197,20 +184,25 @@ TEXT runtime·walltime(SB),NOSPLIT,$0-12
 
 	get_tls(CX)
 	MOVQ	g(CX), AX
-	MOVQ	g_m(AX), CX
-	MOVQ	m_curg(CX), DX
+	MOVQ	g_m(AX), BX // BX unchanged by C code.
 
-	CMPQ	AX, DX		// Only switch if on curg.
+	// Set vdsoPC and vdsoSP for SIGPROF traceback.
+	MOVQ	0(SP), DX
+	MOVQ	DX, m_vdsoPC(BX)
+	LEAQ	sec+0(SP), DX
+	MOVQ	DX, m_vdsoSP(BX)
+
+	CMPQ	AX, m_curg(BX)	// Only switch if on curg.
 	JNE	noswitch
 
-	MOVQ	m_g0(CX), DX
+	MOVQ	m_g0(BX), DX
 	MOVQ	(g_sched+gobuf_sp)(DX), SP	// Set SP to g0 stack
 
 noswitch:
 	SUBQ	$16, SP		// Space for results
 	ANDQ	$~15, SP	// Align for C code
 
-	MOVQ	runtime·__vdso_clock_gettime_sym(SB), AX
+	MOVQ	runtime·vdsoClockgettimeSym(SB), AX
 	CMPQ	AX, $0
 	JEQ	fallback
 	MOVL	$0, DI // CLOCK_REALTIME
@@ -219,18 +211,20 @@ noswitch:
 	MOVQ	0(SP), AX	// sec
 	MOVQ	8(SP), DX	// nsec
 	MOVQ	BP, SP		// Restore real SP
+	MOVQ	$0, m_vdsoSP(BX)
 	MOVQ	AX, sec+0(FP)
 	MOVL	DX, nsec+8(FP)
 	RET
 fallback:
 	LEAQ	0(SP), DI
 	MOVQ	$0, SI
-	MOVQ	runtime·__vdso_gettimeofday_sym(SB), AX
+	MOVQ	runtime·vdsoGettimeofdaySym(SB), AX
 	CALL	AX
 	MOVQ	0(SP), AX	// sec
 	MOVL	8(SP), DX	// usec
 	IMULQ	$1000, DX
 	MOVQ	BP, SP		// Restore real SP
+	MOVQ	$0, m_vdsoSP(BX)
 	MOVQ	AX, sec+0(FP)
 	MOVL	DX, nsec+8(FP)
 	RET
@@ -238,24 +232,29 @@ fallback:
 TEXT runtime·nanotime(SB),NOSPLIT,$0-8
 	// Switch to g0 stack. See comment above in runtime·walltime.
 
-	MOVQ	SP, BP	// Save old SP; BX unchanged by C code.
+	MOVQ	SP, BP	// Save old SP; BP unchanged by C code.
 
 	get_tls(CX)
 	MOVQ	g(CX), AX
-	MOVQ	g_m(AX), CX
-	MOVQ	m_curg(CX), DX
+	MOVQ	g_m(AX), BX // BX unchanged by C code.
 
-	CMPQ	AX, DX		// Only switch if on curg.
+	// Set vdsoPC and vdsoSP for SIGPROF traceback.
+	MOVQ	0(SP), DX
+	MOVQ	DX, m_vdsoPC(BX)
+	LEAQ	ret+0(SP), DX
+	MOVQ	DX, m_vdsoSP(BX)
+
+	CMPQ	AX, m_curg(BX)	// Only switch if on curg.
 	JNE	noswitch
 
-	MOVQ	m_g0(CX), DX
+	MOVQ	m_g0(BX), DX
 	MOVQ	(g_sched+gobuf_sp)(DX), SP	// Set SP to g0 stack
 
 noswitch:
 	SUBQ	$16, SP		// Space for results
 	ANDQ	$~15, SP	// Align for C code
 
-	MOVQ	runtime·__vdso_clock_gettime_sym(SB), AX
+	MOVQ	runtime·vdsoClockgettimeSym(SB), AX
 	CMPQ	AX, $0
 	JEQ	fallback
 	MOVL	$1, DI // CLOCK_MONOTONIC
@@ -264,6 +263,7 @@ noswitch:
 	MOVQ	0(SP), AX	// sec
 	MOVQ	8(SP), DX	// nsec
 	MOVQ	BP, SP		// Restore real SP
+	MOVQ	$0, m_vdsoSP(BX)
 	// sec is in AX, nsec in DX
 	// return nsec in AX
 	IMULQ	$1000000000, AX
@@ -273,11 +273,12 @@ noswitch:
 fallback:
 	LEAQ	0(SP), DI
 	MOVQ	$0, SI
-	MOVQ	runtime·__vdso_gettimeofday_sym(SB), AX
+	MOVQ	runtime·vdsoGettimeofdaySym(SB), AX
 	CALL	AX
 	MOVQ	0(SP), AX	// sec
 	MOVL	8(SP), DX	// usec
 	MOVQ	BP, SP		// Restore real SP
+	MOVQ	$0, m_vdsoSP(BX)
 	IMULQ	$1000, DX
 	// sec is in AX, nsec in DX
 	// return nsec in AX
@@ -298,7 +299,7 @@ TEXT runtime·rtsigprocmask(SB),NOSPLIT,$0-28
 	MOVL	$0xf1, 0xf1  // crash
 	RET
 
-TEXT runtime·sysSigaction(SB),NOSPLIT,$0-36
+TEXT runtime·rt_sigaction(SB),NOSPLIT,$0-36
 	MOVQ	sig+0(FP), DI
 	MOVQ	new+8(FP), SI
 	MOVQ	old+16(FP), DX
@@ -603,7 +604,7 @@ TEXT runtime·settls(SB),NOSPLIT,$32
 	// Same as in sys_darwin_386.s:/ugliness, different constant.
 	// DI currently holds m->tls, which must be fs:0x1d0.
 	// See cgo/gcc_android_amd64.c for the derivation of the constant.
-	SUBQ	$0x1d0, DI  // In android, the tls base
+	SUBQ	$0x1d0, DI  // In android, the tls base 
 #else
 	ADDQ	$8, DI	// ELF wants to use -8(FS)
 #endif
