@@ -1,3 +1,9 @@
+golang-1.11 (1.11.1-1ubuntu1~longsleep3+xenial) xenial; urgency=medium
+
+  * Fixup dh_strip_nondeterminism override
+
+ -- Simon Eisenmann <simon@longsleep.org>  Fri, 26 Oct 2018 21:30:38 +0200
+
 golang-1.11 (1.11.1-1ubuntu1~longsleep2+xenial) xenial; urgency=medium
 
   * Ignore testdata in dh_strip_nondeterminism
