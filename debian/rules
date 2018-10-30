@@ -6,7 +6,6 @@ export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-par
 
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
-export GOCACHE := off
 
 DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
 RUN_TESTS := true
@@ -89,6 +88,8 @@ override_dh_install-arch:
 	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
 	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
 	find debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/src -type d -delete
+	# Remove GOCACHE files
+	rm -rf debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg/obj/go-build
 	# Touch built and installed files and directories to have same timestamp
 	touch debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg
 	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
