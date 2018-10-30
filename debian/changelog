@@ -1,3 +1,9 @@
+golang-1.11 (1.11.1-1ubuntu1~longsleep5+xenial) xenial; urgency=medium
+
+  * Do not ship a global filled GOCACHE
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 30 Oct 2018 13:52:06 +0100
+
 golang-1.11 (1.11.1-1ubuntu1~longsleep4+xenial) xenial; urgency=medium
 
   * For whatever reason, stripping breaks zlib.a
