@@ -1,3 +1,9 @@
+golang-1.10 (1.10.3-2) UNRELEASED; urgency=medium
+
+  * Suggest brz as alternative to bzr; it provides the same command-line API.
+
+ -- Jelmer Vernooĳ <jelmer@debian.org>  Sat, 03 Nov 2018 19:43:08 +0000
+
 golang-1.10 (1.10.3-1) unstable; urgency=medium
 
   * New upstream version 1.10.3
