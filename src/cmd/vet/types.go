@@ -201,8 +201,8 @@ func (f *File) matchArgTypeInternal(t printfArgType, typ types.Type, arg ast.Exp
 		if str, ok := typ.Elem().Underlying().(*types.Struct); ok {
 			return f.matchStructArgType(t, str, arg, inProgress)
 		}
-		// The rest can print with %p as pointers, or as integers with %x etc.
-		return t&(argInt|argPointer) != 0
+		// Check whether the rest can print pointers.
+		return t&argPointer != 0
 
 	case *types.Struct:
 		return f.matchStructArgType(t, typ, arg, inProgress)
@@ -254,7 +254,7 @@ func (f *File) matchArgTypeInternal(t printfArgType, typ types.Type, arg ast.Exp
 			return t&(argInt|argRune) != 0
 
 		case types.UntypedNil:
-			return t&argPointer != 0 // TODO?
+			return false
 
 		case types.Invalid:
 			if *verbose {
@@ -308,17 +308,6 @@ func (f *File) matchStructArgType(t printfArgType, typ *types.Struct, arg ast.Ex
 		}
 	}
 	return true
-}
-
-// hasMethod reports whether the type contains a method with the given name.
-// It is part of the workaround for Formatters and should be deleted when
-// that workaround is no longer necessary.
-// TODO: This could be better once issue 6259 is fixed.
-func (f *File) hasMethod(typ types.Type, name string) bool {
-	// assume we have an addressable variable of type typ
-	obj, _, _ := types.LookupFieldOrMethod(typ, true, f.pkg.typesPkg, name)
-	_, ok := obj.(*types.Func)
-	return ok
 }
 
 var archSizes = types.SizesFor("gc", build.Default.GOARCH)

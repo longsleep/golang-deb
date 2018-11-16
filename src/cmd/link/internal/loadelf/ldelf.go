@@ -457,7 +457,7 @@ func parseArmAttributes(e binary.ByteOrder, data []byte) (found bool, ehdrFlags 
 // On ARM systems, Load will attempt to determine what ELF header flags to
 // emit by scanning the attributes in the ELF file being loaded. The
 // parameter initEhdrFlags contains the current header flags for the output
-// object, and the returnd ehdrFlags contains what this Load function computes.
+// object, and the returned ehdrFlags contains what this Load function computes.
 // TODO: find a better place for this logic.
 func Load(arch *sys.Arch, syms *sym.Symbols, f *bio.Reader, pkg string, length int64, pn string, initEhdrFlags uint32) (textp []*sym.Symbol, ehdrFlags uint32, err error) {
 	errorf := func(str string, args ...interface{}) ([]*sym.Symbol, uint32, error) {
@@ -805,7 +805,7 @@ func Load(arch *sys.Arch, syms *sym.Symbols, f *bio.Reader, pkg string, length i
 		s.Type = sect.sym.Type
 		s.Attr |= sym.AttrSubSymbol
 		if !s.Attr.CgoExportDynamic() {
-			s.Dynimplib = "" // satisfy dynimport
+			s.SetDynimplib("") // satisfy dynimport
 		}
 		s.Value = int64(elfsym.value)
 		s.Size = int64(elfsym.size)
@@ -1048,7 +1048,7 @@ func readelfsym(arch *sys.Arch, syms *sym.Symbols, elfobj *ElfObj, i int, elfsym
 				// __i686.get_pc_thunk.bx is allowed to be duplicated, to
 				// workaround that we set dupok.
 				// TODO(minux): correctly handle __i686.get_pc_thunk.bx without
-				// set dupok generally. See http://codereview.appspot.com/5823055/
+				// set dupok generally. See https://golang.org/cl/5823055
 				// comment #5 for details.
 				if s != nil && elfsym.other == 2 {
 					s.Attr |= sym.AttrDuplicateOK | sym.AttrVisibilityHidden
