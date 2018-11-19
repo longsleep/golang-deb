@@ -1,9 +1,13 @@
-golang-1.11 (1.11-1) UNRELEASED; urgency=medium
+golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
 
+  [ Michael Hudson-Doyle ]
   * New upstream major version.
   * Update debhelper compat level to 11.
   * Remove GOCACHE files after running tests.
   * Stop dh_strip_nondeterminism from looking at testdata directories.
+
+  [ Dr. Tobias Quathamer ]
+  * Build-Depend on debhelper v11
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Sun, 26 Aug 2018 20:15:22 +1200
 
