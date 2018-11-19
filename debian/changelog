@@ -8,6 +8,8 @@ golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
 
   [ Dr. Tobias Quathamer ]
   * Build-Depend on debhelper v11
+  * Override two false positive Lintian errors (missing depends
+    on sensible-utils)
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Sun, 26 Aug 2018 20:15:22 +1200
 
