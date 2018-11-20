@@ -1,5 +1,4 @@
 golang-X.Y source: source-contains-prebuilt-binary src/cmd/internal/buildid/testdata/a.elf
-golang-X.Y source: source-contains-prebuilt-binary src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/hello
 golang-X.Y source: source-contains-prebuilt-binary src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
 golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/cycle.elf
 golang-X.Y source: source-contains-prebuilt-binary src/debug/dwarf/testdata/line-clang.elf
@@ -23,12 +22,10 @@ golang-X.Y source: source-contains-prebuilt-windows-binary src/cmd/internal/buil
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/dwarf/testdata/line-gcc-win.bin
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec
-golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-amd64-mingw-exec
 
 golang-X.Y source: source-is-missing src/runtime/race/*.syso
 golang-X.Y source: source-is-missing src/cmd/internal/buildid/testdata/a.elf
-golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/hello
 golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
 golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
 
