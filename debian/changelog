@@ -16,6 +16,7 @@ golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
   * Fix Lintian warnings about wrong interpreter path
   * Make two scripts executable which have been missed by upstream
   * Remove three unneeded lintian overrides
+  * Use HTTPS URL for d/watch
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Sun, 26 Aug 2018 20:15:22 +1200
 
