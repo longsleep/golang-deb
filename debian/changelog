@@ -19,6 +19,7 @@ golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
   * Use HTTPS URL for d/watch
   * Update to Standards-Version 4.2.1
     - Use HTTPS for d/copyright
+  * Update d/copyright
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Sun, 26 Aug 2018 20:15:22 +1200
 
