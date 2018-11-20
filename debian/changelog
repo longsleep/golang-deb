@@ -17,6 +17,7 @@ golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
   * Make two scripts executable which have been missed by upstream
   * Remove three unneeded lintian overrides
   * Use HTTPS URL for d/watch
+  * Use HTTPS for d/copyright
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Sun, 26 Aug 2018 20:15:22 +1200
 
