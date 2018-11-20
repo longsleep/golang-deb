@@ -1,4 +1,6 @@
-golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
+golang-1.11 (1.11.2-1) unstable; urgency=medium
+
+  * Team upload.
 
   [ Michael Hudson-Doyle ]
   * New upstream major version.
@@ -21,7 +23,7 @@ golang-1.11 (1.11.2-1) UNRELEASED; urgency=medium
     - Use HTTPS for d/copyright
   * Update d/copyright
 
- -- Michael Hudson-Doyle <mwhudson@debian.org>  Sun, 26 Aug 2018 20:15:22 +1200
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Tue, 20 Nov 2018 22:51:44 +0100
 
 golang-1.10 (1.10.3-1) unstable; urgency=medium
 
