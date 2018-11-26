@@ -103,7 +103,7 @@ Last-Update: 2018-02-08
  			ls.AddUint8(0)
 --- a/src/cmd/link/internal/ld/pcln.go
 +++ b/src/cmd/link/internal/ld/pcln.go
-@@ -301,7 +301,7 @@
+@@ -304,7 +304,7 @@
  		off = int32(ftab.SetAddr(ctxt.Arch, int64(off), s))
  
  		// name int32
@@ -112,7 +112,7 @@ Last-Update: 2018-02-08
  		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(nameoff)))
  
  		// args int32
-@@ -446,7 +446,7 @@
+@@ -449,7 +449,7 @@
  	ftab.SetUint32(ctxt.Arch, int64(start), uint32(len(ctxt.Filesyms)+1))
  	for i := len(ctxt.Filesyms) - 1; i >= 0; i-- {
  		s := ctxt.Filesyms[i]
