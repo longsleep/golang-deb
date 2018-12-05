@@ -1,3 +1,10 @@
+golang-1.10 (1.10.5-1~bpo9+1) stretch-backports; urgency=medium
+
+  * Team upload.
+  * Rebuild for stretch-backports.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 05 Dec 2018 16:47:08 +0100
+
 golang-1.10 (1.10.5-1) unstable; urgency=medium
 
   * Team upload.
