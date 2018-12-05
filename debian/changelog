@@ -1,3 +1,31 @@
+golang-1.10 (1.10.5-1) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Jelmer Vernooĳ ]
+  * Suggest brz as alternative to bzr; it provides the same command-line API.
+
+  [ Dr. Tobias Quathamer ]
+  * New upstream version 1.10.5
+  * Refresh patch
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 26 Nov 2018 22:50:39 +0100
+
+golang-1.10 (1.10.4-2) unstable; urgency=medium
+
+  * d/patches/arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch:
+    backport another ftbfs fix from upstream.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 21 Sep 2018 11:30:09 +0200
+
+golang-1.10 (1.10.4-1) unstable; urgency=medium
+
+  * New upstream version.
+  * d/patches/only-consider-executable-segments.patch: backport ftbfs fix from
+    upstream.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 19 Sep 2018 10:03:11 +0200
+
 golang-1.10 (1.10.3-1~bpo9+1) stretch-backports; urgency=medium
 
   * Rebuild for stretch-backports.

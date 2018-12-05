@@ -1,0 +1,34 @@
+From 65fa2b615b72c1fa61a718f2e3a756833f153cc3 Mon Sep 17 00:00:00 2001
+From: Ian Lance Taylor <iant@golang.org>
+Date: Fri, 3 Aug 2018 14:52:54 -0700
+Subject: [PATCH] cmd/internal/objfile: only consider executable segments for
+ load address
+
+Reportedly on some new Fedora systems the linker is producing extra
+load segments, basically making the dynamic section non-executable.
+We were assuming that the first load segment could be used to
+determine the program's load offset, but that is no longer true.
+Use the first executable load segment instead.
+
+Fixes #26369
+
+Change-Id: I5ee31ddeef2e8caeed3112edc5149065a6448456
+Reviewed-on: https://go-review.googlesource.com/127895
+Run-TryBot: Ian Lance Taylor <iant@golang.org>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+Reviewed-by: Brad Fitzpatrick <bradfitz@golang.org>
+---
+ src/cmd/internal/objfile/elf.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/src/cmd/internal/objfile/elf.go
++++ b/src/cmd/internal/objfile/elf.go
+@@ -114,7 +114,7 @@
+ 
+ func (f *elfFile) loadAddress() (uint64, error) {
+ 	for _, p := range f.elf.Progs {
+-		if p.Type == elf.PT_LOAD {
++		if p.Type == elf.PT_LOAD && p.Flags&elf.PF_X != 0 {
+ 			return p.Vaddr, nil
+ 		}
+ 	}
