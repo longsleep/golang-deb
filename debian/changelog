@@ -1,3 +1,15 @@
+golang-1.10 (1.10.6-1) unstable; urgency=medium
+
+  * New upstream version 1.10.6
+  * Update gbp.conf to new style syntax
+  * Add myself to Uploaders
+  * Use debhelper v11
+  * Use HTTPS URL for d/watch
+  * Update to Standards-Version 4.2.1
+    - Use HTTPS for d/copyright
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 13 Dec 2018 23:13:52 +0100
+
 golang-1.10 (1.10.5-1) unstable; urgency=medium
 
   * Team upload.
