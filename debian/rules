@@ -20,7 +20,7 @@ ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
 endif
 
 %:
-	+dh --parallel $(opt_no_act) $@
+	+dh $@ $(opt_no_act)
 
 gencontrol:
 	for file in control gbp.conf source/lintian-overrides watch; do \
