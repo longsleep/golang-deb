@@ -1,3 +1,13 @@
+golang-1.11 (1.11.3-1) unstable; urgency=medium
+
+  * New upstream version 1.11.3
+    - Refresh patches
+  * Update gbp.conf to new style syntax
+  * Suggest brz as alternative to bzr; it provides the same command-line API.
+  * Add myself to Uploaders
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 13 Dec 2018 23:23:40 +0100
+
 golang-1.11 (1.11.2-2) unstable; urgency=medium
 
   * d/patches/arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch:
