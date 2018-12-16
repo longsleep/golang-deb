@@ -23,7 +23,6 @@ golang-X.Y source: source-contains-prebuilt-windows-binary src/cmd/internal/buil
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/dwarf/testdata/line-gcc-win.bin
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec
-golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
 golang-X.Y source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-amd64-mingw-exec
 
 golang-X.Y source: source-is-missing src/runtime/race/*.syso
