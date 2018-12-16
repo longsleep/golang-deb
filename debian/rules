@@ -91,6 +91,9 @@ override_dh_install-arch:
 	# Touch built and installed files and directories to have same timestamp
 	touch debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg
 	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
+	# Make two scripts executable which have been missed by upstream
+	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmp.bash
+	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/runtime/mknacl.sh
 
 override_dh_strip:
 	dh_strip -Xtestdata
