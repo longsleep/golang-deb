@@ -29,7 +29,6 @@ golang-X.Y source: source-is-missing src/runtime/race/*.syso
 golang-X.Y source: source-is-missing src/cmd/internal/buildid/testdata/a.elf
 golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/hello
 golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
-golang-X.Y source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
 
 # All these files are compiled from src/debug/elf/testdata/hello.c
 # with various toolchain and options to be used as test data for the
