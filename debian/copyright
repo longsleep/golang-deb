@@ -188,12 +188,12 @@ License: noderivs
  Permission to use, copy, and distribute these images for any purpose and
  without fee is hereby granted.
 
-Files: src/cmd/vendor/github.com/google/pprof
+Files: src/cmd/vendor/github.com/google/pprof/*
 Copyright: 2014, 2016 Google Inc.
 License: Apache-2.0
 
 Files: src/cmd/vendor/github.com/google/pprof/third_party/svg/svgpan.go
-Copyright: 2009-2010 Andrea Leofreddi <a.leofreddi@itcharm.com>
+Copyright: 2009-2017 Andrea Leofreddi <a.leofreddi@itcharm.com>
 License: BSD-2-clause-svgpan
 
 Files: favicon.ico
