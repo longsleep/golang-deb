@@ -1,3 +1,10 @@
+golang-1.11 (1.11.4-1) unstable; urgency=medium
+
+  * New upstream version 1.11.4
+  * Make lintian override agnostic of golang version
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 16 Dec 2018 13:48:52 +0100
+
 golang-1.11 (1.11.3-1) unstable; urgency=medium
 
   * New upstream version 1.11.3
