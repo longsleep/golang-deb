@@ -27,13 +27,13 @@ golang-1.10 source: source-contains-prebuilt-windows-binary src/cmd/internal/bui
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/dwarf/testdata/line-gcc-win.bin
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec
-golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-amd64-mingw-exec
 
 golang-1.10 source: source-is-missing src/runtime/race/*.syso
 golang-1.10 source: source-is-missing src/cmd/internal/buildid/testdata/a.elf
 golang-1.10 source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/hello
 golang-1.10 source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
+golang-1.10 source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
 
 # All these files are compiled from src/debug/elf/testdata/hello.c
 # with various toolchain and options to be used as test data for the
