@@ -1,3 +1,17 @@
+golang-1.10 (1.10.7-1) unstable; urgency=medium
+
+  * New upstream version 1.10.7
+  * Override two false positive Lintian errors (missing depends
+    on sensible-utils)
+  * Add lintian overrides for testdata
+  * Include /usr/share/dpkg/architecture.mk for DEB_HOST_ARCH
+  * Fix Lintian warnings about wrong interpreter path
+  * Make two scripts executable which have been missed by upstream
+  * Update d/copyright
+  * Remove unused lintian overrides
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 16 Dec 2018 13:37:11 +0100
+
 golang-1.10 (1.10.6-1) unstable; urgency=medium
 
   * New upstream version 1.10.6
