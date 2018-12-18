@@ -5,7 +5,7 @@
 Source: golang-1.10
 Section: devel
 Priority: optional
-Maintainer: Go Compiler Team <pkg-golang-devel@lists.alioth.debian.org>
+Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
