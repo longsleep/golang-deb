@@ -46,13 +46,57 @@ type treapNode struct {
 	priority  uint32     // random number used by treap algorithm to keep tree probabilistically balanced
 }
 
-func (t *treapNode) init() {
-	t.right = nil
-	t.left = nil
-	t.parent = nil
-	t.spanKey = nil
-	t.npagesKey = 0
-	t.priority = 0
+func (t *treapNode) pred() *treapNode {
+	if t.left != nil {
+		// If it has a left child, its predecessor will be
+		// its right most left (grand)child.
+		t = t.left
+		for t.right != nil {
+			t = t.right
+		}
+		return t
+	}
+	// If it has no left child, its predecessor will be
+	// the first grandparent who's right child is its
+	// ancestor.
+	//
+	// We compute this by walking up the treap until the
+	// current node's parent is its parent's right child.
+	//
+	// If we find at any point walking up the treap
+	// that the current node doesn't have a parent,
+	// we've hit the root. This means that t is already
+	// the left-most node in the treap and therefore
+	// has no predecessor.
+	for t.parent != nil && t.parent.right != t {
+		if t.parent.left != t {
+			println("runtime: predecessor t=", t, "t.spanKey=", t.spanKey)
+			throw("node is not its parent's child")
+		}
+		t = t.parent
+	}
+	return t.parent
+}
+
+func (t *treapNode) succ() *treapNode {
+	if t.right != nil {
+		// If it has a right child, its successor will be
+		// its left-most right (grand)child.
+		t = t.right
+		for t.left != nil {
+			t = t.left
+		}
+		return t
+	}
+	// See pred.
+	for t.parent != nil && t.parent.left != t {
+		if t.parent.right != t {
+			println("runtime: predecessor t=", t, "t.spanKey=", t.spanKey)
+			throw("node is not its parent's child")
+		}
+		t = t.parent
+	}
+	return t.parent
 }
 
 // isSpanInTreap is handy for debugging. One should hold the heap lock, usually
@@ -109,6 +153,70 @@ func checkTreapNode(t *treapNode) {
 	}
 }
 
+// treapIter is a unidirectional iterator type which may be used to iterate over a
+// an mTreap in-order forwards (increasing order) or backwards (decreasing order).
+// Its purpose is to hide details about the treap from users when trying to iterate
+// over it.
+//
+// To create iterators over the treap, call iter or rev on an mTreap.
+type treapIter struct {
+	t   *treapNode
+	inc bool // if true, iterate in increasing order, otherwise decreasing order.
+}
+
+// span returns the span at the current position in the treap.
+// If the treap is not valid, span will panic.
+func (i *treapIter) span() *mspan {
+	return i.t.spanKey
+}
+
+// valid returns whether the iterator represents a valid position
+// in the mTreap.
+func (i *treapIter) valid() bool {
+	return i.t != nil
+}
+
+// next moves the iterator forward by one. Once the iterator
+// ceases to be valid, calling next will panic.
+func (i treapIter) next() treapIter {
+	if i.inc {
+		i.t = i.t.succ()
+	} else {
+		i.t = i.t.pred()
+	}
+	return i
+}
+
+// iter returns an iterator which may be used to iterate over the treap
+// in increasing order of span size ("forwards").
+func (root *mTreap) iter() treapIter {
+	i := treapIter{inc: true}
+	t := root.treap
+	if t == nil {
+		return i
+	}
+	for t.left != nil {
+		t = t.left
+	}
+	i.t = t
+	return i
+}
+
+// rev returns an iterator which may be used to iterate over the treap
+// in decreasing order of span size ("reverse").
+func (root *mTreap) rev() treapIter {
+	i := treapIter{inc: false}
+	t := root.treap
+	if t == nil {
+		return i
+	}
+	for t.right != nil {
+		t = t.right
+	}
+	i.t = t
+	return i
+}
+
 // insert adds span to the large span treap.
 func (root *mTreap) insert(span *mspan) {
 	npages := span.npages
@@ -120,10 +228,10 @@ func (root *mTreap) insert(span *mspan) {
 			pt = &t.right
 		} else if t.npagesKey > npages {
 			pt = &t.left
-		} else if uintptr(unsafe.Pointer(t.spanKey)) < uintptr(unsafe.Pointer(span)) {
+		} else if t.spanKey.base() < span.base() {
 			// t.npagesKey == npages, so sort on span addresses.
 			pt = &t.right
-		} else if uintptr(unsafe.Pointer(t.spanKey)) > uintptr(unsafe.Pointer(span)) {
+		} else if t.spanKey.base() > span.base() {
 			pt = &t.left
 		} else {
 			throw("inserting span already in treap")
@@ -140,7 +248,6 @@ func (root *mTreap) insert(span *mspan) {
 	// https://faculty.washington.edu/aragon/pubs/rst89.pdf
 
 	t := (*treapNode)(mheap_.treapalloc.alloc())
-	t.init()
 	t.npagesKey = span.npages
 	t.priority = fastrand()
 	t.spanKey = span
@@ -168,7 +275,6 @@ func (root *mTreap) removeNode(t *treapNode) {
 	if t.spanKey.npages != t.npagesKey {
 		throw("span and treap node npages do not match")
 	}
-
 	// Rotate t down to be leaf of tree for removal, respecting priorities.
 	for t.right != nil || t.left != nil {
 		if t.right == nil || t.left != nil && t.left.priority < t.right.priority {
@@ -188,19 +294,16 @@ func (root *mTreap) removeNode(t *treapNode) {
 		root.treap = nil
 	}
 	// Return the found treapNode's span after freeing the treapNode.
-	t.spanKey = nil
-	t.npagesKey = 0
 	mheap_.treapalloc.free(unsafe.Pointer(t))
 }
 
-// remove searches for, finds, removes from the treap, and returns the smallest
-// span that can hold npages. If no span has at least npages return nil.
+// find searches for, finds, and returns the treap node containing the
+// smallest span that can hold npages. If no span has at least npages
+// it returns nil.
 // This is slightly more complicated than a simple binary tree search
 // since if an exact match is not found the next larger node is
 // returned.
-// If the last node inspected > npagesKey not holding
-// a left node (a smaller npages) is the "best fit" node.
-func (root *mTreap) remove(npages uintptr) *mspan {
+func (root *mTreap) find(npages uintptr) *treapNode {
 	t := root.treap
 	for t != nil {
 		if t.spanKey == nil {
@@ -211,9 +314,7 @@ func (root *mTreap) remove(npages uintptr) *mspan {
 		} else if t.left != nil && t.left.npagesKey >= npages {
 			t = t.left
 		} else {
-			result := t.spanKey
-			root.removeNode(t)
-			return result
+			return t
 		}
 	}
 	return nil
@@ -231,24 +332,23 @@ func (root *mTreap) removeSpan(span *mspan) {
 			t = t.right
 		} else if t.npagesKey > npages {
 			t = t.left
-		} else if uintptr(unsafe.Pointer(t.spanKey)) < uintptr(unsafe.Pointer(span)) {
+		} else if t.spanKey.base() < span.base() {
 			t = t.right
-		} else if uintptr(unsafe.Pointer(t.spanKey)) > uintptr(unsafe.Pointer(span)) {
+		} else if t.spanKey.base() > span.base() {
 			t = t.left
 		}
 	}
 	root.removeNode(t)
 }
 
-// scavengetreap visits each node in the treap and scavenges the
-// treapNode's span.
-func scavengetreap(treap *treapNode, now, limit uint64) uintptr {
-	if treap == nil {
-		return 0
-	}
-	return scavengeTreapNode(treap, now, limit) +
-		scavengetreap(treap.left, now, limit) +
-		scavengetreap(treap.right, now, limit)
+// erase removes the element referred to by the current position of the
+// iterator and returns i.next(). This operation consumes the given
+// iterator, so it should no longer be used and iteration should continue
+// from the returned iterator.
+func (root *mTreap) erase(i treapIter) treapIter {
+	n := i.next()
+	root.removeNode(i.t)
+	return n
 }
 
 // rotateLeft rotates the tree rooted at node x.

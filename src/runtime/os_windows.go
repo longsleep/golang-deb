@@ -43,6 +43,7 @@ const (
 //go:cgo_import_dynamic runtime._SetWaitableTimer SetWaitableTimer%6 "kernel32.dll"
 //go:cgo_import_dynamic runtime._SuspendThread SuspendThread%1 "kernel32.dll"
 //go:cgo_import_dynamic runtime._SwitchToThread SwitchToThread%0 "kernel32.dll"
+//go:cgo_import_dynamic runtime._TlsAlloc TlsAlloc%0 "kernel32.dll"
 //go:cgo_import_dynamic runtime._VirtualAlloc VirtualAlloc%4 "kernel32.dll"
 //go:cgo_import_dynamic runtime._VirtualFree VirtualFree%3 "kernel32.dll"
 //go:cgo_import_dynamic runtime._VirtualQuery VirtualQuery%3 "kernel32.dll"
@@ -91,6 +92,7 @@ var (
 	_SetWaitableTimer,
 	_SuspendThread,
 	_SwitchToThread,
+	_TlsAlloc,
 	_VirtualAlloc,
 	_VirtualFree,
 	_VirtualQuery,
@@ -196,9 +198,12 @@ func loadOptionalSyscalls() {
 	}
 	_NtWaitForSingleObject = windowsFindfunc(n32, []byte("NtWaitForSingleObject\000"))
 
-	if windowsFindfunc(n32, []byte("wine_get_version\000")) != nil {
-		// running on Wine
-		initWine(k32)
+	underWine := windowsFindfunc(n32, []byte("wine_get_version\000")) != nil
+	if underWine || GOARCH == "arm" {
+		initQPC(k32)
+	}
+	if underWine {
+		initWine()
 	}
 }
 
@@ -355,7 +360,7 @@ func nowQPC() (sec int64, nsec int32, mono int64) {
 	return
 }
 
-func initWine(k32 uintptr) {
+func initQPC(k32 uintptr) {
 	_GetSystemTimeAsFileTime = windowsFindfunc(k32, []byte("GetSystemTimeAsFileTime\000"))
 	if _GetSystemTimeAsFileTime == nil {
 		throw("could not find GetSystemTimeAsFileTime() syscall")
@@ -392,7 +397,9 @@ func initWine(k32 uintptr) {
 	// We have to do it this way (or similar), since multiplying QPC counter by 100 millions overflows
 	// int64 and resulted time will always be invalid.
 	qpcMultiplier = int64(timediv(1000000000, qpcFrequency, nil))
+}
 
+func initWine() {
 	useQPCTime = 1
 }
 
@@ -856,18 +863,28 @@ func profileloop()
 
 var profiletimer uintptr
 
-func profilem(mp *m) {
+func profilem(mp *m, thread uintptr) {
 	var r *context
 	rbuf := make([]byte, unsafe.Sizeof(*r)+15)
-
-	tls := &mp.tls[0]
-	gp := *((**g)(unsafe.Pointer(tls)))
 
 	// align Context to 16 bytes
 	r = (*context)(unsafe.Pointer((uintptr(unsafe.Pointer(&rbuf[15]))) &^ 15))
 	r.contextflags = _CONTEXT_CONTROL
-	stdcall2(_GetThreadContext, mp.thread, uintptr(unsafe.Pointer(r)))
-	sigprof(r.ip(), r.sp(), 0, gp, mp)
+	stdcall2(_GetThreadContext, thread, uintptr(unsafe.Pointer(r)))
+
+	var gp *g
+	switch GOARCH {
+	default:
+		panic("unsupported architecture")
+	case "arm":
+		tls := &mp.tls[0]
+		gp = **((***g)(unsafe.Pointer(tls)))
+	case "386", "amd64":
+		tls := &mp.tls[0]
+		gp = *((**g)(unsafe.Pointer(tls)))
+	}
+
+	sigprof(r.ip(), r.sp(), r.lr(), gp, mp)
 }
 
 func profileloop1(param uintptr) uint32 {
@@ -884,9 +901,16 @@ func profileloop1(param uintptr) uint32 {
 			if thread == 0 || mp.profilehz == 0 || mp.blocked {
 				continue
 			}
-			stdcall1(_SuspendThread, thread)
+			// mp may exit between the load above and the
+			// SuspendThread, so be careful.
+			if int32(stdcall1(_SuspendThread, thread)) == -1 {
+				// The thread no longer exists.
+				continue
+			}
 			if mp.profilehz != 0 && !mp.blocked {
-				profilem(mp)
+				// Pass the thread handle in case mp
+				// was in the process of shutting down.
+				profilem(mp, thread)
 			}
 			stdcall1(_ResumeThread, thread)
 		}

@@ -128,7 +128,7 @@ var cbrt = []float64{
 var ceil = []float64{
 	5.0000000000000000e+00,
 	8.0000000000000000e+00,
-	0.0000000000000000e+00,
+	Copysign(0, -1),
 	-5.0000000000000000e+00,
 	1.0000000000000000e+01,
 	3.0000000000000000e+00,
@@ -175,6 +175,7 @@ var cosLarge = []float64{
 	-2.51772931436786954751e-01,
 	-7.3924135157173099849e-01,
 }
+
 var cosh = []float64{
 	7.2668796942212842775517446e+01,
 	1.1479413465659254502011135e+03,
@@ -644,7 +645,7 @@ var tanh = []float64{
 var trunc = []float64{
 	4.0000000000000000e+00,
 	7.0000000000000000e+00,
-	-0.0000000000000000e+00,
+	Copysign(0, -1),
 	-5.0000000000000000e+00,
 	9.0000000000000000e+00,
 	2.0000000000000000e+00,
@@ -2158,7 +2159,7 @@ func TestCbrt(t *testing.T) {
 
 func TestCeil(t *testing.T) {
 	for i := 0; i < len(vf); i++ {
-		if f := Ceil(vf[i]); ceil[i] != f {
+		if f := Ceil(vf[i]); !alike(ceil[i], f) {
 			t.Errorf("Ceil(%g) = %g, want %g", vf[i], f, ceil[i])
 		}
 	}
@@ -2385,7 +2386,7 @@ func TestDim(t *testing.T) {
 
 func TestFloor(t *testing.T) {
 	for i := 0; i < len(vf); i++ {
-		if f := Floor(vf[i]); floor[i] != f {
+		if f := Floor(vf[i]); !alike(floor[i], f) {
 			t.Errorf("Floor(%g) = %g, want %g", vf[i], f, floor[i])
 		}
 	}
@@ -2916,7 +2917,7 @@ func TestTanh(t *testing.T) {
 
 func TestTrunc(t *testing.T) {
 	for i := 0; i < len(vf); i++ {
-		if f := Trunc(vf[i]); trunc[i] != f {
+		if f := Trunc(vf[i]); !alike(trunc[i], f) {
 			t.Errorf("Trunc(%g) = %g, want %g", vf[i], f, trunc[i])
 		}
 	}
@@ -3022,6 +3023,41 @@ func TestLargeTan(t *testing.T) {
 		f2 := Tan(vf[i] + large)
 		if !close(f1, f2) {
 			t.Errorf("Tan(%g) = %g, want %g", vf[i]+large, f2, f1)
+		}
+	}
+}
+
+// Check that trigReduce matches the standard reduction results for input values
+// below reduceThreshold.
+func TestTrigReduce(t *testing.T) {
+	inputs := make([]float64, len(vf))
+	// all of the standard inputs
+	copy(inputs, vf)
+	// all of the large inputs
+	large := float64(100000 * Pi)
+	for _, v := range vf {
+		inputs = append(inputs, v+large)
+	}
+	// Also test some special inputs, Pi and right below the reduceThreshold
+	inputs = append(inputs, Pi, Nextafter(ReduceThreshold, 0))
+	for _, x := range inputs {
+		// reduce the value to compare
+		j, z := TrigReduce(x)
+		xred := float64(j)*(Pi/4) + z
+
+		if f, fred := Sin(x), Sin(xred); !close(f, fred) {
+			t.Errorf("Sin(trigReduce(%g)) != Sin(%g), got %g, want %g", x, x, fred, f)
+		}
+		if f, fred := Cos(x), Cos(xred); !close(f, fred) {
+			t.Errorf("Cos(trigReduce(%g)) != Cos(%g), got %g, want %g", x, x, fred, f)
+		}
+		if f, fred := Tan(x), Tan(xred); !close(f, fred) {
+			t.Errorf(" Tan(trigReduce(%g)) != Tan(%g), got %g, want %g", x, x, fred, f)
+		}
+		f, g := Sincos(x)
+		fred, gred := Sincos(xred)
+		if !close(f, fred) || !close(g, gred) {
+			t.Errorf(" Sincos(trigReduce(%g)) != Sincos(%g), got %g, %g, want %g, %g", x, x, fred, gred, f, g)
 		}
 	}
 }
@@ -3634,4 +3670,42 @@ func BenchmarkYn(b *testing.B) {
 		x = Yn(2, 2.5)
 	}
 	GlobalF = x
+}
+
+func BenchmarkFloat64bits(b *testing.B) {
+	y := uint64(0)
+	for i := 0; i < b.N; i++ {
+		y = Float64bits(roundNeg)
+	}
+	GlobalI = int(y)
+}
+
+var roundUint64 = uint64(5)
+
+func BenchmarkFloat64frombits(b *testing.B) {
+	x := 0.0
+	for i := 0; i < b.N; i++ {
+		x = Float64frombits(roundUint64)
+	}
+	GlobalF = x
+}
+
+var roundFloat32 = float32(-2.5)
+
+func BenchmarkFloat32bits(b *testing.B) {
+	y := uint32(0)
+	for i := 0; i < b.N; i++ {
+		y = Float32bits(roundFloat32)
+	}
+	GlobalI = int(y)
+}
+
+var roundUint32 = uint32(5)
+
+func BenchmarkFloat32frombits(b *testing.B) {
+	x := float32(0.0)
+	for i := 0; i < b.N; i++ {
+		x = Float32frombits(roundUint32)
+	}
+	GlobalF = float64(x)
 }
