@@ -37,7 +37,7 @@ var indexError = error(errorString("index out of range"))
 // entire runtime stack for easier debugging.
 
 func panicindex() {
-	if hasprefix(funcname(findfunc(getcallerpc())), "runtime.") {
+	if hasPrefix(funcname(findfunc(getcallerpc())), "runtime.") {
 		throw(string(indexError.(errorString)))
 	}
 	panicCheckMalloc(indexError)
@@ -47,7 +47,7 @@ func panicindex() {
 var sliceError = error(errorString("slice bounds out of range"))
 
 func panicslice() {
-	if hasprefix(funcname(findfunc(getcallerpc())), "runtime.") {
+	if hasPrefix(funcname(findfunc(getcallerpc())), "runtime.") {
 		throw(string(sliceError.(errorString)))
 	}
 	panicCheckMalloc(sliceError)
@@ -241,6 +241,15 @@ func newdefer(siz int32) *_defer {
 			total := roundupsize(totaldefersize(uintptr(siz)))
 			d = (*_defer)(mallocgc(total, deferType, true))
 		})
+		if debugCachedWork {
+			// Duplicate the tail below so if there's a
+			// crash in checkPut we can tell if d was just
+			// allocated or came from the pool.
+			d.siz = siz
+			d.link = gp._defer
+			gp._defer = d
+			return d
+		}
 	}
 	d.siz = siz
 	d.link = gp._defer
@@ -849,7 +858,7 @@ func canpanic(gp *g) bool {
 	return true
 }
 
-// shouldPushSigpanic returns true if pc should be used as sigpanic's
+// shouldPushSigpanic reports whether pc should be used as sigpanic's
 // return PC (pushing a frame for the call). Otherwise, it should be
 // left alone so that LR is used as sigpanic's return PC, effectively
 // replacing the top-most frame with sigpanic. This is used by
@@ -887,7 +896,7 @@ func shouldPushSigpanic(gp *g, pc, lr uintptr) bool {
 	return true
 }
 
-// isAbortPC returns true if pc is the program counter at which
+// isAbortPC reports whether pc is the program counter at which
 // runtime.abort raises a signal.
 //
 // It is nosplit because it's part of the isgoexception

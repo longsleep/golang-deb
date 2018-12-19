@@ -519,7 +519,6 @@ func (t *tester) registerTests() {
 				}
 
 				// Run `go test fmt` in the moved GOROOT.
-				// Disable GOCACHE because it points back at the old GOROOT.
 				cmd := exec.Command(filepath.Join(moved, "bin", "go"), "test", "fmt")
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
@@ -529,7 +528,6 @@ func (t *tester) registerTests() {
 						cmd.Env = append(cmd.Env, e)
 					}
 				}
-				cmd.Env = append(cmd.Env, "GOCACHE=off")
 				err := cmd.Run()
 
 				if rerr := os.Rename(moved, goroot); rerr != nil {
@@ -705,7 +703,7 @@ func (t *tester) registerTests() {
 		if gohostos == "linux" && goarch == "amd64" {
 			t.registerTest("testasan", "../misc/cgo/testasan", "go", "run", "main.go")
 		}
-		if goos == "linux" && (goarch == "amd64" || goarch == "arm64") {
+		if mSanSupported(goos, goarch) {
 			t.registerHostTest("testsanitizers/msan", "../misc/cgo/testsanitizers", "misc/cgo/testsanitizers", ".")
 		}
 		if t.hasBash() && goos != "android" && !t.iOS() && gohostos != "windows" {
@@ -1038,7 +1036,10 @@ func (t *tester) cgoTest(dt *distTest) error {
 		"linux-386", "linux-amd64", "linux-arm", "linux-ppc64le", "linux-s390x",
 		"netbsd-386", "netbsd-amd64":
 
-		t.addCmd(dt, "misc/cgo/test", t.goTest(), "-ldflags", "-linkmode=external")
+		cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-ldflags", "-linkmode=external")
+		// A -g argument in CGO_CFLAGS should not affect how the test runs.
+		cmd.Env = append(os.Environ(), "CGO_CFLAGS=-g0")
+
 		t.addCmd(dt, "misc/cgo/testtls", t.goTest(), "-ldflags", "-linkmode=auto")
 		t.addCmd(dt, "misc/cgo/testtls", t.goTest(), "-ldflags", "-linkmode=external")
 
@@ -1329,13 +1330,26 @@ func (t *tester) hasSwig() bool {
 }
 
 func (t *tester) raceDetectorSupported() bool {
-	switch gohostos {
-	case "linux", "darwin", "freebsd", "windows":
-		// The race detector doesn't work on Alpine Linux:
-		// golang.org/issue/14481
-		return t.cgoEnabled && (goarch == "amd64" || goarch == "ppc64le") && gohostos == goos && !isAlpineLinux()
+	if gohostos != goos {
+		return false
 	}
-	return false
+	if !t.cgoEnabled {
+		return false
+	}
+	if !raceDetectorSupported(goos, goarch) {
+		return false
+	}
+	// The race detector doesn't work on Alpine Linux:
+	// golang.org/issue/14481
+	if isAlpineLinux() {
+		return false
+	}
+	// NetBSD support is unfinished.
+	// golang.org/issue/26403
+	if goos == "netbsd" {
+		return false
+	}
+	return true
 }
 
 func isAlpineLinux() bool {
@@ -1449,4 +1463,29 @@ func (t *tester) packageHasBenchmarks(pkg string) bool {
 		}
 	}
 	return false
+}
+
+// raceDetectorSupported is a copy of the function
+// cmd/internal/sys.RaceDetectorSupported, which can't be used here
+// because cmd/dist has to be buildable by Go 1.4.
+func raceDetectorSupported(goos, goarch string) bool {
+	switch goos {
+	case "linux":
+		return goarch == "amd64" || goarch == "ppc64le" || goarch == "arm64"
+	case "darwin", "freebsd", "netbsd", "windows":
+		return goarch == "amd64"
+	default:
+		return false
+	}
+}
+
+// mSanSupported is a copy of the function cmd/internal/sys.MSanSupported,
+// which can't be used here because cmd/dist has to be buildable by Go 1.4.
+func mSanSupported(goos, goarch string) bool {
+	switch goos {
+	case "linux":
+		return goarch == "amd64" || goarch == "arm64"
+	default:
+		return false
+	}
 }
