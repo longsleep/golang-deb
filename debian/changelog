@@ -1,8 +1,12 @@
-golang-1.12 (1.12~beta1-1) UNRELEASED; urgency=medium
+golang-1.12 (1.12~beta1-1) unstable; urgency=medium
 
   * New upstream major version.
+    - Refresh patches
+    - Add new patch to disable test for UserHomeDir
+  * Switch team address to tracker.d.o
+  * Add another lintian override for a false positive
 
- -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 19 Dec 2018 13:38:01 +0100
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 20 Dec 2018 12:51:49 +0100
 
 golang-1.11 (1.11.4-1) unstable; urgency=medium
 
