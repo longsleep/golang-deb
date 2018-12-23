@@ -78,7 +78,7 @@ endif
 	rm -rf pkg/obj
 
 override_dh_compress-indep:
-	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
+	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
 
 override_dh_install-indep:
 	dh_install --fail-missing
