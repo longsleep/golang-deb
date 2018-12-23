@@ -1,3 +1,13 @@
+golang-1.11 (1.11.4-2) unstable; urgency=medium
+
+  * Switch team address to tracker.d.o
+  * Update patches for git-buildpackage
+  * Add new patch to disable test for mips64el
+  * Do not compress favicon.ico.
+    Thanks to Dato Simó <dato@debian.org> (Closes: #917132)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 23 Dec 2018 19:26:45 +0100
+
 golang-1.11 (1.11.4-1) unstable; urgency=medium
 
   * New upstream version 1.11.4
