@@ -1,3 +1,15 @@
+golang-1.11 (1.11.4-3) unstable; urgency=medium
+
+  * Team upload.
+  * Add patch "cmd/compile: fix MIPS SGTconst-with-shift rules"
+    by Cherry Zhang.  This fixes the root problem behind the
+    "slice bounds out of range" build error seen in 1.11.4
+    on mips and mipsel architectures.
+    See https://go-review.googlesource.com/c/go/+/155798
+  * Bump Standards-Version to 4.3.0 (no change)
+
+ -- Anthony Fok <foka@debian.org>  Wed, 26 Dec 2018 00:24:18 -0700
+
 golang-1.11 (1.11.4-2) unstable; urgency=medium
 
   * Switch team address to tracker.d.o
