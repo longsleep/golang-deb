@@ -1,8 +1,7 @@
-From 65fa2b615b72c1fa61a718f2e3a756833f153cc3 Mon Sep 17 00:00:00 2001
 From: Ian Lance Taylor <iant@golang.org>
 Date: Fri, 3 Aug 2018 14:52:54 -0700
-Subject: [PATCH] cmd/internal/objfile: only consider executable segments for
- load address
+Subject: cmd/internal/objfile: only consider executable segments for load
+ address
 
 Reportedly on some new Fedora systems the linker is producing extra
 load segments, basically making the dynamic section non-executable.
@@ -21,9 +20,11 @@ Reviewed-by: Brad Fitzpatrick <bradfitz@golang.org>
  src/cmd/internal/objfile/elf.go | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
+diff --git a/src/cmd/internal/objfile/elf.go b/src/cmd/internal/objfile/elf.go
+index 7d5162a..a48a9df 100644
 --- a/src/cmd/internal/objfile/elf.go
 +++ b/src/cmd/internal/objfile/elf.go
-@@ -114,7 +114,7 @@
+@@ -114,7 +114,7 @@ func (f *elfFile) goarch() string {
  
  func (f *elfFile) loadAddress() (uint64, error) {
  	for _, p := range f.elf.Progs {

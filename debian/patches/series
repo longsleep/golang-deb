@@ -1,4 +1,4 @@
-0002-reproducible-BUILD_PATH_PREFIX_MAP.patch
-only-consider-executable-segments.patch
+0001-Reproducible-BUILD_PATH_PREFIX_MAP.patch
+0002-cmd-internal-objfile-only-consider-executable-segmen.patch
 0003-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
-arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch
+0004-arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch
