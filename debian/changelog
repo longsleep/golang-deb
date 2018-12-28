@@ -1,3 +1,16 @@
+golang-1.10 (1.10.7-2) unstable; urgency=medium
+
+  [ Dr. Tobias Quathamer ]
+  * Switch team address to tracker.d.o
+  * Do not compress favicon.ico.
+    Thanks to Dato Simó <dato@debian.org> (Closes: #917132)
+  * Update patches for git-buildpackage
+
+  [ Anthony Fok ]
+  * Bump Standards-Version to 4.3.0 (no change)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 28 Dec 2018 16:11:01 +0100
+
 golang-1.10 (1.10.7-1) unstable; urgency=medium
 
   * New upstream version 1.10.7
