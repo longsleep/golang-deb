@@ -1,3 +1,14 @@
+golang-1.11 (1.11.4-4) unstable; urgency=medium
+
+  * Team upload.
+  * Add patch "unix: fix Fstatat by using fillStat_t on linux/mips64x"
+    This fixes the "Fstatat: returned stat does not match Stat/Lstat"
+    errors detected by TestFstatat.
+    See https://go-review.googlesource.com/c/sys/+/155747
+  * Re-enable TestFstatat on mips64el
+
+ -- Anthony Fok <foka@debian.org>  Fri, 28 Dec 2018 11:39:40 -0700
+
 golang-1.11 (1.11.4-3) unstable; urgency=medium
 
   * Team upload.
