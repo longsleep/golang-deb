@@ -1,3 +1,42 @@
+golang-1.10 (1.10.7-2) unstable; urgency=medium
+
+  [ Dr. Tobias Quathamer ]
+  * Switch team address to tracker.d.o
+  * Do not compress favicon.ico.
+    Thanks to Dato Simó <dato@debian.org> (Closes: #917132)
+  * Update patches for git-buildpackage
+
+  [ Anthony Fok ]
+  * Bump Standards-Version to 4.3.0 (no change)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 28 Dec 2018 16:11:01 +0100
+
+golang-1.10 (1.10.7-1) unstable; urgency=medium
+
+  * New upstream version 1.10.7
+  * Override two false positive Lintian errors (missing depends
+    on sensible-utils)
+  * Add lintian overrides for testdata
+  * Include /usr/share/dpkg/architecture.mk for DEB_HOST_ARCH
+  * Fix Lintian warnings about wrong interpreter path
+  * Make two scripts executable which have been missed by upstream
+  * Update d/copyright
+  * Remove unused lintian overrides
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 16 Dec 2018 13:37:11 +0100
+
+golang-1.10 (1.10.6-1) unstable; urgency=medium
+
+  * New upstream version 1.10.6
+  * Update gbp.conf to new style syntax
+  * Add myself to Uploaders
+  * Use debhelper v11
+  * Use HTTPS URL for d/watch
+  * Update to Standards-Version 4.2.1
+    - Use HTTPS for d/copyright
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 13 Dec 2018 23:13:52 +0100
+
 golang-1.10 (1.10.5-1~bpo9+1) stretch-backports; urgency=medium
 
   * Team upload.

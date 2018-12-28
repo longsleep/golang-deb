@@ -1,8 +1,6 @@
-From b19384d3c130858bb31a343ea8fce26be71b5998 Mon Sep 17 00:00:00 2001
 From: Michael Hudson-Doyle <michael.hudson@canonical.com>
 Date: Thu, 20 Sep 2018 09:20:31 +0200
-Subject: [PATCH] arm64/arm64asm: recognise new ssbb/pssbb mnemonics from
- objdump
+Subject: arm64/arm64asm: recognise new ssbb/pssbb mnemonics from objdump
 
 Fixes golang/go#27754
 
@@ -12,12 +10,14 @@ Run-TryBot: Michael Hudson-Doyle <michael.hudson@canonical.com>
 TryBot-Result: Gobot Gobot <gobot@golang.org>
 Reviewed-by: Cherry Zhang <cherryyz@google.com>
 ---
- arm64/arm64asm/objdump_test.go | 12 ++++++++++++
+ .../vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go  | 12 ++++++++++++
  1 file changed, 12 insertions(+)
 
+diff --git a/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go b/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go
+index 1e7966d..16d2aea 100644
 --- a/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go
 +++ b/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go
-@@ -98,6 +98,13 @@
+@@ -98,6 +98,13 @@ func allowedMismatchObjdump(text string, inst *Inst, dec ExtInst) bool {
  			return true
  		}
  	}
@@ -31,7 +31,7 @@ Reviewed-by: Cherry Zhang <cherryyz@google.com>
  	// GNU objdump misses spaces between operands for some instructions (e.g., "ld1 {v10.2s, v11.2s}, [x23],#16")
  	if strings.Replace(text, " ", "", -1) == strings.Replace(dec.text, " ", "", -1) {
  		return true
-@@ -143,3 +150,8 @@
+@@ -143,3 +150,8 @@ var oldObjdumpMismatch = map[string]string{
  	"strh":  "sturh",
  	"prfm":  "prfum",
  }

@@ -27,7 +27,6 @@ golang-1.10 source: source-contains-prebuilt-windows-binary src/cmd/internal/bui
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/dwarf/testdata/line-gcc-win.bin
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec
-golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-obj
 golang-1.10 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-amd64-mingw-exec
 
 golang-1.10 source: source-is-missing src/runtime/race/*.syso
