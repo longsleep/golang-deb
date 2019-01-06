@@ -1,3 +1,10 @@
+golang-1.11 (1.11.4-4ubuntu1~longsleep1+xenial) xenial; urgency=medium
+
+  * Sync with Debian packaging 1.11.4-4
+  * Imported Upstream version 1.11.4
+
+ -- Simon Eisenmann <simon@longsleep.org>  Sun, 06 Jan 2019 20:38:59 +0100
+
 golang-1.11 (1.11.1-1ubuntu1~longsleep5+xenial) xenial; urgency=medium
 
   * Do not ship a global filled GOCACHE
