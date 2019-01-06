@@ -1,13 +1,26 @@
-Description: make builds reproducible by honoring BUILD_PATH_PREFIX_MAP
-Forwarded: not-yet (waiting on gcc patch to be merged)
-Author: Michael Stapelberg <stapelberg@debian.org>
-Last-Update: 2017-08-25
+From: Michael Stapelberg <stapelberg@debian.org>
+Date: Thu, 8 Feb 2018 10:00:00 +0100
+Subject: Reproducible BUILD_PATH_PREFIX_MAP
 
+Make builds reproducible by honoring BUILD_PATH_PREFIX_MAP
+Upstream has rejected the patch in this form and promised to implement an
+alternative they are happy with instead. That hasn't happened yet though.
+
+Bug: https://github.com/golang/go/issues/22491, https://github.com/golang/go/issues/16860
+Forwarded: https://golang.org/cl/73291 (rejected upstream though)
 ---
+ src/cmd/go/internal/work/gc.go              |  5 ++-
+ src/cmd/link/internal/ld/buildpathprefix.go | 56 +++++++++++++++++++++++++++++
+ src/cmd/link/internal/ld/dwarf.go           |  4 +--
+ src/cmd/link/internal/ld/pcln.go            |  4 +--
+ 4 files changed, 64 insertions(+), 5 deletions(-)
+ create mode 100644 src/cmd/link/internal/ld/buildpathprefix.go
 
+diff --git a/src/cmd/go/internal/work/gc.go b/src/cmd/go/internal/work/gc.go
+index 6e5333c..f91edb6 100644
 --- a/src/cmd/go/internal/work/gc.go
 +++ b/src/cmd/go/internal/work/gc.go
-@@ -456,7 +456,10 @@
+@@ -466,7 +466,10 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string)
  		dir, out = filepath.Split(out)
  	}
  
@@ -19,6 +32,9 @@ Last-Update: 2017-08-25
  }
  
  func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, out, importcfg string, allactions []*Action) error {
+diff --git a/src/cmd/link/internal/ld/buildpathprefix.go b/src/cmd/link/internal/ld/buildpathprefix.go
+new file mode 100644
+index 0000000..8cda8a5
 --- /dev/null
 +++ b/src/cmd/link/internal/ld/buildpathprefix.go
 @@ -0,0 +1,56 @@
@@ -78,9 +94,11 @@ Last-Update: 2017-08-25
 +	}
 +	return dir
 +}
+diff --git a/src/cmd/link/internal/ld/dwarf.go b/src/cmd/link/internal/ld/dwarf.go
+index ae6f90b..6d9dd59 100644
 --- a/src/cmd/link/internal/ld/dwarf.go
 +++ b/src/cmd/link/internal/ld/dwarf.go
-@@ -1131,7 +1131,7 @@
+@@ -1132,7 +1132,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
  	newattr(dwinfo, dwarf.DW_AT_language, dwarf.DW_CLS_CONSTANT, int64(lang), 0)
  	newattr(dwinfo, dwarf.DW_AT_stmt_list, dwarf.DW_CLS_PTR, ls.Size, ls)
  	// OS X linker requires compilation dir or absolute path in comp unit name to output debug info.
@@ -89,7 +107,7 @@ Last-Update: 2017-08-25
  	// TODO: Make this be the actual compilation directory, not
  	// the linker directory. If we move CU construction into the
  	// compiler, this should happen naturally.
-@@ -1186,7 +1186,7 @@
+@@ -1188,7 +1188,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
  			}
  			// File indexes are 1-based.
  			fileNums[int(f.Value)] = len(fileNums) + 1
@@ -98,9 +116,11 @@ Last-Update: 2017-08-25
  			ls.AddUint8(0)
  			ls.AddUint8(0)
  			ls.AddUint8(0)
+diff --git a/src/cmd/link/internal/ld/pcln.go b/src/cmd/link/internal/ld/pcln.go
+index 7b7f706..8941d51 100644
 --- a/src/cmd/link/internal/ld/pcln.go
 +++ b/src/cmd/link/internal/ld/pcln.go
-@@ -301,7 +301,7 @@
+@@ -301,7 +301,7 @@ func (ctxt *Link) pclntab() {
  		off = int32(ftab.SetAddr(ctxt.Arch, int64(off), s))
  
  		// name int32
@@ -109,7 +129,7 @@ Last-Update: 2017-08-25
  		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(nameoff)))
  
  		// args int32
-@@ -411,7 +411,7 @@
+@@ -444,7 +444,7 @@ func (ctxt *Link) pclntab() {
  	ftab.SetUint32(ctxt.Arch, int64(start), uint32(len(ctxt.Filesyms)+1))
  	for i := len(ctxt.Filesyms) - 1; i >= 0; i-- {
  		s := ctxt.Filesyms[i]

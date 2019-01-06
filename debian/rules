@@ -7,7 +7,9 @@ export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-par
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 
-DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)
+# We need DEB_HOST_ARCH, so include the needed makefile snippet
+include /usr/share/dpkg/architecture.mk
+
 RUN_TESTS := true
 # armel: ???
 # ppc64: ???
@@ -19,7 +21,7 @@ ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
 endif
 
 %:
-	+dh --parallel $(opt_no_act) $@
+	+dh $@ $(opt_no_act)
 
 gencontrol:
 	for file in control gbp.conf source/lintian-overrides watch; do \
@@ -72,30 +74,30 @@ ifeq (true, $(RUN_TESTS))
 else
 	# skip the tests on platforms where they fail
 endif
+	# Remove GOCACHE files
+	rm -rf pkg/obj
 
 override_dh_compress-indep:
-	dh_compress -Xusr/share/doc/golang-doc/html -Xusr/share/doc/golang-doc/godoc
+	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
 
 override_dh_install-indep:
 	dh_install --fail-missing
 
 override_dh_install-arch:
 	dh_install --fail-missing
-	# Remove .syso files of the race detector; they are binary files that
-	# are not built from source in the go source distribution.
-	find $(CURDIR)/debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/runtime/race -type f -name '*.syso' -delete
 	# Remove Plan9 rc(1) scripts
 	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
 	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
 	find debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/src -type d -delete
-	# Remove GOCACHE files
-	rm -rf debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg/obj/go-build
 	# Touch built and installed files and directories to have same timestamp
 	touch debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg
 	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
+	# Make two scripts executable which have been missed by upstream
+	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmp.bash
+	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/runtime/mknacl.sh
 
 override_dh_strip:
-	dh_strip -Xtestdata -Xzlib.a
+	dh_strip -Xtestdata
 
 override_dh_strip_nondeterminism:
 	dh_strip_nondeterminism -Xtestdata
