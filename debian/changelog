@@ -1,3 +1,10 @@
+golang-1.12 (1.12~beta1-4) unstable; urgency=medium
+
+  * Switch watch file to version 4
+  * Update d/copyright
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 07 Jan 2019 23:06:22 +0100
+
 golang-1.12 (1.12~beta1-3) unstable; urgency=medium
 
   [ Anthony Fok ]
