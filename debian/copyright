@@ -191,9 +191,9 @@ Files: src/cmd/vendor/github.com/google/pprof/*
 Copyright: 2014, 2016 Google Inc.
 License: Apache-2.0
 
-Files: src/cmd/vendor/github.com/google/pprof/third_party/svg/svgpan.go
+Files: src/cmd/vendor/github.com/google/pprof/third_party/svgpan/svgpan.go
 Copyright: 2009-2017 Andrea Leofreddi <a.leofreddi@itcharm.com>
-License: BSD-2-clause-svgpan
+License: BSD-3-clause-svgpan
 
 Files: favicon.ico
  doc/gopher/*
@@ -220,6 +220,9 @@ Copyright: 2010 Ivan Wong <ivanwyc@gmail.com>
            2012 Michael Stapelberg <stapelberg@debian.org>
            2014 Canonical Ltd
            2014 Tianon Gravi <tianon@debian.org>
+           2016-2018 Michael Hudson-Doyle <mwhudson@debian.org>
+           2018 Martín Ferrari <tincho@debian.org>
+           2018-2019 Dr. Tobias Quathamer <toddy@debian.org>
 License: Go
 
 License: BSD-3-clause
@@ -704,7 +707,7 @@ License: CC-BY-3.0
       are deemed to be included in the License; this License is not
       intended to restrict the license of any rights under applicable law.
 
-License: BSD-2-clause-svgpan
+License: BSD-3-clause-svgpan
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
  .
@@ -715,10 +718,14 @@ License: BSD-2-clause-svgpan
        this list of conditions and the following disclaimer in the documentation
        and/or other materials provided with the distribution.
  .
- THIS SOFTWARE IS PROVIDED BY Andrea Leofreddi ``AS IS'' AND ANY EXPRESS OR
+    3. Neither the name of the copyright holder nor the names of its
+       contributors may be used to endorse or promote products derived from
+       this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY COPYRIGHT HOLDERS AND CONTRIBUTORS ``AS IS'' AND ANY EXPRESS OR
  IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
- EVENT SHALL Andrea Leofreddi OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ EVENT SHALL COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
  INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
