@@ -1,3 +1,10 @@
+golang-1.12 (1.12~beta2-1) unstable; urgency=medium
+
+  * New upstream version 1.12~beta2
+    - Remove two patches, applied upstream. Refresh remaining patch.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 11 Jan 2019 17:14:43 +0100
+
 golang-1.12 (1.12~beta1-4) unstable; urgency=medium
 
   * Switch watch file to version 4
