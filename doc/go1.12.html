@@ -31,12 +31,6 @@ Do not send CLs removing the interior tags from such phrases.
   We expect almost all Go programs to continue to compile and run as before.
 </p>
 
-<p>
-  There is a <a href="https://golang.org/issue/27993"><strong>known issue</strong> in
-  the garbage collector</a> that can cause rare crashes. It is being investigated.
-  Please <a href="https://golang.org/issue/new">report</a> any issues you encounter.
-</p>
-
 <h2 id="language">Changes to the language</h2>
 
 <p>
@@ -113,10 +107,10 @@ Do not send CLs removing the interior tags from such phrases.
   As part of this change, the experimental <code>-shadow</code> option
   is no longer available with <code>go vet</code>. Checking for
   variable shadowing may now be done using
-  <pre>
-    go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow
-    go vet -vettool=$(which shadow)
-  </pre>
+<pre>
+go install golang.org/x/tools/go/analysis/passes/shadow/cmd/shadow
+go vet -vettool=$(which shadow)
+</pre>
 </p>
 
 <h3 id="gocache">Build cache requirement</h3>
@@ -133,6 +127,16 @@ Do not send CLs removing the interior tags from such phrases.
 
 <p>
   Go 1.12 is the last release that will support binary-only packages.
+</p>
+
+<h3 id="cgo">Cgo</h3>
+
+<p>
+	Go 1.12 will translate the C type <code>EGLDisplay</code> to the Go type <code>uintptr</code>.
+	This change is similar to how Go 1.10 and newer treats Darwin's CoreFoundation
+	and Java's JNI types. See the
+	<a href="/cmd/cgo/#hdr-Special_cases">cgo documentation</a>
+	for more information.
 </p>
 
 <h3 id="modules">Modules</h3>
@@ -269,7 +273,7 @@ for {
 <p><!-- CL 141977 -->
   <code>go</code> <code>doc</code> now supports the <code>-all</code> flag,
   which will cause it to print all exported APIs and their documentation,
-  similarly to what the <code>godoc</code> command line used to do.
+  as the <code>godoc</code> command line used to do.
 </p>
 
 <h3 id="trace">Trace</h3>
@@ -303,11 +307,18 @@ for {
   can't reuse existing heap space.
 </p>
 
+<p><!-- CL 146342, CL 146340, CL 146345, CL 146339, CL 146343, CL 146337, CL 146341, CL 146338 -->
+  The Go runtime's timer and deadline code is faster and scales better
+  with higher numbers of CPUs. In particular, this improves the
+  performance of manipulating network connection deadlines.
+</p>
+
 <p><!-- CL 135395 -->
-  On Linux, the Go runtime now releases memory back to the operating
-  system only when the OS is under memory pressure. This is more
-  efficient, but means a process's RSS (resident set size) won't
-  decrease unless the OS is running out of memory.
+  On Linux, the runtime now uses <code>MADV_FREE</code> to release unused
+  memory. This is more efficient but may result in higher reported
+  RSS. The kernel will reclaim the unused data when it is needed.
+  To revert to the Go 1.11 behavior (<code>MADV_DONTNEED</code>), set the
+  environment variable <code>GODEBUG=madvdontneed=1</code>.
 </p>
 
 <p><!-- CL 149578 -->
@@ -425,9 +436,14 @@ for {
 
 <dl id="crypto/tls"><dt><a href="/pkg/crypto/tls/">crypto/tls</a></dt>
   <dd>
+    <p><!-- CL 146258 -->
+      TLS 1.2 clients and servers will now advertise and accept RSA-PSS
+      signature algorithms for use with regular RSA public keys.
+    </p>
+
     <p><!-- CL 143177 -->
       If a client sends an initial message that does not look like TLS, the server
-      will now not reply with an alert, and it will expose the underlying
+      will no longer reply with an alert, and it will expose the underlying
       <code>net.Conn</code> in the new field <code>Conn</code> of
       <a href="/pkg/crypto/tls/#RecordHeaderError"><code>RecordHeaderError</code></a>.
     </p>
@@ -495,7 +511,7 @@ for {
       The <a href="/pkg/go/token#File"><code>File</code></a> type has a new
       <a href="/pkg/go/token#File.LineStart"><code>LineStart</code></a> field,
       which returns the position of the start of a given line. This is especially useful
-      in programs that occassionally handle non-Go files, such as assembly, but wish to use
+      in programs that occasionally handle non-Go files, such as assembly, but wish to use
       the <code>token.Pos</code> mechanism to identify file positions.
     </p>
 
@@ -529,7 +545,10 @@ for {
 <dl id="lib/time"><dt><a href="/pkg/lib/time/">lib/time</a></dt>
   <dd>
     <p><!-- CL 151299 -->
-    The time zone database in <code>$GOROOT/lib/time/zoneinfo.zip</code> has been updated to version 2018g. Note that this ZIP file is only used if a time zone database is not provided by the operating system.
+      The time zone database in <code>$GOROOT/lib/time/zoneinfo.zip</code>
+      has been updated to version 2018i. Note that this ZIP file is
+      only used if a time zone database is not provided by the operating
+      system.
     </p>
 
 </dl><!-- lib/time -->
@@ -537,7 +556,7 @@ for {
 <dl id="math/bits"><dt><a href="/pkg/math/bits/">math/bits</a></dt>
   <dd>
     <p><!-- CL 123157 -->
-    New extended precision operations <a href="/pkg/math/bits/#Add"><code>Add</code></a>, <a href="/pkg/math/bits/#Sub"><code>Sub</code></a>, <a href="/pkg/math/bits/#Mul"><code>Mul</code></a>, and <a href="/pkg/math/bits/#Div"><code>Div</code></a> are available in <code>int</code>, <code>int32</code>, and <code>int64</code> versions.
+    New extended precision operations <a href="/pkg/math/bits/#Add"><code>Add</code></a>, <a href="/pkg/math/bits/#Sub"><code>Sub</code></a>, <a href="/pkg/math/bits/#Mul"><code>Mul</code></a>, and <a href="/pkg/math/bits/#Div"><code>Div</code></a> are available in <code>uint</code>, <code>uint32</code>, and <code>uint64</code> versions.
     </p>
 
 </dl><!-- math/bits -->
@@ -630,7 +649,17 @@ for {
 
     <p><!-- CL 130676 -->
       <a href="/pkg/os/#File.Sync"><code>File.Sync</code></a> now uses <code>F_FULLFSYNC</code> on macOS
-      to properly flush content to permanent storage. Note that this might have a negative performance impact.
+      to correctly flush the file contents to permanent storage.
+      This may cause the method to run more slowly than in previous releases.
+    </p>
+
+    <p><!--CL 155517 -->
+      <a href="/pkg/os/#File"><code>File</code></a> now supports
+      a <a href="/pkg/os/#File.SyscallConn"><code>SyscallConn</code></a>
+      method returning
+      a <a href="/pkg/syscall/#RawConn"><code>syscall.RawConn</code></a>
+      interface value. This may be used to invoke system-specific
+      operations on the underlying file descriptor.
     </p>
 
 </dl><!-- os -->
@@ -652,7 +681,7 @@ for {
       an iterator for ranging over a map. This type is exposed through the
       <a href="/pkg/reflect#Value"><code>Value</code></a> type's new
       <a href="/pkg/reflect#Value.MapRange"><code>MapRange</code></a> method.
-      This follows the same iteration semantics as a range statment, with <code>Next</code>
+      This follows the same iteration semantics as a range statement, with <code>Next</code>
       to advance the iterator, and <code>Key</code>/<code>Value</code> to access each entry.
     </p>
 
@@ -728,7 +757,7 @@ for {
     </p>
 
     <p><!-- CL 147117 -->
-      The new function  <a href="/pkg/syscall/?GOOS=windows&GOARCH=armd64#Syscall18"><code>Syscall18</code></a>
+      The new function  <a href="/pkg/syscall/?GOOS=windows&GOARCH=amd64#Syscall18"><code>Syscall18</code></a>
       has been introduced for Windows, allowing for calls with up to 18 arguments.
     </p>
 
