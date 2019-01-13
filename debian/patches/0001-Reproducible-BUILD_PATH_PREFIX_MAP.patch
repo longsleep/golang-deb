@@ -17,10 +17,10 @@ Forwarded: https://golang.org/cl/73291 (rejected upstream though)
  create mode 100644 src/cmd/link/internal/ld/buildpathprefix.go
 
 diff --git a/src/cmd/go/internal/work/gc.go b/src/cmd/go/internal/work/gc.go
-index 6e5333c..f91edb6 100644
+index 3d09f69..91965df 100644
 --- a/src/cmd/go/internal/work/gc.go
 +++ b/src/cmd/go/internal/work/gc.go
-@@ -466,7 +466,10 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string)
+@@ -560,7 +560,10 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string)
  		dir, out = filepath.Split(out)
  	}
  
@@ -95,19 +95,10 @@ index 0000000..8cda8a5
 +	return dir
 +}
 diff --git a/src/cmd/link/internal/ld/dwarf.go b/src/cmd/link/internal/ld/dwarf.go
-index ae6f90b..6d9dd59 100644
+index a150306..b4d6050 100644
 --- a/src/cmd/link/internal/ld/dwarf.go
 +++ b/src/cmd/link/internal/ld/dwarf.go
-@@ -1132,7 +1132,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
- 	newattr(dwinfo, dwarf.DW_AT_language, dwarf.DW_CLS_CONSTANT, int64(lang), 0)
- 	newattr(dwinfo, dwarf.DW_AT_stmt_list, dwarf.DW_CLS_PTR, ls.Size, ls)
- 	// OS X linker requires compilation dir or absolute path in comp unit name to output debug info.
--	compDir := getCompilationDir()
-+	compDir := applyBuildPathPrefixMap(getCompilationDir())
- 	// TODO: Make this be the actual compilation directory, not
- 	// the linker directory. If we move CU construction into the
- 	// compiler, this should happen naturally.
-@@ -1188,7 +1188,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
+@@ -1173,7 +1173,7 @@ func writelines(ctxt *Link, unit *compilationUnit, ls *sym.Symbol) {
  			}
  			// File indexes are 1-based.
  			fileNums[int(f.Value)] = len(fileNums) + 1
@@ -116,11 +107,20 @@ index ae6f90b..6d9dd59 100644
  			ls.AddUint8(0)
  			ls.AddUint8(0)
  			ls.AddUint8(0)
+@@ -1752,7 +1752,7 @@ func dwarfGenerateDebugInfo(ctxt *Link) {
+ 		unit.dwinfo = newdie(ctxt, &dwroot, dwarf.DW_ABRV_COMPUNIT, unit.lib.Pkg, 0)
+ 		newattr(unit.dwinfo, dwarf.DW_AT_language, dwarf.DW_CLS_CONSTANT, int64(dwarf.DW_LANG_Go), 0)
+ 		// OS X linker requires compilation dir or absolute path in comp unit name to output debug info.
+-		compDir := getCompilationDir()
++		compDir := applyBuildPathPrefixMap(getCompilationDir())
+ 		// TODO: Make this be the actual compilation directory, not
+ 		// the linker directory. If we move CU construction into the
+ 		// compiler, this should happen naturally.
 diff --git a/src/cmd/link/internal/ld/pcln.go b/src/cmd/link/internal/ld/pcln.go
-index 7b7f706..8941d51 100644
+index e4db834..554db4e 100644
 --- a/src/cmd/link/internal/ld/pcln.go
 +++ b/src/cmd/link/internal/ld/pcln.go
-@@ -301,7 +301,7 @@ func (ctxt *Link) pclntab() {
+@@ -302,7 +302,7 @@ func (ctxt *Link) pclntab() {
  		off = int32(ftab.SetAddr(ctxt.Arch, int64(off), s))
  
  		// name int32
@@ -129,7 +129,7 @@ index 7b7f706..8941d51 100644
  		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(nameoff)))
  
  		// args int32
-@@ -444,7 +444,7 @@ func (ctxt *Link) pclntab() {
+@@ -449,7 +449,7 @@ func (ctxt *Link) pclntab() {
  	ftab.SetUint32(ctxt.Arch, int64(start), uint32(len(ctxt.Filesyms)+1))
  	for i := len(ctxt.Filesyms) - 1; i >= 0; i-- {
  		s := ctxt.Filesyms[i]
