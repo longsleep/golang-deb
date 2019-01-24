@@ -17,8 +17,6 @@ Fixes #29402.
 Change-Id: I5940fc9538d9bc3a4bcae8aa34672867540dc60e
 ---
 
-diff --git a/src/cmd/compile/internal/ssa/gen/MIPS.rules b/src/cmd/compile/internal/ssa/gen/MIPS.rules
-index 098e19c..db9c5bc 100644
 --- a/src/cmd/compile/internal/ssa/gen/MIPS.rules
 +++ b/src/cmd/compile/internal/ssa/gen/MIPS.rules
 @@ -670,8 +670,8 @@
@@ -32,8 +30,6 @@ index 098e19c..db9c5bc 100644
  
  // absorb constants into branches
  (EQ  (MOVWconst [0]) yes no) -> (First nil yes no)
-diff --git a/src/cmd/compile/internal/ssa/gen/MIPS64.rules b/src/cmd/compile/internal/ssa/gen/MIPS64.rules
-index 70f4f0d..9c16c35 100644
 --- a/src/cmd/compile/internal/ssa/gen/MIPS64.rules
 +++ b/src/cmd/compile/internal/ssa/gen/MIPS64.rules
 @@ -667,8 +667,8 @@
@@ -47,11 +43,9 @@ index 70f4f0d..9c16c35 100644
  
  // absorb constants into branches
  (EQ  (MOVVconst [0]) yes no) -> (First nil yes no)
-diff --git a/src/cmd/compile/internal/ssa/rewriteMIPS.go b/src/cmd/compile/internal/ssa/rewriteMIPS.go
-index e513981..951c5a5 100644
 --- a/src/cmd/compile/internal/ssa/rewriteMIPS.go
 +++ b/src/cmd/compile/internal/ssa/rewriteMIPS.go
-@@ -5625,7 +5625,7 @@
+@@ -5623,7 +5623,7 @@ func rewriteValueMIPS_OpMIPSSGTUconst_0(
  		return true
  	}
  	// match: (SGTUconst [c] (SRLconst _ [d]))
@@ -60,7 +54,7 @@ index e513981..951c5a5 100644
  	// result: (MOVWconst [1])
  	for {
  		c := v.AuxInt
-@@ -5634,7 +5634,7 @@
+@@ -5632,7 +5632,7 @@ func rewriteValueMIPS_OpMIPSSGTUconst_0(
  			break
  		}
  		d := v_0.AuxInt
@@ -69,7 +63,7 @@ index e513981..951c5a5 100644
  			break
  		}
  		v.reset(OpMIPSMOVWconst)
-@@ -5862,7 +5862,7 @@
+@@ -5860,7 +5860,7 @@ func rewriteValueMIPS_OpMIPSSGTconst_10(
  		return true
  	}
  	// match: (SGTconst [c] (SRLconst _ [d]))
@@ -78,7 +72,7 @@ index e513981..951c5a5 100644
  	// result: (MOVWconst [1])
  	for {
  		c := v.AuxInt
-@@ -5871,7 +5871,7 @@
+@@ -5869,7 +5869,7 @@ func rewriteValueMIPS_OpMIPSSGTconst_10(
  			break
  		}
  		d := v_0.AuxInt
@@ -87,11 +81,9 @@ index e513981..951c5a5 100644
  			break
  		}
  		v.reset(OpMIPSMOVWconst)
-diff --git a/src/cmd/compile/internal/ssa/rewriteMIPS64.go b/src/cmd/compile/internal/ssa/rewriteMIPS64.go
-index 04df5b8..9e12780 100644
 --- a/src/cmd/compile/internal/ssa/rewriteMIPS64.go
 +++ b/src/cmd/compile/internal/ssa/rewriteMIPS64.go
-@@ -6005,7 +6005,7 @@
+@@ -6003,7 +6003,7 @@ func rewriteValueMIPS64_OpMIPS64SGTUcons
  		return true
  	}
  	// match: (SGTUconst [c] (SRLVconst _ [d]))
@@ -100,7 +92,7 @@ index 04df5b8..9e12780 100644
  	// result: (MOVVconst [1])
  	for {
  		c := v.AuxInt
-@@ -6014,7 +6014,7 @@
+@@ -6012,7 +6012,7 @@ func rewriteValueMIPS64_OpMIPS64SGTUcons
  			break
  		}
  		d := v_0.AuxInt
@@ -109,7 +101,7 @@ index 04df5b8..9e12780 100644
  			break
  		}
  		v.reset(OpMIPS64MOVVconst)
-@@ -6223,7 +6223,7 @@
+@@ -6221,7 +6221,7 @@ func rewriteValueMIPS64_OpMIPS64SGTconst
  		return true
  	}
  	// match: (SGTconst [c] (SRLVconst _ [d]))
@@ -118,7 +110,7 @@ index 04df5b8..9e12780 100644
  	// result: (MOVVconst [1])
  	for {
  		c := v.AuxInt
-@@ -6232,7 +6232,7 @@
+@@ -6230,7 +6230,7 @@ func rewriteValueMIPS64_OpMIPS64SGTconst
  			break
  		}
  		d := v_0.AuxInt
@@ -127,9 +119,6 @@ index 04df5b8..9e12780 100644
  			break
  		}
  		v.reset(OpMIPS64MOVVconst)
-diff --git a/test/fixedbugs/issue29402.go b/test/fixedbugs/issue29402.go
-new file mode 100644
-index 0000000..8a1f959
 --- /dev/null
 +++ b/test/fixedbugs/issue29402.go
 @@ -0,0 +1,23 @@
