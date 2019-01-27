@@ -1,2 +1,3 @@
 cl-29995--tzdata-2016g.patch
 cl-37964--tzdata-2017a.patch
+cve-2019-6486.patch
