@@ -1,3 +1,11 @@
+golang-1.12 (1.12~beta2-2) unstable; urgency=medium
+
+  * Refresh patch Reproducible BUILD_PATH_PREFIX_MAP.
+    Thanks to Michael Stapelberg!
+  * Add patch to fix CVE-2019-6486. (Closes: #920548)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 27 Jan 2019 20:05:59 +0100
+
 golang-1.12 (1.12~beta2-1) unstable; urgency=medium
 
   * New upstream version 1.12~beta2
