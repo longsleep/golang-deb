@@ -1,3 +1,11 @@
+golang-1.7 (1.7.4-2+deb9u1) stretch-security; urgency=high
+
+  * Team upload.
+  * Add patch to fix CVE-2019-6486
+  * Add patch to fix CVE-2018-7187
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 28 Jan 2019 22:24:55 +0100
+
 golang-1.7 (1.7.4-2) unstable; urgency=medium
 
   * Backport CL 37964 for tzdata 2017a changes (Closes: #859583)
