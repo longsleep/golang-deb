@@ -1,3 +1,10 @@
+golang-1.12 (1.12-1) unstable; urgency=medium
+
+  * New upstream version 1.12
+    - Remove patch 0005-Fix-CVE-2019-6486, applied upstream
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Tue, 26 Feb 2019 21:31:48 +0100
+
 golang-1.12 (1.12~beta2-2) unstable; urgency=medium
 
   * Refresh patch Reproducible BUILD_PATH_PREFIX_MAP.
