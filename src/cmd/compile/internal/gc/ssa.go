@@ -106,7 +106,7 @@ func initssaconfig() {
 	WasmDiv = sysvar("wasmDiv")
 	WasmTruncS = sysvar("wasmTruncS")
 	WasmTruncU = sysvar("wasmTruncU")
-	SigPanic = sysvar("sigpanic")
+	SigPanic = sysfunc("sigpanic")
 }
 
 // buildssa builds an SSA function for fn.
@@ -5597,7 +5597,7 @@ func (s *SSAGenState) PrepareCall(v *ssa.Value) {
 		// insert an actual hardware NOP that will have the right line number.
 		// This is different from obj.ANOP, which is a virtual no-op
 		// that doesn't make it into the instruction stream.
-		thearch.Ginsnop(s.pp)
+		thearch.Ginsnopdefer(s.pp)
 	}
 
 	if sym, ok := v.Aux.(*obj.LSym); ok {
