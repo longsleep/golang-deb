@@ -2,4 +2,3 @@
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch
 0004-Disable-test-for-UserHomeDir.patch
-0005-Fix-CVE-2019-6486.patch
