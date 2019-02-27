@@ -107,7 +107,7 @@ override_dh_missing:
 	dh_missing --fail-missing
 
 override_dh_strip:
-	dh_strip -Xtestdata
+	dh_strip -Xtestdata -Xzlib.a
 
 # Do not run dh_dwz, as there is no debug information currently.
 override_dh_dwz:
