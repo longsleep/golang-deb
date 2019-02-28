@@ -13,6 +13,7 @@ golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/internal/b
 golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_mac_64
 golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/internal/buildid/testdata/a.macho
 golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/lib_mac_64
+golang-X.Y-src: apparently-corrupted-elf-binary usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
 
 # These files are only testdata
 golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64

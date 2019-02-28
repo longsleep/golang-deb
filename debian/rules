@@ -97,7 +97,7 @@ override_dh_install-arch:
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/runtime/mknacl.sh
 
 override_dh_strip:
-	dh_strip -Xtestdata -Xzlib.a
+	dh_strip -Xtestdata
 
 override_dh_strip_nondeterminism:
 	dh_strip_nondeterminism -Xtestdata
