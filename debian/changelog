@@ -1,3 +1,11 @@
+golang-1.12 (1.12-1longsleep1+xenial) xenial; urgency=medium
+
+  * Go 1.12
+  * Imported Upstream version 1.12
+  * Sync with Debian Golang packaging
+
+ -- Simon Eisenmann <simon@longsleep.org>  Thu, 28 Feb 2019 10:49:02 +0100
+
 golang-1.11 (1.11.5-1ubuntu1~longsleep1+xenial) xenial; urgency=high
 
   * Imported Upstream version 1.11.5, fixing CVE-2019-6486
