@@ -325,7 +325,10 @@ func tempDir() string {
 		if n > uint32(len(b)) {
 			continue
 		}
-		if n > 0 && b[n-1] == '\\' {
+		if n == 3 && b[1] == ':' && b[2] == '\\' {
+			// Do nothing for path, like C:\.
+		} else if n > 0 && b[n-1] == '\\' {
+			// Otherwise remove terminating \.
 			n--
 		}
 		return string(utf16.Decode(b[:n]))
@@ -356,13 +359,13 @@ func Symlink(oldname, newname string) error {
 	// '/' does not work in link's content
 	oldname = fromSlash(oldname)
 
-	// need the exact location of the oldname when its relative to determine if its a directory
+	// need the exact location of the oldname when it's relative to determine if it's a directory
 	destpath := oldname
 	if !isAbs(oldname) {
 		destpath = dirname(newname) + `\` + oldname
 	}
 
-	fi, err := Lstat(destpath)
+	fi, err := Stat(destpath)
 	isdir := err == nil && fi.IsDir()
 
 	n, err := syscall.UTF16PtrFromString(fixLongPath(newname))

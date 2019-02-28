@@ -20,6 +20,7 @@ func Init(arch *gc.Arch) {
 	arch.ZeroRange = zeroRange
 	arch.ZeroAuto = zeroAuto
 	arch.Ginsnop = ginsnop
+	arch.Ginsnopdefer = ginsnop
 
 	arch.SSAMarkMoves = ssaMarkMoves
 	arch.SSAGenValue = ssaGenValue
@@ -58,8 +59,8 @@ func zeroAuto(pp *gc.Progs, n *gc.Node) {
 	}
 }
 
-func ginsnop(pp *gc.Progs) {
-	pp.Prog(wasm.ANop)
+func ginsnop(pp *gc.Progs) *obj.Prog {
+	return pp.Prog(wasm.ANop)
 }
 
 func ssaMarkMoves(s *gc.SSAGenState, b *ssa.Block) {
@@ -134,10 +135,12 @@ func ssaGenValue(s *gc.SSAGenState, v *ssa.Value) {
 		if sym, ok := v.Aux.(*obj.LSym); ok {
 			p := s.Prog(obj.ACALL)
 			p.To = obj.Addr{Type: obj.TYPE_MEM, Name: obj.NAME_EXTERN, Sym: sym}
+			p.Pos = v.Pos
 		} else {
 			getValue64(s, v.Args[0])
 			p := s.Prog(obj.ACALL)
 			p.To = obj.Addr{Type: obj.TYPE_NONE}
+			p.Pos = v.Pos
 		}
 
 	case ssa.OpWasmLoweredMove:

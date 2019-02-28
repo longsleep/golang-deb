@@ -3,11 +3,13 @@
 
 package ssa
 
+import "fmt"
 import "math"
 import "cmd/internal/obj"
 import "cmd/internal/objabi"
 import "cmd/compile/internal/types"
 
+var _ = fmt.Println   // in case not otherwise used
 var _ = math.MinInt8  // in case not otherwise used
 var _ = obj.ANOP      // in case not otherwise used
 var _ = objabi.GOROOT // in case not otherwise used
@@ -6003,7 +6005,7 @@ func rewriteValueMIPS64_OpMIPS64SGTUconst_0(v *Value) bool {
 		return true
 	}
 	// match: (SGTUconst [c] (SRLVconst _ [d]))
-	// cond: 0 < d && d <= 63 && 1<<uint64(64-d) <= uint64(c)
+	// cond: 0 < d && d <= 63 && 0xffffffffffffffff>>uint64(d) < uint64(c)
 	// result: (MOVVconst [1])
 	for {
 		c := v.AuxInt
@@ -6012,7 +6014,7 @@ func rewriteValueMIPS64_OpMIPS64SGTUconst_0(v *Value) bool {
 			break
 		}
 		d := v_0.AuxInt
-		if !(0 < d && d <= 63 && 1<<uint64(64-d) <= uint64(c)) {
+		if !(0 < d && d <= 63 && 0xffffffffffffffff>>uint64(d) < uint64(c)) {
 			break
 		}
 		v.reset(OpMIPS64MOVVconst)
@@ -6221,7 +6223,7 @@ func rewriteValueMIPS64_OpMIPS64SGTconst_10(v *Value) bool {
 		return true
 	}
 	// match: (SGTconst [c] (SRLVconst _ [d]))
-	// cond: 0 <= c && 0 < d && d <= 63 && 1<<uint64(64-d) <= c
+	// cond: 0 <= c && 0 < d && d <= 63 && 0xffffffffffffffff>>uint64(d) < uint64(c)
 	// result: (MOVVconst [1])
 	for {
 		c := v.AuxInt
@@ -6230,7 +6232,7 @@ func rewriteValueMIPS64_OpMIPS64SGTconst_10(v *Value) bool {
 			break
 		}
 		d := v_0.AuxInt
-		if !(0 <= c && 0 < d && d <= 63 && 1<<uint64(64-d) <= c) {
+		if !(0 <= c && 0 < d && d <= 63 && 0xffffffffffffffff>>uint64(d) < uint64(c)) {
 			break
 		}
 		v.reset(OpMIPS64MOVVconst)
