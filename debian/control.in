@@ -19,7 +19,7 @@ Depends: golang-X.Y-src (>= ${source:Version}),
          ${shlibs:Depends}
 Recommends: g++,
             gcc,
-            golang-1.11-race-detector-runtime [amd64],
+            golang-X.Y-race-detector-runtime [amd64],
             libc6-dev,
             pkg-config
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
