@@ -16,16 +16,16 @@ import (
 )
 
 var Register = map[string]int16{
-	"PC_F": REG_PC_F,
-	"PC_B": REG_PC_B,
-	"SP":   REG_SP,
-	"CTXT": REG_CTXT,
-	"g":    REG_g,
-	"RET0": REG_RET0,
-	"RET1": REG_RET1,
-	"RET2": REG_RET2,
-	"RET3": REG_RET3,
-	"RUN":  REG_RUN,
+	"PC_F":  REG_PC_F,
+	"PC_B":  REG_PC_B,
+	"SP":    REG_SP,
+	"CTXT":  REG_CTXT,
+	"g":     REG_g,
+	"RET0":  REG_RET0,
+	"RET1":  REG_RET1,
+	"RET2":  REG_RET2,
+	"RET3":  REG_RET3,
+	"PAUSE": REG_PAUSE,
 
 	"R0":  REG_R0,
 	"R1":  REG_R1,
@@ -125,9 +125,13 @@ func instinit(ctxt *obj.Link) {
 	morestack = ctxt.Lookup("runtime.morestack")
 	morestackNoCtxt = ctxt.Lookup("runtime.morestack_noctxt")
 	gcWriteBarrier = ctxt.Lookup("runtime.gcWriteBarrier")
-	sigpanic = ctxt.Lookup("runtime.sigpanic")
-	deferreturn = ctxt.Lookup("runtime.deferreturn")
-	jmpdefer = ctxt.Lookup(`"".jmpdefer`)
+	sigpanic = ctxt.LookupABI("runtime.sigpanic", obj.ABIInternal)
+	deferreturn = ctxt.LookupABI("runtime.deferreturn", obj.ABIInternal)
+	// jmpdefer is defined in assembly as ABI0, but what we're
+	// looking for is the *call* to jmpdefer from the Go function
+	// deferreturn, so we're looking for the ABIInternal version
+	// of jmpdefer that's called by Go.
+	jmpdefer = ctxt.LookupABI(`"".jmpdefer`, obj.ABIInternal)
 }
 
 func preprocess(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
@@ -241,7 +245,6 @@ func preprocess(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 	for p := s.Func.Text; p != nil; p = p.Link {
 		prevBase := base
 		base = ctxt.PosTable.Pos(p.Pos).Base()
-
 		switch p.As {
 		case ABlock, ALoop, AIf:
 			explicitBlockDepth++
@@ -277,8 +280,15 @@ func preprocess(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 		// more often to avoid bloat of the BrTable instruction.
 		// The "base != prevBase" condition detects inlined instructions. They are an
 		// implicit call, so entering and leaving this section affects the stack trace.
-		if p.As == ACALLNORESUME || p.As == obj.ANOP || p.Spadj != 0 || base != prevBase {
+		if p.As == ACALLNORESUME || p.As == obj.ANOP || p.As == ANop || p.Spadj != 0 || base != prevBase {
 			pc++
+			if p.To.Sym == sigpanic {
+				// The panic stack trace expects the PC at the call of sigpanic,
+				// not the next one. However, runtime.Caller subtracts 1 from the
+				// PC. To make both PC and PC-1 work (have the same line number),
+				// we advance the PC by 2 at sigpanic.
+				pc++
+			}
 		}
 	}
 	tableIdxs = append(tableIdxs, uint64(numResumePoints))
@@ -705,11 +715,42 @@ func regAddr(reg int16) obj.Addr {
 	return obj.Addr{Type: obj.TYPE_REG, Reg: reg}
 }
 
+// countRegisters returns the number of integer and float registers used by s.
+// It does so by looking for the maximum I* and R* registers.
+func countRegisters(s *obj.LSym) (numI, numF int16) {
+	for p := s.Func.Text; p != nil; p = p.Link {
+		var reg int16
+		switch p.As {
+		case AGet:
+			reg = p.From.Reg
+		case ASet:
+			reg = p.To.Reg
+		case ATee:
+			reg = p.To.Reg
+		default:
+			continue
+		}
+		if reg >= REG_R0 && reg <= REG_R15 {
+			if n := reg - REG_R0 + 1; numI < n {
+				numI = n
+			}
+		} else if reg >= REG_F0 && reg <= REG_F15 {
+			if n := reg - REG_F0 + 1; numF < n {
+				numF = n
+			}
+		}
+	}
+	return
+}
+
 func assemble(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 	w := new(bytes.Buffer)
 
+	numI, numF := countRegisters(s)
+
 	// Function starts with declaration of locals: numbers and types.
 	switch s.Name {
+	// memchr and memcmp don't use the normal Go calling convention and need i32 variables.
 	case "memchr":
 		writeUleb128(w, 1) // number of sets of locals
 		writeUleb128(w, 3) // number of locals
@@ -719,11 +760,23 @@ func assemble(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 		writeUleb128(w, 2) // number of locals
 		w.WriteByte(0x7F)  // i32
 	default:
-		writeUleb128(w, 2)  // number of sets of locals
-		writeUleb128(w, 16) // number of locals
-		w.WriteByte(0x7E)   // i64
-		writeUleb128(w, 16) // number of locals
-		w.WriteByte(0x7C)   // f64
+		numTypes := 0
+		if numI > 0 {
+			numTypes++
+		}
+		if numF > 0 {
+			numTypes++
+		}
+
+		writeUleb128(w, uint64(numTypes))
+		if numI > 0 {
+			writeUleb128(w, uint64(numI)) // number of locals
+			w.WriteByte(0x7E)             // i64
+		}
+		if numF > 0 {
+			writeUleb128(w, uint64(numF)) // number of locals
+			w.WriteByte(0x7C)             // f64
+		}
 	}
 
 	for p := s.Func.Text; p != nil; p = p.Link {
@@ -734,12 +787,15 @@ func assemble(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 			}
 			reg := p.From.Reg
 			switch {
-			case reg >= REG_PC_F && reg <= REG_RUN:
+			case reg >= REG_PC_F && reg <= REG_PAUSE:
 				w.WriteByte(0x23) // get_global
 				writeUleb128(w, uint64(reg-REG_PC_F))
-			case reg >= REG_R0 && reg <= REG_F15:
-				w.WriteByte(0x20) // get_local
+			case reg >= REG_R0 && reg <= REG_R15:
+				w.WriteByte(0x20) // get_local (i64)
 				writeUleb128(w, uint64(reg-REG_R0))
+			case reg >= REG_F0 && reg <= REG_F15:
+				w.WriteByte(0x20) // get_local (f64)
+				writeUleb128(w, uint64(numI+(reg-REG_F0)))
 			default:
 				panic("bad Get: invalid register")
 			}
@@ -751,7 +807,7 @@ func assemble(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 			}
 			reg := p.To.Reg
 			switch {
-			case reg >= REG_PC_F && reg <= REG_RUN:
+			case reg >= REG_PC_F && reg <= REG_PAUSE:
 				w.WriteByte(0x24) // set_global
 				writeUleb128(w, uint64(reg-REG_PC_F))
 			case reg >= REG_R0 && reg <= REG_F15:
@@ -761,7 +817,11 @@ func assemble(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 				} else {
 					w.WriteByte(0x21) // set_local
 				}
-				writeUleb128(w, uint64(reg-REG_R0))
+				if reg <= REG_R15 {
+					writeUleb128(w, uint64(reg-REG_R0))
+				} else {
+					writeUleb128(w, uint64(numI+(reg-REG_F0)))
+				}
 			default:
 				panic("bad Set: invalid register")
 			}
@@ -773,9 +833,12 @@ func assemble(ctxt *obj.Link, s *obj.LSym, newprog obj.ProgAlloc) {
 			}
 			reg := p.To.Reg
 			switch {
-			case reg >= REG_R0 && reg <= REG_F15:
-				w.WriteByte(0x22) // tee_local
+			case reg >= REG_R0 && reg <= REG_R15:
+				w.WriteByte(0x22) // tee_local (i64)
 				writeUleb128(w, uint64(reg-REG_R0))
+			case reg >= REG_F0 && reg <= REG_F15:
+				w.WriteByte(0x22) // tee_local (f64)
+				writeUleb128(w, uint64(numI+(reg-REG_F0)))
 			default:
 				panic("bad Tee: invalid register")
 			}
