@@ -1,3 +1,12 @@
+golang-1.11 (1.11.6-1) UNRELEASED; urgency=medium
+
+  * New upstream version 1.11.6, fixing CVE-2019-9741. (Closes: #924630)
+  * Delete d/patches/0005-fix-MIPS-SGTconst-with-shift-rules.patch, applied
+    upstream.
+  * Refreshed other patches.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Mon, 18 Mar 2019 09:37:17 +1300
+
 golang-1.11 (1.11.5-1) unstable; urgency=high
 
   * New upstream version 1.11.5, fixing CVE-2019-6486

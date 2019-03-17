@@ -16,11 +16,9 @@ Forwarded: https://golang.org/cl/73291 (rejected upstream though)
  4 files changed, 64 insertions(+), 5 deletions(-)
  create mode 100644 src/cmd/link/internal/ld/buildpathprefix.go
 
-diff --git a/src/cmd/go/internal/work/gc.go b/src/cmd/go/internal/work/gc.go
-index 6e5333c..f91edb6 100644
 --- a/src/cmd/go/internal/work/gc.go
 +++ b/src/cmd/go/internal/work/gc.go
-@@ -466,7 +466,10 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string)
+@@ -466,7 +466,10 @@
  		dir, out = filepath.Split(out)
  	}
  
@@ -32,9 +30,6 @@ index 6e5333c..f91edb6 100644
  }
  
  func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, out, importcfg string, allactions []*Action) error {
-diff --git a/src/cmd/link/internal/ld/buildpathprefix.go b/src/cmd/link/internal/ld/buildpathprefix.go
-new file mode 100644
-index 0000000..8cda8a5
 --- /dev/null
 +++ b/src/cmd/link/internal/ld/buildpathprefix.go
 @@ -0,0 +1,56 @@
@@ -94,11 +89,9 @@ index 0000000..8cda8a5
 +	}
 +	return dir
 +}
-diff --git a/src/cmd/link/internal/ld/dwarf.go b/src/cmd/link/internal/ld/dwarf.go
-index ae6f90b..6d9dd59 100644
 --- a/src/cmd/link/internal/ld/dwarf.go
 +++ b/src/cmd/link/internal/ld/dwarf.go
-@@ -1132,7 +1132,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
+@@ -1132,7 +1132,7 @@
  	newattr(dwinfo, dwarf.DW_AT_language, dwarf.DW_CLS_CONSTANT, int64(lang), 0)
  	newattr(dwinfo, dwarf.DW_AT_stmt_list, dwarf.DW_CLS_PTR, ls.Size, ls)
  	// OS X linker requires compilation dir or absolute path in comp unit name to output debug info.
@@ -107,7 +100,7 @@ index ae6f90b..6d9dd59 100644
  	// TODO: Make this be the actual compilation directory, not
  	// the linker directory. If we move CU construction into the
  	// compiler, this should happen naturally.
-@@ -1188,7 +1188,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
+@@ -1188,7 +1188,7 @@
  			}
  			// File indexes are 1-based.
  			fileNums[int(f.Value)] = len(fileNums) + 1
@@ -116,11 +109,9 @@ index ae6f90b..6d9dd59 100644
  			ls.AddUint8(0)
  			ls.AddUint8(0)
  			ls.AddUint8(0)
-diff --git a/src/cmd/link/internal/ld/pcln.go b/src/cmd/link/internal/ld/pcln.go
-index 7b7f706..8941d51 100644
 --- a/src/cmd/link/internal/ld/pcln.go
 +++ b/src/cmd/link/internal/ld/pcln.go
-@@ -301,7 +301,7 @@ func (ctxt *Link) pclntab() {
+@@ -301,7 +301,7 @@
  		off = int32(ftab.SetAddr(ctxt.Arch, int64(off), s))
  
  		// name int32
@@ -129,7 +120,7 @@ index 7b7f706..8941d51 100644
  		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(nameoff)))
  
  		// args int32
-@@ -444,7 +444,7 @@ func (ctxt *Link) pclntab() {
+@@ -444,7 +444,7 @@
  	ftab.SetUint32(ctxt.Arch, int64(start), uint32(len(ctxt.Filesyms)+1))
  	for i := len(ctxt.Filesyms) - 1; i >= 0; i-- {
  		s := ctxt.Filesyms[i]

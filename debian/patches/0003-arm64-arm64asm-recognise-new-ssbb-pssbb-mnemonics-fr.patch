@@ -13,11 +13,9 @@ Reviewed-by: Cherry Zhang <cherryyz@google.com>
  .../vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go  | 12 ++++++++++++
  1 file changed, 12 insertions(+)
 
-diff --git a/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go b/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go
-index 261c7ca..3baf8a1 100644
 --- a/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go
 +++ b/src/cmd/vendor/golang.org/x/arch/arm64/arm64asm/objdump_test.go
-@@ -103,6 +103,13 @@ func allowedMismatchObjdump(text string, inst *Inst, dec ExtInst) bool {
+@@ -103,6 +103,13 @@
  			return true
  		}
  	}
@@ -31,7 +29,7 @@ index 261c7ca..3baf8a1 100644
  	// GNU objdump misses spaces between operands for some instructions (e.g., "ld1 {v10.2s, v11.2s}, [x23],#16")
  	if strings.Replace(text, " ", "", -1) == strings.Replace(dec.text, " ", "", -1) {
  		return true
-@@ -148,3 +155,8 @@ var oldObjdumpMismatch = map[string]string{
+@@ -148,3 +155,8 @@
  	"strh":  "sturh",
  	"prfm":  "prfum",
  }
