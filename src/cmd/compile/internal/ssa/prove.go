@@ -197,6 +197,9 @@ func newFactsTable(f *Func) *factsTable {
 // update updates the set of relations between v and w in domain d
 // restricting it to r.
 func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
+	if parent.Func.pass.debug > 2 {
+		parent.Func.Warnl(parent.Pos, "parent=%s, update %s %s %s", parent, v, w, r)
+	}
 	// No need to do anything else if we already found unsat.
 	if ft.unsat {
 		return
@@ -234,6 +237,9 @@ func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
 			panic("unknown relation")
 		}
 		if !ok {
+			if parent.Func.pass.debug > 2 {
+				parent.Func.Warnl(parent.Pos, "unsat %s %s %s", v, w, r)
+			}
 			ft.unsat = true
 			return
 		}
@@ -260,6 +266,9 @@ func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
 		ft.facts[p] = oldR & r
 		// If this relation is not satisfiable, mark it and exit right away
 		if oldR&r == 0 {
+			if parent.Func.pass.debug > 2 {
+				parent.Func.Warnl(parent.Pos, "unsat %s %s %s", v, w, r)
+			}
 			ft.unsat = true
 			return
 		}
@@ -361,7 +370,7 @@ func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
 		lim = old.intersect(lim)
 		ft.limits[v.ID] = lim
 		if v.Block.Func.pass.debug > 2 {
-			v.Block.Func.Warnl(parent.Pos, "parent=%s, new limits %s %s %s", parent, v, w, lim.String())
+			v.Block.Func.Warnl(parent.Pos, "parent=%s, new limits %s %s %s %s", parent, v, w, r, lim.String())
 		}
 		if lim.min > lim.max || lim.umin > lim.umax {
 			ft.unsat = true
@@ -425,13 +434,13 @@ func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
 			//
 			// Useful for i > 0; s[i-1].
 			lim, ok := ft.limits[x.ID]
-			if ok && lim.min > opMin[v.Op] {
+			if ok && ((d == signed && lim.min > opMin[v.Op]) || (d == unsigned && lim.umin > 0)) {
 				ft.update(parent, x, w, d, gt)
 			}
 		} else if x, delta := isConstDelta(w); x != nil && delta == 1 {
 			// v >= x+1 && x < max  ⇒  v > x
 			lim, ok := ft.limits[x.ID]
-			if ok && lim.max < opMax[w.Op] {
+			if ok && ((d == signed && lim.max < opMax[w.Op]) || (d == unsigned && lim.umax < opUMax[w.Op])) {
 				ft.update(parent, v, x, d, gt)
 			}
 		}
@@ -442,7 +451,7 @@ func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
 	if r == gt || r == gt|eq {
 		if x, delta := isConstDelta(v); x != nil && d == signed {
 			if parent.Func.pass.debug > 1 {
-				parent.Func.Warnl(parent.Pos, "x+d >= w; x:%v %v delta:%v w:%v d:%v", x, parent.String(), delta, w.AuxInt, d)
+				parent.Func.Warnl(parent.Pos, "x+d %s w; x:%v %v delta:%v w:%v d:%v", r, x, parent.String(), delta, w.AuxInt, d)
 			}
 			if !w.isGenericIntConst() {
 				// If we know that x+delta > w but w is not constant, we can derive:
@@ -503,8 +512,10 @@ func (ft *factsTable) update(parent *Block, v, w *Value, d domain, r relation) {
 					// the other must be true
 					if l, has := ft.limits[x.ID]; has {
 						if l.max <= min {
-							// x>min is impossible, so it must be x<=max
-							ft.update(parent, vmax, x, d, r|eq)
+							if r&eq == 0 || l.max < min {
+								// x>min (x>=min) is impossible, so it must be x<=max
+								ft.update(parent, vmax, x, d, r|eq)
+							}
 						} else if l.min > max {
 							// x<=max is impossible, so it must be x>min
 							ft.update(parent, x, vmin, d, r)
@@ -525,6 +536,11 @@ var opMin = map[Op]int64{
 var opMax = map[Op]int64{
 	OpAdd64: math.MaxInt64, OpSub64: math.MaxInt64,
 	OpAdd32: math.MaxInt32, OpSub32: math.MaxInt32,
+}
+
+var opUMax = map[Op]uint64{
+	OpAdd64: math.MaxUint64, OpSub64: math.MaxUint64,
+	OpAdd32: math.MaxUint32, OpSub32: math.MaxUint32,
 }
 
 // isNonNegative reports whether v is known to be non-negative.

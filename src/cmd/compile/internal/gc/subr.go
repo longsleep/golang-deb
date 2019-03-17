@@ -1116,7 +1116,7 @@ func calcHasCall(n *Node) bool {
 
 	// When using soft-float, these ops might be rewritten to function calls
 	// so we ensure they are evaluated first.
-	case OADD, OSUB, OMINUS:
+	case OADD, OSUB, OMINUS, OMUL:
 		if thearch.SoftFloat && (isFloat[n.Type.Etype] || isComplex[n.Type.Etype]) {
 			return true
 		}
@@ -1627,8 +1627,9 @@ func genwrapper(rcvr *types.Type, method *types.Field, newnam *types.Sym) {
 		return
 	}
 
-	// Only generate I.M wrappers for I in I's own package.
-	if rcvr.IsInterface() && rcvr.Sym != nil && rcvr.Sym.Pkg != localpkg {
+	// Only generate I.M wrappers for I in I's own package
+	// but keep doing it for error.Error (was issue #29304).
+	if rcvr.IsInterface() && rcvr.Sym != nil && rcvr.Sym.Pkg != localpkg && rcvr != types.Errortype {
 		return
 	}
 
