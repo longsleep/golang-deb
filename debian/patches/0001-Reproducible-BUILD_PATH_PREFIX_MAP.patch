@@ -1,0 +1,140 @@
+From: Michael Stapelberg <stapelberg@debian.org>
+Date: Thu, 8 Feb 2018 10:00:00 +0100
+Subject: Reproducible BUILD_PATH_PREFIX_MAP
+
+Make builds reproducible by honoring BUILD_PATH_PREFIX_MAP
+Upstream has rejected the patch in this form and promised to implement an
+alternative they are happy with instead. That hasn't happened yet though.
+
+Bug: https://github.com/golang/go/issues/22491, https://github.com/golang/go/issues/16860
+Forwarded: https://golang.org/cl/73291 (rejected upstream though)
+---
+ src/cmd/go/internal/work/gc.go              |  5 ++-
+ src/cmd/link/internal/ld/buildpathprefix.go | 56 +++++++++++++++++++++++++++++
+ src/cmd/link/internal/ld/dwarf.go           |  4 +--
+ src/cmd/link/internal/ld/pcln.go            |  4 +--
+ 4 files changed, 64 insertions(+), 5 deletions(-)
+ create mode 100644 src/cmd/link/internal/ld/buildpathprefix.go
+
+diff --git a/src/cmd/go/internal/work/gc.go b/src/cmd/go/internal/work/gc.go
+index 6e5333c..f91edb6 100644
+--- a/src/cmd/go/internal/work/gc.go
++++ b/src/cmd/go/internal/work/gc.go
+@@ -466,7 +466,10 @@ func (gcToolchain) ld(b *Builder, root *Action, out, importcfg, mainpkg string)
+ 		dir, out = filepath.Split(out)
+ 	}
+ 
+-	return b.run(root, dir, root.Package.ImportPath, nil, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
++	// Apply the rewrite of $WORK to /tmp/go-build also to DWARF file tables:
++	env := []string{"BUILD_PATH_PREFIX_MAP=/tmp/go-build=" + b.WorkDir + ":" + os.Getenv("BUILD_PATH_PREFIX_MAP")}
++
++	return b.run(root, dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", out, "-importcfg", importcfg, ldflags, mainpkg)
+ }
+ 
+ func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, out, importcfg string, allactions []*Action) error {
+diff --git a/src/cmd/link/internal/ld/buildpathprefix.go b/src/cmd/link/internal/ld/buildpathprefix.go
+new file mode 100644
+index 0000000..8cda8a5
+--- /dev/null
++++ b/src/cmd/link/internal/ld/buildpathprefix.go
+@@ -0,0 +1,56 @@
++// Copyright 2010 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package ld
++
++import (
++	"log"
++	"os"
++	"strings"
++	"sync"
++)
++
++func decode(s string) string {
++	s = strings.Replace(s, "%.", ":", -1)
++	s = strings.Replace(s, "%+", "=", -1)
++	s = strings.Replace(s, "%#", "%", -1)
++	return s
++}
++
++type prefixMapEntry struct {
++	target string
++	source string
++}
++
++var (
++	buildPathPrefixMap     []prefixMapEntry
++	buildPathPrefixMapOnce sync.Once
++)
++
++// See https://reproducible-builds.org/specs/build-path-prefix-map/
++func applyBuildPathPrefixMap(dir string) string {
++	// Parse the BUILD_PATH_PREFIX_MAP only once; this function gets called for
++	// every compiled file.
++	buildPathPrefixMapOnce.Do(func() {
++		for _, item := range strings.Split(os.Getenv("BUILD_PATH_PREFIX_MAP"), ":") {
++			if strings.TrimSpace(item) == "" {
++				continue
++			}
++			parts := strings.Split(item, "=")
++			if got, want := len(parts), 2; got != want {
++				log.Fatalf("parsing BUILD_PATH_PREFIX_MAP: incorrect number of = separators in item %q: got %d, want %d", item, got-1, want-1)
++			}
++			buildPathPrefixMap = append(buildPathPrefixMap, prefixMapEntry{
++				target: decode(parts[0]),
++				source: decode(parts[1]),
++			})
++		}
++	})
++	for _, e := range buildPathPrefixMap {
++		if strings.HasPrefix(dir, e.source) {
++			return e.target + strings.TrimPrefix(dir, e.source)
++		}
++	}
++	return dir
++}
+diff --git a/src/cmd/link/internal/ld/dwarf.go b/src/cmd/link/internal/ld/dwarf.go
+index ae6f90b..6d9dd59 100644
+--- a/src/cmd/link/internal/ld/dwarf.go
++++ b/src/cmd/link/internal/ld/dwarf.go
+@@ -1132,7 +1132,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
+ 	newattr(dwinfo, dwarf.DW_AT_language, dwarf.DW_CLS_CONSTANT, int64(lang), 0)
+ 	newattr(dwinfo, dwarf.DW_AT_stmt_list, dwarf.DW_CLS_PTR, ls.Size, ls)
+ 	// OS X linker requires compilation dir or absolute path in comp unit name to output debug info.
+-	compDir := getCompilationDir()
++	compDir := applyBuildPathPrefixMap(getCompilationDir())
+ 	// TODO: Make this be the actual compilation directory, not
+ 	// the linker directory. If we move CU construction into the
+ 	// compiler, this should happen naturally.
+@@ -1188,7 +1188,7 @@ func writelines(ctxt *Link, lib *sym.Library, textp []*sym.Symbol, ls *sym.Symbo
+ 			}
+ 			// File indexes are 1-based.
+ 			fileNums[int(f.Value)] = len(fileNums) + 1
+-			Addstring(ls, f.Name)
++			Addstring(ls, applyBuildPathPrefixMap(f.Name))
+ 			ls.AddUint8(0)
+ 			ls.AddUint8(0)
+ 			ls.AddUint8(0)
+diff --git a/src/cmd/link/internal/ld/pcln.go b/src/cmd/link/internal/ld/pcln.go
+index 7b7f706..8941d51 100644
+--- a/src/cmd/link/internal/ld/pcln.go
++++ b/src/cmd/link/internal/ld/pcln.go
+@@ -301,7 +301,7 @@ func (ctxt *Link) pclntab() {
+ 		off = int32(ftab.SetAddr(ctxt.Arch, int64(off), s))
+ 
+ 		// name int32
+-		nameoff := nameToOffset(s.Name)
++		nameoff := nameToOffset(applyBuildPathPrefixMap(s.Name))
+ 		off = int32(ftab.SetUint32(ctxt.Arch, int64(off), uint32(nameoff)))
+ 
+ 		// args int32
+@@ -444,7 +444,7 @@ func (ctxt *Link) pclntab() {
+ 	ftab.SetUint32(ctxt.Arch, int64(start), uint32(len(ctxt.Filesyms)+1))
+ 	for i := len(ctxt.Filesyms) - 1; i >= 0; i-- {
+ 		s := ctxt.Filesyms[i]
+-		ftab.SetUint32(ctxt.Arch, int64(start)+s.Value*4, uint32(ftabaddstring(ctxt, ftab, s.Name)))
++		ftab.SetUint32(ctxt.Arch, int64(start)+s.Value*4, uint32(ftabaddstring(ctxt, ftab, applyBuildPathPrefixMap(s.Name))))
+ 	}
+ 
+ 	ftab.Size = int64(len(ftab.P))

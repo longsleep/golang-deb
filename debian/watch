@@ -1,0 +1,8 @@
+#
+# WARNING: "debian/watch" is generated via "debian/rules gencontrol" (sourced from "debian/watch.in")
+#
+
+version=3
+opts=\
+uversionmangle=s/(\d)[_\.\-\+]?((RC|rc|pre|dev|beta|alpha)\d*)$/$1~$2/,\
+ https://golang.org/dl/ .*/go(1.11\S*)\.src\.tar\.gz

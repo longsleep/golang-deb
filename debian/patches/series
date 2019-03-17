@@ -1,0 +1,5 @@
+0001-Reproducible-BUILD_PATH_PREFIX_MAP.patch
+0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
+0003-arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch
+0004-fix-Fstatat-by-using-fillStat_t-on-linux-mips64x.patch
+0005-fix-MIPS-SGTconst-with-shift-rules.patch
