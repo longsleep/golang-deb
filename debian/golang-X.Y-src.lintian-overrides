@@ -26,3 +26,8 @@ golang-X.Y-src: hardening-no-relro usr/share/go-X.Y/src/debug/elf/testdata/gcc-3
 golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/elf/testdata/gcc-386-freebsd-exec
 golang-X.Y-src: hardening-no-relro usr/share/go-X.Y/src/debug/elf/testdata/gcc-amd64-linux-exec
 golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/cmd/internal/buildid/testdata/a.pe ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/dwarf/testdata/line-gcc-win.bin ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-386-mingw-exec ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-amd64-mingw-exec ASLR DEP/NX
