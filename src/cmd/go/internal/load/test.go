@@ -129,6 +129,7 @@ func TestPackagesFor(p *Package, cover *TestCover) (pmain, ptest, pxtest *Packag
 		ptest.Internal.Imports = append(imports, p.Internal.Imports...)
 		ptest.Internal.RawImports = str.StringList(rawTestImports, p.Internal.RawImports)
 		ptest.Internal.ForceLibrary = true
+		ptest.Internal.BuildInfo = ""
 		ptest.Internal.Build = new(build.Package)
 		*ptest.Internal.Build = *p.Internal.Build
 		m := map[string][]token.Position{}
@@ -186,6 +187,7 @@ func TestPackagesFor(p *Package, cover *TestCover) (pmain, ptest, pxtest *Packag
 		},
 		Internal: PackageInternal{
 			Build:      &build.Package{Name: "main"},
+			BuildInfo:  p.Internal.BuildInfo,
 			Asmflags:   p.Internal.Asmflags,
 			Gcflags:    p.Internal.Gcflags,
 			Ldflags:    p.Internal.Ldflags,
@@ -266,17 +268,8 @@ func TestPackagesFor(p *Package, cover *TestCover) (pmain, ptest, pxtest *Packag
 	pmain.Imports = pmain.Imports[:w]
 	pmain.Internal.RawImports = str.StringList(pmain.Imports)
 
-	if ptest != p {
-		// We have made modifications to the package p being tested
-		// and are rebuilding p (as ptest).
-		// Arrange to rebuild all packages q such that
-		// the test depends on q and q depends on p.
-		// This makes sure that q sees the modifications to p.
-		// Strictly speaking, the rebuild is only necessary if the
-		// modifications to p change its export metadata, but
-		// determining that is a bit tricky, so we rebuild always.
-		recompileForTest(pmain, p, ptest, pxtest)
-	}
+	// Replace pmain's transitive dependencies with test copies, as necessary.
+	recompileForTest(pmain, p, ptest, pxtest)
 
 	// Should we apply coverage analysis locally,
 	// only for this package and only for this test?
@@ -323,6 +316,15 @@ Search:
 	return stk
 }
 
+// recompileForTest copies and replaces certain packages in pmain's dependency
+// graph. This is necessary for two reasons. First, if ptest is different than
+// preal, packages that import the package under test should get ptest instead
+// of preal. This is particularly important if pxtest depends on functionality
+// exposed in test sources in ptest. Second, if there is a main package
+// (other than pmain) anywhere, we need to set p.Internal.ForceLibrary and
+// clear p.Internal.BuildInfo in the test copy to prevent link conflicts.
+// This may happen if both -coverpkg and the command line patterns include
+// multiple main packages.
 func recompileForTest(pmain, preal, ptest, pxtest *Package) {
 	// The "test copy" of preal is ptest.
 	// For each package that depends on preal, make a "test copy"
@@ -352,6 +354,8 @@ func recompileForTest(pmain, preal, ptest, pxtest *Package) {
 			copy(p1.Imports, p.Imports)
 			p = p1
 			p.Target = ""
+			p.Internal.BuildInfo = ""
+			p.Internal.ForceLibrary = true
 		}
 
 		// Update p.Internal.Imports to use test copies.
@@ -360,6 +364,13 @@ func recompileForTest(pmain, preal, ptest, pxtest *Package) {
 				split()
 				p.Internal.Imports[i] = p1
 			}
+		}
+
+		// Don't compile build info from a main package. This can happen
+		// if -coverpkg patterns include main packages, since those packages
+		// are imported by pmain. See golang.org/issue/30907.
+		if p.Internal.BuildInfo != "" && p != pmain {
+			split()
 		}
 	}
 }
