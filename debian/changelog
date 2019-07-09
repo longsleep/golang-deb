@@ -1,3 +1,9 @@
+golang-1.12 (1.12.7-1longsleep2+xenial) xenial; urgency=medium
+
+  * Set GOCACHE during build
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 09 Jul 2019 12:53:53 +0200
+
 golang-1.12 (1.12.7-1longsleep1+xenial) xenial; urgency=medium
 
   [ Anthony Fok ]
