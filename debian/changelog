@@ -1,3 +1,16 @@
+golang-1.12 (1.12.7-1longsleep1+xenial) xenial; urgency=medium
+
+  [ Anthony Fok ]
+  * Add /usr/lib/go-X.Y/{api,misc} symlinks
+
+  [ Dr. Tobias Quathamer ]
+  * Add five lintian overrides for false positives
+
+  [ Simon Eisenmann ]
+  * Imported Upstream version 1.12.7
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 09 Jul 2019 12:38:03 +0200
+
 golang-1.12 (1.12-1longsleep2+xenial) xenial; urgency=medium
 
   * Do not strip zlib.a since it is broken when stripped
