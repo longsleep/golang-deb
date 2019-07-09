@@ -117,7 +117,7 @@ index a150306..b4d6050 100644
  		// the linker directory. If we move CU construction into the
  		// compiler, this should happen naturally.
 diff --git a/src/cmd/link/internal/ld/pcln.go b/src/cmd/link/internal/ld/pcln.go
-index e4db834..554db4e 100644
+index b42e510..41fa7eb 100644
 --- a/src/cmd/link/internal/ld/pcln.go
 +++ b/src/cmd/link/internal/ld/pcln.go
 @@ -302,7 +302,7 @@ func (ctxt *Link) pclntab() {
