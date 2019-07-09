@@ -1589,6 +1589,7 @@ func (p *Package) gccCmd() []string {
 	c = append(c, p.gccMachine()...)
 	if goos == "aix" {
 		c = append(c, "-maix64")
+		c = append(c, "-mcmodel=large")
 	}
 	c = append(c, "-") //read input from standard input
 	return c
