@@ -1,3 +1,16 @@
+golang-1.11 (1.11.12-1) unstable; urgency=medium
+
+  [ Anthony Fok ]
+  * Add /usr/lib/go-X.Y/{api,misc} symlinks.
+    For example, programs such as https://github.com/vugu/vugu and
+    documentation such as https://github.com/golang/go/wiki/WebAssembly
+    expect to find wasm_exec.js at "$(go env GOROOT)/misc/wasm/wasm_exec.js".
+
+  [ Dr. Tobias Quathamer ]
+  * New upstream version 1.11.12
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Tue, 09 Jul 2019 20:29:24 +0200
+
 golang-1.11 (1.11.6-1) unstable; urgency=medium
 
   * New upstream version 1.11.6, fixing CVE-2019-9741. (Closes: #924630)
