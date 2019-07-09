@@ -1108,10 +1108,10 @@ func (o *Order) expr(n, lhs *Node) *Node {
 		if n.Left.Type.IsInterface() {
 			break
 		}
-		if _, needsaddr := convFuncName(n.Left.Type, n.Type); needsaddr || consttype(n.Left) > 0 {
+		if _, needsaddr := convFuncName(n.Left.Type, n.Type); needsaddr || isStaticCompositeLiteral(n.Left) {
 			// Need a temp if we need to pass the address to the conversion function.
-			// We also process constants here, making a named static global whose
-			// address we can put directly in an interface (see OCONVIFACE case in walk).
+			// We also process static composite literal node here, making a named static global
+			// whose address we can put directly in an interface (see OCONVIFACE case in walk).
 			n.Left = o.addrTemp(n.Left)
 		}
 
@@ -1130,14 +1130,40 @@ func (o *Order) expr(n, lhs *Node) *Node {
 		}
 
 	case OANDAND, OOROR:
-		mark := o.markTemp()
-		n.Left = o.expr(n.Left, nil)
+		// ... = LHS && RHS
+		//
+		// var r bool
+		// r = LHS
+		// if r {       // or !r, for OROR
+		//     r = RHS
+		// }
+		// ... = r
 
-		// Clean temporaries from first branch at beginning of second.
-		// Leave them on the stack so that they can be killed in the outer
-		// context in case the short circuit is taken.
-		n.Right = addinit(n.Right, o.cleanTempNoPop(mark))
-		n.Right = o.exprInPlace(n.Right)
+		r := o.newTemp(n.Type, false)
+
+		// Evaluate left-hand side.
+		lhs := o.expr(n.Left, nil)
+		o.out = append(o.out, typecheck(nod(OAS, r, lhs), ctxStmt))
+
+		// Evaluate right-hand side, save generated code.
+		saveout := o.out
+		o.out = nil
+		t := o.markTemp()
+		rhs := o.expr(n.Right, nil)
+		o.out = append(o.out, typecheck(nod(OAS, r, rhs), ctxStmt))
+		o.cleanTemp(t)
+		gen := o.out
+		o.out = saveout
+
+		// If left-hand side doesn't cause a short-circuit, issue right-hand side.
+		nif := nod(OIF, r, nil)
+		if n.Op == OANDAND {
+			nif.Nbody.Set(gen)
+		} else {
+			nif.Rlist.Set(gen)
+		}
+		o.out = append(o.out, nif)
+		n = r
 
 	case OCALLFUNC,
 		OCALLINTER,
