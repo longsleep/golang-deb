@@ -16,7 +16,7 @@ Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.11
 Build-Depends: debhelper (>= 11),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
-Standards-Version: 4.3.0
+Standards-Version: 4.4.0
 Homepage: https://golang.org
 
 Package: golang-1.11-go
