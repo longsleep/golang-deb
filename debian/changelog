@@ -1,3 +1,11 @@
+golang-1.12 (1.12.7-2) unstable; urgency=medium
+
+  * Use dh_missing instead of deprecated dh_install --fail-missing
+  * Do not run dh_dwz, there is no debugging information
+  * Use debhelper-compat (= 12)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 19 Jul 2019 14:52:31 +0200
+
 golang-1.12 (1.12.7-1) unstable; urgency=medium
 
   * New upstream version 1.12.7
