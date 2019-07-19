@@ -84,11 +84,8 @@ endif
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
 
-override_dh_install-indep:
-	dh_install --fail-missing
-
 override_dh_install-arch:
-	dh_install --fail-missing
+	dh_install
 	# Remove Plan9 rc(1) scripts
 	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
 	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
@@ -99,6 +96,9 @@ override_dh_install-arch:
 	# Make two scripts executable which have been missed by upstream
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmp.bash
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/runtime/mknacl.sh
+
+override_dh_missing:
+	dh_missing --fail-missing
 
 override_dh_strip:
 	dh_strip -Xtestdata
