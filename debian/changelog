@@ -1,8 +1,22 @@
 golang-1.13 (1.13~beta1-1) unstable; urgency=medium
 
   * New upstream major version.
+    - Remove Reproducible-BUILD_PATH_PREFIX_MAP.patch.
+      This patch is finally no longer needed with Go 1.13.
+      Upstream has implemented a new flag "-trimpath" for the
+      command "go build" which either strips the path or
+      replaces it in the resulting binaries.
+      References:
+      https://github.com/golang/go/issues/16860
+      https://go-review.googlesource.com/c/go/+/173345/
+      https://go-review.googlesource.com/c/go/+/173344/
+    - Remove arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch.
+      This patch has been cherry-picked from upstream and is now included.
+    - Refresh remaining patches
+    - Fix lintian warning: make scripts executable
+  * Switch to debhelper-compat, but stay at v11 for now
 
- -- Dr. Tobias Quathamer <toddy@debian.org>  Tue, 09 Jul 2019 14:45:44 +0200
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 01 Aug 2019 14:21:51 +0200
 
 golang-1.12 (1.12.7-1) unstable; urgency=medium
 
