@@ -1,0 +1,33 @@
+# golang-X.Y-src ships ELF object files and binaries as testdata for the
+# debug/dwarf, debug/elf and runtime/pprof packages.
+golang-X.Y-src: arch-dependent-file-in-usr-share
+golang-X.Y-src: unstripped-binary-or-object
+golang-X.Y-src: binary-from-other-architecture
+golang-X.Y-src: statically-linked-binary
+
+# False positive, the file does not use one of the binaries in sensible-utils
+golang-X.Y-src: missing-depends-on-sensible-utils usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/driver/commands.go
+
+# These files are only testdata
+golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/internal/buildid/testdata/a.pe
+golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_mac_64
+golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/internal/buildid/testdata/a.macho
+golang-X.Y-src: executable-not-elf-or-script usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/lib_mac_64
+golang-X.Y-src: apparently-corrupted-elf-binary usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
+
+# These files are only testdata
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/dwarf/testdata/line-clang.elf
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/dwarf/testdata/line-gcc.elf
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/dwarf/testdata/ranges.elf
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/dwarf/testdata/split.elf
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/dwarf/testdata/typedef.elf
+golang-X.Y-src: hardening-no-relro usr/share/go-X.Y/src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-X.Y-src: hardening-no-relro usr/share/go-X.Y/src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-X.Y-src: hardening-no-pie usr/share/go-X.Y/src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/cmd/internal/buildid/testdata/a.pe ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/dwarf/testdata/line-gcc-win.bin ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-386-mingw-exec ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-amd64-mingw-exec ASLR DEP/NX

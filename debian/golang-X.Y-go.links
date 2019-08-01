@@ -1,0 +1,5 @@
+usr/share/go-X.Y/api /usr/lib/go-X.Y/api
+usr/share/go-X.Y/misc /usr/lib/go-X.Y/misc
+usr/share/go-X.Y/pkg/include /usr/lib/go-X.Y/pkg/include
+usr/share/go-X.Y/src /usr/lib/go-X.Y/src
+usr/share/go-X.Y/test /usr/lib/go-X.Y/test
