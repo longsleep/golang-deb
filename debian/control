@@ -13,7 +13,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Dr. Tobias Quathamer <toddy@debian.org>
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.13
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.13
-Build-Depends: debhelper (>= 11),
+Build-Depends: debhelper-compat (= 11),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
 Standards-Version: 4.4.0
