@@ -1,68 +1,24 @@
 From: "Dr. Tobias Quathamer" <toddy@debian.org>
-Date: Wed, 19 Dec 2018 14:12:10 +0100
+Date: Thu, 1 Aug 2019 13:50:48 +0200
 Subject: Fix Lintian warnings about wrong interpreter path
 
 The command used for this change is as follows:
 
 grep -rH "/usr/bin/env perl" * | cut -d: -f1 | xargs -n1 sed -i -e "s,/usr/bin/env perl,/usr/bin/perl,"
 ---
- src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc.pl   | 2 +-
- src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc64.pl | 2 +-
- src/cmd/vendor/golang.org/x/sys/unix/mksyscall_solaris.pl   | 2 +-
- src/cmd/vendor/golang.org/x/sys/unix/mksysctl_openbsd.pl    | 2 +-
- src/syscall/mksyscall.pl                                    | 2 +-
- src/syscall/mksyscall_libc.pl                               | 2 +-
- src/syscall/mksysctl_openbsd.pl                             | 2 +-
- src/syscall/mksysnum_darwin.pl                              | 2 +-
- src/syscall/mksysnum_dragonfly.pl                           | 2 +-
- src/syscall/mksysnum_freebsd.pl                             | 2 +-
- src/syscall/mksysnum_linux.pl                               | 2 +-
- src/syscall/mksysnum_netbsd.pl                              | 2 +-
- src/syscall/mksysnum_openbsd.pl                             | 2 +-
- 13 files changed, 13 insertions(+), 13 deletions(-)
+ src/syscall/mksyscall.pl          | 2 +-
+ src/syscall/mksyscall_libc.pl     | 2 +-
+ src/syscall/mksysctl_openbsd.pl   | 2 +-
+ src/syscall/mksysnum_darwin.pl    | 2 +-
+ src/syscall/mksysnum_dragonfly.pl | 2 +-
+ src/syscall/mksysnum_freebsd.pl   | 2 +-
+ src/syscall/mksysnum_linux.pl     | 2 +-
+ src/syscall/mksysnum_netbsd.pl    | 2 +-
+ src/syscall/mksysnum_openbsd.pl   | 2 +-
+ 9 files changed, 9 insertions(+), 9 deletions(-)
 
-diff --git a/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc.pl b/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc.pl
-index c44de8d..97be6fb 100755
---- a/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc.pl
-+++ b/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc.pl
-@@ -1,4 +1,4 @@
--#!/usr/bin/env perl
-+#!/usr/bin/perl
- # Copyright 2018 The Go Authors. All rights reserved.
- # Use of this source code is governed by a BSD-style
- # license that can be found in the LICENSE file.
-diff --git a/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc64.pl b/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc64.pl
-index 53df26b..89be878 100755
---- a/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc64.pl
-+++ b/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_aix_ppc64.pl
-@@ -1,4 +1,4 @@
--#!/usr/bin/env perl
-+#!/usr/bin/perl
- # Copyright 2018 The Go Authors. All rights reserved.
- # Use of this source code is governed by a BSD-style
- # license that can be found in the LICENSE file.
-diff --git a/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_solaris.pl b/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_solaris.pl
-index a354df5..8b44164 100755
---- a/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_solaris.pl
-+++ b/src/cmd/vendor/golang.org/x/sys/unix/mksyscall_solaris.pl
-@@ -1,4 +1,4 @@
--#!/usr/bin/env perl
-+#!/usr/bin/perl
- # Copyright 2009 The Go Authors. All rights reserved.
- # Use of this source code is governed by a BSD-style
- # license that can be found in the LICENSE file.
-diff --git a/src/cmd/vendor/golang.org/x/sys/unix/mksysctl_openbsd.pl b/src/cmd/vendor/golang.org/x/sys/unix/mksysctl_openbsd.pl
-index 20632e1..976db49 100755
---- a/src/cmd/vendor/golang.org/x/sys/unix/mksysctl_openbsd.pl
-+++ b/src/cmd/vendor/golang.org/x/sys/unix/mksysctl_openbsd.pl
-@@ -1,4 +1,4 @@
--#!/usr/bin/env perl
-+#!/usr/bin/perl
- 
- # Copyright 2011 The Go Authors. All rights reserved.
- # Use of this source code is governed by a BSD-style
 diff --git a/src/syscall/mksyscall.pl b/src/syscall/mksyscall.pl
-index 079b08d..373838f 100755
+index 2a82145..7440ae6 100755
 --- a/src/syscall/mksyscall.pl
 +++ b/src/syscall/mksyscall.pl
 @@ -1,4 +1,4 @@

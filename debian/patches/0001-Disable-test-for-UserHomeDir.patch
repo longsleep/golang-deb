@@ -8,10 +8,10 @@ On Debian buildds, the user home dir does not exist, so this test fails.
  1 file changed, 2 insertions(+)
 
 diff --git a/src/os/os_test.go b/src/os/os_test.go
-index 9c4d5da..cd6db26 100644
+index c101281..929641d 100644
 --- a/src/os/os_test.go
 +++ b/src/os/os_test.go
-@@ -2307,6 +2307,8 @@ func TestUserHomeDir(t *testing.T) {
+@@ -2343,6 +2343,8 @@ func TestUserHomeDir(t *testing.T) {
  	if err != nil {
  		t.Skipf("UserHomeDir failed: %v", err)
  	}
