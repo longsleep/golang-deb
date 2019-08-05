@@ -1,3 +1,9 @@
+golang-1.12 (1.12.7-3) unstable; urgency=medium
+
+  * Set GOCACHE to fix a FTBFS. (Closes: #933958)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 05 Aug 2019 21:49:35 +0200
+
 golang-1.12 (1.12.7-2) unstable; urgency=medium
 
   * Use dh_missing instead of deprecated dh_install --fail-missing
