@@ -1,3 +1,19 @@
+golang-1.11 (1.11.12-3) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Dr. Tobias Quathamer ]
+  * Use dh_missing instead of deprecated dh_install --fail-missing
+  * Do not run dh_dwz, there is no debugging information
+  * Use debhelper-compat (= 12)
+  * Set GOCACHE to fix a FTBFS. (Closes: #933958)
+
+  [ Anthony Fok ]
+  * Cherry-pick above Debian fixes in golang-1.12 versions 1.12.7-2 and
+    1.12.7-3 by Dr. Tobias Quathamer back to golang-1.11
+
+ -- Anthony Fok <foka@debian.org>  Sat, 10 Aug 2019 13:44:21 -0600
+
 golang-1.11 (1.11.12-2) unstable; urgency=medium
 
   * Update Standards-Version to 4.4.0, no changes needed
