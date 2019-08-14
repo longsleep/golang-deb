@@ -6,7 +6,6 @@ export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-par
 
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
-export GOCACHE := /tmp/.go-$(GOVER)-cache
 
 # Go 1.12 needs a build cache, otherwise the build fails.
 export GOCACHE := $(CURDIR)/pkg/obj/go-build
