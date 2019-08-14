@@ -1,3 +1,15 @@
+golang-1.12 (1.12.8-1longsleep1+xenial) xenial; urgency=medium
+
+  [ Dr. Tobias Quathamer ]
+  * Do not run dh_dwz, there is no debugging information
+  * Set GOCACHE to fix a FTBFS. (Closes: #933958)
+
+  [ Simon Eisenmann ]
+  * Revert "Set GOCACHE during build"
+  * Imported Upstream version 1.12.8
+
+ -- Simon Eisenmann <simon@longsleep.org>  Wed, 14 Aug 2019 22:17:19 +0200
+
 golang-1.12 (1.12.7-1longsleep2+xenial) xenial; urgency=medium
 
   * Set GOCACHE during build
