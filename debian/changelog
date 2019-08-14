@@ -1,3 +1,15 @@
+golang-1.12 (1.12.8-1) unstable; urgency=medium
+
+  * New upstream version 1.12.8
+    - Fix Denial of Service vulnerabilities in the HTTP/2 implementation.
+      https://github.com/golang/go/issues/33631
+      CVE-2019-9512, CVE-2019-9514
+    - Fix multiple Parsing Issues in URL.Parse
+      https://github.com/golang/go/issues/29098
+      CVE-2019-14809
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 14 Aug 2019 21:59:24 +0200
+
 golang-1.12 (1.12.7-3) unstable; urgency=medium
 
   * Set GOCACHE to fix a FTBFS. (Closes: #933958)
