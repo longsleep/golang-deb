@@ -1,3 +1,15 @@
+golang-1.11 (1.11.13-1) unstable; urgency=medium
+
+  * New upstream version 1.11.13
+    - Fix Denial of Service vulnerabilities in the HTTP/2 implementation.
+      https://github.com/golang/go/issues/33631
+      CVE-2019-9512, CVE-2019-9514
+    - Fix multiple Parsing Issues in URL.Parse
+      https://github.com/golang/go/issues/29098
+      CVE-2019-14809
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 15 Aug 2019 20:56:03 +0200
+
 golang-1.11 (1.11.12-4) unstable; urgency=medium
 
   * Team upload.
