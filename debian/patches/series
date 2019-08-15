@@ -2,3 +2,5 @@
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch
 0004-fix-Fstatat-by-using-fillStat_t-on-linux-mips64x.patch
+0005-Fix-CVE-2019-9512-and-CVE-2019-9514.patch
+0006-Fix-CVE-2019-14809.patch
