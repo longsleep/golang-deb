@@ -1,3 +1,14 @@
+golang-1.11 (1.11.6-1+deb10u1) buster-security; urgency=high
+
+  * Fix Denial of Service vulnerabilities in the HTTP/2 implementation.
+    https://github.com/golang/go/issues/33631
+    CVE-2019-9512, CVE-2019-9514
+  * Fix multiple Parsing Issues in URL.Parse
+    https://github.com/golang/go/issues/29098
+    CVE-2019-14809
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 15 Aug 2019 21:48:59 +0200
+
 golang-1.11 (1.11.6-1) unstable; urgency=medium
 
   * New upstream version 1.11.6, fixing CVE-2019-9741. (Closes: #924630)
