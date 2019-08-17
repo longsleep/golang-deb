@@ -1,3 +1,14 @@
+golang-1.13 (1.13~beta1-3) unstable; urgency=high
+
+  * Fix Denial of Service vulnerabilities in the HTTP/2 implementation.
+    https://github.com/golang/go/issues/33631
+    CVE-2019-9512, CVE-2019-9514. Closes: #934955
+  * Fix multiple Parsing Issues in URL.Parse
+    https://github.com/golang/go/issues/29098
+    CVE-2019-14809. Closes: #934954
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 17 Aug 2019 23:47:53 +0200
+
 golang-1.13 (1.13~beta1-2) unstable; urgency=medium
 
   * Set GOCACHE to fix a FTBFS. (See bug #933958)
