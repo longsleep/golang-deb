@@ -1,3 +1,9 @@
+golang-1.12 (1.12.9-1) unstable; urgency=medium
+
+  * New upstream version 1.12.9
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 17 Aug 2019 13:03:14 +0200
+
 golang-1.12 (1.12.8-1) unstable; urgency=medium
 
   * New upstream version 1.12.8
