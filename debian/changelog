@@ -1,3 +1,10 @@
+golang-1.12 (1.12.9-2) unstable; urgency=medium
+
+  * Exclude testdata from dh_makeshlibs.
+    Otherwise, the build fails at least on armel and armhf.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 22 Aug 2019 15:00:07 +0200
+
 golang-1.12 (1.12.9-1) unstable; urgency=medium
 
   * New upstream version 1.12.9
