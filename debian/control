@@ -3,21 +3,22 @@
 #
 
 Source: golang-1.13
-Section: devel
-Priority: optional
 Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
            Michael Hudson-Doyle <mwhudson@debian.org>,
            Dr. Tobias Quathamer <toddy@debian.org>
-Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.13
-Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.13
+Section: devel
+Priority: optional
 Build-Depends: debhelper-compat (= 12),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
 Standards-Version: 4.4.0
+Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.13
+Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.13
 Homepage: https://golang.org
+Rules-Requires-Root: no
 
 Package: golang-1.13-go
 Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el s390x
@@ -75,8 +76,9 @@ Description: Go programming language - documentation
  typed, interpreted language.
  .
  This package provides the documentation for the Go programming
- language. You can view the formatted documentation by running "godoc
- --http=:6060", and then visiting http://localhost:6060/doc/install.html.
+ language. You can view the formatted documentation by running
+ "godoc --http=:6060", and then visiting
+ http://localhost:6060/doc/install.html.
 
 Package: golang-1.13
 Depends: golang-1.13-doc (>= ${source:Version}),
