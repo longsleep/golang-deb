@@ -14,6 +14,7 @@ Standards-Version: 4.4.0
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-X.Y
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-X.Y
 Homepage: https://golang.org
+Rules-Requires-Root: no
 
 Package: golang-X.Y-go
 Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el s390x
