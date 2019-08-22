@@ -41,13 +41,13 @@ Do not send CLs removing the interior tags from such phrases.
   Go 1.13 supports a more uniform and modernized set of number literal prefixes.
   <ul>
     <li>
-      <a href="https://golang.org/ref/spec#Integer_literals">Binary integer literals</a>:
+      <a href="/ref/spec#Integer_literals">Binary integer literals</a>:
       The prefix <code>0b</code> or <code>0B</code> indicates a binary integer literal
       such as <code>0b1011</code>.
     </li>
 
     <li>
-      <a href="https://golang.org/ref/spec#Integer_literals">Octal integer literals</a>:
+      <a href="/ref/spec#Integer_literals">Octal integer literals</a>:
       The prefix <code>0o</code> or <code>0O</code> indicates an octal integer literal
       such as <code>0o660</code>.
       The existing octal notation indicated by a leading <code>0</code> followed by
@@ -55,7 +55,7 @@ Do not send CLs removing the interior tags from such phrases.
     </li>
 
     <li>
-      <a href="https://golang.org/ref/spec#Floating-point_literals">Hexadecimal floating point literals</a>:
+      <a href="/ref/spec#Floating-point_literals">Hexadecimal floating point literals</a>:
       The prefix <code>0x</code> or <code>0X</code> may now be used to express the mantissa of a
       floating-point number in hexadecimal format such as <code>0x1.0p-1021</code>.
       A hexadecimal floating-point number must always have an exponent, written as the letter
@@ -64,7 +64,7 @@ Do not send CLs removing the interior tags from such phrases.
     </li>
 
     <li>
-      <a href="https://golang.org/ref/spec#Imaginary_literals">Imaginary literals</a>:
+      <a href="/ref/spec#Imaginary_literals">Imaginary literals</a>:
       The imaginary suffix <code>i</code> may now be used with any (binary, decimal, hexadecimal)
       integer or floating-point literal.
     </li>
@@ -80,7 +80,7 @@ Do not send CLs removing the interior tags from such phrases.
 
 <p>
   Per the <a href="https://github.com/golang/proposal/blob/master/design/19113-signed-shift-counts.md">signed shift counts proposal</a>
-  Go 1.13 removes the restriction that a <a href="https://golang.org/ref/spec#Operators">shift count</a>
+  Go 1.13 removes the restriction that a <a href="/ref/spec#Operators">shift count</a>
   must be unsigned. This change eliminates the need for many artificial <code>uint</code> conversions,
   solely introduced to satisfy this (now removed) restriction of the <code>&lt;&lt;</code> and <code>&gt;&gt;</code> operators.
 </p>
@@ -100,6 +100,15 @@ Do not send CLs removing the interior tags from such phrases.
 </p>
 
 <h2 id="ports">Ports</h2>
+
+<p>
+  Go 1.13 is the last release that will run on Native Client (NaCl).
+</p>
+
+<p><!-- CL 170119, CL 168882 -->
+  For <code>GOARCH=wasm</code>, the new environment variable <code>GOWASM</code> takes a comma-separated list of experimental features that the binary gets compiled with.
+  The valid values are documented <a href="/cmd/go/#hdr-Environment_variables">here</a>.
+</p>
 
 <h3 id="aix">AIX</h3>
 
@@ -169,16 +178,24 @@ Do not send CLs removing the interior tags from such phrases.
 
 <h4 id="proxy-vars">Environment variables</h4>
 
+<p><!-- CL 176580 -->
+  The <a href="/cmd/go/#hdr-Module_support"><code>GO111MODULE</code></a>
+  environment variable continues to default to <code>auto</code>, but
+  the <code>auto</code> setting now activates the module-aware mode of
+  the <code>go</code> command whenever the current working directory contains,
+  or is below a directory containing, a <code>go.mod</code> file — even if the
+  current directory is within <code>GOPATH/src</code>. This change simplifies
+  the migration of existing code within <code>GOPATH/src</code> and the ongoing
+  maintenance of module-aware packages alongside non-module-aware importers.
+</p>
+
 <p><!-- CL 181719 -->
   The new
   <a href="/cmd/go/#hdr-Module_configuration_for_non_public_modules"><code>GOPRIVATE</code></a>
   environment variable indicates module paths that are not publicly available.
-  It contains a comma-separated list of glob patterns (in the syntax of
-  <a href="/pkg/path#Match"><code>path.Match</code></a>) to be matched against a
-  prefix of the module path. It serves as the default value for the
-  lower-level <code>GONOPROXY</code> and <code>GONOSUMDB</code> variables, which
-  provide finer-grained control over which modules are fetched via proxy and
-  verified using the checksum database.
+  It serves as the default value for the lower-level <code>GONOPROXY</code>
+  and <code>GONOSUMDB</code> variables, which provide finer-grained control over
+  which modules are fetched via proxy and verified using the checksum database.
 </p>
 
 <p><!-- CL 173441, CL 177958 -->
@@ -187,13 +204,10 @@ Do not send CLs removing the interior tags from such phrases.
   URLs or the special token <code>direct</code>, and
   its <a href="#introduction">default value</a> is
   now <code>https://proxy.golang.org,direct</code>. When resolving a package
-  path to its containing module, the <code>go</code> command will try each
-  possible module path on the first proxy in the list before falling back to the
-  next. If an HTTPS proxy is unreachable or returns a status code other than 404
-  or 410 for a given module path, no subsequent proxy is consulted for that
-  path. The <code>direct</code> token indicates that the <code>go</code> command
-  should attempt to fetch the module directly from its origin;
-  <code>GOPROXY</code> entries after <code>direct</code> are ignored.
+  path to its containing module, the <code>go</code> command will try all
+  candidate module paths on each proxy in the list in succession. An unreachable
+  proxy or HTTP status code other than 404 or 410 terminates the search without
+  consulting the remaining proxies.
 </p>
 
 <p>
@@ -224,12 +238,13 @@ go env -w GOPROXY=direct
 go env -w GOSUMDB=off
 </pre>
 
-<h4 id="go-get"><code>go</code> <code>get</code></h3>
+<h4 id="go-get"><code>go</code> <code>get</code></h4>
 
 <p><!-- CL 174099 -->
-  In module-aware mode, the set of modules updated by
-  <a href="/cmd/go/#hdr-Add_dependencies_to_current_module_and_install_them"><code>go</code> <code>get</code> <code>-u</code></a>
-  is now smaller, and is more consistent with the set of packages updated by
+  In module-aware mode,
+  <a href="/cmd/go/#hdr-Add_dependencies_to_current_module_and_install_them"><code>go</code> <code>get</code></a>
+  with the <code>-u</code> flag now updates a smaller set of modules that is
+  more consistent with the set of packages updated by
   <code>go</code> <code>get</code> <code>-u</code> in GOPATH mode.
   <code>go</code> <code>get</code> <code>-u</code> continues to update the
   modules and packages named on the command line, but additionally updates only
@@ -256,24 +271,31 @@ go env -w GOSUMDB=off
   the source code needed to build dependencies of the named packages.
 </p>
 
+<p><!-- CL 177677 -->
+  By default, <code>go</code> <code>get</code> <code>-u</code> in module mode
+  upgrades only non-test dependencies, as in GOPATH mode. It now also accepts
+  the <code>-t</code> flag, which (as in GOPATH mode)
+  causes <code>go</code> <code>get</code> to include the packages imported
+  by <em>tests of</em> the packages named on the command line.
+</p>
+
 <p><!-- CL 167747 -->
   In module-aware mode, the <code>go</code> <code>get</code> subcommand now
   supports the version suffix <code>@patch</code>. The <code>@patch</code>
   suffix indicates that the named module, or module containing the named
   package, should be updated to the highest patch release with the same
   major and minor versions as the version found in the build list.
-  If no such version is present in the build list, <code>@patch</code> is
-  equivalent to the existing <code>@latest</code> suffix.
 </p>
 
-<p><!-- CL 177677 -->
-  Additionally, the <code>go</code> <code>get</code> subcommand now supports
-  the <code>-t</code> flag in module-aware mode. As in GOPATH mode,
-  the <code>-t</code> flag instructs <code>go</code> <code>get</code> to include
-  the packages imported by <em>tests of</em> the packages named on the command
-  line. If the <code>-t</code> flag is set, the packages imported by tests will
-  be updated (if the <code>-u</code> flag is set), downloaded, and built (unless
-  the <code>-d</code> flag is set) along with the usual non-test packages.
+<p><!-- CL 184440 -->
+  If a module passed as an argument to <code>go</code> <code>get</code>
+  without a version suffix is already required at a newer version than the
+  latest released version, it will remain at the newer version. This is
+  consistent with the behavior of the <code>-u</code> flag for module
+  dependencies. This prevents unexpected downgrades from pre-release versions.
+  The new version suffix <code>@upgrade</code> explicitly requests this
+  behavior. <code>@latest</code> explicitly requests the latest version
+  regardless of the current version.
 </p>
 
 <h4 id="version-validation">Version validation</h4><!-- CL 181881 -->
@@ -296,8 +318,10 @@ go env -w GOSUMDB=off
   between <a href="/cmd/go#hdr-Pseudo_versions">pseudo-versions</a> and
   version-control metadata. Specifically:
   <ul>
-    <li>The version prefix must be derived from a tag on the named revision or
-    one of its ancestors, or be of the form <code>vX.0.0</code>.</li>
+    <li>The version prefix must be of the form <code>vX.0.0</code>, or derived
+    from a tag on an ancestor of the named revision, or derived from a tag that
+    includes <a href="https://semver.org/#spec-item-10">build metadata</a> on
+    the named revision itself.</li>
 
     <li>The date string must match the UTC timestamp of the revision.</li>
 
@@ -339,7 +363,7 @@ go env -w GOSUMDB=off
 <p id="go-env-w"><!-- CL 171137 -->
   The <a href="/cmd/go/#hdr-Environment_variables"><code>go</code> <code>env</code></a>
   command now accepts a <code>-w</code> flag to set the per-user default value
-  of an enviroment variable recognized by the
+  of an environment variable recognized by the
   <code>go</code> command, and a corresponding <code>-u</code> flag to unset a
   previously-set default. Defaults set via
   <code>go</code> <code>env</code> <code>-w</code> are stored in the
@@ -347,10 +371,29 @@ go env -w GOSUMDB=off
   <a href="/pkg/os/#UserConfigDir"><code>os.UserConfigDir()</code></a>.
 </p>
 
+<p id="go-version-exe"><!-- CL 173343 -->
+  The <a href="/cmd/go/#hdr-Print_Go_version">
+  <code>go</code> <code>version</code></a> command now accepts arguments naming
+  executables and directories. When invoked on an executable,
+  <code>go</code> <code>version</code> prints the version of Go used to build
+  the executable. If the <code>-m</code> flag is used,
+  <code>go</code> <code>version</code> prints the executable's embedded module
+  version information, if available. When invoked on a directory,
+  <code>go</code> <code>version</code> prints information about executables
+  contained in the directory and its subdirectories.
+</p>
+
 <p id="trimpath"><!-- CL 173345 -->
   The new <a href="/cmd/go/#hdr-Compile_packages_and_dependencies"><code>go</code>
   <code>build</code> flag</a> <code>-trimpath</code> removes all file system paths
   from the compiled executable, to improve build reproducibility.
+</p>
+
+<p id="o-dir"><!-- CL 167679 -->
+  If the <code>-o</code> flag passed to <code>go</code> <code>build</code>
+  refers to an existing directory, <code>go</code> <code>build</code> will now
+  write executable files within that directory for <code>main</code> packages
+  matching its package arguments.
 </p>
 
 <p id="comma-separated-tags"><!-- CL 173438 -->
@@ -489,6 +532,37 @@ godoc
   <code>crypto/ed25519</code> when used with Go 1.13+.
 </p>
 
+<h3 id="error_wrapping">Error wrapping</h3>
+
+<p><!-- CL 163558, 176998 -->
+  Go 1.13 contains support for error wrapping, as first proposed in
+  the <a href="https://go.googlesource.com/proposal/+/master/design/29934-error-values.md">
+  Error Values proposal</a> and discussed on <a href="https://golang.org/issue/29934">the
+  associated issue</a>.
+</p>
+<p>
+  An error <code>e</code> can <em>wrap</em> another error <code>w</code> by providing
+  an <code>Unwrap</code> method that returns <code>w</code>. Both <code>e</code>
+  and <code>w</code> are available to programs, allowing <code>e</code> to provide
+  additional context to <code>w</code> or to reinterpret it while still allowing
+  programs to make decisions based on <code>w</code>.
+</p>
+<p>
+  To support wrapping, <a href="#fmt"><code>fmt.Errorf</code></a> now has a <code>%w</code>
+  verb for creating wrapped errors, and three new functions in
+  the <a href="#errors"><code>errors</code></a> package (
+  <a href="/pkg/errors#Unwrap"><code>errors.Unwrap</code></a>,
+  <a href="/pkg/errors#Is"><code>errors.Is</code></a> and
+  <a href="/pkg/errors#As"><code>errors.As</code></a>) simplify unwrapping
+  and inspecting wrapped errors.
+</p>
+<p>
+  For more information, read the <a href="/pkg/errors/"><code>errors</code> package
+  documentation</a>, or see
+  the <a href="https://golang.org/wiki/ErrorValueFAQ">Error Value FAQ</a>.
+  There will soon be a blog post as well.
+</p>
+
 <h3 id="minor_library_changes">Minor changes to the library</h3>
 
 <p>
@@ -516,6 +590,14 @@ godoc
 
 <dl id="crypto/tls"><dt><a href="/pkg/crypto/tls/">crypto/tls</a></dt>
   <dd>
+    <p>
+      Support for SSL version 3.0 (SSLv3) <a href="https://golang.org/issue/32716">
+      is now deprecated and will be removed in Go 1.14</a>. Note that SSLv3
+      <a href="https://tools.ietf.org/html/rfc7568">is cryptographically
+      broken</a>, is already disabled by default in <code>crypto/tls</code>,
+      and was never supported by Go clients.
+    </p>
+
     <p><!-- CL 177698 -->
       Ed25519 certificates are now supported in TLS versions 1.2 and 1.3.
     </p>
@@ -568,7 +650,8 @@ godoc
   <dd>
     <!-- CL 163558 -->
     <p>
-      The new function <a href="/pkg/errors/#As"><code>As</code></a> finds the first error in a given error’s chain
+      The new function <a href="/pkg/errors/#As"><code>As</code></a> finds the first
+      error in a given error’s chain (sequence of wrapped errors)
       that matches a given target’s type, and if so, sets the target to that error value.
     </p>
     <p>
@@ -582,14 +665,17 @@ godoc
 
 </dl><!-- errors -->
 
-<dl id="html/template"><dt><a href="/pkg/html/template/">html/template</a></dt>
+<dl id="fmt"><dt><a href="/pkg/fmt/">fmt</a></dt>
   <dd>
-    <p><!-- CL 175218 -->
-      When using a <code>&lt;script&gt;</code> tag with "module" set as the
-      type attribute, code will now be interperted as <a href="https://html.spec.whatwg.org/multipage/scripting.html#the-script-element:module-script-2">JavaScript module script</a>.
+    <!-- CL 176998 -->
+    <p>The <a href="/pkg/fmt/#Errorf"><code>Errorf</code></a> function
+      has a new verb, <code>%w</code>, whose operand must be an error.
+      The error returned from <code>Errorf</code> will have an
+      <code>Unwrap</code> method which returns the operand of <code>%w</code>.
     </p>
 
-  </dl><!-- html/template -->
+</dl><!-- fmt -->
+
 
 <dl id="go/scanner"><dt><a href="/pkg/go/scanner/">go/scanner</a></dt>
   <dd>
@@ -611,6 +697,17 @@ godoc
     </p>
 
 </dl><!-- go/types -->
+
+
+
+<dl id="html/template"><dt><a href="/pkg/html/template/">html/template</a></dt>
+  <dd>
+    <p><!-- CL 175218 -->
+      When using a <code>&lt;script&gt;</code> tag with "module" set as the
+      type attribute, code will now be interpreted as <a href="https://html.spec.whatwg.org/multipage/scripting.html#the-script-element:module-script-2">JavaScript module script</a>.
+    </p>
+
+</dl><!-- html/template -->
 
 <dl id="log"><dt><a href="/pkg/log/">log</a></dt>
   <dd>
@@ -654,12 +751,37 @@ godoc
     <p><!-- CL 170678 -->
       The new field <a href="/pkg/net/#ListenConfig.KeepAlive"><code>ListenConfig.KeepAlive</code></a>
       specifies the keep-alive period for network connections accepted by the listener.
+      If this field is 0 (the default) TCP keep-alives will be enabled.
+      To disable them, set it to a negative value.
+    </p>
+    <p>
+      Note that the error returned from I/O on a connection that was
+      closed by a keep-alive timeout will have a
+      <code>Timeout</code> method that returns <code>true</code> if called.
+      This can make a keep-alive error difficult to distinguish from
+      an error returned due to a missed deadline as set by the
+      <a href="/pkg/net#Conn"><code>SetDeadline</code></a>
+      method and similar methods.
+      Code that uses deadlines and checks for them with
+      the <code>Timeout</code> method or
+      with <a href="/pkg/os/#IsTimeout"><code>os.IsTimeout</code></a>
+      may want to disable keep-alives, or
+      use <code>errors.Is(syscall.ETIMEDOUT)</code> (on Unix systems)
+      which will return true for a keep-alive timeout and false for a
+      deadline timeout.
     </p>
 
 </dl><!-- net -->
 
 <dl id="net/http"><dt><a href="/pkg/net/http/">net/http</a></dt>
   <dd>
+    <p><!-- CL 76410 -->
+      The new fields <a href="/pkg/net/http/#Transport.WriteBufferSize"><code>Transport.WriteBufferSize</code></a>
+      and <a href="/pkg/net/http/#Transport.ReadBufferSize"><code>Transport.ReadBufferSize</code></a>
+      allow one to specify the sizes of the write and read buffers for a <a href="/pkg/net/http/#Transport"><code>Transport</code></a>.
+      If either field is zero, a default size of 4KB is used.
+    </p>
+
     <p><!-- CL 130256 -->
       The new field <a href="/pkg/net/http/#Transport.ForceAttemptHTTP2"><code>Transport.ForceAttemptHTTP2</code></a>
       controls whether HTTP/2 is enabled when a non-zero <code>Dial</code>, <code>DialTLS</code>, or <code>DialContext</code>
@@ -676,6 +798,20 @@ godoc
       <a href="/pkg/net/http/#Pusher"><code>Pusher</code></a> and <a href="/pkg/net/http/#Flusher"><code>Flusher</code></a> interfaces.
     </p>
 
+    <p><!-- CL 157339 -->
+      The <code>StatusCode</code> <code>103</code> <code>"Early Hints"</code> has been added.
+    </p>
+
+    <p><!-- CL 163599 -->
+    <a href="/pkg/net/http/#Transport"><code>Transport</code></a> now uses the <a href="/pkg/net/http/#Request.Body"><code>Request.Body</code></a>'s
+    <a href="/pkg/io/#ReaderFrom"><code>io.ReaderFrom</code></a> implementation if available, to optimize writing the body.
+    </p>
+
+    <p><!-- CL 167017 -->
+      On encountering unsupported transfer-encodings, <a href="/pkg/net/http/#Server"><code>http.Server</code></a> now
+      returns a "501 Unimplemented" status as mandated by the HTTP specification <a href="https://tools.ietf.org/html/rfc7230#section-3.3.1">RFC 7230 Section 3.3.1</a>.
+    </p>
+
     <p><!-- CL 167681 -->
       The new <a href="/pkg/net/http#Server"><code>Server</code></a> fields
       <a href="/pkg/net/http/#Server.BaseContext"><code>BaseContext</code></a> and
@@ -683,9 +819,24 @@ godoc
       allow finer control over the <a href="/pkg/context#Context"><code>Context</code></a> values provided to requests and connections.
     </p>
 
+    <p><!-- CL 167781 -->
+      <a href="/pkg/net/http#DetectContentType"><code>http.DetectContentType</code></a> now correctly detects RAR signatures, and can now also detect RAR v5 signatures.
+    </p>
+
     <p><!-- CL 173658 -->
       The new <a href="/pkg/net/http/#Header"><code>Header</code></a> method
       <a href="/pkg/net/http/#Header.Clone"><code>Clone</code></a> returns a copy of the receiver.
+    </p>
+
+    <p><!-- CL 174324 -->
+      A new function <a href="/pkg/net/http/#NewRequestWithContext"><code>NewRequestWithContext</code></a> has been added and it
+      accepts a <a href="/pkg/context/#Context"><code>Context</code></a> that controls the entire lifetime of
+      the created outgoing <a href="/pkg/net/http/#Request"><code>Request</code></a>, suitable for use with
+      <a href="/pkg/net/http/#Client.Do"><code>Client.Do</code></a> and <a href="/pkg/net/http/#Transport.RoundTrip"><code>Transport.RoundTrip</code></a>.
+    </p>
+
+    <p><!-- CL 179457 -->
+      <a href="/pkg/net/http/#Transport"><code>Transport</code></a> now silently ignores a <code>408 "Request Timeout"</code> response.
     </p>
 
 </dl><!-- net/http -->
@@ -729,10 +880,10 @@ godoc
 <dl id="runtime"><dt><a href="/pkg/runtime/">runtime</a></dt>
   <dd>
     <p> <!-- CL 167780 -->
-      Tracebacks, <code>runtime.Caller</code>,
-      and <code>runtime.Callers</code> now refer to the function that
+      Tracebacks, <a href="/pkg/runtime/#Caller"><code>runtime.Caller</code></a>,
+      and <a href="/pkg/runtime/#Callers"><code>runtime.Callers</code></a> now refer to the function that
       initializes the global variables of <code>PKG</code>
-      as <code>PKG.init</code> instead of <code>PKG.init.ializers</code>
+      as <code>PKG.init</code> instead of <code>PKG.init.ializers</code>.
     </p>
 
 </dl><!-- runtime -->
@@ -748,6 +899,14 @@ godoc
 
 <dl id="sync"><dt><a href="/pkg/sync/">sync</a></dt>
   <dd>
+    <p><!-- CL 148958, CL 148959, CL 152697, CL 152698 -->
+      The fast paths of <a href="/pkg/sync/#Mutex.Lock"><code>Mutex.Lock</code></a>, <a href="/pkg/sync/#Mutex.Unlock"><code>Mutex.Unlock</code></a>,
+      <a href="/pkg/sync/#RWMutex.Lock"><code>RWMutex.Lock</code></a>, <a href="/pkg/sync/#Mutex.RUnlock"><code>RWMutex.RUnlock</code></a>, and
+      <a href="/pkg/sync/#Once.Do"><code>Once.Do</code></a> are now inlined in their callers.
+      For the uncontended cases on amd64, these changes make <a href="/pkg/sync/#Once.Do"><code>Once.Do</code></a> twice as fast, and the
+      <a href="/pkg/sync/#Mutex"><code>Mutex</code></a>/<a href="/pkg/sync/#RWMutex"><code>RWMutex</code></a> methods up to 10% faster.
+    </p>
+
     <p><!-- CL 166960 -->
       Large <a href="/pkg/sync/#Pool"><code>Pool</code></a> no longer increase stop-the-world pause times.
     </p>
@@ -762,8 +921,9 @@ godoc
 <dl id="syscall"><dt><a href="/pkg/syscall/">syscall</a></dt>
   <dd>
     <p><!-- CL 168479 -->
-      Uses of <code>_getdirentries64</code> have been removed from Darwin builds, to allow binaries
-      built with 1.12 to be uploaded to the macOS App Store.
+      Uses of <code>_getdirentries64</code> have been removed from
+      Darwin builds, to allow Go binaries to be uploaded to the macOS
+      App Store.
     </p>
 
     <p><!-- CL 174197 -->
@@ -782,7 +942,7 @@ godoc
 <dl id="syscall/js"><dt><a href="/pkg/syscall/js/">syscall/js</a></dt>
   <dd>
     <p><!-- CL 177537 -->
-      <a href="/pkg/syscall/js/#TypedArray"><code>TypedArrayOf</code></a> has been replaced by
+      TypedArrayOf has been replaced by
       <a href="/pkg/syscall/js/#CopyBytesToGo"><code>CopyBytesToGo</code></a> and
       <a href="/pkg/syscall/js/#CopyBytesToJS"><code>CopyBytesToJS</code></a> for copying bytes between a byte slice and a Uint8Array.
     </p>
@@ -801,8 +961,10 @@ godoc
     </p>
 
     <p><!-- CL 173722 -->
-      Testing flags are now registered in the new <a href="/pkg/testing/#Init"><code>Init</code></a> function.
-      As a result, testing flags are now only registered when running a test binary.
+      Testing flags are now registered in the new <a href="/pkg/testing/#Init"><code>Init</code></a> function,
+      which is invoked by the generated <code>main</code> function for the test.
+      As a result, testing flags are now only registered when running a test binary,
+      and packages that call <code>flag.Parse</code> during package initialization may cause tests to fail.
     </p>
 
 </dl><!-- testing -->
@@ -832,7 +994,7 @@ godoc
 <dl id="time"><dt><a href="/pkg/time/">time</a></dt>
   <dd>
     <p><!-- CL 122876 -->
-      Day-of-year is now supported by <a href="/pkg/time/#time.Format"><code>Format</code></a>
+      Day-of-year is now supported by <a href="/pkg/time/#Time.Format"><code>Format</code></a>
       and <a href="/pkg/time/#Parse"><code>Parse</code></a>.
     </p>
 
@@ -845,3 +1007,13 @@ godoc
 
 </dl><!-- time -->
 
+<dl id="unicode"><dt><a href="/pkg/unicode/">unicode</a></dt>
+  <dd>
+    <p>
+      The <a href="/pkg/unicode/"><code>unicode</code></a> package and associated
+      support throughout the system has been upgraded from Unicode 10.0 to
+      <a href="http://www.unicode.org/versions/Unicode11.0.0/">Unicode 11.0</a>,
+      which adds 684 new characters, including seven new scripts, and 66 new emoji.
+    </p>
+
+</dl><!-- unicode -->
