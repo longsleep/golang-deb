@@ -118,6 +118,9 @@ override_dh_strip_nondeterminism:
 override_dh_shlibdeps:
 	dh_shlibdeps -Xtestdata -Xtest
 
+override_dh_makeshlibs:
+	dh_makeshlibs -Xtestdata -Xtest
+
 override_dh_auto_build-arch:
 	[ -f VERSION ] || echo "debian snapshot +$$(dpkg-parsechangelog -SVersion)" > VERSION
 	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
