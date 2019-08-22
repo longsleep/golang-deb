@@ -1,3 +1,13 @@
+golang-1.13 (1.13~rc1-1) unstable; urgency=medium
+
+  * New upstream version 1.13~rc1
+    - Remove patch for CVE-2019-14809, has been applied upstream
+  * Use dh_missing instead of deprecated dh_install --fail-missing
+  * Do not run dh_dwz, there is no debugging information
+  * Use debhelper-compat (= 12)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 22 Aug 2019 12:48:15 +0200
+
 golang-1.13 (1.13~beta1-3) unstable; urgency=high
 
   * Fix Denial of Service vulnerabilities in the HTTP/2 implementation.
