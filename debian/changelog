@@ -1,3 +1,11 @@
+golang-1.13 (1.13~rc2-1) unstable; urgency=medium
+
+  * New upstream version 1.13~rc2
+    - Remove patch for CVE-2019-9512 and CVE-2019-9514,
+      has been applied upstream
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 30 Aug 2019 13:29:21 +0200
+
 golang-1.13 (1.13~rc1-2) unstable; urgency=medium
 
   * Exclude testdata from dh_makeshlibs.
