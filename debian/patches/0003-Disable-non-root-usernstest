@@ -1,0 +1,10 @@
+--- a/src/syscall/exec_linux_test.go
++++ b/src/syscall/exec_linux_test.go
+@@ -49,6 +49,7 @@ func skipUnprivilegedUserClone(t *testin
+ 	if errRead != nil || len(data) < 1 || data[0] == '0' {
+ 		t.Skip("kernel prohibits user namespace in unprivileged process")
+ 	}
++	t.Skip("always skip user namespace tests - see https://github.com/golang/go/issues/34015")
+ }
+ 
+ // Check if we are in a chroot by checking if the inode of / is
