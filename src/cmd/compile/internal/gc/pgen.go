@@ -13,6 +13,7 @@ import (
 	"cmd/internal/src"
 	"cmd/internal/sys"
 	"fmt"
+	"internal/race"
 	"math/rand"
 	"sort"
 	"sync"
@@ -258,17 +259,15 @@ func compile(fn *Node) {
 	// be types of stack objects. We need to do this here
 	// because symbols must be allocated before the parallel
 	// phase of the compiler.
-	if fn.Func.lsym != nil { // not func _(){}
-		for _, n := range fn.Func.Dcl {
-			switch n.Class() {
-			case PPARAM, PPARAMOUT, PAUTO:
-				if livenessShouldTrack(n) && n.Addrtaken() {
-					dtypesym(n.Type)
-					// Also make sure we allocate a linker symbol
-					// for the stack object data, for the same reason.
-					if fn.Func.lsym.Func.StackObjects == nil {
-						fn.Func.lsym.Func.StackObjects = Ctxt.Lookup(fn.Func.lsym.Name + ".stkobj")
-					}
+	for _, n := range fn.Func.Dcl {
+		switch n.Class() {
+		case PPARAM, PPARAMOUT, PAUTO:
+			if livenessShouldTrack(n) && n.Addrtaken() {
+				dtypesym(n.Type)
+				// Also make sure we allocate a linker symbol
+				// for the stack object data, for the same reason.
+				if fn.Func.lsym.Func.StackObjects == nil {
+					fn.Func.lsym.Func.StackObjects = Ctxt.Lookup(fn.Func.lsym.Name + ".stkobj")
 				}
 			}
 		}
@@ -327,7 +326,7 @@ func compileSSA(fn *Node, worker int) {
 }
 
 func init() {
-	if raceEnabled {
+	if race.Enabled {
 		rand.Seed(time.Now().UnixNano())
 	}
 }
@@ -338,7 +337,7 @@ func init() {
 func compileFunctions() {
 	if len(compilequeue) != 0 {
 		sizeCalculationDisabled = true // not safe to calculate sizes concurrently
-		if raceEnabled {
+		if race.Enabled {
 			// Randomize compilation order to try to shake out races.
 			tmp := make([]*Node, len(compilequeue))
 			perm := rand.Perm(len(compilequeue))
@@ -350,7 +349,7 @@ func compileFunctions() {
 			// Compile the longest functions first,
 			// since they're most likely to be the slowest.
 			// This helps avoid stragglers.
-			obj.SortSlice(compilequeue, func(i, j int) bool {
+			sort.Slice(compilequeue, func(i, j int) bool {
 				return compilequeue[i].Nbody.Len() > compilequeue[j].Nbody.Len()
 			})
 		}
@@ -555,11 +554,9 @@ func createDwarfVars(fnsym *obj.LSym, fn *Func, automDecls []*Node) ([]*Node, []
 		decls, vars, selected = createSimpleVars(automDecls)
 	}
 
-	var dcl []*Node
+	dcl := automDecls
 	if fnsym.WasInlined() {
 		dcl = preInliningDcls(fnsym)
-	} else {
-		dcl = automDecls
 	}
 
 	// If optimization is enabled, the list above will typically be

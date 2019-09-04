@@ -19,12 +19,12 @@ import (
 
 const (
 	_SYS_FSTAT_FREEBSD12         = 551 // { int fstat(int fd, _Out_ struct stat *sb); }
-	_SYS_FSTATAT_FREEBSD12       = 552 // { int fstatat(int fd, _In_z_ char *path, \
-	_SYS_GETDIRENTRIES_FREEBSD12 = 554 // { ssize_t getdirentries(int fd, \
-	_SYS_STATFS_FREEBSD12        = 555 // { int statfs(_In_z_ char *path, \
-	_SYS_FSTATFS_FREEBSD12       = 556 // { int fstatfs(int fd, \
-	_SYS_GETFSSTAT_FREEBSD12     = 557 // { int getfsstat( \
-	_SYS_MKNODAT_FREEBSD12       = 559 // { int mknodat(int fd, _In_z_ char *path, \
+	_SYS_FSTATAT_FREEBSD12       = 552 // { int fstatat(int fd, _In_z_ char *path, _Out_ struct stat *buf, int flag); }
+	_SYS_GETDIRENTRIES_FREEBSD12 = 554 // { ssize_t getdirentries(int fd, _Out_writes_bytes_(count) char *buf, size_t count, _Out_ off_t *basep); }
+	_SYS_STATFS_FREEBSD12        = 555 // { int statfs(_In_z_ char *path, _Out_ struct statfs *buf); }
+	_SYS_FSTATFS_FREEBSD12       = 556 // { int fstatfs(int fd, _Out_ struct statfs *buf); }
+	_SYS_GETFSSTAT_FREEBSD12     = 557 // { int getfsstat(_Out_writes_bytes_opt_(bufsize) struct statfs *buf, long bufsize, int mode); }
+	_SYS_MKNODAT_FREEBSD12       = 559 // { int mknodat(int fd, _In_z_ char *path, mode_t mode, dev_t dev); }
 )
 
 // See https://www.freebsd.org/doc/en_US.ISO8859-1/books/porters-handbook/versions.html.
@@ -267,7 +267,21 @@ func Fstatfs(fd int, st *Statfs_t) (err error) {
 
 func Getdirentries(fd int, buf []byte, basep *uintptr) (n int, err error) {
 	if supportsABI(_ino64First) {
-		return getdirentries_freebsd12(fd, buf, basep)
+		if basep == nil || unsafe.Sizeof(*basep) == 8 {
+			return getdirentries_freebsd12(fd, buf, (*uint64)(unsafe.Pointer(basep)))
+		}
+		// The freebsd12 syscall needs a 64-bit base. On 32-bit machines
+		// we can't just use the basep passed in. See #32498.
+		var base uint64 = uint64(*basep)
+		n, err = getdirentries_freebsd12(fd, buf, &base)
+		*basep = uintptr(base)
+		if base>>32 != 0 {
+			// We can't stuff the base back into a uintptr, so any
+			// future calls would be suspect. Generate an error.
+			// EIO is allowed by getdirentries.
+			err = EIO
+		}
+		return
 	}
 
 	// The old syscall entries are smaller than the new. Use 1/4 of the original
@@ -424,7 +438,7 @@ func convertFromDirents11(buf []byte, old []byte) int {
 //sys	Fsync(fd int) (err error)
 //sys	Ftruncate(fd int, length int64) (err error)
 //sys	getdirentries(fd int, buf []byte, basep *uintptr) (n int, err error)
-//sys	getdirentries_freebsd12(fd int, buf []byte, basep *uintptr) (n int, err error) = _SYS_GETDIRENTRIES_FREEBSD12
+//sys	getdirentries_freebsd12(fd int, buf []byte, basep *uint64) (n int, err error) = _SYS_GETDIRENTRIES_FREEBSD12
 //sys	Getdtablesize() (size int)
 //sysnb	Getegid() (egid int)
 //sysnb	Geteuid() (uid int)

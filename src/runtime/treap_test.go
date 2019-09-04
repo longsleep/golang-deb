@@ -5,19 +5,23 @@
 package runtime_test
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 )
 
-var spanDesc = map[uintptr]uintptr{
-	0xc0000000: 2,
-	0xc0006000: 1,
-	0xc0010000: 8,
-	0xc0022000: 7,
-	0xc0034000: 4,
-	0xc0040000: 5,
-	0xc0050000: 5,
-	0xc0060000: 5000,
+var spanDesc = map[uintptr]struct {
+	pages uintptr
+	scav  bool
+}{
+	0xc0000000: {2, false},
+	0xc0006000: {1, false},
+	0xc0010000: {8, false},
+	0xc0022000: {7, false},
+	0xc0034000: {4, true},
+	0xc0040000: {5, false},
+	0xc0050000: {5, true},
+	0xc0060000: {5000, false},
 }
 
 // Wrap the Treap one more time because go:notinheap doesn't
@@ -28,6 +32,31 @@ type treap struct {
 	runtime.Treap
 }
 
+func maskMatchName(mask, match runtime.TreapIterType) string {
+	return fmt.Sprintf("%0*b-%0*b", runtime.TreapIterBits, uint8(mask), runtime.TreapIterBits, uint8(match))
+}
+
+func TestTreapFilter(t *testing.T) {
+	var iterTypes = [...]struct {
+		mask, match runtime.TreapIterType
+		filter      runtime.TreapIterFilter // expected filter
+	}{
+		{0, 0, 0xf},
+		{runtime.TreapIterScav, 0, 0x5},
+		{runtime.TreapIterScav, runtime.TreapIterScav, 0xa},
+		{runtime.TreapIterScav | runtime.TreapIterHuge, runtime.TreapIterHuge, 0x4},
+		{runtime.TreapIterScav | runtime.TreapIterHuge, 0, 0x1},
+		{0, runtime.TreapIterScav, 0x0},
+	}
+	for _, it := range iterTypes {
+		t.Run(maskMatchName(it.mask, it.match), func(t *testing.T) {
+			if f := runtime.TreapFilter(it.mask, it.match); f != it.filter {
+				t.Fatalf("got %#x, want %#x", f, it.filter)
+			}
+		})
+	}
+}
+
 // This test ensures that the treap implementation in the runtime
 // maintains all stated invariants after different sequences of
 // insert, removeSpan, find, and erase. Invariants specific to the
@@ -36,12 +65,37 @@ type treap struct {
 // treap.
 func TestTreap(t *testing.T) {
 	// Set up a bunch of spans allocated into mheap_.
+	// Also, derive a set of typeCounts of each type of span
+	// according to runtime.TreapIterType so we can verify against
+	// them later.
 	spans := make([]runtime.Span, 0, len(spanDesc))
-	for base, pages := range spanDesc {
-		s := runtime.AllocSpan(base, pages)
+	typeCounts := [1 << runtime.TreapIterBits][1 << runtime.TreapIterBits]int{}
+	for base, de := range spanDesc {
+		s := runtime.AllocSpan(base, de.pages, de.scav)
 		defer s.Free()
 		spans = append(spans, s)
+
+		for i := runtime.TreapIterType(0); i < 1<<runtime.TreapIterBits; i++ {
+			for j := runtime.TreapIterType(0); j < 1<<runtime.TreapIterBits; j++ {
+				if s.MatchesIter(i, j) {
+					typeCounts[i][j]++
+				}
+			}
+		}
 	}
+	t.Run("TypeCountsSanity", func(t *testing.T) {
+		// Just sanity check type counts for a few values.
+		check := func(mask, match runtime.TreapIterType, count int) {
+			tc := typeCounts[mask][match]
+			if tc != count {
+				name := maskMatchName(mask, match)
+				t.Fatalf("failed a sanity check for mask/match %s counts: got %d, wanted %d", name, tc, count)
+			}
+		}
+		check(0, 0, len(spanDesc))
+		check(runtime.TreapIterScav, 0, 6)
+		check(runtime.TreapIterScav, runtime.TreapIterScav, 2)
+	})
 	t.Run("Insert", func(t *testing.T) {
 		tr := treap{}
 		// Test just a very basic insert/remove for sanity.
@@ -58,20 +112,18 @@ func TestTreap(t *testing.T) {
 		}
 		tr.RemoveSpan(spans[0])
 	})
-	t.Run("FindBestFit", func(t *testing.T) {
+	t.Run("FindFirstFit", func(t *testing.T) {
 		// Run this 10 times, recreating the treap each time.
 		// Because of the non-deterministic structure of a treap,
 		// we'll be able to test different structures this way.
 		for i := 0; i < 10; i++ {
-			tr := treap{}
+			tr := runtime.Treap{}
 			for _, s := range spans {
 				tr.Insert(s)
 			}
 			i := tr.Find(5)
-			if i.Span().Pages() != 5 {
-				t.Fatalf("expected span of size 5, got span of size %d", i.Span().Pages())
-			} else if i.Span().Base() != 0xc0040000 {
-				t.Fatalf("expected span to have the lowest base address, instead got base %x", i.Span().Base())
+			if i.Span().Base() != 0xc0010000 {
+				t.Fatalf("expected span at lowest address which could fit 5 pages, instead found span at %x", i.Span().Base())
 			}
 			for _, s := range spans {
 				tr.RemoveSpan(s)
@@ -79,61 +131,74 @@ func TestTreap(t *testing.T) {
 		}
 	})
 	t.Run("Iterate", func(t *testing.T) {
-		t.Run("StartToEnd", func(t *testing.T) {
-			// Ensure progressing an iterator actually goes over the whole treap
-			// from the start and that it iterates over the elements in order.
-			// Also ensures that Start returns a valid iterator.
-			tr := treap{}
-			for _, s := range spans {
-				tr.Insert(s)
+		for mask := runtime.TreapIterType(0); mask < 1<<runtime.TreapIterBits; mask++ {
+			for match := runtime.TreapIterType(0); match < 1<<runtime.TreapIterBits; match++ {
+				iterName := maskMatchName(mask, match)
+				t.Run(iterName, func(t *testing.T) {
+					t.Run("StartToEnd", func(t *testing.T) {
+						// Ensure progressing an iterator actually goes over the whole treap
+						// from the start and that it iterates over the elements in order.
+						// Furthermore, ensure that it only iterates over the relevant parts
+						// of the treap.
+						// Finally, ensures that Start returns a valid iterator.
+						tr := treap{}
+						for _, s := range spans {
+							tr.Insert(s)
+						}
+						nspans := 0
+						lastBase := uintptr(0)
+						for i := tr.Start(mask, match); i.Valid(); i = i.Next() {
+							nspans++
+							if lastBase > i.Span().Base() {
+								t.Fatalf("not iterating in correct order: encountered base %x before %x", lastBase, i.Span().Base())
+							}
+							lastBase = i.Span().Base()
+							if !i.Span().MatchesIter(mask, match) {
+								t.Fatalf("found non-matching span while iteration over mask/match %s: base %x", iterName, i.Span().Base())
+							}
+						}
+						if nspans != typeCounts[mask][match] {
+							t.Fatal("failed to iterate forwards over full treap")
+						}
+						for _, s := range spans {
+							tr.RemoveSpan(s)
+						}
+					})
+					t.Run("EndToStart", func(t *testing.T) {
+						// See StartToEnd tests.
+						tr := treap{}
+						for _, s := range spans {
+							tr.Insert(s)
+						}
+						nspans := 0
+						lastBase := ^uintptr(0)
+						for i := tr.End(mask, match); i.Valid(); i = i.Prev() {
+							nspans++
+							if lastBase < i.Span().Base() {
+								t.Fatalf("not iterating in correct order: encountered base %x before %x", lastBase, i.Span().Base())
+							}
+							lastBase = i.Span().Base()
+							if !i.Span().MatchesIter(mask, match) {
+								t.Fatalf("found non-matching span while iteration over mask/match %s: base %x", iterName, i.Span().Base())
+							}
+						}
+						if nspans != typeCounts[mask][match] {
+							t.Fatal("failed to iterate backwards over full treap")
+						}
+						for _, s := range spans {
+							tr.RemoveSpan(s)
+						}
+					})
+				})
 			}
-			nspans := 0
-			lastSize := uintptr(0)
-			for i := tr.Start(); i.Valid(); i = i.Next() {
-				nspans++
-				if lastSize > i.Span().Pages() {
-					t.Fatalf("not iterating in correct order: encountered size %d before %d", lastSize, i.Span().Pages())
-				}
-				lastSize = i.Span().Pages()
-			}
-			if nspans != len(spans) {
-				t.Fatal("failed to iterate forwards over full treap")
-			}
-			for _, s := range spans {
-				tr.RemoveSpan(s)
-			}
-		})
-		t.Run("EndToStart", func(t *testing.T) {
-			// Ensure progressing an iterator actually goes over the whole treap
-			// from the end and that it iterates over the elements in reverse
-			// order. Also ensures that End returns a valid iterator.
-			tr := treap{}
-			for _, s := range spans {
-				tr.Insert(s)
-			}
-			nspans := 0
-			lastSize := ^uintptr(0)
-			for i := tr.End(); i.Valid(); i = i.Prev() {
-				nspans++
-				if lastSize < i.Span().Pages() {
-					t.Fatalf("not iterating in correct order: encountered size %d before %d", lastSize, i.Span().Pages())
-				}
-				lastSize = i.Span().Pages()
-			}
-			if nspans != len(spans) {
-				t.Fatal("failed to iterate backwards over full treap")
-			}
-			for _, s := range spans {
-				tr.RemoveSpan(s)
-			}
-		})
+		}
 		t.Run("Prev", func(t *testing.T) {
 			// Test the iterator invariant that i.prev().next() == i.
 			tr := treap{}
 			for _, s := range spans {
 				tr.Insert(s)
 			}
-			i := tr.Start().Next().Next()
+			i := tr.Start(0, 0).Next().Next()
 			p := i.Prev()
 			if !p.Valid() {
 				t.Fatal("i.prev() is invalid")
@@ -151,7 +216,7 @@ func TestTreap(t *testing.T) {
 			for _, s := range spans {
 				tr.Insert(s)
 			}
-			i := tr.Start().Next().Next()
+			i := tr.Start(0, 0).Next().Next()
 			n := i.Next()
 			if !n.Valid() {
 				t.Fatal("i.next() is invalid")
@@ -171,7 +236,7 @@ func TestTreap(t *testing.T) {
 		for _, s := range spans {
 			tr.Insert(s)
 		}
-		i := tr.Start().Next().Next().Next()
+		i := tr.Start(0, 0).Next().Next().Next()
 		s := i.Span()
 		n := i.Next()
 		p := i.Prev()
@@ -193,7 +258,7 @@ func TestTreap(t *testing.T) {
 		for _, s := range spans {
 			tr.Insert(s)
 		}
-		for i := tr.Start(); i.Valid(); {
+		for i := tr.Start(0, 0); i.Valid(); {
 			n := i.Next()
 			tr.Erase(i)
 			i = n
