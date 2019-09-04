@@ -1,3 +1,9 @@
+golang-1.13 (1.13-1longsleep2+xenial) xenial; urgency=medium
+
+  * Skip tests which requre userns support
+
+ -- Simon Eisenmann <simon@longsleep.org>  Wed, 04 Sep 2019 14:55:28 +0200
+
 golang-1.13 (1.13-1longsleep1+xenial) xenial; urgency=medium
 
   [ Simon Eisenmann ]
