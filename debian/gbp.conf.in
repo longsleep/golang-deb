@@ -3,7 +3,7 @@ debian-branch = golang-X.Y
 debian-tag = debian/%(version)s
 upstream-branch = upstream-X.Y
 upstream-tag = upstream/%(version)s
-pristine-tar = True
+pristine-tar = False
 
 [dch]
 meta = 1
