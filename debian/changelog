@@ -1,3 +1,20 @@
+golang-1.13 (1.13-1longsleep1+xenial) xenial; urgency=medium
+
+  [ Simon Eisenmann ]
+  * Go 1.13
+  * Imported Upstream version 1.13
+
+  [ Dr. Tobias Quathamer ]
+  * Exclude testdata from dh_makeshlibs.
+  * Remove Reproducible-BUILD_PATH_PREFIX_MAP.patch.
+  * Remove arm64-arm64asm-recognise-new-ssbb-pssbb-mnemonics-fr.patch.
+  * Refresh remaining patches
+  * Refresh patch
+
+  [ Simon Eisenmann ]
+
+ -- Simon Eisenmann <simon@longsleep.org>  Wed, 04 Sep 2019 13:42:19 +0200
+
 golang-1.12 (1.12.8-1longsleep1+xenial) xenial; urgency=medium
 
   [ Dr. Tobias Quathamer ]
