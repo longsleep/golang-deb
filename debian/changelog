@@ -1,3 +1,11 @@
+golang-1.13 (1.13-1) unstable; urgency=medium
+
+  * New upstream version 1.13
+    - Refresh patch
+  * Set pristine-tar for gbp to False
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 04 Sep 2019 11:28:07 +0200
+
 golang-1.13 (1.13~rc2-1) unstable; urgency=medium
 
   * New upstream version 1.13~rc2
