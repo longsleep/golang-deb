@@ -1,3 +1,13 @@
+golang-1.11 (1.11.6-1+deb10u2) buster-security; urgency=high
+
+  * Fix normalization of headers with spaces before the colon.
+    https://github.com/golang/go/issues/34541
+    CVE-2019-16276
+  * Refresh patches
+  * Adapt gbp.conf for security branch
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 26 Sep 2019 11:55:04 +0200
+
 golang-1.11 (1.11.6-1+deb10u1) buster-security; urgency=high
 
   * Fix Denial of Service vulnerabilities in the HTTP/2 implementation.
