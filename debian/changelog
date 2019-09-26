@@ -1,3 +1,15 @@
+golang-1.12 (1.12.10-1) unstable; urgency=medium
+
+  * New upstream version 1.12.10
+    - net/textproto: don't normalize headers with spaces before the colon.
+      Fixes CVE-2019-16276. See https://github.com/golang/go/issues/34541
+      Closes: #941173
+  * Apply changes from cme fix dpkg
+  * Set Rules-Requires-Root: no
+  * Regenerate d/control
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 26 Sep 2019 11:18:04 +0200
+
 golang-1.12 (1.12.9-2) unstable; urgency=medium
 
   * Exclude testdata from dh_makeshlibs.
