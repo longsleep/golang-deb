@@ -4,3 +4,4 @@
 0004-fix-Fstatat-by-using-fillStat_t-on-linux-mips64x.patch
 0005-Fix-CVE-2019-9512-and-CVE-2019-9514.patch
 0006-Fix-CVE-2019-14809.patch
+0007-Fix-CVE-2019-16276.patch
