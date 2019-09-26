@@ -1,5 +1,5 @@
 [DEFAULT]
-debian-branch = golang-X.Y
+debian-branch = debian/1.11/buster
 debian-tag = debian/%(version)s
 upstream-branch = upstream-X.Y
 upstream-tag = upstream/%(version)s
