@@ -1,3 +1,13 @@
+golang-1.13 (1.13.3-1) unstable; urgency=medium
+
+  * New upstream version 1.13.3
+    - Refresh patch
+    - crypto/dsa: invalid public key causes panic in dsa.Verify.
+      Fixes CVE-2019-17596. Closes: #942628
+  * Update Standards-Version to 4.4.1, no changes needed
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 19 Oct 2019 13:30:36 +0200
+
 golang-1.13 (1.13.1-1) unstable; urgency=medium
 
   * New upstream version 1.13.1
