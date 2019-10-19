@@ -1,3 +1,11 @@
+golang-1.11 (1.11.6-1+deb10u3) buster-security; urgency=high
+
+  * crypto/dsa: prevent bad public keys from causing panic
+    https://github.com/golang/go/issues/34960
+    CVE-2019-17596
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 19 Oct 2019 14:12:42 +0200
+
 golang-1.11 (1.11.6-1+deb10u2) buster-security; urgency=high
 
   * Fix normalization of headers with spaces before the colon.
