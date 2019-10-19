@@ -1,3 +1,14 @@
+golang-1.12 (1.12.12-1) unstable; urgency=medium
+
+  * New upstream version 1.12.12
+    - Remove patch 0003-arm64-arm64asm-recognise-ssbb-pssbb-mnemonics.patch,
+      has been applied upstream.
+    - crypto/dsa: invalid public key causes panic in dsa.Verify.
+      Fixes CVE-2019-17596. Closes: #942629
+  * Update Standards-Version to 4.4.1, no changes needed
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 19 Oct 2019 13:51:14 +0200
+
 golang-1.12 (1.12.10-1) unstable; urgency=medium
 
   * New upstream version 1.12.10
