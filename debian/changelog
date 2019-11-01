@@ -1,3 +1,10 @@
+golang-1.13 (1.13.4-1) unstable; urgency=medium
+
+  * New upstream version 1.13.4
+    - Refresh patches
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 01 Nov 2019 21:07:16 +0100
+
 golang-1.13 (1.13.3-1) unstable; urgency=medium
 
   * New upstream version 1.13.3
