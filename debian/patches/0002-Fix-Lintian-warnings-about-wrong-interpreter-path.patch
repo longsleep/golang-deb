@@ -18,7 +18,7 @@ grep -rH "/usr/bin/env perl" * | cut -d: -f1 | xargs -n1 sed -i -e "s,/usr/bin/e
  9 files changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/src/syscall/mksyscall.pl b/src/syscall/mksyscall.pl
-index 2a82145..7440ae6 100755
+index 25b40d7..007d03c 100755
 --- a/src/syscall/mksyscall.pl
 +++ b/src/syscall/mksyscall.pl
 @@ -1,4 +1,4 @@
