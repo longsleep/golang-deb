@@ -31,3 +31,4 @@ golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/s
 golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-386-mingw-exec ASLR DEP/NX
 golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec ASLR DEP/NX
 golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/gcc-amd64-mingw-exec ASLR DEP/NX
+golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/vmlinuz-4.15.0-47-generic ASLR DEP/NX
