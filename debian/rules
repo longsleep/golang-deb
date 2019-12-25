@@ -98,7 +98,6 @@ override_dh_install-arch:
 	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
 	# Make scripts executable which have been missed by upstream
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmp.bash
-	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/runtime/mknacl.sh
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/unix/mkall.sh
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/unix/mkerrors.sh
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/windows/mkerrors.bash
