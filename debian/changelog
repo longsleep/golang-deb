@@ -1,3 +1,10 @@
+golang-1.14 (1.14~beta1-2) unstable; urgency=medium
+
+  * Source-only upload.
+  * Add two more lintian overrides for testdata
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 26 Dec 2019 20:11:44 +0100
+
 golang-1.14 (1.14~beta1-1) unstable; urgency=medium
 
   * New upstream major version.
