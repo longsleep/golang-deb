@@ -1,3 +1,10 @@
+golang-1.13 (1.13.6-2) unstable; urgency=medium
+
+  * Add Breaks: dh-golang (<< 1.43~) to golang-go.
+    Thanks to Pirate Praveen <praveen@onenetbeyond.org>
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 20 Jan 2020 21:26:09 +0100
+
 golang-1.13 (1.13.6-1) unstable; urgency=medium
 
   * New upstream version 1.13.6
