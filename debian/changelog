@@ -1,3 +1,16 @@
+golang-1.13 (1.13.7-1) unstable; urgency=medium
+
+  * New upstream version 1.13.7
+    - cryptobyte: fix panic due to malformed ASN.1 inputs on 32-bit archs.
+      When int is 32 bits wide (on 32-bit architectures like 386 and arm),
+      an overflow could occur, causing a panic, due to malformed ASN.1
+      being passed to any of the ASN1 methods of String.
+      This fixes CVE-2020-7919 and was found thanks to the
+      Project Wycheproof test vectors.
+  * Update upstream's signing key
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 31 Jan 2020 21:47:40 +0100
+
 golang-1.13 (1.13.6-2) unstable; urgency=medium
 
   * Add Breaks: dh-golang (<< 1.43~) to golang-go.
