@@ -11,7 +11,7 @@ __goos__deb_arch_os() {
 
 __goarch__deb_arch_cpu() {
 	case "$1" in
-		amd64|arm|arm64|mips|ppc64|s390x) echo "$1" ;;
+		amd64|arm|arm64|mips|ppc64|riscv64|s390x) echo "$1" ;;
 		i386) echo 386 ;;
 		mips64el) echo mips64le ;;
 		mipsel) echo mipsle ;;
