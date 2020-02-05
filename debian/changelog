@@ -1,3 +1,15 @@
+golang-1.14 (1.14~rc1-1) unstable; urgency=medium
+
+  * New upstream version 1.14~rc1
+    - Fixes CVE-2020-7919
+  * Add Breaks: dh-golang (<< 1.43~) to golang-go.
+    Thanks to Pirate Praveen <praveen@onenetbeyond.org>
+  * Update upstream's signing key
+  * Add support for riscv64.
+    Thanks to Aurelien Jarno <aurel32@debian.org> (Closes: #950517)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 05 Feb 2020 23:54:28 +0100
+
 golang-1.14 (1.14~beta1-2) unstable; urgency=medium
 
   * Source-only upload.
