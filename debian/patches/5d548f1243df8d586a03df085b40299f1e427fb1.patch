@@ -1,0 +1,32 @@
+From 5d548f1243df8d586a03df085b40299f1e427fb1 Mon Sep 17 00:00:00 2001
+From: Tobias Klauser <tklauser@distanz.ch>
+Date: Thu, 19 Sep 2019 17:16:59 +0200
+Subject: [PATCH] syscall: extend skip criteria for TestAmbientCapsUserns
+
+TestAmbientCapsUserns also needs to be skipped, e.g. in case the test is
+run inside a chroot.
+
+Updates #34015
+
+Change-Id: I53913432fe9408217edfe64619adbfd911a51a7a
+Reviewed-on: https://go-review.googlesource.com/c/go/+/196500
+Run-TryBot: Tobias Klauser <tobias.klauser@gmail.com>
+Reviewed-by: Brad Fitzpatrick <bradfitz@golang.org>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+---
+ src/syscall/exec_linux_test.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
+index ee864ac0d4b..f7fab7b6596 100644
+--- a/src/syscall/exec_linux_test.go
++++ b/src/syscall/exec_linux_test.go
+@@ -577,7 +577,7 @@ func TestAmbientCaps(t *testing.T) {
+ }
+ 
+ func TestAmbientCapsUserns(t *testing.T) {
+-	skipNoUserNamespaces(t)
++	checkUserNS(t)
+ 	testAmbientCaps(t, true)
+ }
+ 

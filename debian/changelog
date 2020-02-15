@@ -1,8 +1,26 @@
+golang-1.13 (1.13.8-1ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 15 Feb 2020 19:41:49 +0100
+
 golang-1.13 (1.13.8-1) unstable; urgency=medium
 
   * New upstream version 1.13.8
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 13 Feb 2020 22:17:59 +0100
+
+golang-1.13 (1.13.7-1ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 01 Feb 2020 08:58:30 +0100
 
 golang-1.13 (1.13.7-1) unstable; urgency=medium
 
@@ -17,6 +35,15 @@ golang-1.13 (1.13.7-1) unstable; urgency=medium
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 31 Jan 2020 21:47:40 +0100
 
+golang-1.13 (1.13.6-2ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Tue, 21 Jan 2020 09:39:30 +0100
+
 golang-1.13 (1.13.6-2) unstable; urgency=medium
 
   * Add Breaks: dh-golang (<< 1.43~) to golang-go.
@@ -24,11 +51,29 @@ golang-1.13 (1.13.6-2) unstable; urgency=medium
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 20 Jan 2020 21:26:09 +0100
 
+golang-1.13 (1.13.6-1ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Mon, 13 Jan 2020 09:19:58 +0100
+
 golang-1.13 (1.13.6-1) unstable; urgency=medium
 
   * New upstream version 1.13.6
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 09 Jan 2020 22:57:32 +0100
+
+golang-1.13 (1.13.5-1ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Fri, 06 Dec 2019 13:06:09 +0100
 
 golang-1.13 (1.13.5-1) unstable; urgency=medium
 
@@ -36,12 +81,30 @@ golang-1.13 (1.13.5-1) unstable; urgency=medium
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 05 Dec 2019 12:27:21 +0100
 
+golang-1.13 (1.13.4-1ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 02 Nov 2019 10:06:10 +0100
+
 golang-1.13 (1.13.4-1) unstable; urgency=medium
 
   * New upstream version 1.13.4
     - Refresh patches
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 01 Nov 2019 21:07:16 +0100
+
+golang-1.13 (1.13.3-1ubuntu1) focal; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Sat, 26 Oct 2019 10:17:06 +0200
 
 golang-1.13 (1.13.3-1) unstable; urgency=medium
 
@@ -53,6 +116,15 @@ golang-1.13 (1.13.3-1) unstable; urgency=medium
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 19 Oct 2019 13:30:36 +0200
 
+golang-1.13 (1.13.1-1ubuntu1) eoan; urgency=medium
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cherry-pick upstream build fixes from 1.14 branch
+    - debian/patches/d3595f71712ce1b322f754ef985005e87fac6d44.patch:
+    - debian/patches/5d548f1243df8d586a03df085b40299f1e427fb1.patch:
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Thu, 26 Sep 2019 19:43:28 +0200
+
 golang-1.13 (1.13.1-1) unstable; urgency=medium
 
   * New upstream version 1.13.1
@@ -62,6 +134,14 @@ golang-1.13 (1.13.1-1) unstable; urgency=medium
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 26 Sep 2019 11:32:14 +0200
 
+golang-1.13 (1.13-1ubuntu1) eoan; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - Skip a test that fails on Ubuntu/chroot
+      environments (See upstream issue linked to the patch)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Thu, 05 Sep 2019 08:36:48 +0200
+
 golang-1.13 (1.13-1) unstable; urgency=medium
 
   * New upstream version 1.13
@@ -69,6 +149,13 @@ golang-1.13 (1.13-1) unstable; urgency=medium
   * Set pristine-tar for gbp to False
 
  -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 04 Sep 2019 11:28:07 +0200
+
+golang-1.13 (1.13~rc2-1ubuntu1) eoan; urgency=medium
+
+  * Skip a test that fails on Ubuntu/chroot
+    environments (See upstream issue linked to the patch)
+
+ -- Gianfranco Costamagna <locutusofborg@debian.org>  Mon, 02 Sep 2019 09:30:25 +0200
 
 golang-1.13 (1.13~rc2-1) unstable; urgency=medium
 

@@ -1,0 +1,65 @@
+From d3595f71712ce1b322f754ef985005e87fac6d44 Mon Sep 17 00:00:00 2001
+From: Tobias Klauser <tklauser@distanz.ch>
+Date: Tue, 17 Sep 2019 09:05:02 +0200
+Subject: [PATCH] syscall: skip TestAmbientCapsUserns if user namespaces are
+ not supported
+
+Fixes #34015
+
+Change-Id: I29798fb9c72b6f4bee8aecea96ab13b4cba2e80d
+Reviewed-on: https://go-review.googlesource.com/c/go/+/195738
+Run-TryBot: Tobias Klauser <tobias.klauser@gmail.com>
+TryBot-Result: Gobot Gobot <gobot@golang.org>
+Reviewed-by: Brad Fitzpatrick <bradfitz@golang.org>
+---
+ src/syscall/exec_linux_test.go | 23 ++++++++++++++---------
+ 1 file changed, 14 insertions(+), 9 deletions(-)
+
+diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
+index cc2140f8112..ee864ac0d4b 100644
+--- a/src/syscall/exec_linux_test.go
++++ b/src/syscall/exec_linux_test.go
+@@ -42,6 +42,18 @@ func skipInContainer(t *testing.T) {
+ 	}
+ }
+ 
++func skipNoUserNamespaces(t *testing.T) {
++	if _, err := os.Stat("/proc/self/ns/user"); err != nil {
++		if os.IsNotExist(err) {
++			t.Skip("kernel doesn't support user namespaces")
++		}
++		if os.IsPermission(err) {
++			t.Skip("unable to test user namespaces due to permissions")
++		}
++		t.Fatalf("Failed to stat /proc/self/ns/user: %v", err)
++	}
++}
++
+ func skipUnprivilegedUserClone(t *testing.T) {
+ 	// Skip the test if the sysctl that prevents unprivileged user
+ 	// from creating user namespaces is enabled.
+@@ -64,15 +76,7 @@ func isChrooted(t *testing.T) bool {
+ 
+ func checkUserNS(t *testing.T) {
+ 	skipInContainer(t)
+-	if _, err := os.Stat("/proc/self/ns/user"); err != nil {
+-		if os.IsNotExist(err) {
+-			t.Skip("kernel doesn't support user namespaces")
+-		}
+-		if os.IsPermission(err) {
+-			t.Skip("unable to test user namespaces due to permissions")
+-		}
+-		t.Fatalf("Failed to stat /proc/self/ns/user: %v", err)
+-	}
++	skipNoUserNamespaces(t)
+ 	if isChrooted(t) {
+ 		// create_user_ns in the kernel (see
+ 		// https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/kernel/user_namespace.c)
+@@ -573,6 +577,7 @@ func TestAmbientCaps(t *testing.T) {
+ }
+ 
+ func TestAmbientCapsUserns(t *testing.T) {
++	skipNoUserNamespaces(t)
+ 	testAmbientCaps(t, true)
+ }
+ 

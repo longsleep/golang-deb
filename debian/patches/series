@@ -1,2 +1,4 @@
 0001-Disable-test-for-UserHomeDir.patch
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
+d3595f71712ce1b322f754ef985005e87fac6d44.patch
+5d548f1243df8d586a03df085b40299f1e427fb1.patch
