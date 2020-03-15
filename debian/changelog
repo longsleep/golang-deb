@@ -1,3 +1,9 @@
+golang-1.14 (1.14-2~bpo10+1) buster-backports; urgency=medium
+
+  * Rebuild for buster-backports.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 15 Mar 2020 13:26:27 +0100
+
 golang-1.14 (1.14-2) unstable; urgency=medium
 
   * Fix FTBFS if built twice in a row.
