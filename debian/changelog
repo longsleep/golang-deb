@@ -1,3 +1,11 @@
+golang-1.14 (1.14.1-1) unstable; urgency=medium
+
+  * New upstream version 1.14.1
+    - Add new patch to fix FTBFS on $HOME managed with git.
+      Thanks to Guillem Jover <gjover@sipwise.com> (Closes: #953276)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sat, 21 Mar 2020 14:01:31 +0100
+
 golang-1.14 (1.14-2) unstable; urgency=medium
 
   * Fix FTBFS if built twice in a row.
