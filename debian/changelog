@@ -1,3 +1,21 @@
+golang-1.14 (1.14.2-1longsleep1+bionic) bionic; urgency=medium
+
+  [ Simon Eisenmann ]
+  * Change branch to Ubuntu
+
+  [ Dr. Tobias Quathamer ]
+  * Add new patch to fix FTBFS on $HOME managed with git.
+    Thanks to Guillem Jover <gjover@sipwise.com> (Closes: #953276)
+
+  [ Simon Eisenmann ]
+  * New upstream version 1.14.2
+
+  [ Dr. Tobias Quathamer ]
+  * Fix FTBFS if built twice in a row.
+    Thanks to Guillem Jover (Closes: #953277)
+
+ -- Simon Eisenmann <simon@longsleep.org>  Thu, 09 Apr 2020 12:46:22 +0200
+
 golang-1.14 (1.14-1longsleep1+bionic) bionic; urgency=medium
 
   * Rebuild Debian package for Ubuntu, no changes.
