@@ -68,6 +68,7 @@ ifeq (true, $(RUN_TESTS))
 	set -ex; \
 		cd src; \
 		export PATH="$(GOROOT)/bin:$$PATH"; \
+		export GO_TEST_TIMEOUT_SCALE=10; \
 		eval "$$(go tool dist env)"; \
 		bash run.bash -k -no-rebuild;
 	# -k           keep going even when error occurred
