@@ -1,3 +1,10 @@
+golang-1.14 (1.14.4-1) unstable; urgency=medium
+
+  * New upstream version 1.14.4
+    - Refresh patches
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 15 Jun 2020 21:19:41 +0200
+
 golang-1.14 (1.14.3-2) unstable; urgency=medium
 
   * Increase the test timeout that made some builds succeed
