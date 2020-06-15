@@ -1,0 +1,109 @@
+From: "Dr. Tobias Quathamer" <toddy@debian.org>
+Date: Thu, 1 Aug 2019 13:50:48 +0200
+Subject: Fix Lintian warnings about wrong interpreter path
+
+The command used for this change is as follows:
+
+grep -rH "/usr/bin/env perl" * | cut -d: -f1 | xargs -n1 sed -i -e "s,/usr/bin/env perl,/usr/bin/perl,"
+---
+ src/syscall/mksyscall.pl          | 2 +-
+ src/syscall/mksyscall_libc.pl     | 2 +-
+ src/syscall/mksysctl_openbsd.pl   | 2 +-
+ src/syscall/mksysnum_darwin.pl    | 2 +-
+ src/syscall/mksysnum_dragonfly.pl | 2 +-
+ src/syscall/mksysnum_freebsd.pl   | 2 +-
+ src/syscall/mksysnum_linux.pl     | 2 +-
+ src/syscall/mksysnum_netbsd.pl    | 2 +-
+ src/syscall/mksysnum_openbsd.pl   | 2 +-
+ 9 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/src/syscall/mksyscall.pl b/src/syscall/mksyscall.pl
+index 25b40d7..007d03c 100755
+--- a/src/syscall/mksyscall.pl
++++ b/src/syscall/mksyscall.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksyscall_libc.pl b/src/syscall/mksyscall_libc.pl
+index 5ceedc8..405033c 100755
+--- a/src/syscall/mksyscall_libc.pl
++++ b/src/syscall/mksyscall_libc.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksysctl_openbsd.pl b/src/syscall/mksysctl_openbsd.pl
+index ea462a7..7e8a3e2 100755
+--- a/src/syscall/mksysctl_openbsd.pl
++++ b/src/syscall/mksysctl_openbsd.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ 
+ # Copyright 2011 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+diff --git a/src/syscall/mksysnum_darwin.pl b/src/syscall/mksysnum_darwin.pl
+index af21e85..9e59261 100755
+--- a/src/syscall/mksysnum_darwin.pl
++++ b/src/syscall/mksysnum_darwin.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksysnum_dragonfly.pl b/src/syscall/mksysnum_dragonfly.pl
+index e9a634b..a8df18d 100755
+--- a/src/syscall/mksysnum_dragonfly.pl
++++ b/src/syscall/mksysnum_dragonfly.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksysnum_freebsd.pl b/src/syscall/mksysnum_freebsd.pl
+index c04ada9..f9b7b91 100755
+--- a/src/syscall/mksysnum_freebsd.pl
++++ b/src/syscall/mksysnum_freebsd.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksysnum_linux.pl b/src/syscall/mksysnum_linux.pl
+index 5fb1d0e..ebeb9a8 100755
+--- a/src/syscall/mksysnum_linux.pl
++++ b/src/syscall/mksysnum_linux.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksysnum_netbsd.pl b/src/syscall/mksysnum_netbsd.pl
+index 4f5150a..53783ff 100755
+--- a/src/syscall/mksysnum_netbsd.pl
++++ b/src/syscall/mksysnum_netbsd.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.
+diff --git a/src/syscall/mksysnum_openbsd.pl b/src/syscall/mksysnum_openbsd.pl
+index 0b0c9df..41e8f47 100755
+--- a/src/syscall/mksysnum_openbsd.pl
++++ b/src/syscall/mksysnum_openbsd.pl
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env perl
++#!/usr/bin/perl
+ # Copyright 2009 The Go Authors. All rights reserved.
+ # Use of this source code is governed by a BSD-style
+ # license that can be found in the LICENSE file.

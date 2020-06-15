@@ -1,0 +1,98 @@
+Source: golang-X.Y
+Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
+Uploaders: Michael Stapelberg <stapelberg@debian.org>,
+           Paul Tagliamonte <paultag@debian.org>,
+           Tianon Gravi <tianon@debian.org>,
+           Michael Hudson-Doyle <mwhudson@debian.org>,
+           Dr. Tobias Quathamer <toddy@debian.org>
+Section: devel
+Priority: optional
+Build-Depends: debhelper-compat (= 13),
+               golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
+               netbase
+Standards-Version: 4.5.0
+Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-X.Y
+Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-X.Y
+Homepage: https://golang.org
+Rules-Requires-Root: no
+
+Package: golang-X.Y-go
+Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
+Depends: golang-X.Y-src (>= ${source:Version}),
+         ${misc:Depends},
+         ${perl:Depends},
+         ${shlibs:Depends}
+Recommends: g++, gcc, libc6-dev, pkg-config
+Breaks: dh-golang (<< 1.43~)
+Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
+Description: Go programming language compiler, linker, compiled stdlib
+ The Go programming language is an open source project to make programmers more
+ productive. Go is expressive, concise, clean, and efficient. Its concurrency
+ mechanisms make it easy to write programs that get the most out of multicore
+ and networked machines, while its novel type system enables flexible and
+ modular program construction. Go compiles quickly to machine code yet has the
+ convenience of garbage collection and the power of run-time reflection. It's a
+ fast, statically typed, compiled language that feels like a dynamically typed,
+ interpreted language.
+ .
+ This package provides an assembler, compiler, linker, and compiled libraries
+ for the Go programming language.
+ .
+ Go supports cross-compilation, but as of Go 1.5, it is no longer necessary to
+ pre-compile the standard library inside GOROOT for cross-compilation to work.
+
+Package: golang-X.Y-src
+Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Go programming language - source files
+ The Go programming language is an open source project to make programmers more
+ productive. Go is expressive, concise, clean, and efficient. Its concurrency
+ mechanisms make it easy to write programs that get the most out of multicore
+ and networked machines, while its novel type system enables flexible and
+ modular program construction. Go compiles quickly to machine code yet has the
+ convenience of garbage collection and the power of run-time reflection. It's a
+ fast, statically typed, compiled language that feels like a dynamically typed,
+ interpreted language.
+ .
+ This package provides the Go programming language source files needed for
+ cross-compilation.
+
+Package: golang-X.Y-doc
+Depends: golang-X.Y-go, ${misc:Depends}
+Architecture: all
+Section: doc
+Description: Go programming language - documentation
+ The Go programming language is an open source project to make
+ programmers more productive. Go is expressive, concise, clean, and
+ efficient. Its concurrency mechanisms make it easy to write programs
+ that get the most out of multicore and networked machines, while its
+ novel type system enables flexible and modular program construction.
+ Go compiles quickly to machine code yet has the convenience of
+ garbage collection and the power of run-time reflection. It's a fast,
+ statically typed, compiled language that feels like a dynamically
+ typed, interpreted language.
+ .
+ This package provides the documentation for the Go programming
+ language. You can view the formatted documentation by running
+ "godoc --http=:6060", and then visiting
+ http://localhost:6060/doc/install.html.
+
+Package: golang-X.Y
+Depends: golang-X.Y-doc (>= ${source:Version}),
+         golang-X.Y-go (>= ${source:Version}),
+         golang-X.Y-src (>= ${source:Version}),
+         ${misc:Depends}
+Architecture: all
+Description: Go programming language compiler - metapackage
+ The Go programming language is an open source project to make
+ programmers more productive. Go is expressive, concise, clean, and
+ efficient. Its concurrency mechanisms make it easy to write programs
+ that get the most out of multicore and networked machines, while its
+ novel type system enables flexible and modular program construction.
+ Go compiles quickly to machine code yet has the convenience of
+ garbage collection and the power of run-time reflection. It's a
+ fast, statically typed, compiled language that feels like a
+ dynamically typed, interpreted language.
+ .
+ This package is a metapackage that, when installed, guarantees
+ that (most of) a full Go development environment is installed.

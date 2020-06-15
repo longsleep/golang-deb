@@ -1,0 +1,6 @@
+VERSION /usr/lib/go-X.Y/
+bin/go /usr/lib/go-X.Y/bin/
+bin/gofmt /usr/lib/go-X.Y/bin/
+pkg/*_* /usr/lib/go-X.Y/pkg/
+pkg/include /usr/share/go-X.Y/pkg/
+pkg/tool /usr/lib/go-X.Y/pkg/

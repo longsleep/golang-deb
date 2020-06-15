@@ -1,0 +1,56 @@
+#
+# WARNING: "debian/source/lintian-overrides" is generated via "debian/rules gencontrol" (sourced from "debian/source/lintian-overrides.in")
+#
+
+golang-1.15 source: source-contains-prebuilt-binary src/cmd/internal/buildid/testdata/a.elf
+golang-1.15 source: source-contains-prebuilt-binary src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/cycle.elf
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/line-clang.elf
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/line-gcc.elf
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/ranges.elf
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/split.elf
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf
+golang-1.15 source: source-contains-prebuilt-binary src/debug/dwarf/testdata/typedef.elf4
+golang-1.15 source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-1.15 source: source-contains-prebuilt-binary src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-1.15 source: source-contains-prebuilt-binary src/debug/elf/testdata/*.obj
+golang-1.15 source: source-contains-prebuilt-binary src/go/internal/gccgoimporter/testdata/escapeinfo.gox
+golang-1.15 source: source-contains-prebuilt-binary src/go/internal/gccgoimporter/testdata/time.gox
+golang-1.15 source: source-contains-prebuilt-binary src/go/internal/gccgoimporter/testdata/unicode.gox
+golang-1.15 source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test32
+golang-1.15 source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test32be
+golang-1.15 source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test64
+golang-1.15 source: source-contains-prebuilt-binary src/runtime/pprof/testdata/test64be
+golang-1.15 source: source-contains-prebuilt-binary src/runtime/race/*.syso
+golang-1.15 source: source-contains-prebuilt-windows-binary src/cmd/internal/buildid/testdata/a.pe
+golang-1.15 source: source-contains-prebuilt-windows-binary src/debug/dwarf/testdata/line-gcc-win.bin
+golang-1.15 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-exec
+golang-1.15 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-386-mingw-no-symbols-exec
+golang-1.15 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/gcc-amd64-mingw-exec
+golang-1.15 source: source-contains-prebuilt-windows-binary src/debug/pe/testdata/vmlinuz-4.15.0-47-generic
+
+golang-1.15 source: source-is-missing src/runtime/race/*.syso
+golang-1.15 source: source-is-missing src/cmd/internal/buildid/testdata/a.elf
+golang-1.15 source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/report/testdata/sample.bin
+golang-1.15 source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/exe_linux_64
+golang-1.15 source: source-is-missing src/cmd/vendor/github.com/google/pprof/internal/binutils/testdata/malformed_elf
+
+# All these files are compiled from src/debug/elf/testdata/hello.c
+# with various toolchain and options to be used as test data for the
+# elf parser.
+golang-1.15 source: source-is-missing src/debug/elf/testdata/gcc-386-freebsd-exec
+golang-1.15 source: source-is-missing src/debug/elf/testdata/gcc-amd64-linux-exec
+golang-1.15 source: source-is-missing src/debug/elf/testdata/*.obj
+
+# These files are compiled from src/debug/dwarf/testdata/line2.c with clang and gcc.
+golang-1.15 source: source-is-missing src/debug/dwarf/testdata/line-clang.elf
+golang-1.15 source: source-is-missing src/debug/dwarf/testdata/line-gcc.elf
+
+# Compiled from src/debug/dwarf/testdata/typedef.c with dwarf version 4.
+golang-1.15 source: source-is-missing src/debug/dwarf/testdata/typedef.elf4
+
+golang-1.15 source: source-is-missing src/runtime/pprof/testdata/test*
+golang-1.15 source: source-is-missing src/go/internal/gccgoimporter/testdata/*.gox
+
+# This is not a typo.
+golang-1.15 source: unknown-file-in-debian-source lintian-overrides.in

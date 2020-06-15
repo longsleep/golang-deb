@@ -1,0 +1,5 @@
+# Go always links statically.
+golang-X.Y-go: statically-linked-binary
+
+# False positive, the file does not use one of the binaries in sensible-utils
+golang-X.Y-go: missing-depends-on-sensible-utils usr/lib/go-X.Y/pkg/linux_amd64/cmd/vendor/github.com/google/pprof/internal/driver.a
