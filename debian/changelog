@@ -1,8 +1,11 @@
-golang-1.15 (1.15~beta1-1) UNRELEASED; urgency=medium
+golang-1.15 (1.15~beta1-1) unstable; urgency=medium
 
   * New upstream major version.
+    - Drop patch to fix FTBFS on $HOME managed with git, has been
+      applied upstream.
+    - Refresh remaining patches
 
- -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 15 Jun 2020 21:33:31 +0200
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 15 Jun 2020 21:40:49 +0200
 
 golang-1.14 (1.14.4-1) unstable; urgency=medium
 
