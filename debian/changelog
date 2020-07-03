@@ -1,3 +1,12 @@
+golang-1.14 (1.14.4-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Backport patches to fix the FPU ABI problems for mips32
+    https://go-review.googlesource.com/c/go/+/237058/
+    Closes: #960674
+
+ -- YunQiang Su <syq@debian.org>  Fri, 03 Jul 2020 13:49:24 +0800
+
 golang-1.14 (1.14.4-1) unstable; urgency=medium
 
   * New upstream version 1.14.4

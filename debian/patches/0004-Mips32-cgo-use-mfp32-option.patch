@@ -1,0 +1,103 @@
+From 350223e0208a91e11a9fcc65611f21b63b840247 Mon Sep 17 00:00:00 2001
+From: YunQiang Su <wzssyqa@gmail.com>
+Date: Tue, 09 Jun 2020 04:09:58 +0000
+Subject: [PATCH] cmd/go, cmd/cgo: pass -mfp32 and -mhard/soft-float to MIPS GCC
+
+For mips32 currently, we are using FP32, while the gcc may be FPXX,
+which may generate .MIPS.abiflags and .gnu.attributes section with
+value as FPXX. So the kernel will treat the exe as FPXX, and may
+choose to use FR=1 FPU mode for it.
+Currently, in Go, we use 2 lwc1 to load both half of a double value
+to a pair of even-odd FPR. This behavior can only work with FR=0 mode.
+
+In FR=1 mode, all of 32 FPR are 64bit. If we lwc1 the high-half of a double
+value to an odd FPR, and try to use the previous even FPR to compute, the
+real high-half of even FPR will be unpredicatable.
+We set -mfp32 to force the gcc generate FP32 code and section value.
+
+More details about FP32/FPXX/FP64 are explained in:
+https://web.archive.org/web/20180828210612/https://dmz-portal.mips.com/wiki/MIPS_O32_ABI_-_FR0_and_FR1_Interlinking
+
+When GOMIPS/GOMIPS64 is set as softfloat, we should also pass
+ -msoft-float to gcc.
+
+Here we also add -mno-odd-spreg option, since Loongson's CPU cannot use
+odd-number FR in FR=0 mode.
+
+Fixes #39435
+
+Change-Id: I54026ad416a815fe43a9261ebf6d02e5519c3930
+---
+
+diff --git a/src/cmd/cgo/gcc.go b/src/cmd/cgo/gcc.go
+index a59534e..d1bdee8 100644
+--- a/src/cmd/cgo/gcc.go
++++ b/src/cmd/cgo/gcc.go
+@@ -1548,9 +1548,17 @@
+ 	case "s390x":
+ 		return []string{"-m64"}
+ 	case "mips64", "mips64le":
+-		return []string{"-mabi=64"}
++		if gomips64 == "hardfloat" {
++			return []string{"-mabi=64", "-mhard-float"}
++		} else if gomips64 == "softfloat" {
++			return []string{"-mabi=64", "-msoft-float"}
++		}
+ 	case "mips", "mipsle":
+-		return []string{"-mabi=32"}
++		if gomips == "hardfloat" {
++			return []string{"-mabi=32", "-mfp32", "-mhard-float", "-mno-odd-spreg"}
++		} else if gomips == "softfloat" {
++			return []string{"-mabi=32", "-msoft-float"}
++		}
+ 	}
+ 	return nil
+ }
+diff --git a/src/cmd/cgo/main.go b/src/cmd/cgo/main.go
+index 5a7bb3f..e0fede8 100644
+--- a/src/cmd/cgo/main.go
++++ b/src/cmd/cgo/main.go
+@@ -227,7 +227,7 @@
+ var gccgoNewmanglingInEffect bool
+ var importRuntimeCgo = flag.Bool("import_runtime_cgo", true, "import runtime/cgo in generated code")
+ var importSyscall = flag.Bool("import_syscall", true, "import syscall in generated code")
+-var goarch, goos string
++var goarch, goos, gomips, gomips64 string
+ 
+ func main() {
+ 	objabi.AddVersionFlag() // -V
+@@ -376,6 +376,8 @@
+ 	if s := os.Getenv("GOOS"); s != "" {
+ 		goos = s
+ 	}
++	gomips = objabi.GOMIPS
++	gomips64 = objabi.GOMIPS64
+ 	ptrSize := ptrSizeMap[goarch]
+ 	if ptrSize == 0 {
+ 		fatalf("unknown ptrSize for $GOARCH %q", goarch)
+diff --git a/src/cmd/go/internal/work/exec.go b/src/cmd/go/internal/work/exec.go
+index 071c9d2..347a060 100644
+--- a/src/cmd/go/internal/work/exec.go
++++ b/src/cmd/go/internal/work/exec.go
+@@ -2488,9 +2488,19 @@
+ 	case "s390x":
+ 		return []string{"-m64", "-march=z196"}
+ 	case "mips64", "mips64le":
+-		return []string{"-mabi=64"}
++		args := []string{"-mabi=64"}
++		if cfg.GOMIPS64 == "hardfloat" {
++			return append(args, "-mhard-float")
++		} else if cfg.GOMIPS64 == "softfloat" {
++			return append(args, "-msoft-float")
++		}
+ 	case "mips", "mipsle":
+-		return []string{"-mabi=32", "-march=mips32"}
++		args := []string{"-mabi=32", "-march=mips32"}
++		if cfg.GOMIPS == "hardfloat" {
++			return append(args, "-mhard-float", "-mfp32", "-mno-odd-spreg")
++		} else if cfg.GOMIPS == "softfloat" {
++			return append(args, "-msoft-float")
++		}
+ 	case "ppc64":
+ 		if cfg.Goos == "aix" {
+ 			return []string{"-maix64"}

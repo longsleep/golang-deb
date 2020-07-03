@@ -1,3 +1,4 @@
 0001-Disable-test-for-UserHomeDir.patch
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-Fix-FTBFS-on-HOME-managed-with-git.patch
+0004-Mips32-cgo-use-mfp32-option.patch
