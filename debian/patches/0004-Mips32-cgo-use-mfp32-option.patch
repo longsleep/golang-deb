@@ -1,7 +1,7 @@
-From 350223e0208a91e11a9fcc65611f21b63b840247 Mon Sep 17 00:00:00 2001
 From: YunQiang Su <wzssyqa@gmail.com>
-Date: Tue, 09 Jun 2020 04:09:58 +0000
-Subject: [PATCH] cmd/go, cmd/cgo: pass -mfp32 and -mhard/soft-float to MIPS GCC
+Date: Tue, 9 Jun 2020 04:09:58 +0000
+Subject: [PATCH] cmd/go,
+ cmd/cgo: pass -mfp32 and -mhard/soft-float to MIPS GCC
 
 For mips32 currently, we are using FP32, while the gcc may be FPXX,
 which may generate .MIPS.abiflags and .gnu.attributes section with
@@ -28,12 +28,16 @@ Fixes #39435
 
 Change-Id: I54026ad416a815fe43a9261ebf6d02e5519c3930
 ---
+ src/cmd/cgo/gcc.go               | 12 ++++++++++--
+ src/cmd/cgo/main.go              |  4 +++-
+ src/cmd/go/internal/work/exec.go | 14 ++++++++++++--
+ 3 files changed, 25 insertions(+), 5 deletions(-)
 
 diff --git a/src/cmd/cgo/gcc.go b/src/cmd/cgo/gcc.go
-index a59534e..d1bdee8 100644
+index 7f99057..dd69fd7 100644
 --- a/src/cmd/cgo/gcc.go
 +++ b/src/cmd/cgo/gcc.go
-@@ -1548,9 +1548,17 @@
+@@ -1545,9 +1545,17 @@ func (p *Package) gccMachine() []string {
  	case "s390x":
  		return []string{"-m64"}
  	case "mips64", "mips64le":
@@ -57,7 +61,7 @@ diff --git a/src/cmd/cgo/main.go b/src/cmd/cgo/main.go
 index 5a7bb3f..e0fede8 100644
 --- a/src/cmd/cgo/main.go
 +++ b/src/cmd/cgo/main.go
-@@ -227,7 +227,7 @@
+@@ -227,7 +227,7 @@ var gccgoMangleCheckDone bool
  var gccgoNewmanglingInEffect bool
  var importRuntimeCgo = flag.Bool("import_runtime_cgo", true, "import runtime/cgo in generated code")
  var importSyscall = flag.Bool("import_syscall", true, "import syscall in generated code")
@@ -66,7 +70,7 @@ index 5a7bb3f..e0fede8 100644
  
  func main() {
  	objabi.AddVersionFlag() // -V
-@@ -376,6 +376,8 @@
+@@ -376,6 +376,8 @@ func newPackage(args []string) *Package {
  	if s := os.Getenv("GOOS"); s != "" {
  		goos = s
  	}
@@ -76,10 +80,10 @@ index 5a7bb3f..e0fede8 100644
  	if ptrSize == 0 {
  		fatalf("unknown ptrSize for $GOARCH %q", goarch)
 diff --git a/src/cmd/go/internal/work/exec.go b/src/cmd/go/internal/work/exec.go
-index 071c9d2..347a060 100644
+index 25d1507..bdef08e 100644
 --- a/src/cmd/go/internal/work/exec.go
 +++ b/src/cmd/go/internal/work/exec.go
-@@ -2488,9 +2488,19 @@
+@@ -2409,9 +2409,19 @@ func (b *Builder) gccArchArgs() []string {
  	case "s390x":
  		return []string{"-m64", "-march=z196"}
  	case "mips64", "mips64le":
