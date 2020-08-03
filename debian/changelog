@@ -1,3 +1,17 @@
+golang-1.15 (1.15~rc1-1) unstable; urgency=medium
+
+  [ Shengjing Zhu ]
+  * Backport patches to fix the FPU ABI problems for mips32
+    https://go-review.googlesource.com/c/go/+/237058/
+
+  [ Dr. Tobias Quathamer ]
+  * New upstream version 1.15~rc1
+    - Refresh patches
+    - net/http: Expect 100-continue panics in httputil.ReverseProxy.
+      See https://github.com/golang/go/issues/34902, fixes CVE-2020-15586
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 03 Aug 2020 21:22:44 +0200
+
 golang-1.15 (1.15~beta1-2) unstable; urgency=medium
 
   * Source-only upload.
