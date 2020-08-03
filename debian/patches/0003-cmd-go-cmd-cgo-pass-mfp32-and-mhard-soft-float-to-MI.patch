@@ -33,7 +33,7 @@ Change-Id: I54026ad416a815fe43a9261ebf6d02e5519c3930
  3 files changed, 25 insertions(+), 5 deletions(-)
 
 diff --git a/src/cmd/cgo/gcc.go b/src/cmd/cgo/gcc.go
-index d903a7a..1262f3b 100644
+index a59534e..d1bdee8 100644
 --- a/src/cmd/cgo/gcc.go
 +++ b/src/cmd/cgo/gcc.go
 @@ -1548,9 +1548,17 @@ func (p *Package) gccMachine() []string {
