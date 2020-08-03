@@ -1,3 +1,12 @@
+golang-1.14 (1.14.6-1) unstable; urgency=medium
+
+  * New upstream version 1.14.6
+    - Refresh patches
+    - net/http: Expect 100-continue panics in httputil.ReverseProxy.
+      See https://github.com/golang/go/issues/34902, fixes CVE-2020-15586
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 03 Aug 2020 20:38:32 +0200
+
 golang-1.14 (1.14.4-2) unstable; urgency=medium
 
   * Team upload.
