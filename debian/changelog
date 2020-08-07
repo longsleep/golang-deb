@@ -1,3 +1,11 @@
+golang-1.14 (1.14.7-1longsleep2+bionic) bionic; urgency=medium
+
+  [ Dr. Tobias Quathamer ]
+  * Increase the test timeout that made some builds succeed there on slow hardware (such as emulated riscv64).
+    Thanks to Gianfranco Costamagna (Closes: #960759)
+
+ -- Simon Eisenmann <simon@longsleep.org>  Fri, 07 Aug 2020 12:14:35 +0200
+
 golang-1.14 (1.14.7-1longsleep1+bionic) bionic; urgency=medium
 
   * New upstream version 1.14.7
