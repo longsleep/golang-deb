@@ -1,3 +1,10 @@
+golang-1.15 (1.15~rc1-1longsleep1+bionic) bionic; urgency=medium
+
+  * Change packaging for Ubuntu compatibility
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Fri, 07 Aug 2020 14:36:04 +0200
+
 golang-1.15 (1.15~rc1-1) unstable; urgency=medium
 
   [ Shengjing Zhu ]
