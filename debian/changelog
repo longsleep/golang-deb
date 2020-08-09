@@ -1,3 +1,11 @@
+golang-1.15 (1.15~rc2-1) unstable; urgency=medium
+
+  * New upstream version 1.15~rc2
+    - encoding/binary: ReadUvarint and ReadVarint can read an unlimited
+      number of bytes from invalid inputs. CVE-2020-16845
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 09 Aug 2020 16:12:45 +0200
+
 golang-1.15 (1.15~rc1-1) unstable; urgency=medium
 
   [ Shengjing Zhu ]
