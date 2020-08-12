@@ -2,3 +2,4 @@
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-Fix-FTBFS-on-HOME-managed-with-git.patch
 0004-Mips32-cgo-use-mfp32-option.patch
+0005-fix-build-failure-of-misc-cgo-test-on-arm64.patch
