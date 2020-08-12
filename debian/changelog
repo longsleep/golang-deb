@@ -1,3 +1,10 @@
+golang-1.14 (1.14.7-2) unstable; urgency=medium
+
+  * Team upload.
+  * Backport patch to fix test on arm64 (Closes: #967084)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Thu, 13 Aug 2020 01:19:34 +0800
+
 golang-1.14 (1.14.7-1) unstable; urgency=medium
 
   * New upstream version 1.14.7
