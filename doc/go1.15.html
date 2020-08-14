@@ -14,13 +14,21 @@ Do not send CLs removing the interior tags from such phrases.
   main ul li { margin: 0.5em 0; }
 </style>
 
-<h2 id="introduction">DRAFT RELEASE NOTES — Introduction to Go 1.15</h2>
+<h2 id="introduction">Introduction to Go 1.15</h2>
 
 <p>
-  <strong>
-    Go 1.15 is not yet released. These are work-in-progress
-    release notes. Go 1.15 is expected to be released in August 2020.
-  </strong>
+  The latest Go release, version 1.15, arrives six months after <a href="go1.14">Go 1.14</a>.
+  Most of its changes are in the implementation of the toolchain, runtime, and libraries.
+  As always, the release maintains the Go 1 <a href="/doc/go1compat.html">promise of compatibility</a>.
+  We expect almost all Go programs to continue to compile and run as before.
+</p>
+
+<p>
+  Go 1.15 includes <a href="#linker">substantial improvements to the linker</a>,
+  improves <a href="#runtime">allocation for small objects at high core counts</a>, and
+  deprecates <a href="#commonname">X.509 CommonName</a>.
+  <code>GOPROXY</code> now supports skipping proxies that return errors and
+  a new <a href="#time/tzdata">embedded tzdata package</a> has been added.
 </p>
 
 <h2 id="language">Changes to the language</h2>
@@ -386,6 +394,23 @@ Do not send CLs removing the interior tags from such phrases.
   documentation</a> for more information.
 </p>
 
+<h3 id="commonname">X.509 CommonName deprecation</h3>
+
+<p><!-- CL 231379 -->
+  The deprecated, legacy behavior of treating the <code>CommonName</code>
+  field on X.509 certificates as a host name when no Subject Alternative Names
+  are present is now disabled by default. It can be temporarily re-enabled by
+  adding the value <code>x509ignoreCN=0</code> to the <code>GODEBUG</code>
+  environment variable.
+</p>
+
+<p>
+  Note that if the <code>CommonName</code> is an invalid host name, it's always
+  ignored, regardless of <code>GODEBUG</code> settings. Invalid names include
+  those with any characters other than letters, digits, hyphens and underscores,
+  and those with empty labels or trailing dots.
+</p>
+
 <h3 id="minor_library_changes">Minor changes to the library</h3>
 
 <p>
@@ -507,6 +532,17 @@ Do not send CLs removing the interior tags from such phrases.
       fields <code>OCSPResponse</code> and <code>SignedCertificateTimestamps</code>
       are now repopulated on client-side resumed connections.
     </p>
+
+    <p><!-- CL 227840 -->
+      <a href="/pkg/crypto/tls/#Conn"><code>tls.Conn</code></a>
+      now returns an opaque error on permanently broken connections, wrapping
+      the temporary
+      <a href="/pkg/net/http/#Error"><code>net.Error</code></a>. To access the
+      original <code>net.Error</code>, use
+      <a href="/pkg/errors/#As"><code>errors.As</code></a> (or
+      <a href="/pkg/errors/#Unwrap"><code>errors.Unwrap</code></a>) instead of a
+      type assertion.
+    </p>
   </dd>
 </dl><!-- crypto/tls -->
 
@@ -521,15 +557,6 @@ Do not send CLs removing the interior tags from such phrases.
       Invalid names include those with any characters other than letters,
       digits, hyphens and underscores, those with empty labels, and names on
       certificates with trailing dots.
-    </p>
-
-    <p><!-- CL 231379 -->
-      The deprecated, legacy behavior of treating the <code>CommonName</code>
-      field as a hostname when no Subject Alternative Names are present is now
-      disabled by default. It can be temporarily re-enabled by adding the value
-      <code>x509ignoreCN=0</code> to the <code>GODEBUG</code> environment
-      variable. If the <code>CommonName</code> is an invalid hostname, it's
-      always ignored.
     </p>
 
     <p><!-- CL 217298 -->
@@ -630,11 +657,6 @@ Do not send CLs removing the interior tags from such phrases.
 
 <dl id="encoding/json"><dt><a href="/pkg/encoding/json/">encoding/json</a></dt>
   <dd>
-    <p><!-- CL 191783 -->
-      Decoding a JSON array into a slice no longer reuses any existing slice elements,
-      following the rules that the package documentation already stated.
-    </p>
-
     <p><!-- CL 199837 -->
       The package now has an internal limit to the maximum depth of
       nesting when decoding. This reduces the possibility that a
@@ -647,8 +669,8 @@ Do not send CLs removing the interior tags from such phrases.
 <dl id="flag"><dt><a href="/pkg/flag/">flag</a></dt>
   <dd>
     <p><!-- CL 221427 -->
-      When the flag package sees <code>-h</code> or <code>-help</code>, and
-      those flags are not defined, it now prints a usage message.
+      When the <code>flag</code> package sees <code>-h</code> or <code>-help</code>,
+      and those flags are not defined, it now prints a usage message.
       If the <a href="/pkg/flag/#FlagSet"><code>FlagSet</code></a> was created with
       <a href="/pkg/flag/#ExitOnError"><code>ExitOnError</code></a>,
       <a href="/pkg/flag/#FlagSet.Parse"><code>FlagSet.Parse</code></a> would then
@@ -893,9 +915,9 @@ Do not send CLs removing the interior tags from such phrases.
 <dl id="pkg-runtime-pprof"><dt><a href="/pkg/runtime/pprof/">runtime/pprof</a></dt>
   <dd>
     <p><!-- CL 189318 -->
-      The goroutine profile includes the profile labels associated with each goroutine
-      at the time of profiling. This feature is not yet implemented for the profile
-      reported with <code>debug=2</code>.
+      The goroutine profile now includes the profile labels associated with each
+      goroutine at the time of profiling. This feature is not yet implemented for
+      the profile reported with <code>debug=2</code>.
     </p>
   </dd>
 </dl>
@@ -926,6 +948,7 @@ Do not send CLs removing the interior tags from such phrases.
       <a href="/pkg/sync/#Map.Delete"><code>Map.Delete</code></a>
       is more efficient.
     </p>
+  </dd>
 </dl><!-- sync -->
 
 <dl id="syscall"><dt><a href="/pkg/syscall/">syscall</a></dt>
