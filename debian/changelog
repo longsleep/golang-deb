@@ -1,3 +1,9 @@
+golang-1.15 (1.15-1longsleep1+bionic) bionic; urgency=medium
+
+  * New upstream version 1.15
+
+ -- Simon Eisenmann <simon@longsleep.org>  Fri, 14 Aug 2020 11:55:38 +0200
+
 golang-1.15 (1.15~rc1-1longsleep1+bionic) bionic; urgency=medium
 
   * Change packaging for Ubuntu compatibility
