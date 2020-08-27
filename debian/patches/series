@@ -1,3 +1,4 @@
 0001-Disable-test-for-UserHomeDir.patch
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-cmd-go-cmd-cgo-pass-mfp32-and-mhard-soft-float-to-MI.patch
+0004-cmd-dist-fix-build-failure-of-misc-cgo-test-on-arm64.patch
