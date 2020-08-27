@@ -1,3 +1,11 @@
+golang-1.15 (1.15-2) unstable; urgency=medium
+
+  * Team upload.
+  * Backport fix for arm64 cgo test
+    https://go-review.googlesource.com/c/go/+/237858
+
+ -- Shengjing Zhu <zhsj@debian.org>  Thu, 27 Aug 2020 13:44:43 +0800
+
 golang-1.15 (1.15-1) unstable; urgency=medium
 
   * New upstream version 1.15
