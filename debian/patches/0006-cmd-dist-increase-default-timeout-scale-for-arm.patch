@@ -1,0 +1,27 @@
+From: Balint Reczey <balint.reczey@canonical.com>
+Date: Mon, 31 Aug 2020 13:14:51 +0200
+Subject: [PATCH] cmd/dist: increase default timeout scale for arm
+
+Most developers use (faster) amd64 machines setting the test timeouts,
+but test may run on slower arm ones and also different tests may suffer
+different relative slowdown on the arm CPUs.
+
+Due to those two varying factors it is safer to allow a higher timeout
+scale on arm to avoid tests timing out.
+---
+ src/cmd/dist/test.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
+index ef0c743..f1798fc 100644
+--- a/src/cmd/dist/test.go
++++ b/src/cmd/dist/test.go
+@@ -149,7 +149,7 @@ func (t *tester) run() {
+ 	t.timeoutScale = 1
+ 	switch goarch {
+ 	case "arm":
+-		t.timeoutScale = 2
++		t.timeoutScale = 3
+ 	case "mips", "mipsle", "mips64", "mips64le":
+ 		t.timeoutScale = 4
+ 	}
