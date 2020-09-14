@@ -26,9 +26,6 @@ Change-Id: I2011bb051cae7c43eb0f1c78c7f4fbdb94bf78a6
  create mode 100644 misc/cgo/test/issue7978.go
  create mode 100644 misc/cgo/test/issue7978b.go
 
-diff --git a/misc/cgo/test/issue7978.go b/misc/cgo/test/issue7978.go
-new file mode 100644
-index 0000000..18d418f
 --- /dev/null
 +++ b/misc/cgo/test/issue7978.go
 @@ -0,0 +1,117 @@
@@ -149,9 +146,6 @@ index 0000000..18d418f
 +	issue7978check(t, "test.issue7978go(", "", 3)
 +	atomic.StoreUint32(&issue7978sync, 8)
 +}
-diff --git a/misc/cgo/test/issue7978b.go b/misc/cgo/test/issue7978b.go
-new file mode 100644
-index 0000000..3ab11ee
 --- /dev/null
 +++ b/misc/cgo/test/issue7978b.go
 @@ -0,0 +1,24 @@
@@ -179,11 +173,9 @@ index 0000000..3ab11ee
 +
 +	t.Skip("skip on arm64+internal")
 +}
-diff --git a/misc/cgo/test/testx.go b/misc/cgo/test/testx.go
-index 7fbc5c6..08c3287 100644
 --- a/misc/cgo/test/testx.go
 +++ b/misc/cgo/test/testx.go
-@@ -12,10 +12,7 @@ package cgotest
+@@ -12,10 +12,7 @@
  
  import (
  	"runtime"
@@ -194,7 +186,7 @@ index 7fbc5c6..08c3287 100644
  	"testing"
  	"time"
  	"unsafe"
-@@ -75,28 +72,6 @@ extern int CheckIssue6907C(_GoString_);
+@@ -75,28 +72,6 @@
  
  extern void f7665(void);
  
@@ -223,7 +215,7 @@ index 7fbc5c6..08c3287 100644
  // issue 8331 part 2 - part 1 in test.go
  // A typedef of an unnamed struct is the same struct when
  // #include'd twice.  No runtime test; just make sure it compiles.
-@@ -440,86 +415,6 @@ func test7665(t *testing.T) {
+@@ -440,86 +415,6 @@
  	}
  }
  
@@ -310,11 +302,9 @@ index 7fbc5c6..08c3287 100644
  // issue 8331 part 2
  
  var issue8331Var C.issue8331
-diff --git a/src/cmd/dist/test.go b/src/cmd/dist/test.go
-index 2dc9459..ef0c743 100644
 --- a/src/cmd/dist/test.go
 +++ b/src/cmd/dist/test.go
-@@ -1145,7 +1145,7 @@ func (t *tester) cgoTest(dt *distTest) error {
+@@ -1145,7 +1145,7 @@
  			if t.supportedBuildmode("pie") {
  				t.addCmd(dt, "misc/cgo/test", t.goTest(), "-buildmode=pie")
  				if t.internalLink() && t.internalLinkPIE() {
