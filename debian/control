@@ -3,7 +3,8 @@
 #
 
 Source: golang-1.15
-Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
+Maintainer: Ubuntu Developers <ubuntu-devel-discuss@lists.ubuntu.com>
+XSBC-Original-Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,

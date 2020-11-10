@@ -2,3 +2,9 @@
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-cmd-go-cmd-cgo-pass-mfp32-and-mhard-soft-float-to-MI.patch
 0004-cmd-dist-fix-build-failure-of-misc-cgo-test-on-arm64.patch
+0005-cmd-dist-increase-default-timeout-scale-for-arm.patch
+fc3e6af10297b424175b44d2274de04c5f0b9e82.patch
+98d9c96b21ae096926575363091ec1fccfd6416e.patch
+70ca9a801164e370cc6adf443d40a95c24143400.patch
+1f76e888dfcc67159b012c503ed2961691e0cf85.patch
+ba41f5960408a58339e6efb1bf379031cc35efeb.patch

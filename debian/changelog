@@ -1,14 +1,35 @@
+golang-1.15 (1.15.4-1ubuntu1) hirsute; urgency=medium
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cmd/dist: increase default timeout scale for arm (LP: #1893640)
+  * Cherrypick cgo riscv64 patches.
+
+ -- Dimitri John Ledkov <xnox@ubuntu.com>  Tue, 10 Nov 2020 17:23:08 +0000
+
 golang-1.15 (1.15.4-1) unstable; urgency=medium
 
   * New upstream version 1.15.4.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 10 Nov 2020 10:48:51 +1300
 
+golang-1.15 (1.15.2-1ubuntu1) groovy; urgency=low
+
+  * Merge from Debian unstable.  Remaining changes:
+    - cmd/dist: increase default timeout scale for arm (LP: #1893640)
+
+ -- Dimitri John Ledkov <xnox@ubuntu.com>  Tue, 15 Sep 2020 10:46:23 +0100
+
 golang-1.15 (1.15.2-1) unstable; urgency=medium
 
   * New upstream version 1.15.2.
 
  -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Tue, 15 Sep 2020 09:51:42 +1200
+
+golang-1.15 (1.15-2ubuntu1) groovy; urgency=medium
+
+  * cmd/dist: increase default timeout scale for arm (LP: #1893640)
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Mon, 31 Aug 2020 13:30:32 +0200
 
 golang-1.15 (1.15-2) unstable; urgency=medium
 
@@ -1478,3 +1499,4 @@ golang (2011.02.01.1-1) unstable; urgency=low
   * Remove codereview directory - some python code to deal with mercurial
 
  -- Ondřej Surý <ondrej@debian.org>  Mon, 14 Feb 2011 17:42:39 +0100
+
