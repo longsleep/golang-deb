@@ -1,3 +1,9 @@
+golang-1.15 (1.15.5-1) unstable; urgency=medium
+
+  * New upstream version 1.15.5.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Fri, 13 Nov 2020 09:40:16 +1300
+
 golang-1.15 (1.15.4-1) unstable; urgency=medium
 
   * New upstream version 1.15.4.
