@@ -1,3 +1,12 @@
+golang-1.15 (1.15.5-2) unstable; urgency=medium
+
+  * Team upload.
+  * Backport patch to fix usability regression in go1.15.5
+    cmd/go: allow flags in CGO_LDFLAGS environment variable not in security allowlist
+    https://github.com/golang/go/issues/42567
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 18 Nov 2020 00:46:08 +0800
+
 golang-1.15 (1.15.5-1) unstable; urgency=medium
 
   * New upstream version 1.15.5.
