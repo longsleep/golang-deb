@@ -2,3 +2,4 @@
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0003-cmd-go-cmd-cgo-pass-mfp32-and-mhard-soft-float-to-MI.patch
 0004-cmd-dist-fix-build-failure-of-misc-cgo-test-on-arm64.patch
+0005-cmd-go-permit-CGO_LDFLAGS-to-appear-in-go-ldflag.patch
