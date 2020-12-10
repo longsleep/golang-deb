@@ -569,7 +569,7 @@ func schedinit() {
 	typelinksinit() // uses maps, activeModules
 	itabsinit()     // uses activeModules
 
-	msigsave(_g_.m)
+	sigsave(&_g_.m.sigmask)
 	initSigmask = _g_.m.sigmask
 
 	goargs()
@@ -1281,6 +1281,14 @@ found:
 	checkdead()
 	unlock(&sched.lock)
 
+	if GOOS == "darwin" {
+		// Make sure pendingPreemptSignals is correct when an M exits.
+		// For #41702.
+		if atomic.Load(&m.signalPending) != 0 {
+			atomic.Xadd(&pendingPreemptSignals, -1)
+		}
+	}
+
 	if osStack {
 		// Return from mstart and let the system thread
 		// library free the g0 stack and terminate the thread.
@@ -1528,6 +1536,18 @@ func needm(x byte) {
 		exit(1)
 	}
 
+	// Save and block signals before getting an M.
+	// The signal handler may call needm itself,
+	// and we must avoid a deadlock. Also, once g is installed,
+	// any incoming signals will try to execute,
+	// but we won't have the sigaltstack settings and other data
+	// set up appropriately until the end of minit, which will
+	// unblock the signals. This is the same dance as when
+	// starting a new m to run Go code via newosproc.
+	var sigmask sigset
+	sigsave(&sigmask)
+	sigblock()
+
 	// Lock extra list, take head, unlock popped list.
 	// nilokay=false is safe here because of the invariant above,
 	// that the extra list always contains or will soon contain
@@ -1545,14 +1565,8 @@ func needm(x byte) {
 	extraMCount--
 	unlockextra(mp.schedlink.ptr())
 
-	// Save and block signals before installing g.
-	// Once g is installed, any incoming signals will try to execute,
-	// but we won't have the sigaltstack settings and other data
-	// set up appropriately until the end of minit, which will
-	// unblock the signals. This is the same dance as when
-	// starting a new m to run Go code via newosproc.
-	msigsave(mp)
-	sigblock()
+	// Store the original signal mask for use by minit.
+	mp.sigmask = sigmask
 
 	// Install g (= m->g0) and set the stack bounds
 	// to match the current stack. We don't actually know
@@ -3409,7 +3423,7 @@ func beforefork() {
 	// a signal handler before exec if a signal is sent to the process
 	// group. See issue #18600.
 	gp.m.locks++
-	msigsave(gp.m)
+	sigsave(&gp.m.sigmask)
 	sigblock()
 
 	// This function is called before fork in syscall package.
@@ -3475,11 +3489,24 @@ func syscall_runtime_AfterForkInChild() {
 	inForkedChild = false
 }
 
+// pendingPreemptSignals is the number of preemption signals
+// that have been sent but not received. This is only used on Darwin.
+// For #41702.
+var pendingPreemptSignals uint32
+
 // Called from syscall package before Exec.
 //go:linkname syscall_runtime_BeforeExec syscall.runtime_BeforeExec
 func syscall_runtime_BeforeExec() {
 	// Prevent thread creation during exec.
 	execLock.lock()
+
+	// On Darwin, wait for all pending preemption signals to
+	// be received. See issue #41702.
+	if GOOS == "darwin" {
+		for int32(atomic.Load(&pendingPreemptSignals)) > 0 {
+			osyield()
+		}
+	}
 }
 
 // Called from syscall package after Exec.
