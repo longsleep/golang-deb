@@ -1,3 +1,16 @@
+golang-1.15 (1.15.6-1) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Balint Reczey ]
+  * cmd/dist: increase default timeout scale for arm (LP: #1893640)
+
+  [ Shengjing Zhu ]
+  * New upstream version 1.15.6
+  * Drop CGO_LDFLAGS patch, fixed in go1.15.6
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sun, 13 Dec 2020 18:27:59 +0800
+
 golang-1.15 (1.15.5-2) unstable; urgency=medium
 
   * Team upload.
