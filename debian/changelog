@@ -1,3 +1,12 @@
+golang-1.13 (1.13.8-1ubuntu1~16.04.2) xenial; urgency=medium
+
+  * Don't declare Breaks: on dh-golang (<< 1.43~) in golang-go
+    Packages using this golang version should work around the incompatibility
+    in debian/rules by setting GOCACHE to an absolute path:
+     export GOCACHE := ${CURDIR}/_build/go-build
+
+ -- Balint Reczey <rbalint@ubuntu.com>  Thu, 14 Jan 2021 21:12:44 +0100
+
 golang-1.13 (1.13.8-1ubuntu1~16.04.1) xenial; urgency=medium
 
   * Backport to 16.04. (LP: #1911478)
