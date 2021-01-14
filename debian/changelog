@@ -1,3 +1,10 @@
+golang-1.13 (1.13.8-1ubuntu1~16.04.1) xenial; urgency=medium
+
+  * Backport to 16.04. (LP: #1911478)
+  * Relax debhelper requirement.
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 14 Jan 2021 13:33:26 +1300
+
 golang-1.13 (1.13.8-1ubuntu1) focal; urgency=low
 
   * Merge from Debian unstable.  Remaining changes:
