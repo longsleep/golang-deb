@@ -8,3 +8,4 @@ fc3e6af10297b424175b44d2274de04c5f0b9e82.patch
 70ca9a801164e370cc6adf443d40a95c24143400.patch
 1f76e888dfcc67159b012c503ed2961691e0cf85.patch
 ba41f5960408a58339e6efb1bf379031cc35efeb.patch
+0001-cmd-link-check-CGO_CFLAGS-for-non-g-I-O-options-befo.patch
