@@ -1,3 +1,12 @@
+golang-1.15 (1.15.7-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.15.7
+    + crypto/elliptic: incorrect operations on the P-224 curve
+      CVE-2021-3114
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 23 Jan 2021 01:59:14 +0800
+
 golang-1.15 (1.15.6-1) unstable; urgency=medium
 
   * Team upload.
