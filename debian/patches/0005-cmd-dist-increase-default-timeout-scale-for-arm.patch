@@ -1,6 +1,7 @@
 From: Balint Reczey <balint.reczey@canonical.com>
 Date: Mon, 31 Aug 2020 13:14:51 +0200
 Subject: [PATCH] cmd/dist: increase default timeout scale for arm
+
 Forwarded: https://github.com/golang/go/issues/43002
 
 Most developers use (faster) amd64 machines setting the test timeouts,
