@@ -1,3 +1,9 @@
+golang-1.16 (1.16~beta0-1) UNRELEASED; urgency=medium
+
+  * New upstream major version.
+
+ -- Anthony Fok <foka@debian.org>  Mon, 08 Feb 2021 17:00:36 -0700
+
 golang-1.15 (1.15.8-1) unstable; urgency=medium
 
   * Team upload.
