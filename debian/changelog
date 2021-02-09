@@ -1,3 +1,13 @@
+golang-1.15 (1.15.8-2) unstable; urgency=medium
+
+  * d/patches/0007-cmd-link-check-CGO_CFLAGS-for-non-g-I-O-options-befo.patch:
+    disable internal linking when dynamically linking and CGO_CFLAGS contains
+    flags that might make host object files that the internal linkers ELF
+    reader does not support. This fixes lots of package builds when LTO is
+    enabled by default via dpkg-buildflags.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 10 Feb 2021 09:53:36 +1300
+
 golang-1.15 (1.15.8-1) unstable; urgency=medium
 
   * Team upload.
