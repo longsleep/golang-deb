@@ -47,16 +47,6 @@ index ea462a7..7e8a3e2 100755
  
  # Copyright 2011 The Go Authors. All rights reserved.
  # Use of this source code is governed by a BSD-style
-diff --git a/src/syscall/mksysnum_darwin.pl b/src/syscall/mksysnum_darwin.pl
-index af21e85..9e59261 100755
---- a/src/syscall/mksysnum_darwin.pl
-+++ b/src/syscall/mksysnum_darwin.pl
-@@ -1,4 +1,4 @@
--#!/usr/bin/env perl
-+#!/usr/bin/perl
- # Copyright 2009 The Go Authors. All rights reserved.
- # Use of this source code is governed by a BSD-style
- # license that can be found in the LICENSE file.
 diff --git a/src/syscall/mksysnum_dragonfly.pl b/src/syscall/mksysnum_dragonfly.pl
 index e9a634b..a8df18d 100755
 --- a/src/syscall/mksysnum_dragonfly.pl
