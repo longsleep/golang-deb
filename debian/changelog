@@ -1,3 +1,9 @@
+golang-1.15 (1.15.8-3) unstable; urgency=high
+
+  * Re-upload with urgency=high due to impending freeze.
+
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Wed, 10 Feb 2021 12:58:55 +1300
+
 golang-1.15 (1.15.8-2) unstable; urgency=medium
 
   * d/patches/0007-cmd-link-check-CGO_CFLAGS-for-non-g-I-O-options-befo.patch:
