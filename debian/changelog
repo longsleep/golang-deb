@@ -1,8 +1,14 @@
-golang-1.16 (1.16~beta0-1) UNRELEASED; urgency=medium
+golang-1.16 (1.16~rc1-1) unstable; urgency=medium
 
+  * Team upload.
   * New upstream major version.
+    - Drop 0004-cmd-dist-fix-build-failure-of-misc-cgo-test-on-arm64.patch
+      which was replaced by https://go-review.googlesource.com/c/go/+/262357/
+      and cherry-picked as b3f7f60 for go1.16 upstream
+    - Refresh remaining patches
+  * Update Standards-Version to 4.5.1, no changes needed
 
- -- Anthony Fok <foka@debian.org>  Mon, 08 Feb 2021 17:00:36 -0700
+ -- Anthony Fok <foka@debian.org>  Mon, 08 Feb 2021 17:43:41 -0700
 
 golang-1.15 (1.15.8-1) unstable; urgency=medium
 
