@@ -1,3 +1,10 @@
+golang-1.13 (1.13.8-1ubuntu1~16.04.3) UNRELEASED; urgency=medium
+
+  * Workaround a debhelper/binutils combo bug on Xenial where compress/zlib.a
+    gets stripped, which mangles it. (LP: #1913852)
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 11 Feb 2021 13:38:12 +1300
+
 golang-1.13 (1.13.8-1ubuntu1~16.04.2) xenial; urgency=medium
 
   * Don't declare Breaks: on dh-golang (<< 1.43~) in golang-go
