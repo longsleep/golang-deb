@@ -1,3 +1,16 @@
+golang-1.15 (1.15.8-4) unstable; urgency=medium
+
+  * Team upload.
+  * Revert "0007-cmd-link-check-CGO_CFLAGS-for-non-g-I-O-options-befo.patch"
+    This patch causes:
+    1. unexpected error message, which makes some packages FTBFS
+       loadinternal: cannot find runtime/cgo
+       Closes: #982701, #982714, #982720, #982724, #982734
+    2. unable to build package on riscv64
+       external linking not supported for linux/riscv64
+
+ -- Shengjing Zhu <zhsj@debian.org>  Mon, 15 Feb 2021 23:19:39 +0800
+
 golang-1.15 (1.15.8-3) unstable; urgency=high
 
   * Re-upload with urgency=high due to impending freeze.
