@@ -1,3 +1,9 @@
+golang-1.15 (1.15.8-1longsleep1+bionic) bionic; urgency=medium
+
+  * New upstream version 1.15.8
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 16 Feb 2021 11:44:49 +0100
+
 golang-1.15 (1.15.7-1longsleep1+bionic) bionic; urgency=medium
 
   * New upstream version 1.15.7
