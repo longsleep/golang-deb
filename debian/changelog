@@ -1,3 +1,11 @@
+golang-1.16 (1.16-1) unstable; urgency=medium
+
+  * New upstream version 1.16
+  * debian/control{.in,}: Change Section from devel to golang
+  * Add myself to Uploaders
+
+ -- Anthony Fok <foka@debian.org>  Thu, 18 Feb 2021 00:02:53 -0700
+
 golang-1.16 (1.16~rc1-1) unstable; urgency=medium
 
   * Team upload.
