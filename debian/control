@@ -8,7 +8,8 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
            Michael Hudson-Doyle <mwhudson@debian.org>,
-           Dr. Tobias Quathamer <toddy@debian.org>
+           Dr. Tobias Quathamer <toddy@debian.org>,
+           Anthony Fok <foka@debian.org>
 Section: golang
 Priority: optional
 Build-Depends: debhelper-compat (= 13),
