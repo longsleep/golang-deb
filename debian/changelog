@@ -1,3 +1,10 @@
+golang-1.16 (1.16-1longsleep1+bionic) bionic; urgency=medium
+
+  * Change packaging for Ubuntu compatibility
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Mon, 22 Feb 2021 17:26:05 +0100
+
 golang-1.16 (1.16-1) unstable; urgency=medium
 
   * New upstream version 1.16
