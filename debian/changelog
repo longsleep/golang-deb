@@ -1,3 +1,10 @@
+golang-1.16 (1.16.2-1longsleep1+bionic) bionic; urgency=medium
+
+  * New upstream version 1.16
+  * New upstream version 1.16.2
+
+ -- Simon Eisenmann <simon@longsleep.org>  Thu, 11 Mar 2021 22:41:23 +0100
+
 golang-1.16 (1.16-1longsleep1+bionic) bionic; urgency=medium
 
   * Change packaging for Ubuntu compatibility
