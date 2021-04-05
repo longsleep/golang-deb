@@ -1,3 +1,9 @@
+golang-1.16 (1.16.3-2longsleep1+focal) focal; urgency=medium
+
+  * Bump build system to focal (works fine on bionic)
+
+ -- Simon Eisenmann <simon@longsleep.org>  Mon, 05 Apr 2021 12:53:08 +0200
+
 golang-1.16 (1.16.3-1longlseep1+bionic) bionic; urgency=medium
 
   * New upstream version 1.16.3
