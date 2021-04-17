@@ -59,7 +59,7 @@ Description: Go programming language - source files
  cross-compilation.
 
 Package: golang-X.Y-doc
-Depends: golang-X.Y-go, ${misc:Depends}
+Depends: ${misc:Depends}
 Architecture: all
 Section: doc
 Description: Go programming language - documentation
@@ -74,9 +74,7 @@ Description: Go programming language - documentation
  typed, interpreted language.
  .
  This package provides the documentation for the Go programming
- language. You can view the formatted documentation by running
- "godoc --http=:6060", and then visiting
- http://localhost:6060/doc/install.html.
+ language.
 
 Package: golang-X.Y
 Depends: golang-X.Y-doc (>= ${source:Version}),
