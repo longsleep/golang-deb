@@ -16,12 +16,6 @@ export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 export GOCACHE := $(CURDIR)/pkg/obj/go-build
 
 
-RUN_TESTS := true
-# armel: ???
-# ppc64: ???
-ifneq (,$(filter armel ppc64,$(DEB_HOST_ARCH)))
-	RUN_TESTS := false
-endif
 ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
 	RUN_TESTS := false
 endif
