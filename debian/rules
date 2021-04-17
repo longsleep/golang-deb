@@ -16,10 +16,6 @@ export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 export GOCACHE := $(CURDIR)/pkg/obj/go-build
 
 
-ifneq (,$(findstring nocheck,$(DEB_BUILD_OPTIONS)))
-	RUN_TESTS := false
-endif
-
 %:
 	+dh $@ $(opt_no_act)
 
@@ -61,7 +57,6 @@ override_dh_prep:
 
 
 override_dh_auto_test-arch:
-ifeq (true, $(RUN_TESTS))
 	set -ex; \
 		cd src; \
 		export PATH="$(GOROOT)/bin:$$PATH"; \
@@ -78,9 +73,6 @@ ifeq (true, $(RUN_TESTS))
 		export PATH="$(GOROOT)/bin:$$PATH"; \
 		eval "$$(go tool dist env)"; \
 		rm -rf "$(GOROOT)/pkg/$${GOOS}_$${GOARCH}_race/"
-else
-	# skip the tests on platforms where they fail
-endif
 	# Remove GOCACHE files
 	rm -rf pkg/obj
 
