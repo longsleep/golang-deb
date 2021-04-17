@@ -2,7 +2,12 @@
 # This file is in the public domain.
 # You may freely use, modify, distribute, and relicense it.
 
-export GOVER := $(shell perl -w -mDpkg::Version -e 'Dpkg::Version->new(`dpkg-parsechangelog -SVersion`)->version() =~ /^([0-9]+\.[0-9]+)/ && print("$$1\n")')
+# We need DEB_HOST_ARCH, so include the needed makefile snippet
+include /usr/share/dpkg/architecture.mk
+# for DEB_VERSION_UPSTREAM
+include /usr/share/dpkg/pkg-info.mk
+
+export GOVER := $(shell echo $(DEB_VERSION_UPSTREAM) | grep -oP '^([0-9]+\.[0-9]+)')
 
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
@@ -10,8 +15,6 @@ export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 # Go 1.12 needs a build cache, otherwise the build fails.
 export GOCACHE := $(CURDIR)/pkg/obj/go-build
 
-# We need DEB_HOST_ARCH, so include the needed makefile snippet
-include /usr/share/dpkg/architecture.mk
 
 RUN_TESTS := true
 # armel: ???
@@ -124,7 +127,7 @@ override_dh_makeshlibs:
 	dh_makeshlibs -Xtestdata -Xtest
 
 override_dh_auto_build-arch:
-	[ -f VERSION ] || echo "debian snapshot +$$(dpkg-parsechangelog -SVersion)" > VERSION
+	[ -f VERSION ] || echo "debian snapshot $(DEB_VERSION)" > VERSION
 	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
 		&& cd src \
 		&& $(CURDIR)/debian/helpers/goenv.sh \
