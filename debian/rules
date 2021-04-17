@@ -49,7 +49,7 @@ override_dh_auto_clean: gencontrol
 		rm -f -v golang-$(GOVER)-$${x##golang-X.Y-}; \
 	done
 
-override_dh_prep:
+execute_after_dh_prep:
 	dh_prep
 	@set -e; cd debian; for x in golang-X.Y-*; do \
 		sed -e 's/X.Y/$(GOVER)/g' $$x > golang-$(GOVER)-$${x##golang-X.Y-}; \
@@ -79,15 +79,16 @@ override_dh_auto_test-arch:
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
 
-override_dh_install-arch:
-	dh_install
-	# Remove Plan9 rc(1) scripts
-	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
+execute_after_dh_install-arch:
 	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
 	find debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/src -type d -delete
 	# Touch built and installed files and directories to have same timestamp
 	touch debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg
 	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
+
+execute_after_dh_install-indep:
+	# Remove Plan9 rc(1) scripts
+	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
 	# Make scripts executable which have been missed by upstream
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmp.bash
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/unix/mkall.sh
