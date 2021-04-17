@@ -1,3 +1,23 @@
+golang-1.16 (1.16.3-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.16.3
+    Fix CVE-2021-27918 CVE-2021-27919
+  * Move golang-X.Y-src to arch all.
+    The package doesn't contain arch specific source now.
+  * Update golang-X.Y-doc package description.
+    Most contents are removed by upstream in 1.16, which is moved to
+    x/website repository. And the godoc binary is also shipped in
+    golang-golang-x-tools now. So no longer recommend users to read doc
+    with godoc. These html files can also be read in plain browsers.
+  * Replace dpkg-parsechangelog with dpkg pkg-info.mk
+  * Try to enable tests on armel and ppc64.
+    No comments say why it doesn't work
+  * Remove nocheck detection as debhelper respects it since compat 13
+  * Remove override_dh_missing as fail-missing is default in compat 13
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sun, 18 Apr 2021 03:56:41 +0800
+
 golang-1.16 (1.16-1) unstable; urgency=medium
 
   * New upstream version 1.16
