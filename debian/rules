@@ -94,9 +94,6 @@ override_dh_install-arch:
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/unix/mkerrors.sh
 	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/windows/mkerrors.bash
 
-override_dh_missing:
-	dh_missing --fail-missing
-
 override_dh_strip:
 	dh_strip -Xtestdata
 
