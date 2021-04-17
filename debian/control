@@ -47,7 +47,7 @@ Description: Go programming language compiler, linker, compiled stdlib
  pre-compile the standard library inside GOROOT for cross-compilation to work.
 
 Package: golang-1.16-src
-Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
+Architecture: all
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
