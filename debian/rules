@@ -113,10 +113,9 @@ override_dh_makeshlibs:
 override_dh_auto_build:
 	# run in -indep as well, it is needed for generating files.
 	[ -f VERSION ] || echo "debian snapshot $(DEB_VERSION)" > VERSION
-	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
-		&& cd src \
+	cd src \
 		&& $(CURDIR)/debian/helpers/goenv.sh \
-			bash ./make.bash --no-banner
+		bash ./make.bash --no-banner
 
 opt_no_act :=
 ifneq (,$(findstring n,$(MAKEFLAGS)))

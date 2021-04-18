@@ -36,12 +36,26 @@ if [ -z "$GOHOSTOS" -o -z "$GOOS" -o -z "$GOHOSTARCH" -o -z "$GOARCH" ]; then
 	exit 1
 fi
 
-# Always use the 387 floating point unit instead of sse2. This is important to
-# ensure that the binaries we build (both when compiling golang on the buildds
-# and when users cross-compile for 386) can actually run on older CPUs (where
-# old means e.g. an AMD Athlon XP 2400+). See http://bugs.debian.org/753160 and
+export GOROOT_BOOTSTRAP=$(env -i go env GOROOT)
+
+bootstrap_version=$(env -i go version|grep -oP '[0-9]+\.[0-9]+')
+
+# Always not use sse2. This is important to ensure that the binaries we build
+# (both when compiling golang on the buildds and when users cross-compile for
+# 386) can actually run on older CPUs (where old means e.g. an AMD Athlon XP
+# 2400+). See http://bugs.debian.org/753160 and
 # https://code.google.com/p/go/issues/detail?id=8152
-export GO386=387
+
+# Staring from go1.16, GO386=387 is not supported, only GO386=softfloat.
+unset GO386
+if dpkg --compare-versions "$bootstrap_version" ge "1.16"; then
+	# Only go1.16 recognizes GO386=softfloat. Using GO386=387 to build go1.16
+	# also fails.
+	# https://github.com/golang/go/issues/44500
+	# Need to build with GO386="" first, then rebuild go1.16+ with go1.16 and
+	# GO386=softfloat
+	export GO386=softfloat
+fi
 
 unset GOARM
 if [ "$GOARCH" = 'arm' ]; then
