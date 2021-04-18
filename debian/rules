@@ -79,10 +79,6 @@ override_dh_auto_test-arch:
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
 
-execute_after_dh_install-arch:
-	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
-	find debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/src -type d -delete
-
 execute_after_dh_install-indep:
 	# Remove Plan9 rc(1) scripts
 	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
