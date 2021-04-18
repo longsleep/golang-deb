@@ -82,9 +82,6 @@ override_dh_compress-indep:
 execute_after_dh_install-arch:
 	# Remove empty /usr/share/go-$(GOVER)/src from golang-$(GOVER)-go, it is provided by golang-$(GOVER)-src
 	find debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/src -type d -delete
-	# Touch built and installed files and directories to have same timestamp
-	touch debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg
-	find debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg -exec touch -r $(CURDIR)/debian/golang-$(GOVER)-go/usr/lib/go-$(GOVER)/pkg {} \;
 
 execute_after_dh_install-indep:
 	# Remove Plan9 rc(1) scripts
