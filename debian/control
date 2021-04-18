@@ -43,8 +43,8 @@ Description: Go programming language compiler, linker, compiled stdlib
  This package provides an assembler, compiler, linker, and compiled libraries
  for the Go programming language.
  .
- Go supports cross-compilation, but as of Go 1.5, it is no longer necessary to
- pre-compile the standard library inside GOROOT for cross-compilation to work.
+ To use this version, instead of the default one provided by golang-go package,
+ add /usr/lib/go-1.16/bin/ to PATH, or invoke /usr/lib/go-1.16/bin/go directly.
 
 Package: golang-1.16-src
 Architecture: all
@@ -60,7 +60,7 @@ Description: Go programming language - source files
  interpreted language.
  .
  This package provides the Go programming language source files needed for
- cross-compilation.
+ compilation.
 
 Package: golang-1.16-doc
 Depends: ${misc:Depends}
@@ -99,3 +99,7 @@ Description: Go programming language compiler - metapackage
  .
  This package is a metapackage that, when installed, guarantees
  that (most of) a full Go development environment is installed.
+ .
+ To use this version, instead of the default one provided by golang-go
+ package, add /usr/lib/go-1.16/bin/ to PATH, or invoke /usr/lib/go-1.16/bin/go
+ directly.
