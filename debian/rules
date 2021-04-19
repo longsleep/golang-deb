@@ -13,7 +13,7 @@ export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 
 # Go 1.12 needs a build cache, otherwise the build fails.
-export GOCACHE := $(CURDIR)/pkg/obj/go-build
+export GOCACHE := $(CURDIR)/pkg/go-build
 
 # source files generated during building.
 # especially zbootstrap.go has different defaultGOARM values on armhf and armel,
@@ -80,11 +80,12 @@ override_dh_auto_test-arch:
 		export PATH="$(GOROOT)/bin:$$PATH"; \
 		eval "$$(go tool dist env)"; \
 		rm -rf "$(GOROOT)/pkg/$${GOOS}_$${GOARCH}_race/"
-	# Remove GOCACHE files
-	rm -rf pkg/obj
 
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
+
+execute_before_dh_install-arch:
+	rm -rf $(GOCACHE)
 
 execute_after_dh_install-indep:
 	# Remove generated source files, they are installed in golang-$(GOVER)-go.
