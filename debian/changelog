@@ -1,3 +1,10 @@
+golang-1.16 (1.16.3-4) unstable; urgency=medium
+
+  * Team upload.
+  * Remove bootstrap dir after build. Otherwise tests fail
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 20 Apr 2021 02:05:56 +0800
+
 golang-1.16 (1.16.3-3) unstable; urgency=medium
 
   * Team upload.
