@@ -1,3 +1,26 @@
+golang-1.16 (1.16.3-3) unstable; urgency=medium
+
+  * Team upload.
+  * Drop mtime hack in postinst and d/rules
+    https://github.com/golang/go/issues/3506#issuecomment-341310161
+    > Essentially everything involved in this report has been rewritten.
+    > The go command no longer cares about mtimes.
+  * No need to remove src dir in golang-$(GOVER)-go package.
+    It's not installed by golang-X.Y-go.dirs now
+  * Update description and recommended way to use specified version (Closes: #985542)
+  * Rebuild with go1.16.
+    To build with GO386=softfloat, https://github.com/golang/go/issues/44500
+  * Add Multi-Arch hint
+  * Only build in -arch target again.
+    Move generated source files to golang-1.16-go package
+  * Not force gencontrol in dh_clean.
+    Not needed after the new branch is created. And we need to add some
+    Breaks/Replaces to d/control which should not be in next version
+  * Remove GOCACHE before dh_install.
+    So it is executed when build with nocheck as well
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 20 Apr 2021 00:46:07 +0800
+
 golang-1.16 (1.16.3-2) unstable; urgency=medium
 
   * Team upload.
