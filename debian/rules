@@ -49,8 +49,6 @@ override_dh_auto_clean:
 	rm -f -v $(GENERATED_FILES)
 	# remove built objects
 	rm -rf bin pkg
-	# rm bootstrap dir
-	rm -rf $(CURDIR)/bootstrap
 	# remove generated files
 	@set -e; cd debian; for x in golang-X.Y-*; do \
 		rm -f -v golang-$(GOVER)-$${x##golang-X.Y-}; \
@@ -128,6 +126,9 @@ override_dh_auto_build-arch:
 	fi \
 	&& cd $(CURDIR)/src \
 	&& $(CURDIR)/debian/helpers/goenv.sh bash ./make.bash --no-banner
+
+	# rm bootstrap dir
+	rm -rf $(CURDIR)/bootstrap
 
 opt_no_act :=
 ifneq (,$(findstring n,$(MAKEFLAGS)))
