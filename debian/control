@@ -28,7 +28,8 @@ Depends: golang-1.16-src (>= ${source:Version}),
          ${perl:Depends},
          ${shlibs:Depends}
 Recommends: g++, gcc, libc6-dev, pkg-config
-Breaks: dh-golang (<< 1.43~)
+Breaks: dh-golang (<< 1.43~), golang-1.16-src (<< 1.16.3-3~)
+Replaces: golang-1.16-src (<< 1.16.3-3~)
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
  The Go programming language is an open source project to make programmers more
@@ -50,6 +51,7 @@ Package: golang-1.16-src
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
+Breaks: golang-1.16-go (<< 1.16.3-3~)
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
  productive. Go is expressive, concise, clean, and efficient. Its concurrency
