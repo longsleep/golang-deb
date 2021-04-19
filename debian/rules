@@ -15,7 +15,6 @@ export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 # Go 1.12 needs a build cache, otherwise the build fails.
 export GOCACHE := $(CURDIR)/pkg/obj/go-build
 
-
 %:
 	+dh $@ $(opt_no_act)
 
@@ -45,6 +44,9 @@ override_dh_auto_clean: gencontrol
 		src/runtime/internal/sys/zversion.go
 	# remove built objects
 	rm -rf bin pkg
+	# rm bootstrap dir
+	rm -rf $(CURDIR)/bootstrap
+	# remove generated files
 	@set -e; cd debian; for x in golang-X.Y-*; do \
 		rm -f -v golang-$(GOVER)-$${x##golang-X.Y-}; \
 	done
@@ -106,9 +108,19 @@ override_dh_makeshlibs:
 override_dh_auto_build:
 	# run in -indep as well, it is needed for generating files.
 	[ -f VERSION ] || echo "debian snapshot $(DEB_VERSION)" > VERSION
-	cd src \
-		&& $(CURDIR)/debian/helpers/goenv.sh \
-		bash ./make.bash --no-banner
+
+	# on i386, need to rebuild with go1.16 for GO386=softfloat
+	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
+	&& if [ "$(DEB_HOST_ARCH)" = "i386" ] && dpkg --compare-versions $$(GOROOT_BOOTSTRAP=/usr ./debian/helpers/goenv.sh echo '$$GOVERSION_BOOTSTRAP') lt "1.16"; then \
+		mkdir -p $(CURDIR)/bootstrap \
+		&& cp -Rp $(CURDIR)/src bootstrap/ \
+		&& cp -Rp $(CURDIR)/VERSION bootstrap/ \
+		&& cd $(CURDIR)/bootstrap/src \
+		&& $(CURDIR)/debian/helpers/goenv.sh bash ./make.bash --no-banner \
+		&& export GOROOT_BOOTSTRAP=$(CURDIR)/bootstrap; \
+	fi \
+	&& cd $(CURDIR)/src \
+	&& $(CURDIR)/debian/helpers/goenv.sh bash ./make.bash --no-banner
 
 opt_no_act :=
 ifneq (,$(findstring n,$(MAKEFLAGS)))

@@ -36,9 +36,7 @@ if [ -z "$GOHOSTOS" -o -z "$GOOS" -o -z "$GOHOSTARCH" -o -z "$GOARCH" ]; then
 	exit 1
 fi
 
-export GOROOT_BOOTSTRAP=$(env -i go env GOROOT)
-
-bootstrap_version=$(env -i go version|grep -oP '[0-9]+\.[0-9]+')
+export GOVERSION_BOOTSTRAP=$("$GOROOT_BOOTSTRAP/bin/go" version|grep -oP '[0-9]+\.[0-9]+')
 
 # Always not use sse2. This is important to ensure that the binaries we build
 # (both when compiling golang on the buildds and when users cross-compile for
@@ -48,7 +46,7 @@ bootstrap_version=$(env -i go version|grep -oP '[0-9]+\.[0-9]+')
 
 # Staring from go1.16, GO386=387 is not supported, only GO386=softfloat.
 unset GO386
-if dpkg --compare-versions "$bootstrap_version" ge "1.16"; then
+if dpkg --compare-versions "$GOVERSION_BOOTSTRAP" ge "1.16"; then
 	# Only go1.16 recognizes GO386=softfloat. Using GO386=387 to build go1.16
 	# also fails.
 	# https://github.com/golang/go/issues/44500
