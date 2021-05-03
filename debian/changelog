@@ -1,3 +1,10 @@
+golang-1.15 (1.15.9-1~bpo10+1) buster-backports; urgency=medium
+
+  * Team upload.
+  * Rebuild for buster-backports (Closes: #980747).
+
+ -- Roger Shimizu <rogershimizu@gmail.com>  Mon, 03 May 2021 23:26:09 +0900
+
 golang-1.15 (1.15.9-1) unstable; urgency=medium
 
   * Team upload.
