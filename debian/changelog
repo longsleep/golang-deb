@@ -1,3 +1,12 @@
+golang-1.16 (1.16.4-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.16.4
+    Fix CVE-2021-31525 net/http: ReadRequest can stack overflow due to
+    recursion with very large headers
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 08 May 2021 02:27:38 +0800
+
 golang-1.16 (1.16.3-4) unstable; urgency=medium
 
   * Team upload.
