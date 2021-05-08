@@ -1,3 +1,18 @@
+golang-1.15 (1.15.9-3) unstable; urgency=medium
+
+  * Fix failed TestDependencyVersionsConsistent test.
+    When dpkg-source unpack tarball, it produces .pc dir in source dir.
+    The last patch 0007-CVE-2021-31525.patch causes
+    go.mod/go.sum/modules.txt files in .pc dir with old content.
+    Then TestDependencyVersionsConsistent picks these old content in .pc
+    dir, results error:
+    --- FAIL: TestDependencyVersionsConsistent (0.00s)
+        moddeps_test.go:217: Modules within GOROOT require different versions of golang.org/x/net.
+        moddeps_test.go:229: std	requires v0.0.0-20201008223702-a5fa9d4b7c91
+        moddeps_test.go:229: std	requires v0.0.0-20210428183841-261fb518b1ed
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 08 May 2021 14:22:26 +0800
+
 golang-1.15 (1.15.9-2) unstable; urgency=medium
 
   * Team upload.
