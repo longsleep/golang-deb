@@ -3,7 +3,6 @@ Date: Fri, 5 Feb 2021 21:21:45 +0800
 Subject: skip userns test in schroot as well
 
 When schroot is using overlayfs, it fails to detect it as chroot.
-
 ---
  src/syscall/exec_linux_test.go | 7 +++++++
  1 file changed, 7 insertions(+)
