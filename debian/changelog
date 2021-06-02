@@ -1,3 +1,12 @@
+golang-1.15 (1.15.9-4) unstable; urgency=medium
+
+  * Team upload.
+  * Backport patch for CVE-2021-33196
+    archive/zip: malformed archive may cause panic or memory exhaustion
+    https://github.com/golang/go/issues/46396
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 02 Jun 2021 10:56:03 +0800
+
 golang-1.15 (1.15.9-3) unstable; urgency=medium
 
   * Fix failed TestDependencyVersionsConsistent test.
