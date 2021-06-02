@@ -5,3 +5,4 @@
 0005-cmd-dist-increase-default-timeout-scale-for-arm.patch
 0006-skip-userns-test-in-schroot-as-well.patch
 0007-CVE-2021-31525.patch
+0008-CVE-2021-33196.patch
