@@ -1,3 +1,15 @@
+golang-1.15 (1.15.9-5) unstable; urgency=medium
+
+  * Team upload.
+  * Backport patches for CVE-2021-33195 CVE-2021-33197 CVE-2021-33198
+    + CVE-2021-33195: net: Lookup functions may return invalid host names
+    + CVE-2021-33197: net/http/httputil: ReverseProxy forwards Connection
+      headers if first one is empty
+    + CVE-2021-33198: math/big: (*Rat).SetString with "1.770p02041010010011001001"
+      crashes with "makeslice: len out of range"
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 05 Jun 2021 19:36:34 +0800
+
 golang-1.15 (1.15.9-4) unstable; urgency=medium
 
   * Team upload.
