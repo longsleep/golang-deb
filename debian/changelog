@@ -1,3 +1,17 @@
+golang-1.16 (1.16.5-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.16.5
+    + CVE-2021-33195: net: Lookup functions may return invalid host names
+    + CVE-2021-33196: archive/zip: malformed archive may cause panic or memory
+      exhaustion (Closes: #989492)
+    + CVE-2021-33197: net/http/httputil: ReverseProxy forwards Connection
+      headers if first one is empty
+    + CVE-2021-33198: math/big: (*Rat).SetString with "1.770p02041010010011001001"
+      crashes with "makeslice: len out of range"
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 05 Jun 2021 19:03:59 +0800
+
 golang-1.16 (1.16.4-1) unstable; urgency=medium
 
   * Team upload.
