@@ -80,7 +80,7 @@ override_dh_auto_test-arch:
 		rm -rf "$(GOROOT)/pkg/$${GOOS}_$${GOARCH}_race/"
 
 override_dh_compress-indep:
-	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html -Xusr/share/doc/golang-$(GOVER)-doc/favicon.ico
+	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html
 
 execute_before_dh_install-arch:
 	rm -rf $(GOCACHE)

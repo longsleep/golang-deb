@@ -195,21 +195,6 @@ Files: src/cmd/vendor/github.com/google/pprof/third_party/svgpan/svgpan.go
 Copyright: 2009-2017 Andrea Leofreddi <a.leofreddi@itcharm.com>
 License: BSD-3-clause-svgpan
 
-Files: favicon.ico
- doc/gopher/*
-Copyright: Renée French
-License: CC-BY-3.0
-Comment:
- The mascot and logo were designed by
- Renée French <http://reneefrench.blogspot.com>, who also designed
- Glenda <http://plan9.bell-labs.com/plan9/glenda.html>,
- the Plan 9 bunny.
- The gopher is derived from one she used for an WFMU <http://wfmu.org/>
- T-shirt design some years ago.
- The logo and mascot are covered by the
- Creative Commons Attribution 3.0 <http://creativecommons.org/licenses/by/3.0>
- license.
-
 Files: misc/trace/*
 Copyright: 2012 The Chromium Authors
 License: BSD-3-clause
