@@ -8,11 +8,9 @@ When schroot is using overlayfs, it fails to detect it as chroot.
  src/syscall/exec_linux_test.go | 7 +++++++
  1 file changed, 7 insertions(+)
 
-diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
-index b79dee7..9f3d651 100644
 --- a/src/syscall/exec_linux_test.go
 +++ b/src/syscall/exec_linux_test.go
-@@ -33,6 +33,10 @@ func isLXC() bool {
+@@ -33,6 +33,10 @@
  	return os.Getenv("container") == "lxc"
  }
  
@@ -23,7 +21,7 @@ index b79dee7..9f3d651 100644
  func skipInContainer(t *testing.T) {
  	// TODO: the callers of this func are using this func to skip
  	// tests when running as some sort of "fake root" that's uid 0
-@@ -48,6 +52,9 @@ func skipInContainer(t *testing.T) {
+@@ -48,6 +52,9 @@
  	if isLXC() {
  		t.Skip("skip this test in LXC container")
  	}

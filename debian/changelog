@@ -2,6 +2,9 @@ golang-1.17 (1.17-1) UNRELEASED; urgency=medium
 
   * Team upload.
   * New upstream version 1.17
+  * Refresh patches, dropping
+    0003-cmd-go-cmd-cgo-pass-mfp32-and-mhard-soft-float-to-MI.patch which was
+    merged upstream.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 17 Aug 2021 12:13:30 +1200
 
