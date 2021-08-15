@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -47,6 +48,7 @@ func runVendor(cmd *base.Command, args []string) {
 	if len(args) != 0 {
 		base.Fatalf("go mod vendor: vendor takes no arguments")
 	}
+	modload.SilenceMissingStdImports = true
 	pkgs := modload.LoadVendor()
 
 	vdir := filepath.Join(modload.ModRoot(), "vendor")
@@ -191,7 +193,7 @@ func copyMetadata(modPath, pkg, dst, src string) {
 		if modPath == pkg {
 			break
 		}
-		pkg = filepath.Dir(pkg)
+		pkg = path.Dir(pkg)
 		dst = filepath.Dir(dst)
 		src = filepath.Dir(src)
 	}
