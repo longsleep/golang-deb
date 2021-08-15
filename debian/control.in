@@ -5,7 +5,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Tianon Gravi <tianon@debian.org>,
            Michael Hudson-Doyle <mwhudson@debian.org>,
            Dr. Tobias Quathamer <toddy@debian.org>
-Section: devel
+Section: golang
 Priority: optional
 Build-Depends: debhelper-compat (= 13),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
