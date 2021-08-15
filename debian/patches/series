@@ -4,10 +4,3 @@
 0004-cmd-dist-fix-build-failure-of-misc-cgo-test-on-arm64.patch
 0005-cmd-dist-increase-default-timeout-scale-for-arm.patch
 0006-skip-userns-test-in-schroot-as-well.patch
-0007-CVE-2021-31525.patch
-0008-CVE-2021-33196.patch
-0009-CVE-2021-33195-1.patch
-0010-CVE-2021-33195-2.patch
-0011-CVE-2021-33197.patch
-0012-CVE-2021-33198.patch
-0013-CVE-2021-34558.patch
