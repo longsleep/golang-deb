@@ -10,6 +10,7 @@ golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-
 golang-X.Y-src: script-not-executable usr/share/go-X.Y/src/cmd/vendor/golang.org/x/sys/windows/mkknownfolderids.bash
 
 # These files are only testdata
+golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-1.17/src/cmd/objdump/testdata/*
 golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/dwarf/testdata/*
 golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/elf/testdata/*
 golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*

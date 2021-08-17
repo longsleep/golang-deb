@@ -6,6 +6,8 @@ golang-1.17 (1.17-1) UNRELEASED; urgency=medium
     0003-cmd-go-cmd-cgo-pass-mfp32-and-mhard-soft-float-to-MI.patch which was
     merged upstream.
   * Do not include the now-deleted favicon.ico in golang-1.17-doc.
+  * Add one more arch-independent-package-contains-binary-or-object lintian
+    suppression.
 
  -- Michael Hudson-Doyle <mwhudson@debian.org>  Tue, 17 Aug 2021 12:13:30 +1200
 
