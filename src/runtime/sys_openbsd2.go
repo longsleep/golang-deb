@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build openbsd,amd64 openbsd,arm64
+//go:build openbsd && !mips64
+// +build openbsd,!mips64
 
 package runtime
 
@@ -130,6 +131,12 @@ func usleep_trampoline()
 
 //go:nosplit
 //go:cgo_unsafe_args
+func usleep_no_g(usec uint32) {
+	asmcgocall_no_g(unsafe.Pointer(funcPC(usleep_trampoline)), unsafe.Pointer(&usec))
+}
+
+//go:nosplit
+//go:cgo_unsafe_args
 func sysctl(mib *uint32, miblen uint32, out *byte, size *uintptr, dst *byte, ndst uintptr) int32 {
 	return libcCall(unsafe.Pointer(funcPC(sysctl_trampoline)), unsafe.Pointer(&mib))
 }
@@ -155,7 +162,7 @@ func nanotime1() int64 {
 func clock_gettime_trampoline()
 
 //go:nosplit
-func walltime1() (int64, int32) {
+func walltime() (int64, int32) {
 	var ts timespec
 	args := struct {
 		clock_id int32

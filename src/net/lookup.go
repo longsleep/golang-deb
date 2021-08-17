@@ -166,6 +166,9 @@ func (r *Resolver) getLookupGroup() *singleflight.Group {
 
 // LookupHost looks up the given host using the local resolver.
 // It returns a slice of that host's addresses.
+//
+// LookupHost uses context.Background internally; to specify the context, use
+// Resolver.LookupHost.
 func LookupHost(host string) (addrs []string, err error) {
 	return DefaultResolver.LookupHost(context.Background(), host)
 }
@@ -353,6 +356,9 @@ func ipAddrsEface(addrs []IPAddr) []interface{} {
 }
 
 // LookupPort looks up the port for the given network and service.
+//
+// LookupPort uses context.Background internally; to specify the context, use
+// Resolver.LookupPort.
 func LookupPort(network, service string) (port int, err error) {
 	return DefaultResolver.LookupPort(context.Background(), network, service)
 }
@@ -392,6 +398,9 @@ func (r *Resolver) LookupPort(ctx context.Context, network, service string) (por
 //
 // The returned canonical name is validated to be a properly
 // formatted presentation-format domain name.
+//
+// LookupCNAME uses context.Background internally; to specify the context, use
+// Resolver.LookupCNAME.
 func LookupCNAME(host string) (cname string, err error) {
 	return DefaultResolver.LookupCNAME(context.Background(), host)
 }
@@ -559,6 +568,9 @@ func (r *Resolver) LookupNS(ctx context.Context, name string) ([]*NS, error) {
 }
 
 // LookupTXT returns the DNS TXT records for the given domain name.
+//
+// LookupTXT uses context.Background internally; to specify the context, use
+// Resolver.LookupTXT.
 func LookupTXT(name string) ([]string, error) {
 	return DefaultResolver.lookupTXT(context.Background(), name)
 }
@@ -577,6 +589,9 @@ func (r *Resolver) LookupTXT(ctx context.Context, name string) ([]string, error)
 //
 // When using the host C library resolver, at most one result will be
 // returned. To bypass the host resolver, use a custom Resolver.
+//
+// LookupAddr uses context.Background internally; to specify the context, use
+// Resolver.LookupAddr.
 func LookupAddr(addr string) (names []string, err error) {
 	return DefaultResolver.LookupAddr(context.Background(), addr)
 }
