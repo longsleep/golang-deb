@@ -385,7 +385,7 @@ func mdestroy(mp *m) {
 //#endif
 
 func sigreturn()
-func sigtramp(sig uint32, info *siginfo, ctx unsafe.Pointer)
+func sigtramp() // Called via C ABI
 func cgoSigtramp()
 
 //go:noescape
@@ -409,6 +409,11 @@ func raiseproc(sig uint32)
 //go:noescape
 func sched_getaffinity(pid, len uintptr, buf *byte) int32
 func osyield()
+
+//go:nosplit
+func osyield_no_g() {
+	osyield()
+}
 
 func pipe() (r, w int32, errno int32)
 func pipe2(flags int32) (r, w int32, errno int32)

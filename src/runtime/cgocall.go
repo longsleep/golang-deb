@@ -110,6 +110,8 @@ func syscall_cgocaller(fn unsafe.Pointer, args ...uintptr) uintptr {
 	return as.retval
 }
 
+var ncgocall uint64 // number of cgo calls in total for dead m
+
 // Call from Go to C.
 //
 // This must be nosplit because it's used for syscalls on some
@@ -195,7 +197,7 @@ func cgocall(fn, arg unsafe.Pointer) int32 {
 	return errno
 }
 
-// Call from C back to Go.
+// Call from C back to Go. fn must point to an ABIInternal Go entry-point.
 //go:nosplit
 func cgocallbackg(fn, frame unsafe.Pointer, ctxt uintptr) {
 	gp := getg()
@@ -209,6 +211,8 @@ func cgocallbackg(fn, frame unsafe.Pointer, ctxt uintptr) {
 	// exitsyscall, since it would otherwise be free to move us to
 	// a different M. The call to unlockOSThread is in unwindm.
 	lockOSThread()
+
+	checkm := gp.m
 
 	// Save current syscall parameters, so m.syscall can be
 	// used again if callback decide to make syscall.
@@ -225,15 +229,20 @@ func cgocallbackg(fn, frame unsafe.Pointer, ctxt uintptr) {
 
 	osPreemptExtExit(gp.m)
 
-	cgocallbackg1(fn, frame, ctxt)
+	cgocallbackg1(fn, frame, ctxt) // will call unlockOSThread
 
 	// At this point unlockOSThread has been called.
 	// The following code must not change to a different m.
 	// This is enforced by checking incgo in the schedule function.
 
+	gp.m.incgo = true
+
+	if gp.m != checkm {
+		throw("m changed unexpectedly in cgocallbackg")
+	}
+
 	osPreemptExtEnter(gp.m)
 
-	gp.m.incgo = true
 	// going back to cgo call
 	reentersyscall(savedpc, uintptr(savedsp))
 
@@ -242,6 +251,11 @@ func cgocallbackg(fn, frame unsafe.Pointer, ctxt uintptr) {
 
 func cgocallbackg1(fn, frame unsafe.Pointer, ctxt uintptr) {
 	gp := getg()
+
+	// When we return, undo the call to lockOSThread in cgocallbackg.
+	// We must still stay on the same m.
+	defer unlockOSThread()
+
 	if gp.m.needextram || atomic.Load(&extraMWaiters) > 0 {
 		gp.m.needextram = false
 		systemstack(newextram)
@@ -306,14 +320,7 @@ func unwindm(restore *bool) {
 		// unwind of g's stack (see comment at top of file).
 		mp := acquirem()
 		sched := &mp.g0.sched
-		switch GOARCH {
-		default:
-			throw("unwindm not implemented")
-		case "386", "amd64", "arm", "ppc64", "ppc64le", "mips64", "mips64le", "s390x", "mips", "mipsle", "riscv64":
-			sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp + sys.MinFrameSize))
-		case "arm64":
-			sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp + 16))
-		}
+		sched.sp = *(*uintptr)(unsafe.Pointer(sched.sp + alignUp(sys.MinFrameSize, sys.StackAlign)))
 
 		// Do the accounting that cgocall will not have a chance to do
 		// during an unwind.
@@ -328,10 +335,6 @@ func unwindm(restore *bool) {
 
 		releasem(mp)
 	}
-
-	// Undo the call to lockOSThread in cgocallbackg.
-	// We must still stay on the same m.
-	unlockOSThread()
 }
 
 // called from assembly

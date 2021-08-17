@@ -22,6 +22,15 @@ stderr 'go mod tidy: go.mod file indicates go 2000.0, but maximum supported vers
 cmp go.mod go.mod.tidy
 
 
+# Explicitly switching to a supported version should suppress the error completely.
+
+cp go.mod.orig go.mod
+go mod tidy -go=1.17
+! stderr 'maximum supported version'
+go mod edit -go=1.17 go.mod.tidy
+cmp go.mod go.mod.tidy
+
+
 -- go.mod --
 module example.net/from/the/future
 
