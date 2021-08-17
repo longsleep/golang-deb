@@ -2,7 +2,7 @@
 # WARNING: "debian/control" is generated via "debian/rules gencontrol" (sourced from "debian/control.in")
 #
 
-Source: golang-1.16
+Source: golang-1.17
 Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
@@ -16,20 +16,19 @@ Build-Depends: debhelper-compat (= 13),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
 Standards-Version: 4.5.1
-Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.16
-Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.16
+Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.17
+Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.17
 Homepage: https://golang.org
 Rules-Requires-Root: no
 
-Package: golang-1.16-go
+Package: golang-1.17-go
 Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
-Depends: golang-1.16-src (>= ${source:Version}),
+Depends: golang-1.17-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
 Recommends: g++, gcc, libc6-dev, pkg-config
-Breaks: dh-golang (<< 1.43~), golang-1.16-src (<< 1.16.3-3~)
-Replaces: golang-1.16-src (<< 1.16.3-3~)
+Breaks: dh-golang (<< 1.43~)
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
  The Go programming language is an open source project to make programmers more
@@ -45,13 +44,11 @@ Description: Go programming language compiler, linker, compiled stdlib
  for the Go programming language.
  .
  To use this version, instead of the default one provided by golang-go package,
- add /usr/lib/go-1.16/bin/ to PATH, or invoke /usr/lib/go-1.16/bin/go directly.
+ add /usr/lib/go-1.17/bin/ to PATH, or invoke /usr/lib/go-1.17/bin/go directly.
 
-Package: golang-1.16-src
+Package: golang-1.17-src
 Architecture: all
-Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Breaks: golang-1.16-go (<< 1.16.3-3~)
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
  productive. Go is expressive, concise, clean, and efficient. Its concurrency
@@ -65,10 +62,9 @@ Description: Go programming language - source files
  This package provides the Go programming language source files needed for
  compilation.
 
-Package: golang-1.16-doc
+Package: golang-1.17-doc
 Depends: ${misc:Depends}
 Architecture: all
-Multi-Arch: foreign
 Section: doc
 Description: Go programming language - documentation
  The Go programming language is an open source project to make
@@ -84,10 +80,10 @@ Description: Go programming language - documentation
  This package provides the documentation for the Go programming
  language.
 
-Package: golang-1.16
-Depends: golang-1.16-doc (>= ${source:Version}),
-         golang-1.16-go (>= ${source:Version}),
-         golang-1.16-src (>= ${source:Version}),
+Package: golang-1.17
+Depends: golang-1.17-doc (>= ${source:Version}),
+         golang-1.17-go (>= ${source:Version}),
+         golang-1.17-src (>= ${source:Version}),
          ${misc:Depends}
 Architecture: all
 Description: Go programming language compiler - metapackage
@@ -105,5 +101,5 @@ Description: Go programming language compiler - metapackage
  that (most of) a full Go development environment is installed.
  .
  To use this version, instead of the default one provided by golang-go
- package, add /usr/lib/go-1.16/bin/ to PATH, or invoke /usr/lib/go-1.16/bin/go
+ package, add /usr/lib/go-1.17/bin/ to PATH, or invoke /usr/lib/go-1.17/bin/go
  directly.
