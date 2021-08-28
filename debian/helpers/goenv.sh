@@ -36,7 +36,7 @@ if [ -z "$GOHOSTOS" -o -z "$GOOS" -o -z "$GOHOSTARCH" -o -z "$GOARCH" ]; then
 	exit 1
 fi
 
-export GOVERSION_BOOTSTRAP=$("$GOROOT_BOOTSTRAP/bin/go" version|grep -oP '[0-9]+\.[0-9]+')
+export GOVERSION_BOOTSTRAP=$("$GOROOT_BOOTSTRAP/bin/go" version|sed -E -n 's|.*go([0-9]\.[0-9]+).*|\1|p')
 
 # Always not use sse2. This is important to ensure that the binaries we build
 # (both when compiling golang on the buildds and when users cross-compile for
