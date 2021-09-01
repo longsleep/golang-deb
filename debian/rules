@@ -24,6 +24,7 @@ GENERATED_FILES := \
 	src/cmd/go/internal/cfg/zosarch.go \
 	src/cmd/internal/objabi/zbootstrap.go \
 	src/go/build/zcgo.go \
+	src/internal/buildcfg/zbootstrap.go \
 	src/runtime/internal/sys/zversion.go
 
 %:

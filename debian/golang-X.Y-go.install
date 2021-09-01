@@ -9,4 +9,5 @@ src/cmd/go/internal/cfg/zdefaultcc.go /usr/share/go-X.Y/src/cmd/go/internal/cfg/
 src/cmd/go/internal/cfg/zosarch.go  /usr/share/go-X.Y/src/cmd/go/internal/cfg/
 src/cmd/internal/objabi/zbootstrap.go /usr/share/go-X.Y/src/cmd/internal/objabi/
 src/go/build/zcgo.go /usr/share/go-X.Y/src/go/build/
+src/internal/buildcfg/zbootstrap.go /usr/share/go-X.Y/src/internal/buildcfg/
 src/runtime/internal/sys/zversion.go /usr/share/go-X.Y/src/runtime/internal/sys/
