@@ -1,3 +1,10 @@
+golang-1.17 (1.17-3longsleep1+focal) focal; urgency=medium
+
+  * Change packaging for Ubuntu compatibility
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Sun, 05 Sep 2021 20:35:16 +0200
+
 golang-1.17 (1.17-3) unstable; urgency=medium
 
   * Team upload.
