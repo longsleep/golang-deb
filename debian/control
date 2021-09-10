@@ -3,7 +3,7 @@
 #
 
 Source: golang-1.17
-Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
+Maintainer: Debian Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
