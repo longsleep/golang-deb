@@ -48,6 +48,7 @@ Description: Go programming language compiler, linker, compiled stdlib
 
 Package: golang-1.17-src
 Architecture: all
+Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
@@ -65,6 +66,7 @@ Description: Go programming language - source files
 Package: golang-1.17-doc
 Depends: ${misc:Depends}
 Architecture: all
+Multi-Arch: foreign
 Section: doc
 Description: Go programming language - documentation
  The Go programming language is an open source project to make
