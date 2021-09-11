@@ -1,3 +1,11 @@
+golang-1.17 (1.17.1-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * New upstream version 1.17.1
+    + CVE-2021-39293: security fix to the archive/zip package
+  * Rebuild for bullseye-backports.
+
+ -- Anthony Fok <foka@debian.org>  Fri, 10 Sep 2021 22:23:57 -0600
+
 golang-1.17 (1.17.1-1) unstable; urgency=high
 
   * New upstream version 1.17.1
