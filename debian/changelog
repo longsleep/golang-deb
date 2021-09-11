@@ -1,3 +1,23 @@
+golang-1.16 (1.16.8-1) unstable; urgency=high
+
+  * New upstream version 1.16.8
+    + CVE-2021-39293: security fix to the archive/zip package
+      The fix for CVE-2021-33196 can be bypassed by crafted inputs.
+      As a result, the NewReader and OpenReader functions in archive/zip
+      can still cause a panic or an unrecoverable fatal error when reading
+      an archive that claims to contain a large number of files,
+      regardless of its actual size.
+      Thanks to the OSS-Fuzz project for discovering this issue
+      and to Emmanuel Odeke for reporting it.
+    + bug fixes to the archive/zip, go/internal/gccgoimporter,
+      html/template, net/http, and runtime/pprof packages
+  * Fix Lintian warning: tab-in-license-text in debian/copyright
+  * Sync recent d/control changes back to d/control.in
+  * Rename Maintainer from "Go Compiler Team" to "Debian Go Compiler Team"
+  * Bump Standards-Version to 4.6.0 (no change)
+
+ -- Anthony Fok <foka@debian.org>  Fri, 10 Sep 2021 17:07:36 -0600
+
 golang-1.16 (1.16.7-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.

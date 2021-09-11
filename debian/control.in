@@ -1,5 +1,5 @@
 Source: golang-X.Y
-Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
+Maintainer: Debian Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
@@ -11,7 +11,7 @@ Priority: optional
 Build-Depends: debhelper-compat (= 13),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
-Standards-Version: 4.5.1
+Standards-Version: 4.6.0
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-X.Y
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-X.Y
 Homepage: https://golang.org
@@ -24,7 +24,8 @@ Depends: golang-X.Y-src (>= ${source:Version}),
          ${perl:Depends},
          ${shlibs:Depends}
 Recommends: g++, gcc, libc6-dev, pkg-config
-Breaks: dh-golang (<< 1.43~)
+Breaks: dh-golang (<< 1.43~), golang-1.16-src (<< 1.16.3-3~)
+Replaces: golang-1.16-src (<< 1.16.3-3~)
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
  The Go programming language is an open source project to make programmers more
@@ -44,7 +45,9 @@ Description: Go programming language compiler, linker, compiled stdlib
 
 Package: golang-X.Y-src
 Architecture: all
+Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
+Breaks: golang-1.16-go (<< 1.16.3-3~)
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
  productive. Go is expressive, concise, clean, and efficient. Its concurrency
@@ -61,6 +64,7 @@ Description: Go programming language - source files
 Package: golang-X.Y-doc
 Depends: ${misc:Depends}
 Architecture: all
+Multi-Arch: foreign
 Section: doc
 Description: Go programming language - documentation
  The Go programming language is an open source project to make
