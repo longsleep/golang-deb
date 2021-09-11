@@ -1,3 +1,11 @@
+golang-1.15 (1.15.15-3) unstable; urgency=high
+
+  * Team upload.
+  * Rebuild with Go1.15.
+    Go1.16 can't build Go1.15 on i386 with GO386=387
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 11 Sep 2021 17:23:38 +0800
+
 golang-1.15 (1.15.15-2) unstable; urgency=high
 
   * Team upload.
