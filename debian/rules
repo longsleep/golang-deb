@@ -125,7 +125,7 @@ override_dh_makeshlibs:
 
 override_dh_auto_build-arch:
 	[ -f VERSION ] || echo "debian snapshot +$$(dpkg-parsechangelog -SVersion)" > VERSION
-	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
+	export GOROOT_BOOTSTRAP=/usr/lib/go-1.15 \
 		&& cd src \
 		&& $(CURDIR)/debian/helpers/goenv.sh \
 			bash ./make.bash --no-banner
