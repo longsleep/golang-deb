@@ -1,3 +1,17 @@
+golang-1.15 (1.15.15-2) unstable; urgency=high
+
+  * Team upload.
+
+  [ Anthony Fok ]
+  * Fix Lintian warning tab-in-license-text
+    debian/copyright (starting at line 381)
+
+  [ Shengjing Zhu ]
+  * Backport patch for CVE-2021-39293
+    archive/zip: overflow in preallocation check can cause OOM panic
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 11 Sep 2021 16:10:27 +0800
+
 golang-1.15 (1.15.15-1) unstable; urgency=medium
 
   * Team upload.
