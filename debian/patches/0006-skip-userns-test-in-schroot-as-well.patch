@@ -8,7 +8,7 @@ When schroot is using overlayfs, it fails to detect it as chroot.
  1 file changed, 7 insertions(+)
 
 diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
-index b79dee7..9f3d651 100644
+index df4ed62..ea38bca 100644
 --- a/src/syscall/exec_linux_test.go
 +++ b/src/syscall/exec_linux_test.go
 @@ -33,6 +33,10 @@ func isLXC() bool {
