@@ -3,7 +3,7 @@
 #
 
 Source: golang-1.17
-Maintainer: Go Compiler Team <team+go-compiler@tracker.debian.org>
+Maintainer: Debian Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
            Tianon Gravi <tianon@debian.org>,
@@ -15,7 +15,7 @@ Priority: optional
 Build-Depends: debhelper-compat (= 13),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
-Standards-Version: 4.5.1
+Standards-Version: 4.6.0
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.17
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.17
 Homepage: https://golang.org
@@ -48,6 +48,7 @@ Description: Go programming language compiler, linker, compiled stdlib
 
 Package: golang-1.17-src
 Architecture: all
+Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
@@ -65,6 +66,7 @@ Description: Go programming language - source files
 Package: golang-1.17-doc
 Depends: ${misc:Depends}
 Architecture: all
+Multi-Arch: foreign
 Section: doc
 Description: Go programming language - documentation
  The Go programming language is an open source project to make
