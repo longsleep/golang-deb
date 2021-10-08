@@ -1,3 +1,22 @@
+golang-1.17 (1.17.2-1) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Anthony Fok ]
+  * Fix Lintian warning: tab-in-license-text
+    debian/copyright (starting at line 366)
+
+  [ Shengjing Zhu ]
+  * Ensure GOROOT_BOOTSTRAP is valid
+  * Set GOPATH in d/rules.
+    Seems the go command needs GOPATH env
+  * New upstream version 1.17.2
+    + CVE-2021-38297: When invoking functions from WASM modules, built using
+      GOARCH=wasm GOOS=js, passing very large arguments can cause portions of
+      the module to be overwritten with data from the arguments
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 09 Oct 2021 01:23:05 +0800
+
 golang-1.17 (1.17.1-1) unstable; urgency=high
 
   * New upstream version 1.17.1
