@@ -1,3 +1,13 @@
+golang-1.16 (1.16.9-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.16.9
+    + CVE-2021-38297: When invoking functions from WASM modules, built using
+      GOARCH=wasm GOOS=js, passing very large arguments can cause portions of
+      the module to be overwritten with data from the arguments
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 09 Oct 2021 00:07:27 +0800
+
 golang-1.16 (1.16.8-1) unstable; urgency=high
 
   * New upstream version 1.16.8
