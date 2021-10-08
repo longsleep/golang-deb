@@ -12,8 +12,9 @@ export GOVER := $(shell echo $(DEB_VERSION_UPSTREAM) | grep -oP '^([0-9]+\.[0-9]
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
 
+export GOPATH := $(CURDIR)/gopath/
 # Go 1.12 needs a build cache, otherwise the build fails.
-export GOCACHE := $(CURDIR)/pkg/go-build
+export GOCACHE := $(GOPATH)/gocache
 
 # source files generated during building.
 # especially zbootstrap.go has different defaultGOARM values on armhf and armel,
@@ -116,7 +117,7 @@ override_dh_auto_build-arch:
 	[ -f VERSION ] || echo "debian snapshot $(DEB_VERSION)" > VERSION
 
 	# on i386, need to rebuild with go1.16 for GO386=softfloat
-	export GOROOT_BOOTSTRAP=$$(env -i go env GOROOT) \
+	export GOROOT_BOOTSTRAP=$$(env -i GOPATH=$(GOPATH) go env GOROOT) \
 	&& if [ "$(DEB_HOST_ARCH)" = "i386" ] && dpkg --compare-versions $$(GOROOT_BOOTSTRAP=/usr ./debian/helpers/goenv.sh echo '$$GOVERSION_BOOTSTRAP') lt "1.16"; then \
 		mkdir -p $(CURDIR)/bootstrap \
 		&& cp -Rp $(CURDIR)/src bootstrap/ \
