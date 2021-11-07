@@ -1,3 +1,13 @@
+golang-1.17 (1.17.3-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.17.3
+    + CVE-2021-41771: debug/macho: invalid dynamic symbol table command
+      can cause panic
+    + CVE-2021-41772: archive/zip: Reader.Open panics on empty string
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sun, 07 Nov 2021 22:33:32 +0800
+
 golang-1.17 (1.17.2-1) unstable; urgency=medium
 
   * Team upload.
