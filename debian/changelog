@@ -1,3 +1,12 @@
+golang-1.16 (1.16.10-1) unstable; urgency=medium
+
+  * New upstream version 1.16.10
+    + CVE-2021-41771: debug/macho: invalid dynamic symbol table command
+      can cause panic
+    + CVE-2021-41772: archive/zip: Reader.Open panics on empty string
+
+ -- Anthony Fok <foka@debian.org>  Wed, 10 Nov 2021 01:59:47 -0700
+
 golang-1.16 (1.16.9-2~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
