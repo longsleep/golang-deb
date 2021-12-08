@@ -1,3 +1,9 @@
+golang-1.17 (1.17.4-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * Rebuild for bullseye-backports.
+
+ -- Anthony Fok <foka@debian.org>  Tue, 07 Dec 2021 21:30:29 -0700
+
 golang-1.17 (1.17.4-1) unstable; urgency=medium
 
   * Team upload.
