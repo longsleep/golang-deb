@@ -1,3 +1,10 @@
+golang-1.17 (1.17.4-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.17.4
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 04 Dec 2021 01:32:29 +0800
+
 golang-1.17 (1.17.3-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
