@@ -1,3 +1,12 @@
+golang-1.16 (1.16.12-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * New upstream version 1.16.12
+    + CVE-2021-44716: net/http: limit growth of header canonicalization cache
+    + CVE-2021-44717: syscall: don’t close fd 0 on ForkExec error
+  * Build for bullseye-backports
+
+ -- Anthony Fok <foka@debian.org>  Thu, 09 Dec 2021 14:49:55 -0700
+
 golang-1.16 (1.16.11-1~bpo11+1) bullseye-backports; urgency=medium
 
   * New upstream version 1.16.11
