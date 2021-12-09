@@ -6,6 +6,10 @@ golang-1.15 (1.15.15-1~deb11u2) bullseye; urgency=medium
     with data from the arguments.
   * Backport patch for CVE-2021-41771
     debug/macho: invalid dynamic symbol table command can cause panic
+  * Backport patch for CVE-2021-44716
+    net/http: limit growth of header canonicalization cache
+  * Backport patch for CVE-2021-44717
+    syscall: don’t close fd 0 on ForkExec error
 
  -- Shengjing Zhu <zhsj@debian.org>  Sat, 04 Dec 2021 17:37:57 +0800
 
