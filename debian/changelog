@@ -1,3 +1,12 @@
+golang-1.17 (1.17.5-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.17.5
+    + CVE-2021-44716: net/http: limit growth of header canonicalization cache
+    + CVE-2021-44717: syscall: don’t close fd 0 on ForkExec error
+
+ -- Shengjing Zhu <zhsj@debian.org>  Thu, 09 Dec 2021 23:22:36 +0800
+
 golang-1.17 (1.17.4-1) unstable; urgency=medium
 
   * Team upload.
