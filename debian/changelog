@@ -2,8 +2,8 @@ golang-1.15 (1.15.15-1~deb11u2) bullseye; urgency=medium
 
   * Backport patch for CVE-2021-38297
     When invoking functions from WASM modules, built using GOARCH=wasm GOOS=js,
-    passing very large arguments can cause portions of the module to be overwritten
-    with data from the arguments.
+    passing very large arguments can cause portions of the module to be
+    overwritten with data from the arguments.
   * Backport patch for CVE-2021-41771
     debug/macho: invalid dynamic symbol table command can cause panic
   * Backport patch for CVE-2021-44716
