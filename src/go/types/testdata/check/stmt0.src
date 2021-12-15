@@ -29,10 +29,10 @@ func assignments0() (int, int) {
 
 	a, b, c = <- /* ERROR "cannot assign [1-9]+ values to [1-9]+ variables" */ ch
 
-	return /* ERROR "wrong number of return values" */
-	return /* ERROR "wrong number of return values" */ 1
+	return /* ERROR "not enough return values\n\thave \(\)\n\twant \(int, int\)" */
+	return 1 /* ERROR "not enough return values\n\thave \(number\)\n\twant \(int, int\)" */
 	return 1, 2
-	return /* ERROR "wrong number of return values" */ 1, 2, 3
+	return 1, 2, 3 /* ERROR "too many return values\n\thave \(number, number, number\)\n\twant \(int, int\)" */
 }
 
 func assignments1() {
@@ -49,18 +49,18 @@ func assignments1() {
 	b = true
 
 	i += 1
-	i += "foo" /* ERROR "cannot convert.*int" */
+	i /* ERROR "mismatched types int and untyped string" */+= "foo"
 
 	f -= 1
 	f /= 0
 	f = float32(0)/0 /* ERROR "division by zero" */
-	f -= "foo" /* ERROR "cannot convert.*float64" */
+	f /* ERROR "mismatched types float64 and untyped string" */-= "foo"
 
 	c *= 1
 	c /= 0
 
 	s += "bar"
-	s += 1 /* ERROR "cannot convert.*string" */
+	s /* ERROR "mismatched types string and untyped int" */+= 1
 
 	var u64 uint64
 	u64 += 1<<u64
@@ -69,10 +69,10 @@ func assignments1() {
 
 	// test cases for issue 5800
 	var (
-		_ int = nil /* ERROR "untyped nil value" */
-		_ [10]int = nil /* ERROR "untyped nil value" */
+		_ int = nil /* ERROR "cannot use nil as int value in variable declaration" */
+		_ [10]int = nil /* ERROR "cannot use nil as \[10\]int value in variable declaration" */
 		_ []byte = nil
-		_ struct{} = nil /* ERROR "untyped nil value" */
+		_ struct{} = nil /* ERROR "cannot use nil as struct{} value in variable declaration" */
 		_ func() = nil
 		_ map[int]string = nil
 		_ chan int = nil
@@ -81,7 +81,7 @@ func assignments1() {
 	// test cases for issue 5500
 	_ = func() (int, bool) {
 		var m map[int]int
-		return /* ERROR "wrong number of return values" */ m[0]
+		return m /* ERROR "not enough return values" */ [0]
 	}
 
 	g := func(int, bool){}
@@ -380,15 +380,15 @@ func returns0() {
 
 func returns1(x float64) (int, *float64) {
 	return 0, &x
-	return /* ERROR wrong number of return values */
+	return /* ERROR not enough return values */
 	return "foo" /* ERROR "cannot .* in return statement" */, x /* ERROR "cannot use .* in return statement" */
-	return /* ERROR wrong number of return values */ 0, &x, 1
+	return 0, &x, 1 /* ERROR too many return values */
 }
 
 func returns2() (a, b int) {
 	return
 	return 1, "foo" /* ERROR cannot use .* in return statement */
-	return /* ERROR wrong number of return values */ 1, 2, 3
+	return 1, 2, 3 /* ERROR too many return values */
 	{
 		type a int
 		return 1, 2
@@ -937,13 +937,13 @@ func issue6766b() {
 // errors reported).
 func issue10148() {
 	for y /* ERROR declared but not used */ := range "" {
-		_ = "" /* ERROR cannot convert */ + 1
+		_ = "" /* ERROR mismatched types untyped string and untyped int */ + 1
 	}
 	for range 1 /* ERROR cannot range over 1 */ {
-		_ = "" /* ERROR cannot convert */ + 1
+		_ = "" /* ERROR mismatched types untyped string and untyped int */ + 1
 	}
 	for y := range 1 /* ERROR cannot range over 1 */ {
-		_ = "" /* ERROR cannot convert */ + 1
+		_ = "" /* ERROR mismatched types untyped string and untyped int */ + 1
 	}
 }
 

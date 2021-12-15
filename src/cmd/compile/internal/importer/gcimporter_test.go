@@ -1,4 +1,3 @@
-// UNREVIEWED
 // Copyright 2011 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -9,8 +8,8 @@ import (
 	"bytes"
 	"cmd/compile/internal/types2"
 	"fmt"
+	"internal/goexperiment"
 	"internal/testenv"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +63,7 @@ const maxTime = 30 * time.Second
 
 func testDir(t *testing.T, dir string, endTime time.Time) (nimports int) {
 	dirname := filepath.Join(runtime.GOROOT(), "pkg", runtime.GOOS+"_"+runtime.GOARCH, dir)
-	list, err := ioutil.ReadDir(dirname)
+	list, err := os.ReadDir(dirname)
 	if err != nil {
 		t.Fatalf("testDir(%s): %s", dirname, err)
 	}
@@ -92,7 +91,7 @@ func testDir(t *testing.T, dir string, endTime time.Time) (nimports int) {
 }
 
 func mktmpdir(t *testing.T) string {
-	tmpdir, err := ioutil.TempDir("", "gcimporter_test")
+	tmpdir, err := os.MkdirTemp("", "gcimporter_test")
 	if err != nil {
 		t.Fatal("mktmpdir:", err)
 	}
@@ -109,25 +108,29 @@ func TestImportTestdata(t *testing.T) {
 		t.Skipf("gc-built packages not available (compiler = %s)", runtime.Compiler)
 	}
 
-	tmpdir := mktmpdir(t)
-	defer os.RemoveAll(tmpdir)
+	testfiles := map[string][]string{
+		"exports.go": {"go/ast", "go/token"},
+	}
+	if !goexperiment.Unified {
+		testfiles["generics.go"] = nil
+	}
 
-	compile(t, "testdata", "exports.go", filepath.Join(tmpdir, "testdata"))
+	for testfile, wantImports := range testfiles {
+		tmpdir := mktmpdir(t)
+		defer os.RemoveAll(tmpdir)
 
-	if pkg := testPath(t, "./testdata/exports", tmpdir); pkg != nil {
-		// The package's Imports list must include all packages
-		// explicitly imported by exports.go, plus all packages
-		// referenced indirectly via exported objects in exports.go.
-		// With the textual export format, the list may also include
-		// additional packages that are not strictly required for
-		// import processing alone (they are exported to err "on
-		// the safe side").
-		// TODO(gri) update the want list to be precise, now that
-		// the textual export data is gone.
-		got := fmt.Sprint(pkg.Imports())
-		for _, want := range []string{"go/ast", "go/token"} {
-			if !strings.Contains(got, want) {
-				t.Errorf(`Package("exports").Imports() = %s, does not contain %s`, got, want)
+		compile(t, "testdata", testfile, filepath.Join(tmpdir, "testdata"))
+		path := "./testdata/" + strings.TrimSuffix(testfile, ".go")
+
+		if pkg := testPath(t, path, tmpdir); pkg != nil {
+			// The package's Imports list must include all packages
+			// explicitly imported by testfile, plus all packages
+			// referenced indirectly via exported objects in testfile.
+			got := fmt.Sprint(pkg.Imports())
+			for _, want := range wantImports {
+				if !strings.Contains(got, want) {
+					t.Errorf(`Package("exports").Imports() = %s, does not contain %s`, got, want)
+				}
 			}
 		}
 	}
@@ -142,7 +145,7 @@ func TestVersionHandling(t *testing.T) {
 	}
 
 	const dir = "./testdata/versions"
-	list, err := ioutil.ReadDir(dir)
+	list, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +198,7 @@ func TestVersionHandling(t *testing.T) {
 
 		// create file with corrupted export data
 		// 1) read file
-		data, err := ioutil.ReadFile(filepath.Join(dir, name))
+		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +215,7 @@ func TestVersionHandling(t *testing.T) {
 		// 4) write the file
 		pkgpath += "_corrupted"
 		filename := filepath.Join(corruptdir, pkgpath) + ".a"
-		ioutil.WriteFile(filename, data, 0666)
+		os.WriteFile(filename, data, 0666)
 
 		// test that importing the corrupted file results in an error
 		_, err = Import(make(map[string]*types2.Package), pkgpath, corruptdir, nil)
@@ -255,14 +258,13 @@ var importedObjectTests = []struct {
 	{"go/internal/gcimporter.FindPkg", "func FindPkg(path string, srcDir string) (filename string, id string)"},
 
 	// interfaces
-	{"context.Context", "type Context interface{Deadline() (deadline time.Time, ok bool); Done() <-chan struct{}; Err() error; Value(key interface{}) interface{}}"},
+	{"context.Context", "type Context interface{Deadline() (deadline time.Time, ok bool); Done() <-chan struct{}; Err() error; Value(key any) any}"},
 	{"crypto.Decrypter", "type Decrypter interface{Decrypt(rand io.Reader, msg []byte, opts DecrypterOpts) (plaintext []byte, err error); Public() PublicKey}"},
 	{"encoding.BinaryMarshaler", "type BinaryMarshaler interface{MarshalBinary() (data []byte, err error)}"},
 	{"io.Reader", "type Reader interface{Read(p []byte) (n int, err error)}"},
 	{"io.ReadWriter", "type ReadWriter interface{Reader; Writer}"},
 	{"go/ast.Node", "type Node interface{End() go/token.Pos; Pos() go/token.Pos}"},
-	// go/types.Type has grown much larger - excluded for now
-	// {"go/types.Type", "type Type interface{String() string; Underlying() Type}"},
+	{"go/types.Type", "type Type interface{String() string; Underlying() Type}"},
 }
 
 func TestImportedTypes(t *testing.T) {
@@ -457,17 +459,17 @@ func TestIssue13898(t *testing.T) {
 		t.Fatal("go/types not found")
 	}
 
-	// look for go/types2.Object type
+	// look for go/types.Object type
 	obj := lookupObj(t, goTypesPkg.Scope(), "Object")
 	typ, ok := obj.Type().(*types2.Named)
 	if !ok {
-		t.Fatalf("go/types2.Object type is %v; wanted named type", typ)
+		t.Fatalf("go/types.Object type is %v; wanted named type", typ)
 	}
 
-	// lookup go/types2.Object.Pkg method
+	// lookup go/types.Object.Pkg method
 	m, index, indirect := types2.LookupFieldOrMethod(typ, false, nil, "Pkg")
 	if m == nil {
-		t.Fatalf("go/types2.Object.Pkg not found (index = %v, indirect = %v)", index, indirect)
+		t.Fatalf("go/types.Object.Pkg not found (index = %v, indirect = %v)", index, indirect)
 	}
 
 	// the method must belong to go/types

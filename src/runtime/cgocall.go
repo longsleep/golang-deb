@@ -85,6 +85,7 @@
 package runtime
 
 import (
+	"internal/goarch"
 	"runtime/internal/atomic"
 	"runtime/internal/sys"
 	"unsafe"
@@ -290,6 +291,13 @@ func cgocallbackg1(fn, frame unsafe.Pointer, ctxt uintptr) {
 		<-main_init_done
 	}
 
+	// Check whether the profiler needs to be turned on or off; this route to
+	// run Go code does not use runtime.execute, so bypasses the check there.
+	hz := sched.profilehz
+	if gp.m.profilehz != hz {
+		setThreadCPUProfiler(hz)
+	}
+
 	// Add entry to defer stack in case of panic.
 	restore := true
 	defer unwindm(&restore)
@@ -381,7 +389,7 @@ var racecgosync uint64 // represents possible synchronization in C code
 
 // cgoCheckPointer checks if the argument contains a Go pointer that
 // points to a Go pointer, and panics if it does.
-func cgoCheckPointer(ptr interface{}, arg interface{}) {
+func cgoCheckPointer(ptr any, arg any) {
 	if debug.cgocheck == 0 {
 		return
 	}
@@ -480,7 +488,7 @@ func cgoCheckArg(t *_type, p unsafe.Pointer, indir, top bool, msg string) {
 		if inheap(uintptr(unsafe.Pointer(it))) {
 			panic(errorString(msg))
 		}
-		p = *(*unsafe.Pointer)(add(p, sys.PtrSize))
+		p = *(*unsafe.Pointer)(add(p, goarch.PtrSize))
 		if !cgoIsGoPointer(p) {
 			return
 		}
@@ -560,7 +568,7 @@ func cgoCheckUnknownPointer(p unsafe.Pointer, msg string) (base, i uintptr) {
 		}
 		hbits := heapBitsForAddr(base)
 		n := span.elemsize
-		for i = uintptr(0); i < n; i += sys.PtrSize {
+		for i = uintptr(0); i < n; i += goarch.PtrSize {
 			if !hbits.morePointers() {
 				// No more possible pointers.
 				break
@@ -620,7 +628,7 @@ func cgoInRange(p unsafe.Pointer, start, end uintptr) bool {
 // cgoCheckResult is called to check the result parameter of an
 // exported Go function. It panics if the result is or contains a Go
 // pointer.
-func cgoCheckResult(val interface{}) {
+func cgoCheckResult(val any) {
 	if debug.cgocheck == 0 {
 		return
 	}

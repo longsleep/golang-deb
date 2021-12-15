@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 //go:build aix || darwin || dragonfly || freebsd || (js && wasm) || linux || netbsd || openbsd || solaris || windows
-// +build aix darwin dragonfly freebsd js,wasm linux netbsd openbsd solaris windows
 
 package runtime
 
@@ -450,7 +449,7 @@ func netpollblock(pd *pollDesc, mode int32, waitio bool) bool {
 	// need to recheck error states after setting gpp to pdWait
 	// this is necessary because runtime_pollUnblock/runtime_pollSetDeadline/deadlineimpl
 	// do the opposite: store to closing/rd/wd, membarrier, load of rg/wg
-	if waitio || netpollcheckerr(pd, mode) == 0 {
+	if waitio || netpollcheckerr(pd, mode) == pollNoError {
 		gopark(netpollblockcommit, unsafe.Pointer(gpp), waitReasonIOWait, traceEvGoBlockNet, 5)
 	}
 	// be careful to not lose concurrent pdReady notification
@@ -530,15 +529,15 @@ func netpolldeadlineimpl(pd *pollDesc, seq uintptr, read, write bool) {
 	}
 }
 
-func netpollDeadline(arg interface{}, seq uintptr) {
+func netpollDeadline(arg any, seq uintptr) {
 	netpolldeadlineimpl(arg.(*pollDesc), seq, true, true)
 }
 
-func netpollReadDeadline(arg interface{}, seq uintptr) {
+func netpollReadDeadline(arg any, seq uintptr) {
 	netpolldeadlineimpl(arg.(*pollDesc), seq, true, false)
 }
 
-func netpollWriteDeadline(arg interface{}, seq uintptr) {
+func netpollWriteDeadline(arg any, seq uintptr) {
 	netpolldeadlineimpl(arg.(*pollDesc), seq, false, true)
 }
 
@@ -571,7 +570,7 @@ func (c *pollCache) alloc() *pollDesc {
 // a conversion requires an allocation because pointers to
 // go:notinheap types (which pollDesc is) must be stored
 // in interfaces indirectly. See issue 42076.
-func (pd *pollDesc) makeArg() (i interface{}) {
+func (pd *pollDesc) makeArg() (i any) {
 	x := (*eface)(unsafe.Pointer(&i))
 	x._type = pdType
 	x.data = unsafe.Pointer(&pd.self)
@@ -579,6 +578,6 @@ func (pd *pollDesc) makeArg() (i interface{}) {
 }
 
 var (
-	pdEface interface{} = (*pollDesc)(nil)
-	pdType  *_type      = efaceOf(&pdEface)._type
+	pdEface any    = (*pollDesc)(nil)
+	pdType  *_type = efaceOf(&pdEface)._type
 )

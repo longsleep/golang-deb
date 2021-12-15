@@ -8,8 +8,8 @@ package runtime
 
 import (
 	"internal/abi"
+	"internal/goarch"
 	"runtime/internal/atomic"
-	"runtime/internal/sys"
 	"unsafe"
 )
 
@@ -26,14 +26,14 @@ type finblock struct {
 	next    *finblock
 	cnt     uint32
 	_       int32
-	fin     [(_FinBlockSize - 2*sys.PtrSize - 2*4) / unsafe.Sizeof(finalizer{})]finalizer
+	fin     [(_FinBlockSize - 2*goarch.PtrSize - 2*4) / unsafe.Sizeof(finalizer{})]finalizer
 }
 
 var finlock mutex  // protects the following variables
 var fing *g        // goroutine that runs finalizers
 var finq *finblock // list of finalizers that are to be executed
 var finc *finblock // cache of free blocks
-var finptrmask [_FinBlockSize / sys.PtrSize / 8]byte
+var finptrmask [_FinBlockSize / goarch.PtrSize / 8]byte
 var fingwait bool
 var fingwake bool
 var allfin *finblock // list of all blocks
@@ -95,12 +95,12 @@ func queuefinalizer(p unsafe.Pointer, fn *funcval, nret uintptr, fint *_type, ot
 			if finptrmask[0] == 0 {
 				// Build pointer mask for Finalizer array in block.
 				// Check assumptions made in finalizer1 array above.
-				if (unsafe.Sizeof(finalizer{}) != 5*sys.PtrSize ||
+				if (unsafe.Sizeof(finalizer{}) != 5*goarch.PtrSize ||
 					unsafe.Offsetof(finalizer{}.fn) != 0 ||
-					unsafe.Offsetof(finalizer{}.arg) != sys.PtrSize ||
-					unsafe.Offsetof(finalizer{}.nret) != 2*sys.PtrSize ||
-					unsafe.Offsetof(finalizer{}.fint) != 3*sys.PtrSize ||
-					unsafe.Offsetof(finalizer{}.ot) != 4*sys.PtrSize) {
+					unsafe.Offsetof(finalizer{}.arg) != goarch.PtrSize ||
+					unsafe.Offsetof(finalizer{}.nret) != 2*goarch.PtrSize ||
+					unsafe.Offsetof(finalizer{}.fint) != 3*goarch.PtrSize ||
+					unsafe.Offsetof(finalizer{}.ot) != 4*goarch.PtrSize) {
 					throw("finalizer out of sync")
 				}
 				for i := range finptrmask {
@@ -200,7 +200,7 @@ func runfinq() {
 					framesz = f.nret
 				} else {
 					// Need to pass arguments on the stack too.
-					framesz = unsafe.Sizeof((interface{})(nil)) + f.nret
+					framesz = unsafe.Sizeof((any)(nil)) + f.nret
 				}
 				if framecap < framesz {
 					// The frame does not contain pointers interesting for GC,
@@ -329,7 +329,7 @@ func runfinq() {
 // A single goroutine runs all finalizers for a program, sequentially.
 // If a finalizer must run for a long time, it should do so by starting
 // a new goroutine.
-func SetFinalizer(obj interface{}, finalizer interface{}) {
+func SetFinalizer(obj any, finalizer any) {
 	if debug.sbrk != 0 {
 		// debug.sbrk never frees memory, so no finalizers run
 		// (and we don't have the data structures to record them).
@@ -432,7 +432,7 @@ okarg:
 	for _, t := range ft.out() {
 		nret = alignUp(nret, uintptr(t.align)) + uintptr(t.size)
 	}
-	nret = alignUp(nret, sys.PtrSize)
+	nret = alignUp(nret, goarch.PtrSize)
 
 	// make sure we have a finalizer goroutine
 	createfing()
@@ -470,7 +470,7 @@ okarg:
 // Note: KeepAlive should only be used to prevent finalizers from
 // running prematurely. In particular, when used with unsafe.Pointer,
 // the rules for valid uses of unsafe.Pointer still apply.
-func KeepAlive(x interface{}) {
+func KeepAlive(x any) {
 	// Introduce a use of x that the compiler can't eliminate.
 	// This makes sure x is alive on entry. We need x to be alive
 	// on entry for "defer runtime.KeepAlive(x)"; see issue 21402.

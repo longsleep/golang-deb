@@ -410,7 +410,11 @@ Special-purpose registers are as follows:
 | R13 | Scratch | Scratch | Scratch |
 | R14 | Current goroutine | Same | Same |
 | R15 | GOT reference temporary if dynlink | Same | Same |
-| X15 | Zero value | Same | Scratch |
+| X15 | Zero value (*) | Same | Scratch |
+
+(*) Except on Plan 9, where X15 is a scratch register because SSE
+registers cannot be used in note handlers (so the compiler avoids
+using them except when absolutely necessary).
 
 *Rationale*: These register meanings are compatible with Go’s
 stack-based calling convention except for R14 and X15, which will have
@@ -504,6 +508,227 @@ The above fixed configuration matches the process initialization
 control bits specified by the ELF AMD64 ABI.
 
 The x87 floating-point control word is not used by Go on amd64.
+
+### arm64 architecture
+
+The arm64 architecture uses R0 – R15 for integer arguments and results.
+
+It uses F0 – F15 for floating-point arguments and results.
+
+*Rationale*: 16 integer registers and 16 floating-point registers are
+more than enough for passing arguments and results for practically all
+functions (see Appendix). While there are more registers available,
+using more registers provides little benefit. Additionally, it will add
+overhead on code paths where the number of arguments are not statically
+known (e.g. reflect call), and will consume more stack space when there
+is only limited stack space available to fit in the nosplit limit.
+
+Registers R16 and R17 are permanent scratch registers. They are also
+used as scratch registers by the linker (Go linker and external
+linker) in trampolines.
+
+Register R18 is reserved and never used. It is reserved for the OS
+on some platforms (e.g. macOS).
+
+Registers R19 – R25 are permanent scratch registers. In addition,
+R27 is a permanent scratch register used by the assembler when
+expanding instructions.
+
+Floating-point registers F16 – F31 are also permanent scratch
+registers.
+
+Special-purpose registers are as follows:
+
+| Register | Call meaning | Return meaning | Body meaning |
+| --- | --- | --- | --- |
+| RSP | Stack pointer | Same | Same |
+| R30 | Link register | Same | Scratch (non-leaf functions) |
+| R29 | Frame pointer | Same | Same |
+| R28 | Current goroutine | Same | Same |
+| R27 | Scratch | Scratch | Scratch |
+| R26 | Closure context pointer | Scratch | Scratch |
+| R18 | Reserved (not used) | Same | Same |
+| ZR  | Zero value | Same | Same |
+
+*Rationale*: These register meanings are compatible with Go’s
+stack-based calling convention.
+
+*Rationale*: The link register, R30, holds the function return
+address at the function entry. For functions that have frames
+(including most non-leaf functions), R30 is saved to stack in the
+function prologue and restored in the epilogue. Within the function
+body, R30 can be used as a scratch register.
+
+*Implementation note*: Registers with fixed meaning at calls but not
+in function bodies must be initialized by "injected" calls such as
+signal-based panics.
+
+#### Stack layout
+
+The stack pointer, RSP, grows down and is always aligned to 16 bytes.
+
+*Rationale*: The arm64 architecture requires the stack pointer to be
+16-byte aligned.
+
+A function's stack frame, after the frame is created, is laid out as
+follows:
+
+    +------------------------------+
+    | ... locals ...               |
+    | ... outgoing arguments ...   |
+    | return PC                    | ← RSP points to
+    | frame pointer on entry       |
+    +------------------------------+ ↓ lower addresses
+
+The "return PC" is loaded to the link register, R30, as part of the
+arm64 `CALL` operation.
+
+On entry, a function subtracts from RSP to open its stack frame, and
+saves the values of R30 and R29 at the bottom of the frame.
+Specifically, R30 is saved at 0(RSP) and R29 is saved at -8(RSP),
+after RSP is updated.
+
+A leaf function that does not require any stack space may omit the
+saved R30 and R29.
+
+The Go ABI's use of R29 as a frame pointer register is compatible with
+arm64 architecture requirement so that Go can inter-operate with platform
+debuggers and profilers.
+
+This stack layout is used by both register-based (ABIInternal) and
+stack-based (ABI0) calling conventions.
+
+#### Flags
+
+The arithmetic status flags (NZCV) are treated like scratch registers
+and not preserved across calls.
+All other bits in PSTATE are system flags and are not modified by Go.
+
+The floating-point status register (FPSR) is treated like scratch
+registers and not preserved across calls.
+
+At calls, the floating-point control register (FPCR) bits are always
+set as follows:
+
+| Flag | Bit | Value | Meaning |
+| --- | --- | --- | --- |
+| DN  | 25 | 0 | Propagate NaN operands |
+| FZ  | 24 | 0 | Do not flush to zero |
+| RC  | 23/22 | 0 (RN) | Round to nearest, choose even if tied |
+| IDE | 15 | 0 | Denormal operations trap disabled |
+| IXE | 12 | 0 | Inexact trap disabled |
+| UFE | 11 | 0 | Underflow trap disabled |
+| OFE | 10 | 0 | Overflow trap disabled |
+| DZE | 9 | 0 | Divide-by-zero trap disabled |
+| IOE | 8 | 0 | Invalid operations trap disabled |
+| NEP | 2 | 0 | Scalar operations do not affect higher elements in vector registers |
+| AH  | 1 | 0 | No alternate handling of de-normal inputs |
+| FIZ | 0 | 0 | Do not zero de-normals |
+
+*Rationale*: Having a fixed FPCR control configuration allows Go
+functions to use floating-point and vector (SIMD) operations without
+modifying or saving the FPCR.
+Functions are allowed to modify it between calls (as long as they
+restore it), but as of this writing Go code never does.
+
+### ppc64 architecture
+
+The ppc64 architecture uses R3 – R10 and R14 – R17 for integer arguments
+and results.
+
+It uses F1 – F12 for floating-point arguments and results.
+
+Register R31 is a permanent scratch register in Go.
+
+Special-purpose registers used within Go generated code and Go
+assembly code are as follows:
+
+| Register | Call meaning | Return meaning | Body meaning |
+| --- | --- | --- | --- |
+| R0  | Zero value | Same | Same |
+| R1  | Stack pointer | Same | Same |
+| R2  | TOC register | Same | Same |
+| R11 | Closure context pointer | Scratch | Scratch |
+| R12 | Function address on indirect calls | Scratch | Scratch |
+| R13 | TLS pointer | Same | Same |
+| R20,R21 | Scratch | Scratch | Used by duffcopy, duffzero |
+| R30 | Current goroutine | Same | Same |
+| R31 | Scratch | Scratch | Scratch |
+| LR  | Link register | Link register | Scratch |
+*Rationale*: These register meanings are compatible with Go’s
+stack-based calling convention.
+
+The link register, LR, holds the function return
+address at the function entry and is set to the correct return
+address before exiting the function. It is also used
+in some cases as the function address when doing an indirect call.
+
+The register R2 contains the address of the TOC (table of contents) which
+contains data or code addresses used when generating position independent
+code. Non-Go code generated when using cgo contains TOC-relative addresses
+which depend on R2 holding a valid TOC. Go code compiled with -shared or
+-dynlink initializes and maintains R2 and uses it in some cases for
+function calls; Go code compiled without these options does not modify R2.
+
+When making a function call R12 contains the function address for use by the
+code to generate R2 at the beginning of the function. R12 can be used for
+other purposes within the body of the function, such as trampoline generation.
+
+R20 and R21 are used in duffcopy and duffzero which could be generated
+before arguments are saved so should not be used for register arguments.
+
+The Count register CTR can be used as the call target for some branch instructions.
+It holds the return address when preemption has occurred.
+
+On PPC64 when a float32 is loaded it becomes a float64 in the register, which is
+different from other platforms and that needs to be recognized by the internal
+implementation of reflection so that float32 arguments are passed correctly.
+
+Registers R18 - R29 and F13 - F31 are considered scratch registers.
+
+#### Stack layout
+
+The stack pointer, R1, grows down and is aligned to 8 bytes in Go, but changed
+to 16 bytes when calling cgo.
+
+A function's stack frame, after the frame is created, is laid out as
+follows:
+
+    +------------------------------+
+    | ... locals ...               |
+    | ... outgoing arguments ...   |
+    | 24  TOC register R2 save     | When compiled with -shared/-dynlink
+    | 16  Unused in Go             | Not used in Go
+    |  8  CR save                  | nonvolatile CR fields
+    |  0  return PC                | ← R1 points to
+    +------------------------------+ ↓ lower addresses
+
+The "return PC" is loaded to the link register, LR, as part of the
+ppc64 `BL` operations.
+
+On entry to a non-leaf function, the stack frame size is subtracted from R1 to
+create its stack frame, and saves the value of LR at the bottom of the frame.
+
+A leaf function that does not require any stack space does not modify R1 and
+does not save LR.
+
+*NOTE*: We might need to save the frame pointer on the stack as
+in the PPC64 ELF v2 ABI so Go can inter-operate with platform debuggers
+and profilers.
+
+This stack layout is used by both register-based (ABIInternal) and
+stack-based (ABI0) calling conventions.
+
+#### Flags
+
+The condition register consists of 8 condition code register fields
+CR0-CR7. Go generated code only sets and uses CR0, commonly set by
+compare functions and use to determine the target of a conditional
+branch. The generated code does not set or use CR1-CR7.
+
+The floating point status and control register (FPSCR) is initialized
+to 0 by the kernel at startup of the Go program and not changed by
+the Go generated code.
 
 ## Future directions
 

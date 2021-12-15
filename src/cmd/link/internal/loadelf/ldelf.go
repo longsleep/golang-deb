@@ -22,7 +22,7 @@ import (
 
 /*
 Derived from Plan 9 from User Space's src/libmach/elf.h, elf.c
-http://code.swtch.com/plan9port/src/tip/src/libmach/
+https://github.com/9fans/plan9port/tree/master/src/libmach/
 
 	Copyright © 2004 Russ Cox.
 	Portions Copyright © 2008-2010 Google Inc.
@@ -599,7 +599,7 @@ func Load(l *loader.Loader, arch *sys.Arch, localSymVersion int, f *bio.Reader, 
 			if strings.HasPrefix(elfsym.name, ".LASF") { // gcc on s390x does this
 				continue
 			}
-			return errorf("%v: sym#%d: ignoring symbol in section %d (type %d)", elfsym.sym, i, elfsym.shndx, elfsym.type_)
+			return errorf("%v: sym#%d (%s): ignoring symbol in section %d (type %d)", elfsym.sym, i, elfsym.name, elfsym.shndx, elfsym.type_)
 		}
 
 		s := elfsym.sym

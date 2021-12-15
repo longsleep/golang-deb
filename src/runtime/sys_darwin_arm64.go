@@ -5,7 +5,8 @@
 package runtime
 
 import (
-	"runtime/internal/sys"
+	"internal/abi"
+	"internal/goarch"
 	"unsafe"
 )
 
@@ -14,7 +15,7 @@ import (
 //go:nosplit
 //go:cgo_unsafe_args
 func g0_pthread_key_create(k *pthreadkey, destructor uintptr) int32 {
-	ret := asmcgocall(unsafe.Pointer(funcPC(pthread_key_create_trampoline)), unsafe.Pointer(&k))
+	ret := asmcgocall(unsafe.Pointer(abi.FuncPCABI0(pthread_key_create_trampoline)), unsafe.Pointer(&k))
 	KeepAlive(k)
 	return ret
 }
@@ -23,7 +24,7 @@ func pthread_key_create_trampoline()
 //go:nosplit
 //go:cgo_unsafe_args
 func g0_pthread_setspecific(k pthreadkey, value uintptr) int32 {
-	return asmcgocall(unsafe.Pointer(funcPC(pthread_setspecific_trampoline)), unsafe.Pointer(&k))
+	return asmcgocall(unsafe.Pointer(abi.FuncPCABI0(pthread_setspecific_trampoline)), unsafe.Pointer(&k))
 }
 func pthread_setspecific_trampoline()
 
@@ -55,7 +56,7 @@ func tlsinit(tlsg *uintptr, tlsbase *[_PTHREAD_KEYS_MAX]uintptr) {
 
 	for i, x := range tlsbase {
 		if x == magic {
-			*tlsg = uintptr(i * sys.PtrSize)
+			*tlsg = uintptr(i * goarch.PtrSize)
 			g0_pthread_setspecific(k, 0)
 			return
 		}

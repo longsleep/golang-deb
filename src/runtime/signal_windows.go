@@ -5,6 +5,7 @@
 package runtime
 
 import (
+	"internal/abi"
 	"runtime/internal/sys"
 	"unsafe"
 )
@@ -27,15 +28,15 @@ func firstcontinuetramp()
 func lastcontinuetramp()
 
 func initExceptionHandler() {
-	stdcall2(_AddVectoredExceptionHandler, 1, funcPC(exceptiontramp))
+	stdcall2(_AddVectoredExceptionHandler, 1, abi.FuncPCABI0(exceptiontramp))
 	if _AddVectoredContinueHandler == nil || GOARCH == "386" {
 		// use SetUnhandledExceptionFilter for windows-386 or
 		// if VectoredContinueHandler is unavailable.
 		// note: SetUnhandledExceptionFilter handler won't be called, if debugging.
-		stdcall1(_SetUnhandledExceptionFilter, funcPC(lastcontinuetramp))
+		stdcall1(_SetUnhandledExceptionFilter, abi.FuncPCABI0(lastcontinuetramp))
 	} else {
-		stdcall2(_AddVectoredContinueHandler, 1, funcPC(firstcontinuetramp))
-		stdcall2(_AddVectoredContinueHandler, 0, funcPC(lastcontinuetramp))
+		stdcall2(_AddVectoredContinueHandler, 1, abi.FuncPCABI0(firstcontinuetramp))
+		stdcall2(_AddVectoredContinueHandler, 0, abi.FuncPCABI0(lastcontinuetramp))
 	}
 }
 
@@ -133,7 +134,7 @@ func exceptionhandler(info *exceptionrecord, r *context, gp *g) int32 {
 	// The exception is not from asyncPreempt, so not to push a
 	// sigpanic call to make it look like that. Instead, just
 	// overwrite the PC. (See issue #35773)
-	if r.ip() != 0 && r.ip() != funcPC(asyncPreempt) {
+	if r.ip() != 0 && r.ip() != abi.FuncPCABI0(asyncPreempt) {
 		sp := unsafe.Pointer(r.sp())
 		delta := uintptr(sys.StackAlign)
 		sp = add(sp, -delta)
@@ -145,7 +146,7 @@ func exceptionhandler(info *exceptionrecord, r *context, gp *g) int32 {
 			*((*uintptr)(sp)) = r.ip()
 		}
 	}
-	r.set_ip(funcPC(sigpanic0))
+	r.set_ip(abi.FuncPCABI0(sigpanic0))
 	return _EXCEPTION_CONTINUE_EXECUTION
 }
 
@@ -217,11 +218,11 @@ func winthrow(info *exceptionrecord, r *context, gp *g) {
 	print("Exception ", hex(info.exceptioncode), " ", hex(info.exceptioninformation[0]), " ", hex(info.exceptioninformation[1]), " ", hex(r.ip()), "\n")
 
 	print("PC=", hex(r.ip()), "\n")
-	if _g_.m.lockedg != 0 && _g_.m.ncgo > 0 && gp == _g_.m.g0 {
+	if _g_.m.incgo && gp == _g_.m.g0 && _g_.m.curg != nil {
 		if iscgo {
 			print("signal arrived during external code execution\n")
 		}
-		gp = _g_.m.lockedg.ptr()
+		gp = _g_.m.curg
 	}
 	print("\n")
 

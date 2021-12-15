@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -694,7 +695,15 @@ func requireGccgo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s -dumpversion failed: %v\n%s", gccgoPath, err, output)
 	}
-	if string(output) < "5" {
+	dot := bytes.Index(output, []byte{'.'})
+	if dot > 0 {
+		output = output[:dot]
+	}
+	major, err := strconv.Atoi(string(output))
+	if err != nil {
+		t.Skipf("can't parse gccgo version number %s", output)
+	}
+	if major < 5 {
 		t.Skipf("gccgo too old (%s)", strings.TrimSpace(string(output)))
 	}
 
@@ -1033,7 +1042,7 @@ func TestGlobal(t *testing.T) {
 // Run a test using -linkshared of an installed shared package.
 // Issue 26400.
 func TestTestInstalledShared(t *testing.T) {
-	goCmd(nil, "test", "-linkshared", "-test.short", "sync/atomic")
+	goCmd(t, "test", "-linkshared", "-test.short", "sync/atomic")
 }
 
 // Test generated pointer method with -linkshared.
@@ -1045,8 +1054,8 @@ func TestGeneratedMethod(t *testing.T) {
 // Test use of shared library struct with generated hash function.
 // Issue 30768.
 func TestGeneratedHash(t *testing.T) {
-	goCmd(nil, "install", "-buildmode=shared", "-linkshared", "./issue30768/issue30768lib")
-	goCmd(nil, "test", "-linkshared", "./issue30768")
+	goCmd(t, "install", "-buildmode=shared", "-linkshared", "./issue30768/issue30768lib")
+	goCmd(t, "test", "-linkshared", "./issue30768")
 }
 
 // Test that packages can be added not in dependency order (here a depends on b, and a adds

@@ -3,13 +3,12 @@
 // license that can be found in the LICENSE file.
 
 //go:build amd64 && linux
-// +build amd64,linux
 
 package runtime
 
 import (
 	"internal/abi"
-	"runtime/internal/sys"
+	"internal/goarch"
 	"unsafe"
 )
 
@@ -23,7 +22,7 @@ import (
 //
 // On success, InjectDebugCall returns the panic value of fn or nil.
 // If fn did not panic, its results will be available in args.
-func InjectDebugCall(gp *g, fn interface{}, regArgs *abi.RegArgs, stackArgs interface{}, tkill func(tid int) error, returnOnUnsafePoint bool) (interface{}, error) {
+func InjectDebugCall(gp *g, fn any, regArgs *abi.RegArgs, stackArgs any, tkill func(tid int) error, returnOnUnsafePoint bool) (any, error) {
 	if gp.lockedm == 0 {
 		return nil, plainError("goroutine not locked to thread")
 	}
@@ -97,7 +96,7 @@ type debugCallHandler struct {
 	regArgs *abi.RegArgs
 	argp    unsafe.Pointer
 	argSize uintptr
-	panic   interface{}
+	panic   any
 
 	handleF func(info *siginfo, ctxt *sigctxt, gp2 *g) bool
 
@@ -108,6 +107,10 @@ type debugCallHandler struct {
 }
 
 func (h *debugCallHandler) inject(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
+	// TODO(49370): This code is riddled with write barriers, but called from
+	// a signal handler. Add the go:nowritebarrierrec annotation and restructure
+	// this to avoid write barriers.
+
 	switch h.gp.atomicstatus {
 	case _Grunning:
 		if getg().m != h.mp {
@@ -115,7 +118,7 @@ func (h *debugCallHandler) inject(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 			return false
 		}
 		// Push current PC on the stack.
-		rsp := ctxt.rsp() - sys.PtrSize
+		rsp := ctxt.rsp() - goarch.PtrSize
 		*(*uint64)(unsafe.Pointer(uintptr(rsp))) = ctxt.rip()
 		ctxt.set_rsp(rsp)
 		// Write the argument frame size.
@@ -125,7 +128,7 @@ func (h *debugCallHandler) inject(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 		h.savedFP = *h.savedRegs.fpstate
 		h.savedRegs.fpstate = nil
 		// Set PC to debugCallV2.
-		ctxt.set_rip(uint64(funcPC(debugCallV2)))
+		ctxt.set_rip(uint64(abi.FuncPCABIInternal(debugCallV2)))
 		// Call injected. Switch to the debugCall protocol.
 		testSigtrap = h.handleF
 	case _Grunnable:
@@ -142,7 +145,11 @@ func (h *debugCallHandler) inject(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 }
 
 func (h *debugCallHandler) handle(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
-	// Sanity check.
+	// TODO(49370): This code is riddled with write barriers, but called from
+	// a signal handler. Add the go:nowritebarrierrec annotation and restructure
+	// this to avoid write barriers.
+
+	// Double-check m.
 	if getg().m != h.mp {
 		println("trap on wrong M", getg().m, h.mp)
 		return false
@@ -166,7 +173,7 @@ func (h *debugCallHandler) handle(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 			storeRegArgs(ctxt.regs(), h.regArgs)
 		}
 		// Push return PC.
-		sp -= sys.PtrSize
+		sp -= goarch.PtrSize
 		ctxt.set_rsp(sp)
 		*(*uint64)(unsafe.Pointer(uintptr(sp))) = ctxt.rip()
 		// Set PC to call and context register.
@@ -182,7 +189,7 @@ func (h *debugCallHandler) handle(info *siginfo, ctxt *sigctxt, gp2 *g) bool {
 	case 2:
 		// Function panicked. Copy panic out.
 		sp := ctxt.rsp()
-		memmove(unsafe.Pointer(&h.panic), unsafe.Pointer(uintptr(sp)), 2*sys.PtrSize)
+		memmove(unsafe.Pointer(&h.panic), unsafe.Pointer(uintptr(sp)), 2*goarch.PtrSize)
 	case 8:
 		// Call isn't safe. Get the reason.
 		sp := ctxt.rsp()

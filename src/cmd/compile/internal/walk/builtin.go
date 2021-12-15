@@ -158,7 +158,7 @@ func walkCopy(n *ir.BinaryExpr, init *ir.Nodes, runtimecall bool) ir.Node {
 		fn := typecheck.LookupRuntime("slicecopy")
 		fn = typecheck.SubstArgTypes(fn, ptrL.Type().Elem(), ptrR.Type().Elem())
 
-		return mkcall1(fn, n.Type(), init, ptrL, lenL, ptrR, lenR, ir.NewInt(n.X.Type().Elem().Width))
+		return mkcall1(fn, n.Type(), init, ptrL, lenL, ptrR, lenR, ir.NewInt(n.X.Type().Elem().Size()))
 	}
 
 	n.X = walkExpr(n.X, init)
@@ -194,7 +194,7 @@ func walkCopy(n *ir.BinaryExpr, init *ir.Nodes, runtimecall bool) ir.Node {
 	nwid := ir.Node(typecheck.Temp(types.Types[types.TUINTPTR]))
 	setwid := ir.NewAssignStmt(base.Pos, nwid, typecheck.Conv(nlen, types.Types[types.TUINTPTR]))
 	ne.Body.Append(setwid)
-	nwid = ir.NewBinaryExpr(base.Pos, ir.OMUL, nwid, ir.NewInt(nl.Type().Elem().Width))
+	nwid = ir.NewBinaryExpr(base.Pos, ir.OMUL, nwid, ir.NewInt(nl.Type().Elem().Size()))
 	call := mkcall1(fn, nil, init, nto, nfrm, nwid)
 	ne.Body.Append(call)
 
@@ -452,7 +452,7 @@ func walkMakeSliceCopy(n *ir.MakeExpr, init *ir.Nodes) ir.Node {
 		// We do not check for overflow of len(to)*elem.Width here
 		// since len(from) is an existing checked slice capacity
 		// with same elem.Width for the from slice.
-		size := ir.NewBinaryExpr(base.Pos, ir.OMUL, typecheck.Conv(length, types.Types[types.TUINTPTR]), typecheck.Conv(ir.NewInt(t.Elem().Width), types.Types[types.TUINTPTR]))
+		size := ir.NewBinaryExpr(base.Pos, ir.OMUL, typecheck.Conv(length, types.Types[types.TUINTPTR]), typecheck.Conv(ir.NewInt(t.Elem().Size()), types.Types[types.TUINTPTR]))
 
 		// instantiate mallocgc(size uintptr, typ *byte, needszero bool) unsafe.Pointer
 		fn := typecheck.LookupRuntime("mallocgc")
@@ -622,10 +622,7 @@ func walkPrint(nn *ir.CallExpr, init *ir.Nodes) ir.Node {
 		r := ir.NewCallExpr(base.Pos, ir.OCALL, on, nil)
 		if params := on.Type().Params().FieldSlice(); len(params) > 0 {
 			t := params[0].Type
-			if !types.Identical(t, n.Type()) {
-				n = ir.NewConvExpr(base.Pos, ir.OCONV, nil, n)
-				n.SetType(t)
-			}
+			n = typecheck.Conv(n, t)
 			r.Args.Append(n)
 		}
 		calls = append(calls, r)
@@ -641,16 +638,9 @@ func walkPrint(nn *ir.CallExpr, init *ir.Nodes) ir.Node {
 	return walkStmt(typecheck.Stmt(r))
 }
 
-// walkRecover walks an ORECOVER node.
-func walkRecover(nn *ir.CallExpr, init *ir.Nodes) ir.Node {
-	// Call gorecover with the FP of this frame.
-	// FP is equal to caller's SP plus FixedFrameSize().
-	var fp ir.Node = mkcall("getcallersp", types.Types[types.TUINTPTR], init)
-	if off := base.Ctxt.FixedFrameSize(); off != 0 {
-		fp = ir.NewBinaryExpr(fp.Pos(), ir.OADD, fp, ir.NewInt(off))
-	}
-	fp = ir.NewConvExpr(fp.Pos(), ir.OCONVNOP, types.NewPtr(types.Types[types.TINT32]), fp)
-	return mkcall("gorecover", nn.Type(), init, fp)
+// walkRecover walks an ORECOVERFP node.
+func walkRecoverFP(nn *ir.CallExpr, init *ir.Nodes) ir.Node {
+	return mkcall("gorecover", nn.Type(), init, walkExpr(nn.Args[0], init))
 }
 
 func walkUnsafeSlice(n *ir.BinaryExpr, init *ir.Nodes) ir.Node {

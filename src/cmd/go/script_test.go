@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"go/build"
 	"internal/testenv"
@@ -30,10 +31,13 @@ import (
 	"cmd/go/internal/imports"
 	"cmd/go/internal/par"
 	"cmd/go/internal/robustio"
-	"cmd/go/internal/txtar"
 	"cmd/go/internal/work"
 	"cmd/internal/sys"
+
+	"golang.org/x/tools/txtar"
 )
+
+var testSum = flag.String("testsum", "", `may be tidy, listm, or listall. If set, TestScript generates a go.sum file at the beginning of each test and updates test files if they pass.`)
 
 // TestScript runs the tests in testdata/script/*.txt.
 func TestScript(t *testing.T) {
@@ -182,6 +186,7 @@ func (ts *testScript) setup() {
 		"devnull=" + os.DevNull,
 		"goversion=" + goVersion(ts),
 		":=" + string(os.PathListSeparator),
+		"/=" + string(os.PathSeparator),
 	}
 	if !testenv.HasExternalNetwork() {
 		ts.env = append(ts.env, "TESTGONETWORK=panic", "TESTGOVCS=panic")
@@ -270,6 +275,22 @@ func (ts *testScript) run() {
 		ts.mark = ts.log.Len()
 	}
 
+	// With -testsum, if a go.mod file is present in the test's initial
+	// working directory, run 'go mod tidy'.
+	if *testSum != "" {
+		if ts.updateSum(a) {
+			defer func() {
+				if ts.t.Failed() {
+					return
+				}
+				data := txtar.Format(a)
+				if err := os.WriteFile(ts.file, data, 0666); err != nil {
+					ts.t.Errorf("rewriting test file: %v", err)
+				}
+			}()
+		}
+	}
+
 	// Run script.
 	// See testdata/script/README for documentation of script form.
 	script := string(a.Comment)
@@ -333,8 +354,14 @@ Script:
 				ok = canCgo
 			case "msan":
 				ok = canMSan
+			case "asan":
+				ok = canASan
 			case "race":
 				ok = canRace
+			case "fuzz":
+				ok = canFuzz
+			case "fuzz-instrumented":
+				ok = fuzzInstrumented
 			case "net":
 				ok = testenv.HasExternalNetwork()
 			case "link":
@@ -348,7 +375,7 @@ Script:
 			default:
 				if strings.HasPrefix(cond.tag, "exec:") {
 					prog := cond.tag[len("exec:"):]
-					ok = execCache.Do(prog, func() interface{} {
+					ok = execCache.Do(prog, func() any {
 						if runtime.GOOS == "plan9" && prog == "git" {
 							// The Git command is usually not the real Git on Plan 9.
 							// See https://golang.org/issues/29640.
@@ -1110,6 +1137,17 @@ func (ts *testScript) startBackground(want simpleStatus, command string, args ..
 		done: done,
 	}
 
+	// Use the script's PATH to look up the command if it contains a separator
+	// instead of the test process's PATH (see lookPath).
+	// Don't use filepath.Clean, since that changes "./foo" to "foo".
+	command = filepath.FromSlash(command)
+	if !strings.Contains(command, string(filepath.Separator)) {
+		var err error
+		command, err = ts.lookPath(command)
+		if err != nil {
+			return nil, err
+		}
+	}
 	cmd := exec.Command(command, args...)
 	cmd.Dir = ts.cd
 	cmd.Env = append(ts.env, "PWD="+ts.cd)
@@ -1124,6 +1162,73 @@ func (ts *testScript) startBackground(want simpleStatus, command string, args ..
 		close(done)
 	}()
 	return bg, nil
+}
+
+// lookPath is (roughly) like exec.LookPath, but it uses the test script's PATH
+// instead of the test process's PATH to find the executable. We don't change
+// the test process's PATH since it may run scripts in parallel.
+func (ts *testScript) lookPath(command string) (string, error) {
+	var strEqual func(string, string) bool
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		// Using GOOS as a proxy for case-insensitive file system.
+		strEqual = strings.EqualFold
+	} else {
+		strEqual = func(a, b string) bool { return a == b }
+	}
+
+	var pathExt []string
+	var searchExt bool
+	var isExecutable func(os.FileInfo) bool
+	if runtime.GOOS == "windows" {
+		// Use the test process's PathExt instead of the script's.
+		// If PathExt is set in the command's environment, cmd.Start fails with
+		// "parameter is invalid". Not sure why.
+		// If the command already has an extension in PathExt (like "cmd.exe")
+		// don't search for other extensions (not "cmd.bat.exe").
+		pathExt = strings.Split(os.Getenv("PathExt"), string(filepath.ListSeparator))
+		searchExt = true
+		cmdExt := filepath.Ext(command)
+		for _, ext := range pathExt {
+			if strEqual(cmdExt, ext) {
+				searchExt = false
+				break
+			}
+		}
+		isExecutable = func(fi os.FileInfo) bool {
+			return fi.Mode().IsRegular()
+		}
+	} else {
+		isExecutable = func(fi os.FileInfo) bool {
+			return fi.Mode().IsRegular() && fi.Mode().Perm()&0111 != 0
+		}
+	}
+
+	pathName := "PATH"
+	if runtime.GOOS == "plan9" {
+		pathName = "path"
+	}
+
+	for _, dir := range strings.Split(ts.envMap[pathName], string(filepath.ListSeparator)) {
+		if searchExt {
+			ents, err := os.ReadDir(dir)
+			if err != nil {
+				continue
+			}
+			for _, ent := range ents {
+				for _, ext := range pathExt {
+					if !ent.IsDir() && strEqual(ent.Name(), command+ext) {
+						return dir + string(filepath.Separator) + ent.Name(), nil
+					}
+				}
+			}
+		} else {
+			path := dir + string(filepath.Separator) + command
+			if fi, err := os.Stat(path); err == nil && isExecutable(fi) {
+				return path, nil
+			}
+		}
+	}
+	return "", &exec.Error{Name: command, Err: exec.ErrNotFound}
 }
 
 // waitOrStop waits for the already-started command cmd by calling its Wait method.
@@ -1152,7 +1257,7 @@ func waitOrStop(ctx context.Context, cmd *exec.Cmd, interrupt os.Signal, killDel
 		err := cmd.Process.Signal(interrupt)
 		if err == nil {
 			err = ctx.Err() // Report ctx.Err() as the reason we interrupted.
-		} else if err.Error() == "os: process already finished" {
+		} else if err == os.ErrProcessDone {
 			errc <- nil
 			return
 		}
@@ -1205,7 +1310,7 @@ func (ts *testScript) expand(s string, inRegexp bool) string {
 }
 
 // fatalf aborts the test with the given failure message.
-func (ts *testScript) fatalf(format string, args ...interface{}) {
+func (ts *testScript) fatalf(format string, args ...any) {
 	fmt.Fprintf(&ts.log, "FAIL: %s:%d: %s\n", ts.file, ts.lineno, fmt.Sprintf(format, args...))
 	ts.t.FailNow()
 }
@@ -1340,6 +1445,68 @@ func (ts *testScript) parse(line string) command {
 		}
 	}
 	return cmd
+}
+
+// updateSum runs 'go mod tidy', 'go list -mod=mod -m all', or
+// 'go list -mod=mod all' in the test's current directory if a file named
+// "go.mod" is present after the archive has been extracted. updateSum modifies
+// archive and returns true if go.mod or go.sum were changed.
+func (ts *testScript) updateSum(archive *txtar.Archive) (rewrite bool) {
+	gomodIdx, gosumIdx := -1, -1
+	for i := range archive.Files {
+		switch archive.Files[i].Name {
+		case "go.mod":
+			gomodIdx = i
+		case "go.sum":
+			gosumIdx = i
+		}
+	}
+	if gomodIdx < 0 {
+		return false
+	}
+
+	switch *testSum {
+	case "tidy":
+		ts.cmdGo(success, []string{"mod", "tidy"})
+	case "listm":
+		ts.cmdGo(success, []string{"list", "-m", "-mod=mod", "all"})
+	case "listall":
+		ts.cmdGo(success, []string{"list", "-mod=mod", "all"})
+	default:
+		ts.t.Fatalf(`unknown value for -testsum %q; may be "tidy", "listm", or "listall"`, *testSum)
+	}
+
+	newGomodData, err := os.ReadFile(filepath.Join(ts.cd, "go.mod"))
+	if err != nil {
+		ts.t.Fatalf("reading go.mod after -testsum: %v", err)
+	}
+	if !bytes.Equal(newGomodData, archive.Files[gomodIdx].Data) {
+		archive.Files[gomodIdx].Data = newGomodData
+		rewrite = true
+	}
+
+	newGosumData, err := os.ReadFile(filepath.Join(ts.cd, "go.sum"))
+	if err != nil && !os.IsNotExist(err) {
+		ts.t.Fatalf("reading go.sum after -testsum: %v", err)
+	}
+	switch {
+	case os.IsNotExist(err) && gosumIdx >= 0:
+		// go.sum was deleted.
+		rewrite = true
+		archive.Files = append(archive.Files[:gosumIdx], archive.Files[gosumIdx+1:]...)
+	case err == nil && gosumIdx < 0:
+		// go.sum was created.
+		rewrite = true
+		gosumIdx = gomodIdx + 1
+		archive.Files = append(archive.Files, txtar.File{})
+		copy(archive.Files[gosumIdx+1:], archive.Files[gosumIdx:])
+		archive.Files[gosumIdx] = txtar.File{Name: "go.sum", Data: newGosumData}
+	case err == nil && gosumIdx >= 0 && !bytes.Equal(newGosumData, archive.Files[gosumIdx].Data):
+		// go.sum was changed.
+		rewrite = true
+		archive.Files[gosumIdx].Data = newGosumData
+	}
+	return rewrite
 }
 
 // diff returns a formatted diff of the two texts,
