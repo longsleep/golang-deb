@@ -1,4 +1,3 @@
-// UNREVIEWED
 // Copyright 2015 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -119,7 +118,14 @@ var predeclared = []types2.Type{
 	types2.Typ[types2.Invalid], // only appears in packages with errors
 
 	// used internally by gc; never used by this package or in .a files
+	// not to be confused with the universe any
 	anyType{},
+
+	// comparable
+	types2.Universe.Lookup("comparable").Type(),
+
+	// any
+	types2.Universe.Lookup("any").Type(),
 }
 
 type anyType struct{}

@@ -7,6 +7,7 @@
 package runtime
 
 import (
+	"internal/abi"
 	"runtime/internal/atomic"
 	"runtime/internal/sys"
 	"unsafe"
@@ -27,8 +28,8 @@ type timer struct {
 	// when must be positive on an active timer.
 	when   int64
 	period int64
-	f      func(interface{}, uintptr)
-	arg    interface{}
+	f      func(any, uintptr)
+	arg    any
 	seq    uintptr
 
 	// What to set the when field to in timerModifiedXX status.
@@ -231,14 +232,14 @@ func resetTimer(t *timer, when int64) bool {
 
 // modTimer modifies an existing timer.
 //go:linkname modTimer time.modTimer
-func modTimer(t *timer, when, period int64, f func(interface{}, uintptr), arg interface{}, seq uintptr) {
+func modTimer(t *timer, when, period int64, f func(any, uintptr), arg any, seq uintptr) {
 	modtimer(t, when, period, f, arg, seq)
 }
 
 // Go runtime.
 
 // Ready the goroutine arg.
-func goroutineReady(arg interface{}, seq uintptr) {
+func goroutineReady(arg any, seq uintptr) {
 	goready(arg.(*g), 0)
 }
 
@@ -420,7 +421,7 @@ func dodeltimer0(pp *p) {
 // modtimer modifies an existing timer.
 // This is called by the netpoll code or time.Ticker.Reset or time.Timer.Reset.
 // Reports whether the timer was modified before it was run.
-func modtimer(t *timer, when, period int64, f func(interface{}, uintptr), arg interface{}, seq uintptr) bool {
+func modtimer(t *timer, when, period int64, f func(any, uintptr), arg any, seq uintptr) bool {
 	if when <= 0 {
 		throw("timer when must be positive")
 	}
@@ -823,7 +824,7 @@ func runOneTimer(pp *p, t *timer, now int64) {
 	if raceenabled {
 		ppcur := getg().m.p.ptr()
 		if ppcur.timerRaceCtx == 0 {
-			ppcur.timerRaceCtx = racegostart(funcPC(runtimer) + sys.PCQuantum)
+			ppcur.timerRaceCtx = racegostart(abi.FuncPCABIInternal(runtimer) + sys.PCQuantum)
 		}
 		raceacquirectx(ppcur.timerRaceCtx, unsafe.Pointer(t))
 	}

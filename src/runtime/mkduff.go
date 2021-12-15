@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 //go:build ignore
-// +build ignore
 
 // runtime·duffzero is a Duff's device for zeroing memory.
 // The compiler jumps to computed addresses within
@@ -154,7 +153,7 @@ func zeroARM64(w io.Writer) {
 	// ZR: always zero
 	// R20: ptr to memory to be zeroed
 	// On return, R20 points to the last zeroed dword.
-	fmt.Fprintln(w, "TEXT runtime·duffzero(SB), NOSPLIT|NOFRAME, $0-0")
+	fmt.Fprintln(w, "TEXT runtime·duffzero<ABIInternal>(SB), NOSPLIT|NOFRAME, $0-0")
 	for i := 0; i < 63; i++ {
 		fmt.Fprintln(w, "\tSTP.P\t(ZR, ZR), 16(R20)")
 	}
@@ -167,7 +166,7 @@ func copyARM64(w io.Writer) {
 	// R21: ptr to destination memory
 	// R26, R27 (aka REGTMP): scratch space
 	// R20 and R21 are updated as a side effect
-	fmt.Fprintln(w, "TEXT runtime·duffcopy(SB), NOSPLIT|NOFRAME, $0-0")
+	fmt.Fprintln(w, "TEXT runtime·duffcopy<ABIInternal>(SB), NOSPLIT|NOFRAME, $0-0")
 
 	for i := 0; i < 64; i++ {
 		fmt.Fprintln(w, "\tLDP.P\t16(R20), (R26, R27)")
@@ -180,7 +179,6 @@ func copyARM64(w io.Writer) {
 func tagsPPC64x(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "//go:build ppc64 || ppc64le")
-	fmt.Fprintln(w, "// +build ppc64 ppc64le")
 	fmt.Fprintln(w)
 }
 
@@ -188,23 +186,26 @@ func zeroPPC64x(w io.Writer) {
 	// R0: always zero
 	// R3 (aka REGRT1): ptr to memory to be zeroed - 8
 	// On return, R3 points to the last zeroed dword.
-	fmt.Fprintln(w, "TEXT runtime·duffzero(SB), NOSPLIT|NOFRAME, $0-0")
+	fmt.Fprintln(w, "TEXT runtime·duffzero<ABIInternal>(SB), NOSPLIT|NOFRAME, $0-0")
 	for i := 0; i < 128; i++ {
-		fmt.Fprintln(w, "\tMOVDU\tR0, 8(R3)")
+		fmt.Fprintln(w, "\tMOVDU\tR0, 8(R20)")
 	}
 	fmt.Fprintln(w, "\tRET")
 }
 
 func copyPPC64x(w io.Writer) {
 	// duffcopy is not used on PPC64.
-	fmt.Fprintln(w, "TEXT runtime·duffcopy(SB), NOSPLIT|NOFRAME, $0-0")
-	fmt.Fprintln(w, "\tUNDEF")
+	fmt.Fprintln(w, "TEXT runtime·duffcopy<ABIInternal>(SB), NOSPLIT|NOFRAME, $0-0")
+	for i := 0; i < 128; i++ {
+		fmt.Fprintln(w, "\tMOVDU\t8(R20), R5")
+		fmt.Fprintln(w, "\tMOVDU\tR5, 8(R21)")
+	}
+	fmt.Fprintln(w, "\tRET")
 }
 
 func tagsMIPS64x(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "//go:build mips64 || mips64le")
-	fmt.Fprintln(w, "// +build mips64 mips64le")
 	fmt.Fprintln(w)
 }
 

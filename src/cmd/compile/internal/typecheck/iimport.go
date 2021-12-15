@@ -11,7 +11,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"go/constant"
-	"io"
 	"math/big"
 	"os"
 	"strings"
@@ -19,8 +18,6 @@ import (
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
 	"cmd/compile/internal/types"
-	"cmd/internal/bio"
-	"cmd/internal/goobj"
 	"cmd/internal/obj"
 	"cmd/internal/src"
 )
@@ -84,6 +81,27 @@ func ImportBody(fn *ir.Func) {
 	inimport = false
 }
 
+// HaveInlineBody reports whether we have fn's inline body available
+// for inlining.
+func HaveInlineBody(fn *ir.Func) bool {
+	if fn.Inl == nil {
+		return false
+	}
+
+	// Unified IR is much more conservative about pruning unreachable
+	// methods (at the cost of increased build artifact size).
+	if base.Debug.Unified != 0 {
+		return true
+	}
+
+	if fn.Inl.Body != nil {
+		return true
+	}
+
+	_, ok := inlineImporter[fn.Nname.Sym()]
+	return ok
+}
+
 func importReaderFor(sym *types.Sym, importers map[*types.Sym]iimporterAndOffset) *importReader {
 	x, ok := importers[sym]
 	if !ok {
@@ -94,7 +112,7 @@ func importReaderFor(sym *types.Sym, importers map[*types.Sym]iimporterAndOffset
 }
 
 type intReader struct {
-	*bio.Reader
+	*strings.Reader
 	pkg *types.Pkg
 }
 
@@ -116,33 +134,30 @@ func (r *intReader) uint64() uint64 {
 	return i
 }
 
-func ReadImports(pkg *types.Pkg, in *bio.Reader) (fingerprint goobj.FingerprintType) {
-	ird := &intReader{in, pkg}
+func ReadImports(pkg *types.Pkg, data string) {
+	ird := &intReader{strings.NewReader(data), pkg}
 
 	version := ird.uint64()
-	if version != iexportVersion {
+	switch version {
+	case iexportVersionGo1_18, iexportVersionPosCol, iexportVersionGo1_11:
+	default:
 		base.Errorf("import %q: unknown export format version %d", pkg.Path, version)
 		base.ErrorExit()
 	}
 
-	sLen := ird.uint64()
-	dLen := ird.uint64()
+	sLen := int64(ird.uint64())
+	dLen := int64(ird.uint64())
 
-	// Map string (and data) section into memory as a single large
-	// string. This reduces heap fragmentation and allows
-	// returning individual substrings very efficiently.
-	data, err := mapFile(in.File(), in.Offset(), int64(sLen+dLen))
-	if err != nil {
-		base.Errorf("import %q: mapping input: %v", pkg.Path, err)
-		base.ErrorExit()
-	}
-	stringData := data[:sLen]
-	declData := data[sLen:]
-
-	in.MustSeek(int64(sLen+dLen), os.SEEK_CUR)
+	// TODO(mdempsky): Replace os.SEEK_CUR with io.SeekCurrent after
+	// #44505 is fixed.
+	whence, _ := ird.Seek(0, os.SEEK_CUR)
+	stringData := data[whence : whence+sLen]
+	declData := data[whence+sLen : whence+sLen+dLen]
+	ird.Seek(sLen+dLen, os.SEEK_CUR)
 
 	p := &iimporter{
-		ipkg: pkg,
+		exportVersion: version,
+		ipkg:          pkg,
 
 		pkgCache:     map[uint64]*types.Pkg{},
 		posBaseCache: map[uint64]*src.PosBase{},
@@ -178,7 +193,7 @@ func ReadImports(pkg *types.Pkg, in *bio.Reader) (fingerprint goobj.FingerprintT
 		}
 
 		for nSyms := ird.uint64(); nSyms > 0; nSyms-- {
-			s := pkg.Lookup(p.stringAt(ird.uint64()))
+			s := pkg.Lookup(p.nameAt(ird.uint64()))
 			off := ird.uint64()
 
 			if _, ok := DeclImporter[s]; !ok {
@@ -192,7 +207,7 @@ func ReadImports(pkg *types.Pkg, in *bio.Reader) (fingerprint goobj.FingerprintT
 		pkg := p.pkgAt(ird.uint64())
 
 		for nSyms := ird.uint64(); nSyms > 0; nSyms-- {
-			s := pkg.Lookup(p.stringAt(ird.uint64()))
+			s := pkg.Lookup(p.nameAt(ird.uint64()))
 			off := ird.uint64()
 
 			if _, ok := inlineImporter[s]; !ok {
@@ -200,18 +215,11 @@ func ReadImports(pkg *types.Pkg, in *bio.Reader) (fingerprint goobj.FingerprintT
 			}
 		}
 	}
-
-	// Fingerprint.
-	_, err = io.ReadFull(in, fingerprint[:])
-	if err != nil {
-		base.Errorf("import %s: error reading fingerprint", pkg.Path)
-		base.ErrorExit()
-	}
-	return fingerprint
 }
 
 type iimporter struct {
-	ipkg *types.Pkg
+	exportVersion uint64
+	ipkg          *types.Pkg
 
 	pkgCache     map[uint64]*types.Pkg
 	posBaseCache map[uint64]*src.PosBase
@@ -231,6 +239,22 @@ func (p *iimporter) stringAt(off uint64) string {
 	}
 	spos := off + uint64(n)
 	return p.stringData[spos : spos+slen]
+}
+
+// nameAt is the same as stringAt, except it replaces instances
+// of "" with the path of the package being imported.
+func (p *iimporter) nameAt(off uint64) string {
+	s := p.stringAt(off)
+	// Names of objects (functions, methods, globals) may include ""
+	// to represent the path name of the imported package.
+	// Replace "" with the imported package prefix. This occurs
+	// specifically for generics where the names of instantiations
+	// and dictionaries contain package-qualified type names.
+	// Include the dot to avoid matching with struct tags ending in '"'.
+	if strings.Contains(s, "\"\".") {
+		s = strings.Replace(s, "\"\".", p.ipkg.Prefix+".", -1)
+	}
+	return s
 }
 
 func (p *iimporter) posBaseAt(off uint64) *src.PosBase {
@@ -273,6 +297,7 @@ type importReader struct {
 	// Slice of all dcls for function, including any interior closures
 	allDcls        []*ir.Name
 	allClosureVars []*ir.Name
+	autotmpgen     int
 }
 
 func (p *iimporter) newReader(off uint64, pkg *types.Pkg) *importReader {
@@ -287,6 +312,7 @@ func (p *iimporter) newReader(off uint64, pkg *types.Pkg) *importReader {
 }
 
 func (r *importReader) string() string        { return r.p.stringAt(r.uint64()) }
+func (r *importReader) name() string          { return r.p.nameAt(r.uint64()) }
 func (r *importReader) posBase() *src.PosBase { return r.p.posBaseAt(r.uint64()) }
 func (r *importReader) pkg() *types.Pkg       { return r.p.pkgAt(r.uint64()) }
 
@@ -302,37 +328,49 @@ func (r *importReader) doDecl(sym *types.Sym) *ir.Name {
 	case 'A':
 		typ := r.typ()
 
-		return importalias(r.p.ipkg, pos, sym, typ)
+		return importalias(pos, sym, typ)
 
 	case 'C':
 		typ := r.typ()
 		val := r.value(typ)
 
-		n := importconst(r.p.ipkg, pos, sym, typ, val)
+		n := importconst(pos, sym, typ, val)
 		r.constExt(n)
 		return n
 
-	case 'F':
-		typ := r.signature(nil)
+	case 'F', 'G':
+		var tparams []*types.Field
+		if tag == 'G' {
+			tparams = r.tparamList()
+		}
+		typ := r.signature(nil, tparams)
 
-		n := importfunc(r.p.ipkg, pos, sym, typ)
+		n := importfunc(pos, sym, typ)
 		r.funcExt(n)
 		return n
 
-	case 'T':
+	case 'T', 'U':
 		// Types can be recursive. We need to setup a stub
 		// declaration before recursing.
-		n := importtype(r.p.ipkg, pos, sym)
+		n := importtype(pos, sym)
 		t := n.Type()
+		if tag == 'U' {
+			rparams := r.typeList()
+			t.SetRParams(rparams)
+		}
 
 		// We also need to defer width calculations until
 		// after the underlying type has been assigned.
 		types.DeferCheckSize()
+		deferDoInst()
 		underlying := r.typ()
 		t.SetUnderlying(underlying)
-		types.ResumeCheckSize()
 
 		if underlying.IsInterface() {
+			// Finish up all type instantiations and CheckSize calls
+			// now that a top-level type is fully constructed.
+			resumeDoInst()
+			types.ResumeCheckSize()
 			r.typeExt(t)
 			return n
 		}
@@ -342,7 +380,7 @@ func (r *importReader) doDecl(sym *types.Sym) *ir.Name {
 			mpos := r.pos()
 			msym := r.selector()
 			recv := r.param()
-			mtyp := r.signature(recv)
+			mtyp := r.signature(recv, nil)
 
 			// MethodSym already marked m.Sym as a function.
 			m := ir.NewNameAt(mpos, ir.MethodSym(recv.Type, msym))
@@ -358,16 +396,50 @@ func (r *importReader) doDecl(sym *types.Sym) *ir.Name {
 		}
 		t.Methods().Set(ms)
 
+		// Finish up all instantiations and CheckSize calls now
+		// that a top-level type is fully constructed.
+		resumeDoInst()
+		types.ResumeCheckSize()
+
 		r.typeExt(t)
 		for _, m := range ms {
 			r.methExt(m)
 		}
 		return n
 
+	case 'P':
+		if r.p.exportVersion < iexportVersionGenerics {
+			base.Fatalf("unexpected type param type")
+		}
+		if sym.Def != nil {
+			// Make sure we use the same type param type for the same
+			// name, whether it is created during types1-import or
+			// this types2-to-types1 translation.
+			return sym.Def.(*ir.Name)
+		}
+		// The typeparam index is set at the point where the containing type
+		// param list is imported.
+		t := types.NewTypeParam(sym, 0)
+		// Nname needed to save the pos.
+		nname := ir.NewDeclNameAt(pos, ir.OTYPE, sym)
+		sym.Def = nname
+		nname.SetType(t)
+		t.SetNod(nname)
+		implicit := false
+		if r.p.exportVersion >= iexportVersionGo1_18 {
+			implicit = r.bool()
+		}
+		bound := r.typ()
+		if implicit {
+			bound.MarkImplicit()
+		}
+		t.SetBound(bound)
+		return nname
+
 	case 'V':
 		typ := r.typ()
 
-		n := importvar(r.p.ipkg, pos, sym, typ)
+		n := importvar(pos, sym, typ)
 		r.varExt(n)
 		return n
 
@@ -377,27 +449,54 @@ func (r *importReader) doDecl(sym *types.Sym) *ir.Name {
 	}
 }
 
-func (p *importReader) value(typ *types.Type) constant.Value {
-	switch constTypeOf(typ) {
+func (r *importReader) value(typ *types.Type) constant.Value {
+	var kind constant.Kind
+	var valType *types.Type
+
+	if r.p.exportVersion >= iexportVersionGo1_18 {
+		// TODO: add support for using the kind in the non-typeparam case.
+		kind = constant.Kind(r.int64())
+	}
+
+	if typ.IsTypeParam() {
+		if r.p.exportVersion < iexportVersionGo1_18 {
+			// If a constant had a typeparam type, then we wrote out its
+			// actual constant kind as well.
+			kind = constant.Kind(r.int64())
+		}
+		switch kind {
+		case constant.Int:
+			valType = types.Types[types.TINT64]
+		case constant.Float:
+			valType = types.Types[types.TFLOAT64]
+		case constant.Complex:
+			valType = types.Types[types.TCOMPLEX128]
+		}
+	} else {
+		kind = constTypeOf(typ)
+		valType = typ
+	}
+
+	switch kind {
 	case constant.Bool:
-		return constant.MakeBool(p.bool())
+		return constant.MakeBool(r.bool())
 	case constant.String:
-		return constant.MakeString(p.string())
+		return constant.MakeString(r.string())
 	case constant.Int:
 		var i big.Int
-		p.mpint(&i, typ)
+		r.mpint(&i, valType)
 		return constant.Make(&i)
 	case constant.Float:
-		return p.float(typ)
+		return r.float(valType)
 	case constant.Complex:
-		return makeComplex(p.float(typ), p.float(typ))
+		return makeComplex(r.float(valType), r.float(valType))
 	}
 
 	base.Fatalf("unexpected value type: %v", typ)
 	panic("unreachable")
 }
 
-func (p *importReader) mpint(x *big.Int, typ *types.Type) {
+func (r *importReader) mpint(x *big.Int, typ *types.Type) {
 	signed, maxBytes := intSize(typ)
 
 	maxSmall := 256 - maxBytes
@@ -408,7 +507,7 @@ func (p *importReader) mpint(x *big.Int, typ *types.Type) {
 		maxSmall = 256
 	}
 
-	n, _ := p.ReadByte()
+	n, _ := r.ReadByte()
 	if uint(n) < maxSmall {
 		v := int64(n)
 		if signed {
@@ -429,30 +528,30 @@ func (p *importReader) mpint(x *big.Int, typ *types.Type) {
 		base.Fatalf("weird decoding: %v, %v => %v", n, signed, v)
 	}
 	b := make([]byte, v)
-	p.Read(b)
+	r.Read(b)
 	x.SetBytes(b)
 	if signed && n&1 != 0 {
 		x.Neg(x)
 	}
 }
 
-func (p *importReader) float(typ *types.Type) constant.Value {
+func (r *importReader) float(typ *types.Type) constant.Value {
 	var mant big.Int
-	p.mpint(&mant, typ)
+	r.mpint(&mant, typ)
 	var f big.Float
 	f.SetInt(&mant)
 	if f.Sign() != 0 {
-		f.SetMantExp(&f, int(p.int64()))
+		f.SetMantExp(&f, int(r.int64()))
 	}
 	return constant.Make(&f)
 }
 
-func (p *importReader) mprat(orig constant.Value) constant.Value {
-	if !p.bool() {
+func (r *importReader) mprat(orig constant.Value) constant.Value {
+	if !r.bool() {
 		return orig
 	}
 	var rat big.Rat
-	rat.SetString(p.string())
+	rat.SetString(r.string())
 	return constant.Make(&rat)
 }
 
@@ -462,8 +561,15 @@ func (r *importReader) ident(selector bool) *types.Sym {
 		return nil
 	}
 	pkg := r.currPkg
-	if selector && types.IsExported(name) {
-		pkg = types.LocalPkg
+	if selector {
+		if types.IsExported(name) {
+			pkg = types.LocalPkg
+		}
+	} else {
+		if name == "$autotmp" {
+			name = autotmpname(r.autotmpgen)
+			r.autotmpgen++
+		}
 	}
 	return pkg.Lookup(name)
 }
@@ -472,7 +578,7 @@ func (r *importReader) localIdent() *types.Sym { return r.ident(false) }
 func (r *importReader) selector() *types.Sym   { return r.ident(true) }
 
 func (r *importReader) qualifiedIdent() *ir.Ident {
-	name := r.string()
+	name := r.name()
 	pkg := r.pkg()
 	sym := pkg.Lookup(name)
 	return ir.NewIdent(src.NoXPos, sym)
@@ -503,7 +609,14 @@ func (r *importReader) pos() src.XPos {
 }
 
 func (r *importReader) typ() *types.Type {
-	return r.p.typAt(r.uint64())
+	// If this is a top-level type call, defer type instantiations until the
+	// type is fully constructed.
+	types.DeferCheckSize()
+	deferDoInst()
+	t := r.p.typAt(r.uint64())
+	resumeDoInst()
+	types.ResumeCheckSize()
+	return t
 }
 
 func (r *importReader) exoticType() *types.Type {
@@ -538,7 +651,7 @@ func (r *importReader) exoticType() *types.Type {
 	case exoticTypeRecv:
 		var rcvr *types.Field
 		if r.bool() { // isFakeRecv
-			rcvr = fakeRecvField()
+			rcvr = types.FakeRecv()
 		} else {
 			rcvr = r.exoticParam()
 		}
@@ -641,7 +754,13 @@ func (p *iimporter) typAt(off uint64) *types.Type {
 		// are pushed to compile queue, then draining from the queue for compiling.
 		// During this process, the size calculation is disabled, so it is not safe for
 		// calculating size during SSA generation anymore. See issue #44732.
-		types.CheckSize(t)
+		//
+		// No need to calc sizes for re-instantiated generic types, and
+		// they are not necessarily resolved until the top-level type is
+		// defined (because of recursive types).
+		if t.OrigSym() == nil || !t.HasTParam() {
+			types.CheckSize(t)
+		}
 		p.typCache[off] = t
 	}
 	return t
@@ -680,7 +799,7 @@ func (r *importReader) typ1() *types.Type {
 
 	case signatureType:
 		r.setPkg()
-		return r.signature(nil)
+		return r.signature(nil, nil)
 
 	case structType:
 		r.setPkg()
@@ -718,16 +837,64 @@ func (r *importReader) typ1() *types.Type {
 		for i := range methods {
 			pos := r.pos()
 			sym := r.selector()
-			typ := r.signature(fakeRecvField())
+			typ := r.signature(types.FakeRecv(), nil)
 
 			methods[i] = types.NewField(pos, sym, typ)
 		}
 
-		t := types.NewInterface(r.currPkg, append(embeddeds, methods...))
+		if len(embeddeds)+len(methods) == 0 {
+			return types.Types[types.TINTER]
+		}
+
+		t := types.NewInterface(r.currPkg, append(embeddeds, methods...), false)
 
 		// Ensure we expand the interface in the frontend (#25055).
 		types.CheckSize(t)
 		return t
+
+	case typeParamType:
+		if r.p.exportVersion < iexportVersionGenerics {
+			base.Fatalf("unexpected type param type")
+		}
+		// Similar to code for defined types, since we "declared"
+		// typeparams to deal with recursion (typeparam is used within its
+		// own type bound).
+		ident := r.qualifiedIdent()
+		if ident.Sym().Def != nil {
+			return ident.Sym().Def.(*ir.Name).Type()
+		}
+		n := expandDecl(ident)
+		if n.Op() != ir.OTYPE {
+			base.Fatalf("expected OTYPE, got %v: %v, %v", n.Op(), n.Sym(), n)
+		}
+		return n.Type()
+
+	case instanceType:
+		if r.p.exportVersion < iexportVersionGenerics {
+			base.Fatalf("unexpected instantiation type")
+		}
+		pos := r.pos()
+		len := r.uint64()
+		targs := make([]*types.Type, len)
+		for i := range targs {
+			targs[i] = r.typ()
+		}
+		baseType := r.typ()
+		t := Instantiate(pos, baseType, targs)
+		return t
+
+	case unionType:
+		if r.p.exportVersion < iexportVersionGenerics {
+			base.Fatalf("unexpected instantiation type")
+		}
+		nt := int(r.uint64())
+		terms := make([]*types.Type, nt)
+		tildes := make([]bool, nt)
+		for i := range terms {
+			tildes[i] = r.bool()
+			terms[i] = r.typ()
+		}
+		return types.NewUnion(terms, tildes)
 	}
 }
 
@@ -735,13 +902,42 @@ func (r *importReader) kind() itag {
 	return itag(r.uint64())
 }
 
-func (r *importReader) signature(recv *types.Field) *types.Type {
+func (r *importReader) signature(recv *types.Field, tparams []*types.Field) *types.Type {
 	params := r.paramList()
 	results := r.paramList()
 	if n := len(params); n > 0 {
 		params[n-1].SetIsDDD(r.bool())
 	}
-	return types.NewSignature(r.currPkg, recv, nil, params, results)
+	return types.NewSignature(r.currPkg, recv, tparams, params, results)
+}
+
+func (r *importReader) typeList() []*types.Type {
+	n := r.uint64()
+	if n == 0 {
+		return nil
+	}
+	ts := make([]*types.Type, n)
+	for i := range ts {
+		ts[i] = r.typ()
+		if ts[i].IsTypeParam() {
+			ts[i].SetIndex(i)
+		}
+	}
+	return ts
+}
+
+func (r *importReader) tparamList() []*types.Field {
+	n := r.uint64()
+	if n == 0 {
+		return nil
+	}
+	fs := make([]*types.Field, n)
+	for i := range fs {
+		typ := r.typ()
+		typ.SetIndex(i)
+		fs[i] = types.NewField(typ.Pos(), typ.Sym(), typ)
+	}
+	return fs
 }
 
 func (r *importReader) paramList() []*types.Field {
@@ -809,7 +1005,9 @@ func (r *importReader) funcExt(n *ir.Name) {
 
 	n.Func.ABI = obj.ABI(r.uint64())
 
-	n.SetPragma(ir.PragmaFlag(r.uint64()))
+	// Make sure //go:noinline pragma is imported (so stenciled functions have
+	// same noinline status as the corresponding generic function.)
+	n.Func.Pragma = ir.PragmaFlag(r.uint64())
 
 	// Escape analysis.
 	for _, fs := range &types.RecvsParams {
@@ -821,7 +1019,8 @@ func (r *importReader) funcExt(n *ir.Name) {
 	// Inline body.
 	if u := r.uint64(); u > 0 {
 		n.Func.Inl = &ir.Inline{
-			Cost: int32(u - 1),
+			Cost:            int32(u - 1),
+			CanDelayResults: r.bool(),
 		}
 		n.Func.Endlineno = r.pos()
 	}
@@ -852,7 +1051,13 @@ func (r *importReader) symIdx(s *types.Sym) {
 
 func (r *importReader) typeExt(t *types.Type) {
 	t.SetNotInHeap(r.bool())
-	i, pi := r.int64(), r.int64()
+	SetBaseTypeIndex(t, r.int64(), r.int64())
+}
+
+func SetBaseTypeIndex(t *types.Type, i, pi int64) {
+	if t.Obj() == nil {
+		base.Fatalf("SetBaseTypeIndex on non-defined type %v", t)
+	}
 	if i != -1 && pi != -1 {
 		typeSymIdx[t] = [2]int64{i, pi}
 	}
@@ -860,6 +1065,7 @@ func (r *importReader) typeExt(t *types.Type) {
 
 // Map imported type T to the index of type descriptor symbols of T and *T,
 // so we can use index to reference the symbol.
+// TODO(mdempsky): Store this information directly in the Type's Name.
 var typeSymIdx = make(map[*types.Type][2]int64)
 
 func BaseTypeIndex(t *types.Type) int64 {
@@ -936,6 +1142,10 @@ func (r *importReader) funcBody(fn *ir.Func) {
 	fn.Inl.Body = body
 
 	r.curfn = outerfn
+	if base.Flag.W >= 3 {
+		fmt.Printf("Imported for %v", fn)
+		ir.DumpList("", fn.Inl.Body)
+	}
 }
 
 func (r *importReader) readNames(fn *ir.Func) []*ir.Name {
@@ -1004,10 +1214,26 @@ func (r *importReader) stmtList() []ir.Node {
 		if n.Op() == ir.OBLOCK {
 			n := n.(*ir.BlockStmt)
 			list = append(list, n.List...)
-		} else {
-			list = append(list, n)
+			continue
 		}
-
+		if len(list) > 0 {
+			// check for an optional label that can only immediately
+			// precede a for/range/select/switch statement.
+			if last := list[len(list)-1]; last.Op() == ir.OLABEL {
+				label := last.(*ir.LabelStmt).Label
+				switch n.Op() {
+				case ir.OFOR:
+					n.(*ir.ForStmt).Label = label
+				case ir.ORANGE:
+					n.(*ir.RangeStmt).Label = label
+				case ir.OSELECT:
+					n.(*ir.SelectStmt).Label = label
+				case ir.OSWITCH:
+					n.(*ir.SwitchStmt).Label = label
+				}
+			}
+		}
+		list = append(list, n)
 	}
 	return list
 }
@@ -1032,7 +1258,13 @@ func (r *importReader) caseList(switchExpr ir.Node) []*ir.CaseClause {
 func (r *importReader) commList() []*ir.CommClause {
 	cases := make([]*ir.CommClause, r.uint64())
 	for i := range cases {
-		cases[i] = ir.NewCommStmt(r.pos(), r.node(), r.stmtList())
+		pos := r.pos()
+		defaultCase := r.bool()
+		var comm ir.Node
+		if !defaultCase {
+			comm = r.node()
+		}
+		cases[i] = ir.NewCommStmt(pos, comm, r.stmtList())
 	}
 	return cases
 }
@@ -1083,9 +1315,15 @@ func (r *importReader) node() ir.Node {
 		return n
 
 	case ir.ONONAME:
+		isKey := r.bool()
 		n := r.qualifiedIdent()
 		if go117ExportTypes {
-			n2 := Resolve(n)
+			var n2 ir.Node = n
+			// Key ONONAME entries should not be resolved - they should
+			// stay as identifiers.
+			if !isKey {
+				n2 = Resolve(n)
+			}
 			typ := r.typ()
 			if n2.Type() == nil {
 				n2.SetType(typ)
@@ -1095,6 +1333,14 @@ func (r *importReader) node() ir.Node {
 		return n
 
 	case ir.ONAME:
+		isBuiltin := r.bool()
+		if isBuiltin {
+			pkg := types.BuiltinPkg
+			if r.bool() {
+				pkg = types.UnsafePkg
+			}
+			return pkg.Lookup(r.string()).Def.(*ir.Name)
+		}
 		return r.localName()
 
 	// case OPACK, ONONAME:
@@ -1102,6 +1348,14 @@ func (r *importReader) node() ir.Node {
 
 	case ir.OTYPE:
 		return ir.TypeNode(r.typ())
+
+	case ir.ODYNAMICTYPE:
+		n := ir.NewDynamicType(r.pos(), r.expr())
+		if r.bool() {
+			n.ITab = r.expr()
+		}
+		n.SetType(r.typ())
+		return n
 
 	case ir.OTYPESW:
 		pos := r.pos()
@@ -1117,28 +1371,18 @@ func (r *importReader) node() ir.Node {
 	case ir.OCLOSURE:
 		//println("Importing CLOSURE")
 		pos := r.pos()
-		typ := r.signature(nil)
+		typ := r.signature(nil, nil)
 
 		// All the remaining code below is similar to (*noder).funcLit(), but
 		// with Dcls and ClosureVars lists already set up
-		fn := ir.NewFunc(pos)
-		fn.SetIsHiddenClosure(true)
-		fn.Nname = ir.NewNameAt(pos, ir.BlankNode.Sym())
-		fn.Nname.Func = fn
-		fn.Nname.Ntype = ir.TypeNode(typ)
-		fn.Nname.Defn = fn
+		fn := ir.NewClosureFunc(pos, true)
 		fn.Nname.SetType(typ)
 
 		cvars := make([]*ir.Name, r.int64())
 		for i := range cvars {
 			cvars[i] = ir.CaptureName(r.pos(), fn, r.localName().Canonical())
-			if go117ExportTypes {
-				if cvars[i].Type() != nil || cvars[i].Defn == nil {
-					base.Fatalf("bad import of closure variable")
-				}
-				// Closure variable should have Defn set, which is its captured
-				// variable, and it gets the same type as the captured variable.
-				cvars[i].SetType(cvars[i].Defn.Type())
+			if go117ExportTypes && cvars[i].Defn == nil {
+				base.Fatalf("bad import of closure variable")
 			}
 		}
 		fn.ClosureVars = cvars
@@ -1159,12 +1403,10 @@ func (r *importReader) node() ir.Node {
 
 		ir.FinishCaptureNames(pos, r.curfn, fn)
 
-		clo := ir.NewClosureExpr(pos, fn)
-		fn.OClosure = clo
+		clo := fn.OClosure
 		if go117ExportTypes {
 			clo.SetType(typ)
 		}
-
 		return clo
 
 	case ir.OSTRUCTLIT:
@@ -1179,7 +1421,11 @@ func (r *importReader) node() ir.Node {
 		return ir.NewCompLitExpr(r.pos(), ir.OCOMPLIT, ir.TypeNode(r.typ()), r.fieldList())
 
 	case ir.OCOMPLIT:
-		return ir.NewCompLitExpr(r.pos(), ir.OCOMPLIT, ir.TypeNode(r.typ()), r.exprList())
+		pos := r.pos()
+		t := r.typ()
+		n := ir.NewCompLitExpr(pos, ir.OCOMPLIT, ir.TypeNode(t), r.exprList())
+		n.SetType(t)
+		return n
 
 	case ir.OARRAYLIT, ir.OSLICELIT, ir.OMAPLIT:
 		if !go117ExportTypes {
@@ -1202,37 +1448,56 @@ func (r *importReader) node() ir.Node {
 	// case OSTRUCTKEY:
 	//	unreachable - handled in case OSTRUCTLIT by elemList
 
-	case ir.OXDOT:
-		// see parser.new_dotname
-		if go117ExportTypes {
-			base.Fatalf("shouldn't encounter XDOT in new importer")
-		}
-		return ir.NewSelectorExpr(r.pos(), ir.OXDOT, r.expr(), r.exoticSelector())
-
-	case ir.ODOT, ir.ODOTPTR, ir.ODOTINTER, ir.ODOTMETH, ir.OCALLPART, ir.OMETHEXPR:
-		if !go117ExportTypes {
-			// unreachable - mapped to case OXDOT by exporter
+	case ir.OXDOT, ir.ODOT, ir.ODOTPTR, ir.ODOTINTER, ir.ODOTMETH, ir.OMETHVALUE, ir.OMETHEXPR:
+		// For !go117ExportTypes,  we should only see OXDOT.
+		// For go117ExportTypes, we usually see all the other ops, but can see
+		// OXDOT for generic functions.
+		if op != ir.OXDOT && !go117ExportTypes {
 			goto error
 		}
 		pos := r.pos()
 		expr := r.expr()
 		sel := r.exoticSelector()
 		n := ir.NewSelectorExpr(pos, op, expr, sel)
-		n.SetType(r.exoticType())
-		switch op {
-		case ir.ODOT, ir.ODOTPTR, ir.ODOTINTER:
-			n.Selection = r.exoticField()
-		case ir.OMETHEXPR:
-			n = typecheckMethodExpr(n).(*ir.SelectorExpr)
-		case ir.ODOTMETH, ir.OCALLPART:
-			// These require a Lookup to link to the correct declaration.
-			rcvrType := expr.Type()
-			typ := n.Type()
-			n.Selection = Lookdot(n, rcvrType, 1)
-			if op == ir.OCALLPART {
-				// Lookdot clobbers the opcode and type, undo that.
-				n.SetOp(op)
-				n.SetType(typ)
+		if go117ExportTypes {
+			n.SetType(r.exoticType())
+			switch op {
+			case ir.OXDOT:
+				hasSelection := r.bool()
+				// We reconstruct n.Selection for method calls on
+				// generic types and method calls due to type param
+				// bounds.  Otherwise, n.Selection is nil.
+				if hasSelection {
+					n1 := ir.NewSelectorExpr(pos, op, expr, sel)
+					AddImplicitDots(n1)
+					var m *types.Field
+					if n1.X.Type().IsTypeParam() {
+						genType := n1.X.Type().Bound()
+						m = Lookdot1(n1, sel, genType, genType.AllMethods(), 1)
+					} else {
+						genType := types.ReceiverBaseType(n1.X.Type())
+						if genType.IsInstantiatedGeneric() {
+							genType = genType.OrigSym().Def.Type()
+						}
+						m = Lookdot1(n1, sel, genType, genType.Methods(), 1)
+					}
+					assert(m != nil)
+					n.Selection = m
+				}
+			case ir.ODOT, ir.ODOTPTR, ir.ODOTINTER:
+				n.Selection = r.exoticField()
+			case ir.OMETHEXPR:
+				n = typecheckMethodExpr(n).(*ir.SelectorExpr)
+			case ir.ODOTMETH, ir.OMETHVALUE:
+				// These require a Lookup to link to the correct declaration.
+				rcvrType := expr.Type()
+				typ := n.Type()
+				n.Selection = Lookdot(n, rcvrType, 1)
+				if op == ir.OMETHVALUE {
+					// Lookdot clobbers the opcode and type, undo that.
+					n.SetOp(op)
+					n.SetType(typ)
+				}
 			}
 		}
 		return n
@@ -1245,11 +1510,16 @@ func (r *importReader) node() ir.Node {
 		}
 		return n
 
+	case ir.ODYNAMICDOTTYPE, ir.ODYNAMICDOTTYPE2:
+		n := ir.NewDynamicTypeAssertExpr(r.pos(), op, r.expr(), r.expr())
+		n.SetType(r.typ())
+		return n
+
 	case ir.OINDEX, ir.OINDEXMAP:
 		n := ir.NewIndexExpr(r.pos(), r.expr(), r.expr())
 		if go117ExportTypes {
 			n.SetOp(op)
-			n.SetType(r.typ())
+			n.SetType(r.exoticType())
 			if op == ir.OINDEXMAP {
 				n.Assigned = r.bool()
 			}
@@ -1269,7 +1539,7 @@ func (r *importReader) node() ir.Node {
 		}
 		return n
 
-	case ir.OCONV, ir.OCONVIFACE, ir.OCONVNOP, ir.OBYTES2STR, ir.ORUNES2STR, ir.OSTR2BYTES, ir.OSTR2RUNES, ir.ORUNESTR, ir.OSLICE2ARRPTR:
+	case ir.OCONV, ir.OCONVIFACE, ir.OCONVIDATA, ir.OCONVNOP, ir.OBYTES2STR, ir.ORUNES2STR, ir.OSTR2BYTES, ir.OSTR2RUNES, ir.ORUNESTR, ir.OSLICE2ARRPTR:
 		if !go117ExportTypes && op != ir.OCONV {
 			// 	unreachable - mapped to OCONV case by exporter
 			goto error
@@ -1316,11 +1586,10 @@ func (r *importReader) node() ir.Node {
 		if go117ExportTypes {
 			n.SetOp(op)
 		}
-		*n.PtrInit() = init
+		n.SetInit(init)
 		n.IsDDD = r.bool()
 		if go117ExportTypes {
 			n.SetType(r.exoticType())
-			n.Use = ir.CallUse(r.uint64())
 		}
 		return n
 
@@ -1345,8 +1614,15 @@ func (r *importReader) node() ir.Node {
 		n.Args.Append(r.exprList()...)
 		return n
 
+	case ir.OLINKSYMOFFSET:
+		pos := r.pos()
+		name := r.string()
+		off := r.uint64()
+		typ := r.typ()
+		return ir.NewLinksymOffsetExpr(pos, Lookup(name).Linksym(), int64(off), typ)
+
 	// unary expressions
-	case ir.OPLUS, ir.ONEG, ir.OBITNOT, ir.ONOT, ir.ORECV:
+	case ir.OPLUS, ir.ONEG, ir.OBITNOT, ir.ONOT, ir.ORECV, ir.OIDATA:
 		n := ir.NewUnaryExpr(r.pos(), op, r.expr())
 		if go117ExportTypes {
 			n.SetType(r.typ())
@@ -1370,7 +1646,7 @@ func (r *importReader) node() ir.Node {
 
 	// binary expressions
 	case ir.OADD, ir.OAND, ir.OANDNOT, ir.ODIV, ir.OEQ, ir.OGE, ir.OGT, ir.OLE, ir.OLT,
-		ir.OLSH, ir.OMOD, ir.OMUL, ir.ONE, ir.OOR, ir.ORSH, ir.OSUB, ir.OXOR:
+		ir.OLSH, ir.OMOD, ir.OMUL, ir.ONE, ir.OOR, ir.ORSH, ir.OSUB, ir.OXOR, ir.OEFACE:
 		n := ir.NewBinaryExpr(r.pos(), op, r.expr(), r.expr())
 		if go117ExportTypes {
 			n.SetType(r.typ())
@@ -1414,7 +1690,12 @@ func (r *importReader) node() ir.Node {
 	// 	unreachable - never exported
 
 	case ir.OAS:
-		return ir.NewAssignStmt(r.pos(), r.expr(), r.expr())
+		pos := r.pos()
+		init := r.stmtList()
+		n := ir.NewAssignStmt(pos, r.expr(), r.expr())
+		n.SetInit(init)
+		n.Def = r.bool()
+		return n
 
 	case ir.OASOP:
 		n := ir.NewAssignOpStmt(r.pos(), r.op(), r.expr(), nil)
@@ -1431,7 +1712,12 @@ func (r *importReader) node() ir.Node {
 			// unreachable - mapped to case OAS2 by exporter
 			goto error
 		}
-		return ir.NewAssignListStmt(r.pos(), op, r.exprList(), r.exprList())
+		pos := r.pos()
+		init := r.stmtList()
+		n := ir.NewAssignListStmt(pos, op, r.exprList(), r.exprList())
+		n.SetInit(init)
+		n.Def = r.bool()
+		return n
 
 	case ir.ORETURN:
 		return ir.NewReturnStmt(r.pos(), r.exprList())
@@ -1445,26 +1731,28 @@ func (r *importReader) node() ir.Node {
 	case ir.OIF:
 		pos, init := r.pos(), r.stmtList()
 		n := ir.NewIfStmt(pos, r.expr(), r.stmtList(), r.stmtList())
-		*n.PtrInit() = init
+		n.SetInit(init)
 		return n
 
 	case ir.OFOR:
 		pos, init := r.pos(), r.stmtList()
 		cond, post := r.exprsOrNil()
 		n := ir.NewForStmt(pos, nil, cond, post, r.stmtList())
-		*n.PtrInit() = init
+		n.SetInit(init)
 		return n
 
 	case ir.ORANGE:
-		pos := r.pos()
+		pos, init := r.pos(), r.stmtList()
 		k, v := r.exprsOrNil()
-		return ir.NewRangeStmt(pos, k, v, r.expr(), r.stmtList())
+		n := ir.NewRangeStmt(pos, k, v, r.expr(), r.stmtList())
+		n.SetInit(init)
+		return n
 
 	case ir.OSELECT:
 		pos := r.pos()
 		init := r.stmtList()
 		n := ir.NewSelectStmt(pos, r.commList())
-		*n.PtrInit() = init
+		n.SetInit(init)
 		return n
 
 	case ir.OSWITCH:
@@ -1472,7 +1760,7 @@ func (r *importReader) node() ir.Node {
 		init := r.stmtList()
 		x, _ := r.exprsOrNil()
 		n := ir.NewSwitchStmt(pos, x, r.caseList(x))
-		*n.PtrInit() = init
+		n.SetInit(init)
 		return n
 
 	// case OCASE:
@@ -1498,6 +1786,31 @@ func (r *importReader) node() ir.Node {
 	case ir.OEND:
 		return nil
 
+	case ir.OFUNCINST:
+		pos := r.pos()
+		x := r.expr()
+		ntargs := r.uint64()
+		var targs []ir.Node
+		if ntargs > 0 {
+			targs = make([]ir.Node, ntargs)
+			for i := range targs {
+				targs[i] = ir.TypeNode(r.typ())
+			}
+		}
+		n := ir.NewInstExpr(pos, ir.OFUNCINST, x, targs)
+		if go117ExportTypes {
+			n.SetType(r.typ())
+		}
+		return n
+
+	case ir.OSELRECV2:
+		pos := r.pos()
+		init := r.stmtList()
+		n := ir.NewAssignListStmt(pos, ir.OSELRECV2, r.exprList(), r.exprList())
+		n.SetInit(init)
+		n.Def = r.bool()
+		return n
+
 	default:
 		base.Fatalf("cannot import %v (%d) node\n"+
 			"\t==> please file an issue and assign to gri@", op, int(op))
@@ -1519,11 +1832,7 @@ func (r *importReader) op() ir.Op {
 func (r *importReader) fieldList() []ir.Node {
 	list := make([]ir.Node, r.uint64())
 	for i := range list {
-		x := ir.NewStructKeyExpr(r.pos(), r.selector(), r.expr())
-		if go117ExportTypes {
-			x.Offset = int64(r.uint64())
-		}
-		list[i] = x
+		list[i] = ir.NewStructKeyExpr(r.pos(), r.exoticField(), r.expr())
 	}
 	return list
 }
@@ -1545,4 +1854,148 @@ func builtinCall(pos src.XPos, op ir.Op) *ir.CallExpr {
 		base.Fatalf("builtinCall should not be invoked when types are included in import/export")
 	}
 	return ir.NewCallExpr(pos, ir.OCALL, ir.NewIdent(base.Pos, types.BuiltinPkg.Lookup(ir.OpNames[op])), nil)
+}
+
+// NewIncompleteNamedType returns a TFORW type t with name specified by sym, such
+// that t.nod and sym.Def are set correctly. If there are any RParams for the type,
+// they should be set soon after creating the TFORW type, before creating the
+// underlying type. That ensures that the HasTParam and HasShape flags will be set
+// properly, in case this type is part of some mutually recursive type.
+func NewIncompleteNamedType(pos src.XPos, sym *types.Sym) *types.Type {
+	name := ir.NewDeclNameAt(pos, ir.OTYPE, sym)
+	forw := types.NewNamed(name)
+	name.SetType(forw)
+	sym.Def = name
+	return forw
+}
+
+// Instantiate creates a new named type which is the instantiation of the base
+// named generic type, with the specified type args.
+func Instantiate(pos src.XPos, baseType *types.Type, targs []*types.Type) *types.Type {
+	baseSym := baseType.Sym()
+	if strings.Index(baseSym.Name, "[") >= 0 {
+		base.Fatalf("arg to Instantiate is not a base generic type")
+	}
+	name := InstTypeName(baseSym.Name, targs)
+	instSym := baseSym.Pkg.Lookup(name)
+	if instSym.Def != nil {
+		// May match existing type from previous import or
+		// types2-to-types1 conversion.
+		t := instSym.Def.Type()
+		if t.Kind() != types.TFORW {
+			return t
+		}
+		// Or, we have started creating this type in (*TSubster).Typ, but its
+		// underlying type was not completed yet, so we need to add this type
+		// to deferredInstStack, if not already there.
+		found := false
+		for _, t2 := range deferredInstStack {
+			if t2 == t {
+				found = true
+				break
+			}
+		}
+		if !found {
+			deferredInstStack = append(deferredInstStack, t)
+		}
+		return t
+	}
+
+	t := NewIncompleteNamedType(baseType.Pos(), instSym)
+	t.SetRParams(targs)
+	t.SetOrigSym(baseSym)
+
+	// baseType may still be TFORW or its methods may not be fully filled in
+	// (since we are in the middle of importing it). So, delay call to
+	// substInstType until we get back up to the top of the current top-most
+	// type import.
+	deferredInstStack = append(deferredInstStack, t)
+
+	return t
+}
+
+var deferredInstStack []*types.Type
+var deferInst int
+
+// deferDoInst defers substitution on instantiated types until we are at the
+// top-most defined type, so the base types are fully defined.
+func deferDoInst() {
+	deferInst++
+}
+
+func resumeDoInst() {
+	if deferInst == 1 {
+		for len(deferredInstStack) > 0 {
+			t := deferredInstStack[0]
+			deferredInstStack = deferredInstStack[1:]
+			substInstType(t, t.OrigSym().Def.(*ir.Name).Type(), t.RParams())
+		}
+	}
+	deferInst--
+}
+
+// doInst creates a new instantiation type (which will be added to
+// deferredInstStack for completion later) for an incomplete type encountered
+// during a type substitution for an instantiation. This is needed for
+// instantiations of mutually recursive types.
+func doInst(t *types.Type) *types.Type {
+	assert(t.Kind() == types.TFORW)
+	return Instantiate(t.Pos(), t.OrigSym().Def.(*ir.Name).Type(), t.RParams())
+}
+
+// substInstType completes the instantiation of a generic type by doing a
+// substitution on the underlying type itself and any methods. t is the
+// instantiation being created, baseType is the base generic type, and targs are
+// the type arguments that baseType is being instantiated with.
+func substInstType(t *types.Type, baseType *types.Type, targs []*types.Type) {
+	assert(t.Kind() == types.TFORW)
+	subst := Tsubster{
+		Tparams:       baseType.RParams(),
+		Targs:         targs,
+		SubstForwFunc: doInst,
+	}
+	t.SetUnderlying(subst.Typ(baseType.Underlying()))
+
+	newfields := make([]*types.Field, baseType.Methods().Len())
+	for i, f := range baseType.Methods().Slice() {
+		if !f.IsMethod() || types.IsInterfaceMethod(f.Type) {
+			// Do a normal substitution if this is a non-method (which
+			// means this must be an interface used as a constraint) or
+			// an interface method.
+			t2 := subst.Typ(f.Type)
+			newfields[i] = types.NewField(f.Pos, f.Sym, t2)
+			continue
+		}
+		recvType := f.Type.Recv().Type
+		if recvType.IsPtr() {
+			recvType = recvType.Elem()
+		}
+		// Substitute in the method using the type params used in the
+		// method (not the type params in the definition of the generic type).
+		msubst := Tsubster{
+			Tparams:       recvType.RParams(),
+			Targs:         targs,
+			SubstForwFunc: doInst,
+		}
+		t2 := msubst.Typ(f.Type)
+		oldsym := f.Nname.Sym()
+		newsym := MakeFuncInstSym(oldsym, targs, true, true)
+		var nname *ir.Name
+		if newsym.Def != nil {
+			nname = newsym.Def.(*ir.Name)
+		} else {
+			nname = ir.NewNameAt(f.Pos, newsym)
+			nname.SetType(t2)
+			ir.MarkFunc(nname)
+			newsym.Def = nname
+		}
+		newfields[i] = types.NewField(f.Pos, f.Sym, t2)
+		newfields[i].Nname = nname
+	}
+	t.Methods().Set(newfields)
+	if !t.HasTParam() && !t.HasShape() && t.Kind() != types.TINTER && t.Methods().Len() > 0 {
+		// Generate all the methods for a new fully-instantiated,
+		// non-interface, non-shape type.
+		NeedInstType(t)
+	}
 }

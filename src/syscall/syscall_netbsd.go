@@ -14,6 +14,8 @@ package syscall
 
 import "unsafe"
 
+const _SYS_DUP3 = SYS_DUP3
+
 type SockaddrDatalink struct {
 	Len    uint8
 	Family uint8
@@ -146,11 +148,6 @@ func Getdirentries(fd int, buf []byte, basep *uintptr) (n int, err error) {
 // TODO, see golang.org/issue/5847
 func sendfile(outfd int, infd int, offset *int64, count int) (written int, err error) {
 	return -1, ENOSYS
-}
-
-func setattrlistTimes(path string, times []Timespec) error {
-	// used on Darwin for UtimesNano
-	return ENOSYS
 }
 
 /*

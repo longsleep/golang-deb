@@ -9,6 +9,7 @@ import (
 	"cmd/internal/objabi"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -48,7 +49,13 @@ func NewPkg(path, name string) *Pkg {
 	p := new(Pkg)
 	p.Path = path
 	p.Name = name
-	p.Prefix = objabi.PathToPrefix(path)
+	if strings.HasPrefix(path, "go.") && !strings.Contains(path, "/") {
+		// Special compiler-internal packages don't need to be escaped.
+		// This particularly helps with the go.shape package.
+		p.Prefix = path
+	} else {
+		p.Prefix = objabi.PathToPrefix(path)
+	}
 	p.Syms = make(map[string]*Sym)
 	pkgMap[path] = p
 
@@ -136,8 +143,4 @@ func CleanroomDo(f func()) {
 	pkgMap = make(map[string]*Pkg)
 	f()
 	pkgMap = saved
-}
-
-func IsDotAlias(sym *Sym) bool {
-	return sym.Def != nil && sym.Def.Sym() != sym
 }

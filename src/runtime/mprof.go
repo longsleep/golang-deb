@@ -8,6 +8,7 @@
 package runtime
 
 import (
+	"internal/abi"
 	"runtime/internal/atomic"
 	"unsafe"
 )
@@ -141,7 +142,7 @@ var (
 	mbuckets  *bucket // memory profile buckets
 	bbuckets  *bucket // blocking profile buckets
 	xbuckets  *bucket // mutex profile buckets
-	buckhash  *[179999]*bucket
+	buckhash  *[buckHashSize]*bucket
 	bucketmem uintptr
 
 	mProf struct {
@@ -621,10 +622,13 @@ func record(r *MemProfileRecord, b *bucket) {
 	r.AllocObjects = int64(mp.active.allocs)
 	r.FreeObjects = int64(mp.active.frees)
 	if raceenabled {
-		racewriterangepc(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0), getcallerpc(), funcPC(MemProfile))
+		racewriterangepc(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0), getcallerpc(), abi.FuncPCABIInternal(MemProfile))
 	}
 	if msanenabled {
 		msanwrite(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0))
+	}
+	if asanenabled {
+		asanwrite(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0))
 	}
 	copy(r.Stack0[:], b.stk())
 	for i := int(b.nstk); i < len(r.Stack0); i++ {
@@ -674,10 +678,13 @@ func BlockProfile(p []BlockProfileRecord) (n int, ok bool) {
 			}
 			r.Cycles = bp.cycles
 			if raceenabled {
-				racewriterangepc(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0), getcallerpc(), funcPC(BlockProfile))
+				racewriterangepc(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0), getcallerpc(), abi.FuncPCABIInternal(BlockProfile))
 			}
 			if msanenabled {
 				msanwrite(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0))
+			}
+			if asanenabled {
+				asanwrite(unsafe.Pointer(&r.Stack0[0]), unsafe.Sizeof(r.Stack0))
 			}
 			i := copy(r.Stack0[:], b.stk())
 			for ; i < len(r.Stack0); i++ {
@@ -798,7 +805,11 @@ func goroutineProfileWithLabels(p []StackRecord, labels []unsafe.Pointer) (n int
 				// truncated profile than to crash the entire process.
 				return
 			}
-			saveg(^uintptr(0), ^uintptr(0), gp1, &r[0])
+			// saveg calls gentraceback, which may call cgo traceback functions.
+			// The world is stopped, so it cannot use cgocall (which will be
+			// blocked at exitsyscall). Do it on the system stack so it won't
+			// call into the schedular (see traceback.go:cgoContextPCs).
+			systemstack(func() { saveg(^uintptr(0), ^uintptr(0), gp1, &r[0]) })
 			if labels != nil {
 				lbl[0] = gp1.labels
 				lbl = lbl[1:]

@@ -3,11 +3,11 @@
 // license that can be found in the LICENSE file.
 
 //go:build aix
-// +build aix
 
 package runtime
 
 import (
+	"internal/abi"
 	"unsafe"
 )
 
@@ -48,7 +48,7 @@ func semacreate(mp *m) {
 
 //go:nosplit
 func semasleep(ns int64) int32 {
-	_m_ := getg().m
+	mp := getg().m
 	if ns >= 0 {
 		var ts timespec
 
@@ -62,17 +62,17 @@ func semasleep(ns int64) int32 {
 			ts.tv_nsec -= 1e9
 		}
 
-		if r, err := sem_timedwait((*semt)(unsafe.Pointer(_m_.waitsema)), &ts); r != 0 {
+		if r, err := sem_timedwait((*semt)(unsafe.Pointer(mp.waitsema)), &ts); r != 0 {
 			if err == _ETIMEDOUT || err == _EAGAIN || err == _EINTR {
 				return -1
 			}
-			println("sem_timedwait err ", err, " ts.tv_sec ", ts.tv_sec, " ts.tv_nsec ", ts.tv_nsec, " ns ", ns, " id ", _m_.id)
+			println("sem_timedwait err ", err, " ts.tv_sec ", ts.tv_sec, " ts.tv_nsec ", ts.tv_nsec, " ns ", ns, " id ", mp.id)
 			throw("sem_timedwait")
 		}
 		return 0
 	}
 	for {
-		r1, err := sem_wait((*semt)(unsafe.Pointer(_m_.waitsema)))
+		r1, err := sem_wait((*semt)(unsafe.Pointer(mp.waitsema)))
 		if r1 == 0 {
 			break
 		}
@@ -267,7 +267,7 @@ func setsig(i uint32, fn uintptr) {
 	var sa sigactiont
 	sa.sa_flags = _SA_SIGINFO | _SA_ONSTACK | _SA_RESTART
 	sa.sa_mask = sigset_all
-	if fn == funcPC(sighandler) {
+	if fn == abi.FuncPCABIInternal(sighandler) { // abi.FuncPCABIInternal(sighandler) matches the callers in signal_unix.go
 		fn = uintptr(unsafe.Pointer(&sigtramp))
 	}
 	sa.sa_handler = fn
@@ -320,6 +320,19 @@ func sigaddset(mask *sigset, i int) {
 
 func sigdelset(mask *sigset, i int) {
 	(*mask)[(i-1)/64] &^= 1 << ((uint32(i) - 1) & 63)
+}
+
+func setProcessCPUProfiler(hz int32) {
+	setProcessCPUProfilerTimer(hz)
+}
+
+func setThreadCPUProfiler(hz int32) {
+	setThreadCPUProfilerHz(hz)
+}
+
+//go:nosplit
+func validSIGPROF(mp *m, c *sigctxt) bool {
+	return true
 }
 
 const (

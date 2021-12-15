@@ -14,7 +14,7 @@ import (
 
 func (check *Checker) funcBody(decl *declInfo, name string, sig *Signature, body *syntax.BlockStmt, iota constant.Value) {
 	if check.conf.IgnoreFuncBodies {
-		panic("internal error: function body not ignored")
+		panic("function body not ignored")
 	}
 
 	if check.conf.Trace {
@@ -28,13 +28,13 @@ func (check *Checker) funcBody(decl *declInfo, name string, sig *Signature, body
 	sig.scope.pos = body.Pos()
 	sig.scope.end = syntax.EndPos(body)
 
-	// save/restore current context and setup function context
+	// save/restore current environment and set up function environment
 	// (and use 0 indentation at function start)
-	defer func(ctxt context, indent int) {
-		check.context = ctxt
+	defer func(env environment, indent int) {
+		check.environment = env
 		check.indent = indent
-	}(check.context, check.indent)
-	check.context = context{
+	}(check.environment, check.indent)
+	check.environment = environment{
 		decl:  decl,
 		scope: sig.scope,
 		iota:  iota,
@@ -52,11 +52,6 @@ func (check *Checker) funcBody(decl *declInfo, name string, sig *Signature, body
 		check.error(body.Rbrace, "missing return")
 	}
 
-	// TODO(gri) Should we make it an error to declare generic functions
-	//           where the type parameters are not used?
-	// 12/19/2018: Probably not - it can make sense to have an API with
-	//           all functions uniformly sharing the same type parameters.
-
 	// spec: "Implementation restriction: A compiler may make it illegal to
 	// declare a variable inside a function body if the variable is never used."
 	check.usage(sig.scope)
@@ -64,7 +59,8 @@ func (check *Checker) funcBody(decl *declInfo, name string, sig *Signature, body
 
 func (check *Checker) usage(scope *Scope) {
 	var unused []*Var
-	for _, elem := range scope.elems {
+	for name, elem := range scope.elems {
+		elem = resolve(name, elem)
 		if v, _ := elem.(*Var); v != nil && !v.used {
 			unused = append(unused, v)
 		}
@@ -174,7 +170,7 @@ func (check *Checker) closeScope() {
 func (check *Checker) suspendedCall(keyword string, call *syntax.CallExpr) {
 	var x operand
 	var msg string
-	switch check.rawExpr(&x, call, nil) {
+	switch check.rawExpr(&x, call, nil, false) {
 	case conversion:
 		msg = "requires function call, not conversion"
 	case expression:
@@ -255,7 +251,7 @@ L:
 			// look for duplicate types for a given value
 			// (quadratic algorithm, but these lists tend to be very short)
 			for _, vt := range seen[val] {
-				if check.identical(v.typ, vt.typ) {
+				if Identical(v.typ, vt.typ) {
 					var err error_
 					err.errorf(&v, "duplicate case %s in expression switch", &v)
 					err.errorf(vt.pos, "previous case")
@@ -268,24 +264,38 @@ L:
 	}
 }
 
+// isNil reports whether the expression e denotes the predeclared value nil.
+func (check *Checker) isNil(e syntax.Expr) bool {
+	// The only way to express the nil value is by literally writing nil (possibly in parentheses).
+	if name, _ := unparen(e).(*syntax.Name); name != nil {
+		_, ok := check.lookup(name.Value).(*Nil)
+		return ok
+	}
+	return false
+}
+
 func (check *Checker) caseTypes(x *operand, xtyp *Interface, types []syntax.Expr, seen map[Type]syntax.Expr) (T Type) {
+	var dummy operand
 L:
 	for _, e := range types {
-		T = check.typOrNil(e)
-		if T == Typ[Invalid] {
-			continue L
-		}
-		if T != nil {
-			check.ordinaryType(e.Pos(), T)
+		// The spec allows the value nil instead of a type.
+		if check.isNil(e) {
+			T = nil
+			check.expr(&dummy, e) // run e through expr so we get the usual Info recordings
+		} else {
+			T = check.varType(e)
+			if T == Typ[Invalid] {
+				continue L
+			}
 		}
 		// look for duplicate types
 		// (quadratic algorithm, but type switches tend to be reasonably small)
 		for t, other := range seen {
-			if T == nil && t == nil || T != nil && t != nil && check.identical(T, t) {
+			if T == nil && t == nil || T != nil && t != nil && Identical(T, t) {
 				// talk about "case" rather than "type" because of nil case
 				Ts := "nil"
 				if T != nil {
-					Ts = T.String()
+					Ts = TypeString(T, check.qualifier)
 				}
 				var err error_
 				err.errorf(e, "duplicate case %s in type switch", Ts)
@@ -296,11 +306,52 @@ L:
 		}
 		seen[T] = e
 		if T != nil {
-			check.typeAssertion(e.Pos(), x, xtyp, T)
+			check.typeAssertion(e, x, xtyp, T, true)
 		}
 	}
 	return
 }
+
+// TODO(gri) Once we are certain that typeHash is correct in all situations, use this version of caseTypes instead.
+//           (Currently it may be possible that different types have identical names and import paths due to ImporterFrom.)
+//
+// func (check *Checker) caseTypes(x *operand, xtyp *Interface, types []syntax.Expr, seen map[string]syntax.Expr) (T Type) {
+// 	var dummy operand
+// L:
+// 	for _, e := range types {
+// 		// The spec allows the value nil instead of a type.
+// 		var hash string
+// 		if check.isNil(e) {
+// 			check.expr(&dummy, e) // run e through expr so we get the usual Info recordings
+// 			T = nil
+// 			hash = "<nil>" // avoid collision with a type named nil
+// 		} else {
+// 			T = check.varType(e)
+// 			if T == Typ[Invalid] {
+// 				continue L
+// 			}
+// 			hash = typeHash(T, nil)
+// 		}
+// 		// look for duplicate types
+// 		if other := seen[hash]; other != nil {
+// 			// talk about "case" rather than "type" because of nil case
+// 			Ts := "nil"
+// 			if T != nil {
+// 				Ts = TypeString(T, check.qualifier)
+// 			}
+// 			var err error_
+// 			err.errorf(e, "duplicate case %s in type switch", Ts)
+// 			err.errorf(other, "previous case")
+// 			check.report(&err)
+// 			continue L
+// 		}
+// 		seen[hash] = e
+// 		if T != nil {
+// 			check.typeAssertion(e, x, xtyp, T, true)
+// 		}
+// 	}
+// 	return
+// }
 
 // stmt typechecks statement s.
 func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
@@ -335,7 +386,7 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		// function and method calls and receive operations can appear
 		// in statement context. Such statements may be parenthesized."
 		var x operand
-		kind := check.rawExpr(&x, s.X, nil)
+		kind := check.rawExpr(&x, s.X, nil, false)
 		var msg string
 		switch x.mode {
 		default:
@@ -351,25 +402,27 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		check.errorf(&x, "%s %s", &x, msg)
 
 	case *syntax.SendStmt:
-		var ch, x operand
+		var ch, val operand
 		check.expr(&ch, s.Chan)
-		check.expr(&x, s.Value)
-		if ch.mode == invalid || x.mode == invalid {
+		check.expr(&val, s.Value)
+		if ch.mode == invalid || val.mode == invalid {
 			return
 		}
-
-		tch := asChan(ch.typ)
-		if tch == nil {
-			check.errorf(s, invalidOp+"cannot send to non-chan type %s", ch.typ)
+		u := structuralType(ch.typ)
+		if u == nil {
+			check.errorf(s, invalidOp+"cannot send to %s: no structural type", &ch)
 			return
 		}
-
-		if tch.dir == RecvOnly {
-			check.errorf(s, invalidOp+"cannot send to receive-only type %s", tch)
+		uch, _ := u.(*Chan)
+		if uch == nil {
+			check.errorf(s, invalidOp+"cannot send to non-channel %s", &ch)
 			return
 		}
-
-		check.assignment(&x, tch.elem, "send")
+		if uch.dir == RecvOnly {
+			check.errorf(s, invalidOp+"cannot send to receive-only channel %s", &ch)
+			return
+		}
+		check.assignment(&val, uch.elem, "send")
 
 	case *syntax.AssignStmt:
 		lhs := unpackExpr(s.Lhs)
@@ -384,7 +437,7 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 			if x.mode == invalid {
 				return
 			}
-			if !isNumeric(x.typ) {
+			if !allNumeric(x.typ) {
 				check.errorf(lhs[0], invalidOp+"%s%s%s (non-numeric type %s)", lhs[0], s.Op, s.Op, x.typ)
 				return
 			}
@@ -413,7 +466,6 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		check.assignVar(lhs[0], &x)
 
 	case *syntax.CallStmt:
-		// TODO(gri) get rid of this conversion to string
 		kind := "go"
 		if s.Tok == syntax.Defer {
 			kind = "defer"
@@ -441,7 +493,7 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 				}
 			} else {
 				// return has results or result parameters are unnamed
-				check.initVars(res.vars, results, s.Pos())
+				check.initVars(res.vars, results, s)
 			}
 		} else if len(results) > 0 {
 			check.error(results[0], "no result values expected")
@@ -498,7 +550,7 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		check.simpleStmt(s.Init)
 		var x operand
 		check.expr(&x, s.Cond)
-		if x.mode != invalid && !isBoolean(x.typ) {
+		if x.mode != invalid && !allBoolean(x.typ) {
 			check.error(s.Cond, "non-boolean condition in if statement")
 		}
 		check.stmt(inner, s.Then)
@@ -587,7 +639,7 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		if s.Cond != nil {
 			var x operand
 			check.expr(&x, s.Cond)
-			if x.mode != invalid && !isBoolean(x.typ) {
+			if x.mode != invalid && !allBoolean(x.typ) {
 				check.error(s.Cond, "non-boolean condition in for statement")
 			}
 		}
@@ -596,9 +648,6 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		// declaration, but the post statement must not."
 		if s, _ := s.Post.(*syntax.AssignStmt); s != nil && s.Op == syntax.Def {
 			// The parser already reported an error.
-			// Don't call useLHS here because we want to use the lhs in
-			// this erroneous statement so that we don't get errors about
-			// these lhs variables being declared but not used.
 			check.use(s.Lhs) // avoid follow-up errors
 		}
 		check.stmt(inner, s.Body)
@@ -684,16 +733,16 @@ func (check *Checker) typeSwitchStmt(inner stmtContext, s *syntax.SwitchStmt, gu
 	if x.mode == invalid {
 		return
 	}
-	// Caution: We're not using asInterface here because we don't want
-	//          to switch on a suitably constrained type parameter (for
-	//          now).
-	// TODO(gri) Need to revisit this.
-	xtyp, _ := under(x.typ).(*Interface)
-	if xtyp == nil {
-		check.errorf(&x, "%s is not an interface type", &x)
+	// TODO(gri) we may want to permit type switches on type parameter values at some point
+	if isTypeParam(x.typ) {
+		check.errorf(&x, "cannot use type switch on type parameter value %s", &x)
 		return
 	}
-	check.ordinaryType(x.Pos(), xtyp)
+	xtyp, _ := under(x.typ).(*Interface)
+	if xtyp == nil {
+		check.errorf(&x, "%s is not an interface", &x)
+		return
+	}
 
 	check.multipleSwitchDefaults(s.Body)
 
@@ -780,19 +829,28 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 	// determine key/value types
 	var key, val Type
 	if x.mode != invalid {
-		typ := optype(x.typ)
-		if _, ok := typ.(*Chan); ok && sValue != nil {
-			// TODO(gri) this also needs to happen for channels in generic variables
-			check.softErrorf(sValue, "range over %s permits only one iteration variable", &x)
-			// ok to continue
-		}
-		var msg string
-		key, val, msg = rangeKeyVal(typ, isVarName(sKey), isVarName(sValue))
-		if key == nil || msg != "" {
-			if msg != "" {
-				msg = ": " + msg
+		// Ranging over a type parameter is permitted if it has a structural type.
+		var cause string
+		u := structuralType(x.typ)
+		switch t := u.(type) {
+		case nil:
+			cause = check.sprintf("%s has no structural type", x.typ)
+		case *Chan:
+			if sValue != nil {
+				check.softErrorf(sValue, "range over %s permits only one iteration variable", &x)
+				// ok to continue
 			}
-			check.softErrorf(&x, "cannot range over %s%s", &x, msg)
+			if t.dir == SendOnly {
+				cause = "receive from send-only channel"
+			}
+		}
+		key, val = rangeKeyVal(u)
+		if key == nil || cause != "" {
+			if cause == "" {
+				check.softErrorf(&x, "cannot range over %s", &x)
+			} else {
+				check.softErrorf(&x, "cannot range over %s (%s)", &x, cause)
+			}
 			// ok to continue
 		}
 	}
@@ -873,71 +931,23 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 	check.stmt(inner, s.Body)
 }
 
-// isVarName reports whether x is a non-nil, non-blank (_) expression.
-func isVarName(x syntax.Expr) bool {
-	if x == nil {
-		return false
-	}
-	ident, _ := unparen(x).(*syntax.Name)
-	return ident == nil || ident.Value != "_"
-}
-
 // rangeKeyVal returns the key and value type produced by a range clause
-// over an expression of type typ, and possibly an error message. If the
-// range clause is not permitted the returned key is nil or msg is not
-// empty (in that case we still may have a non-nil key type which can be
-// used to reduce the chance for follow-on errors).
-// The wantKey, wantVal, and hasVal flags indicate which of the iteration
-// variables are used or present; this matters if we range over a generic
-// type where not all keys or values are of the same type.
-func rangeKeyVal(typ Type, wantKey, wantVal bool) (Type, Type, string) {
-	switch typ := typ.(type) {
+// over an expression of type typ. If the range clause is not permitted
+// the results are nil.
+func rangeKeyVal(typ Type) (key, val Type) {
+	switch typ := arrayPtrDeref(typ).(type) {
 	case *Basic:
 		if isString(typ) {
-			return Typ[Int], universeRune, "" // use 'rune' name
+			return Typ[Int], universeRune // use 'rune' name
 		}
 	case *Array:
-		return Typ[Int], typ.elem, ""
+		return Typ[Int], typ.elem
 	case *Slice:
-		return Typ[Int], typ.elem, ""
-	case *Pointer:
-		if typ := asArray(typ.base); typ != nil {
-			return Typ[Int], typ.elem, ""
-		}
+		return Typ[Int], typ.elem
 	case *Map:
-		return typ.key, typ.elem, ""
+		return typ.key, typ.elem
 	case *Chan:
-		var msg string
-		if typ.dir == SendOnly {
-			msg = "receive from send-only channel"
-		}
-		return typ.elem, Typ[Invalid], msg
-	case *Sum:
-		first := true
-		var key, val Type
-		var msg string
-		typ.is(func(t Type) bool {
-			k, v, m := rangeKeyVal(under(t), wantKey, wantVal)
-			if k == nil || m != "" {
-				key, val, msg = k, v, m
-				return false
-			}
-			if first {
-				key, val, msg = k, v, m
-				first = false
-				return true
-			}
-			if wantKey && !Identical(key, k) {
-				key, val, msg = nil, nil, "all possible values must have the same key type"
-				return false
-			}
-			if wantVal && !Identical(val, v) {
-				key, val, msg = nil, nil, "all possible values must have the same element type"
-				return false
-			}
-			return true
-		})
-		return key, val, msg
+		return typ.elem, Typ[Invalid]
 	}
-	return nil, nil, ""
+	return
 }

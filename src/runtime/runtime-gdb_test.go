@@ -267,7 +267,7 @@ func testGdbPython(t *testing.T, cgo bool) {
 		t.Fatalf("gdb exited with error: %v", err)
 	}
 
-	firstLine := bytes.SplitN(got, []byte("\n"), 2)[0]
+	firstLine, _, _ := bytes.Cut(got, []byte("\n"))
 	if string(firstLine) != "Loading Go Runtime support." {
 		// This can happen when using all.bash with
 		// GOROOT_FINAL set, because the tests are run before
@@ -424,7 +424,7 @@ func TestGdbBacktrace(t *testing.T) {
 		"-ex", "continue",
 		filepath.Join(dir, "a.exe"),
 	}
-	got, err := exec.Command("gdb", args...).CombinedOutput()
+	got, err := testenv.RunWithTimeout(t, exec.Command("gdb", args...))
 	t.Logf("gdb output:\n%s", got)
 	if err != nil {
 		t.Fatalf("gdb exited with error: %v", err)

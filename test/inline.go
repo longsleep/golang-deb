@@ -1,4 +1,4 @@
-// errorcheck -0 -m -d=inlfuncswithclosures=1
+// errorcheckwithauto -0 -m -d=inlfuncswithclosures=1
 
 // Copyright 2015 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -49,7 +49,7 @@ func j(x int) int { // ERROR "can inline j"
 	}
 }
 
-func _() int { // ERROR "can inline _"
+func f2() int { // ERROR "can inline f2"
 	tmp1 := h
 	tmp2 := tmp1
 	return tmp2(0) // ERROR "inlining call to h"
@@ -92,9 +92,9 @@ func o() int {
 	foo := func() int { return 1 } // ERROR "can inline o.func1" "func literal does not escape"
 	func(x int) {                  // ERROR "can inline o.func2"
 		if x > 10 {
-			foo = func() int { return 2 } // ERROR "func literal does not escape" "can inline o.func2"
+			foo = func() int { return 2 } // ERROR "can inline o.func2"
 		}
-	}(11) // ERROR "inlining call to o.func2"
+	}(11) // ERROR "func literal does not escape" "inlining call to o.func2"
 	return foo()
 }
 
@@ -135,8 +135,7 @@ func s1(x int) int { // ERROR "can inline s1"
 	return foo() // ERROR "inlining call to s1.func1"
 }
 
-// can't currently inline functions with a break statement
-func switchBreak(x, y int) int {
+func switchBreak(x, y int) int { // ERROR "can inline switchBreak"
 	var n int
 	switch x {
 	case 0:
@@ -161,14 +160,28 @@ func switchType(x interface{}) int { // ERROR "can inline switchType" "x does no
 	}
 }
 
+func inlineRangeIntoMe(data []int) { // ERROR "can inline inlineRangeIntoMe" "data does not escape"
+	rangeFunc(data, 12) // ERROR "inlining call to rangeFunc"
+}
+
+func rangeFunc(xs []int, b int) int { // ERROR "can inline rangeFunc" "xs does not escape"
+	for i, x := range xs {
+		if x == b {
+			return i
+		}
+	}
+	return -1
+}
+
 type T struct{}
 
 func (T) meth(int, int) {} // ERROR "can inline T.meth"
 
 func k() (T, int, int) { return T{}, 0, 0 } // ERROR "can inline k"
 
-func _() { // ERROR "can inline _"
+func f3() { // ERROR "can inline f3"
 	T.meth(k()) // ERROR "inlining call to k" "inlining call to T.meth"
+	// ERRORAUTO "inlining call to T.meth"
 }
 
 func small1() { // ERROR "can inline small1"
@@ -217,8 +230,7 @@ func for1(fn func() bool) { // ERROR "can inline for1" "fn does not escape"
 	}
 }
 
-// BAD: for2 should be inlineable too.
-func for2(fn func() bool) { // ERROR "fn does not escape"
+func for2(fn func() bool) { // ERROR "can inline for2" "fn does not escape"
 Loop:
 	for {
 		if fn() {
@@ -232,12 +244,13 @@ Loop:
 // Issue #18493 - make sure we can do inlining of functions with a method value
 type T1 struct{}
 
-func (a T1) meth(val int) int { // ERROR "can inline T1.meth" "inlining call to T1.meth"
+func (a T1) meth(val int) int { // ERROR "can inline T1.meth"
 	return val + 5
 }
 
 func getMeth(t1 T1) func(int) int { // ERROR "can inline getMeth"
 	return t1.meth // ERROR "t1.meth escapes to heap"
+	// ERRORAUTO "inlining call to T1.meth"
 }
 
 func ii() { // ERROR "can inline ii"
