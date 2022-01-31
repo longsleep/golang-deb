@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package types2
+package main
 
-func init() {
-	acceptMethodTypeParams = true
+import "a"
+
+func main() {
+	a.V.Print()
+	a.FnPrint(&a.V)
 }

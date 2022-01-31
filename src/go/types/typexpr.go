@@ -96,6 +96,10 @@ func (check *Checker) ident(x *operand, e *ast.Ident, def *Named, wantType bool)
 		x.mode = constant_
 
 	case *TypeName:
+		if check.isBrokenAlias(obj) {
+			check.errorf(e, _InvalidDeclCycle, "invalid use of type alias %s in recursive type (see issue #50729)", obj.name)
+			return
+		}
 		x.mode = typexpr
 
 	case *Var:
@@ -209,7 +213,7 @@ func goTypeName(typ Type) string {
 //
 func (check *Checker) typInternal(e0 ast.Expr, def *Named) (T Type) {
 	if trace {
-		check.trace(e0.Pos(), "type %s", e0)
+		check.trace(e0.Pos(), "-- type %s", e0)
 		check.indent++
 		defer func() {
 			check.indent--
@@ -425,14 +429,15 @@ func (check *Checker) instantiatedType(ix *typeparams.IndexExpr, def *Named) (re
 	// validation below. Ensure that the validation (and resulting errors) runs
 	// for each instantiated type in the source.
 	if inst == nil {
-		tname := NewTypeName(ix.X.Pos(), orig.obj.pkg, orig.obj.name, nil)
+		// x may be a selector for an imported type; use its start pos rather than x.Pos().
+		tname := NewTypeName(ix.Pos(), orig.obj.pkg, orig.obj.name, nil)
 		inst = check.newNamed(tname, orig, nil, nil, nil) // underlying, methods and tparams are set when named is resolved
 		inst.targs = newTypeList(targs)
 		inst = ctxt.update(h, orig, targs, inst).(*Named)
 	}
 	def.setUnderlying(inst)
 
-	inst.resolver = func(ctxt *Context, n *Named) (*TypeParamList, Type, []*Func) {
+	inst.resolver = func(ctxt *Context, n *Named) (*TypeParamList, Type, *methodList) {
 		tparams := orig.TypeParams().list()
 
 		inferred := targs
@@ -472,7 +477,7 @@ func (check *Checker) instantiatedType(ix *typeparams.IndexExpr, def *Named) (re
 			}
 		}
 
-		check.validType(inst, nil)
+		check.validType(inst)
 	})
 
 	return inst

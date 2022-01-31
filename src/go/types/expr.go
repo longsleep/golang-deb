@@ -74,7 +74,7 @@ func init() {
 func (check *Checker) op(m opPredicates, x *operand, op token.Token) bool {
 	if pred := m[op]; pred != nil {
 		if !pred(x.typ) {
-			check.invalidOp(x, _UndefinedOp, "operator %s not defined for %s", op, x)
+			check.invalidOp(x, _UndefinedOp, "operator %s not defined on %s", op, x)
 			return false
 		}
 	} else {
@@ -472,8 +472,11 @@ func (check *Checker) invalidConversion(code errorCode, x *operand, target Type)
 // Also, if x is a constant, it must be representable as a value of typ,
 // and if x is the (formerly untyped) lhs operand of a non-constant
 // shift, it must be an integer value.
-//
 func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
+	check.updateExprType0(nil, x, typ, final)
+}
+
+func (check *Checker) updateExprType0(parent, x ast.Expr, typ Type, final bool) {
 	old, found := check.untyped[x]
 	if !found {
 		return // nothing to do
@@ -515,7 +518,7 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		// No operands to take care of.
 
 	case *ast.ParenExpr:
-		check.updateExprType(x.X, typ, final)
+		check.updateExprType0(x, x.X, typ, final)
 
 	case *ast.UnaryExpr:
 		// If x is a constant, the operands were constants.
@@ -526,7 +529,7 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		if old.val != nil {
 			break
 		}
-		check.updateExprType(x.X, typ, final)
+		check.updateExprType0(x, x.X, typ, final)
 
 	case *ast.BinaryExpr:
 		if old.val != nil {
@@ -538,11 +541,11 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		} else if isShift(x.Op) {
 			// The result type depends only on lhs operand.
 			// The rhs type was updated when checking the shift.
-			check.updateExprType(x.X, typ, final)
+			check.updateExprType0(x, x.X, typ, final)
 		} else {
 			// The operand types match the result type.
-			check.updateExprType(x.X, typ, final)
-			check.updateExprType(x.Y, typ, final)
+			check.updateExprType0(x, x.X, typ, final)
+			check.updateExprType0(x, x.Y, typ, final)
 		}
 
 	default:
@@ -566,7 +569,11 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		// We already know from the shift check that it is representable
 		// as an integer if it is a constant.
 		if !allInteger(typ) {
-			check.invalidOp(x, _InvalidShiftOperand, "shifted operand %s (type %s) must be integer", x, typ)
+			if compilerErrorMessages {
+				check.invalidOp(x, _InvalidShiftOperand, "%s (shift of type %s)", parent, typ)
+			} else {
+				check.invalidOp(x, _InvalidShiftOperand, "shifted operand %s (type %s) must be integer", x, typ)
+			}
 			return
 		}
 		// Even if we have an integer, if the value is a constant we
@@ -729,10 +736,12 @@ func (check *Checker) comparison(x, y *operand, op token.Token) {
 	xok, _ := x.assignableTo(check, y.typ, nil)
 	yok, _ := y.assignableTo(check, x.typ, nil)
 	if xok || yok {
+		equality := false
 		defined := false
 		switch op {
 		case token.EQL, token.NEQ:
 			// spec: "The equality operators == and != apply to operands that are comparable."
+			equality = true
 			defined = Comparable(x.typ) && Comparable(y.typ) || x.isNil() && hasNil(y.typ) || y.isNil() && hasNil(x.typ)
 		case token.LSS, token.LEQ, token.GTR, token.GEQ:
 			// spec: The ordering operators <, <=, >, and >= apply to operands that are ordered."
@@ -741,11 +750,19 @@ func (check *Checker) comparison(x, y *operand, op token.Token) {
 			unreachable()
 		}
 		if !defined {
-			typ := x.typ
-			if x.isNil() {
-				typ = y.typ
+			if equality && (isTypeParam(x.typ) || isTypeParam(y.typ)) {
+				typ := x.typ
+				if isTypeParam(y.typ) {
+					typ = y.typ
+				}
+				err = check.sprintf("%s is not comparable", typ)
+			} else {
+				typ := x.typ
+				if x.isNil() {
+					typ = y.typ
+				}
+				err = check.sprintf("operator %s not defined on %s", op, typ)
 			}
-			err = check.sprintf("operator %s not defined for %s", op, typ)
 			code = _UndefinedOp
 		}
 	} else {
@@ -1224,11 +1241,7 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 		case hint != nil:
 			// no composite literal type present - use hint (element type of enclosing type)
 			typ = hint
-			base = typ
-			if !isTypeParam(typ) {
-				base = under(typ)
-			}
-			base, _ = deref(base) // *T implies &T{}
+			base, _ = deref(structuralType(typ)) // *T implies &T{}
 
 		default:
 			// TODO(gri) provide better error messages depending on context

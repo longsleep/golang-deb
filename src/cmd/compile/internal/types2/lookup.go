@@ -7,7 +7,6 @@
 package types2
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -20,7 +19,7 @@ import (
 // in T and returns the corresponding *Var or *Func, an index sequence, and a
 // bool indicating if there were any pointer indirections on the path to the
 // field or method. If addressable is set, T is the type of an addressable
-// variable (only matters for method lookups).
+// variable (only matters for method lookups). T must not be nil.
 //
 // The last index entry is the field or method index in the (possibly embedded)
 // type where the entry was found, either:
@@ -43,7 +42,11 @@ import (
 //	the method's formal receiver base type, nor was the receiver addressable.
 //
 func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (obj Object, index []int, indirect bool) {
-	// Methods cannot be associated to a named pointer type
+	if T == nil {
+		panic("LookupFieldOrMethod on nil type")
+	}
+
+	// Methods cannot be associated to a named pointer type.
 	// (spec: "The type denoted by T is called the receiver base type;
 	// it must not be a pointer or interface type and it must be declared
 	// in the same package as the method.").
@@ -60,7 +63,21 @@ func LookupFieldOrMethod(T Type, addressable bool, pkg *Package, name string) (o
 		}
 	}
 
-	return lookupFieldOrMethod(T, addressable, false, pkg, name)
+	obj, index, indirect = lookupFieldOrMethod(T, addressable, false, pkg, name)
+
+	// If we didn't find anything and if we have a type parameter with a structural constraint,
+	// see if there is a matching field (but not a method, those need to be declared explicitly
+	// in the constraint). If the structural constraint is a named pointer type (see above), we
+	// are ok here because only fields are accepted as results.
+	if obj == nil && isTypeParam(T) {
+		if t := structuralType(T); t != nil {
+			obj, index, indirect = lookupFieldOrMethod(t, addressable, false, pkg, name)
+			if _, ok := obj.(*Var); !ok {
+				obj, index, indirect = nil, nil, false // accept fields (variables) only
+			}
+		}
+	}
+	return
 }
 
 // TODO(gri) The named type consolidation and seen maps below must be
@@ -82,7 +99,7 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 
 	typ, isPtr := deref(T)
 
-	// *typ where typ is an interface has no methods.
+	// *typ where typ is an interface (incl. a type parameter) has no methods.
 	if isPtr {
 		if _, ok := under(typ).(*Interface); ok {
 			return
@@ -106,7 +123,6 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 		var next []embeddedType // embedded types found at current depth
 
 		// look for (pkg, name) in all types at current depth
-		var tpar *TypeParam // set if obj receiver is a type parameter
 		for _, e := range current {
 			typ := e.typ
 
@@ -128,7 +144,7 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 
 				// look for a matching attached method
 				named.resolve(nil)
-				if i, m := lookupMethodFold(named.methods, pkg, name, checkFold); m != nil {
+				if i, m := named.lookupMethodFold(pkg, name, checkFold); m != nil {
 					// potential match
 					// caution: method may not have a proper signature yet
 					index = concat(e.index, i)
@@ -139,13 +155,9 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 					indirect = e.indirect
 					continue // we can't have a matching field or interface method
 				}
-
-				// continue with underlying type
-				typ = named.under()
 			}
 
-			tpar = nil
-			switch t := typ.(type) {
+			switch t := under(typ).(type) {
 			case *Struct:
 				// look for a matching field and collect embedded types
 				for i, f := range t.fields {
@@ -178,7 +190,7 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 				}
 
 			case *Interface:
-				// look for a matching method
+				// look for a matching method (interface may be a type parameter)
 				if i, m := lookupMethodFold(t.typeSet().methods, pkg, name, checkFold); m != nil {
 					assert(m.typ != nil)
 					index = concat(e.index, i)
@@ -187,24 +199,6 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 					}
 					obj = m
 					indirect = e.indirect
-				}
-
-			case *TypeParam:
-				if i, m := lookupMethodFold(t.iface().typeSet().methods, pkg, name, checkFold); m != nil {
-					assert(m.typ != nil)
-					index = concat(e.index, i)
-					if obj != nil || e.multiples {
-						return nil, index, false // collision
-					}
-					tpar = t
-					obj = m
-					indirect = e.indirect
-				}
-				if obj == nil {
-					// At this point we're not (yet) looking into methods
-					// that any underlying type of the types in the type list
-					// might have.
-					// TODO(gri) Do we want to specify the language that way?
 				}
 			}
 		}
@@ -217,8 +211,7 @@ func lookupFieldOrMethod(T Type, addressable, checkFold bool, pkg *Package, name
 			//        is shorthand for (&x).m()".
 			if f, _ := obj.(*Func); f != nil {
 				// determine if method has a pointer receiver
-				hasPtrRecv := tpar == nil && f.hasPtrRecv()
-				if hasPtrRecv && !indirect && !addressable {
+				if f.hasPtrRecv() && !indirect && !addressable {
 					return nil, nil, true // pointer/addressable receiver required
 				}
 			}
@@ -292,6 +285,11 @@ func MissingMethod(V Type, T *Interface, static bool) (method *Func, wrongType b
 	return m, typ != nil
 }
 
+// If we accept type parameters for methods, (at least) the code
+// guarded with this constant will need to be adjusted when such
+// methods are used (not just parsed).
+const acceptMethodTypeParams = false
+
 // missingMethod is like MissingMethod but accepts a *Checker as
 // receiver and an addressable flag.
 // The receiver may be nil if missingMethod is invoked through
@@ -330,14 +328,7 @@ func (check *Checker) missingMethod(V Type, T *Interface, static bool) (method, 
 				panic("method with type parameters")
 			}
 
-			// If the methods have type parameters we don't care whether they
-			// are the same or not, as long as they match up. Use unification
-			// to see if they can be made to match.
-			// TODO(gri) is this always correct? what about type bounds?
-			// (Alternative is to rename/subst type parameters and compare.)
-			u := newUnifier(true)
-			u.x.init(ftyp.TypeParams().list())
-			if !u.unify(ftyp, mtyp) {
+			if !Identical(ftyp, mtyp) {
 				return m, f
 			}
 		}
@@ -390,27 +381,7 @@ func (check *Checker) missingMethod(V Type, T *Interface, static bool) (method, 
 			panic("method with type parameters")
 		}
 
-		// If the methods have type parameters we don't care whether they
-		// are the same or not, as long as they match up. Use unification
-		// to see if they can be made to match.
-		// TODO(gri) is this always correct? what about type bounds?
-		// (Alternative is to rename/subst type parameters and compare.)
-		u := newUnifier(true)
-		if ftyp.TypeParams().Len() > 0 {
-			// We reach here only if we accept method type parameters.
-			// In this case, unification must consider any receiver
-			// and method type parameters as "free" type parameters.
-			assert(acceptMethodTypeParams)
-			// We don't have a test case for this at the moment since
-			// we can't parse method type parameters. Keeping the
-			// unimplemented call so that we test this code if we
-			// enable method type parameters.
-			unimplemented()
-			u.x.init(append(ftyp.RecvTypeParams().list(), ftyp.TypeParams().list()...))
-		} else {
-			u.x.init(ftyp.RecvTypeParams().list())
-		}
-		if !u.unify(ftyp, mtyp) {
+		if !Identical(ftyp, mtyp) {
 			return m, f
 		}
 	}
@@ -434,18 +405,18 @@ func (check *Checker) missingMethodReason(V, T Type, m, wrongType *Func) string 
 	if wrongType != nil {
 		if Identical(m.typ, wrongType.typ) {
 			if m.Name() == wrongType.Name() {
-				r = fmt.Sprintf("(%s has pointer receiver)", mname)
+				r = check.sprintf("(%s has pointer receiver) at %s", mname, wrongType.Pos())
 			} else {
-				r = fmt.Sprintf("(missing %s)\n\t\thave %s^^%s\n\t\twant %s^^%s",
-					mname, wrongType.Name(), wrongType.typ, m.Name(), m.typ)
+				r = check.sprintf("(missing %s)\n\t\thave %s^^%s at %s\n\t\twant %s^^%s",
+					mname, wrongType.Name(), wrongType.typ, wrongType.Pos(), m.Name(), m.typ)
 			}
 		} else {
 			if check.conf.CompilerErrorMessages {
-				r = fmt.Sprintf("(wrong type for %s)\n\t\thave %s^^%s\n\t\twant %s^^%s",
-					mname, wrongType.Name(), wrongType.typ, m.Name(), m.typ)
+				r = check.sprintf("(wrong type for %s)\n\t\thave %s^^%s at %s\n\t\twant %s^^%s",
+					mname, wrongType.Name(), wrongType.typ, wrongType.Pos(), m.Name(), m.typ)
 			} else {
-				r = fmt.Sprintf("(wrong type for %s: have %s, want %s)",
-					mname, wrongType.typ, m.typ)
+				r = check.sprintf("(wrong type for %s)\n\thave %s at %s\n\twant %s",
+					mname, wrongType.typ, wrongType.Pos(), m.typ)
 			}
 		}
 		// This is a hack to print the function type without the leading
@@ -453,22 +424,30 @@ func (check *Checker) missingMethodReason(V, T Type, m, wrongType *Func) string 
 		// an extra formatting option for types2.Type that doesn't print out
 		// 'func'.
 		r = strings.Replace(r, "^^func", "", -1)
-	} else if IsInterface(T) && !isTypeParam(T) {
+	} else if IsInterface(T) {
 		if isInterfacePtr(V) {
-			r = fmt.Sprintf("(%s is pointer to interface, not interface)", V)
+			r = "(" + check.interfacePtrError(V) + ")"
 		}
-	} else if isInterfacePtr(T) && !isTypeParam(T) {
-		r = fmt.Sprintf("(%s is pointer to interface, not interface)", T)
+	} else if isInterfacePtr(T) {
+		r = "(" + check.interfacePtrError(T) + ")"
 	}
 	if r == "" {
-		r = fmt.Sprintf("(missing %s)", mname)
+		r = check.sprintf("(missing %s)", mname)
 	}
 	return r
 }
 
 func isInterfacePtr(T Type) bool {
 	p, _ := under(T).(*Pointer)
-	return p != nil && IsInterface(p.base) && !isTypeParam(p.base)
+	return p != nil && IsInterface(p.base)
+}
+
+func (check *Checker) interfacePtrError(T Type) string {
+	assert(isInterfacePtr(T))
+	if p, _ := under(T).(*Pointer); isTypeParam(p.base) {
+		return check.sprintf("type %s is pointer to type parameter, not type parameter", T)
+	}
+	return check.sprintf("type %s is pointer to interface, not interface", T)
 }
 
 // assertableTo reports whether a value of type V can be asserted to have type T.

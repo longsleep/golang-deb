@@ -133,7 +133,7 @@ func comparable(T Type, seen map[Type]bool) bool {
 	case *Array:
 		return comparable(t.elem, seen)
 	case *Interface:
-		return !isTypeParam(T) || t.IsComparable()
+		return !isTypeParam(T) || t.typeSet().IsComparable(seen)
 	}
 	return false
 }
@@ -289,8 +289,11 @@ func identical(x, y Type, cmpTags bool, p *ifacePair) bool {
 
 	case *Union:
 		if y, _ := y.(*Union); y != nil {
-			xset := computeUnionTypeSet(nil, token.NoPos, x)
-			yset := computeUnionTypeSet(nil, token.NoPos, y)
+			// TODO(rfindley): can this be reached during type checking? If so,
+			// consider passing a type set map.
+			unionSets := make(map[*Union]*_TypeSet)
+			xset := computeUnionTypeSet(nil, unionSets, token.NoPos, x)
+			yset := computeUnionTypeSet(nil, unionSets, token.NoPos, y)
 			return xset.terms.equal(yset.terms)
 		}
 

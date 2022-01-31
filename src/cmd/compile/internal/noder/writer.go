@@ -1218,6 +1218,7 @@ func (w *writer) expr(expr syntax.Expr) {
 		}
 
 		obj := obj.(*types2.Var)
+		assert(!obj.IsField())
 		assert(targs.Len() == 0)
 
 		w.code(exprLocal)
@@ -1337,10 +1338,10 @@ func (w *writer) compLit(lit *syntax.CompositeLit) {
 	w.typ(tv.Type)
 
 	typ := tv.Type
-	if ptr, ok := typ.Underlying().(*types2.Pointer); ok {
+	if ptr, ok := types2.StructuralType(typ).(*types2.Pointer); ok {
 		typ = ptr.Elem()
 	}
-	str, isStruct := typ.Underlying().(*types2.Struct)
+	str, isStruct := types2.StructuralType(typ).(*types2.Struct)
 
 	w.len(len(lit.ElemList))
 	for i, elem := range lit.ElemList {

@@ -644,10 +644,20 @@ const (
 // timeoutUpperBound returns the maximum time that we expect a timeout of
 // duration d to take to return the caller.
 func timeoutUpperBound(d time.Duration) time.Duration {
-	// In https://storage.googleapis.com/go-build-log/1e637cd3/openbsd-amd64-68_3585d3e7.log,
-	// we observed that an openbsd-amd64-68 builder took 636ms for a 512ms timeout
-	// (24.2% overhead).
-	return d * 4 / 3
+	switch runtime.GOOS {
+	case "openbsd", "netbsd":
+		// NetBSD and OpenBSD seem to be unable to reliably hit deadlines even when
+		// the absolute durations are long.
+		// In https://build.golang.org/log/c34f8685d020b98377dd4988cd38f0c5bd72267e,
+		// we observed that an openbsd-amd64-68 builder took 4.090948779s for a
+		// 2.983020682s timeout (37.1% overhead).
+		// (See https://go.dev/issue/50189 for further detail.)
+		// Give them lots of slop to compensate.
+		return d * 3 / 2
+	}
+	// Other platforms seem to hit their deadlines more reliably,
+	// at least when they are long enough to cover scheduling jitter.
+	return d * 11 / 10
 }
 
 // nextTimeout returns the next timeout to try after an operation took the given
@@ -947,35 +957,23 @@ func testVariousDeadlines(t *testing.T) {
 			name := fmt.Sprintf("%v %d/%d", timeout, run, numRuns)
 			t.Log(name)
 
-			tooSlow := time.NewTimer(5 * time.Second)
-			defer tooSlow.Stop()
-
 			c, err := Dial(ls.Listener.Addr().Network(), ls.Listener.Addr().String())
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			ch := make(chan result, 1)
-			go func() {
-				t0 := time.Now()
-				if err := c.SetDeadline(t0.Add(timeout)); err != nil {
-					t.Error(err)
-				}
-				n, err := io.Copy(io.Discard, c)
-				dt := time.Since(t0)
-				c.Close()
-				ch <- result{n, err, dt}
-			}()
+			t0 := time.Now()
+			if err := c.SetDeadline(t0.Add(timeout)); err != nil {
+				t.Error(err)
+			}
+			n, err := io.Copy(io.Discard, c)
+			dt := time.Since(t0)
+			c.Close()
 
-			select {
-			case res := <-ch:
-				if nerr, ok := res.err.(Error); ok && nerr.Timeout() {
-					t.Logf("%v: good timeout after %v; %d bytes", name, res.d, res.n)
-				} else {
-					t.Fatalf("%v: Copy = %d, %v; want timeout", name, res.n, res.err)
-				}
-			case <-tooSlow.C:
-				t.Fatalf("%v: client stuck in Dial+Copy", name)
+			if nerr, ok := err.(Error); ok && nerr.Timeout() {
+				t.Logf("%v: good timeout after %v; %d bytes", name, dt, n)
+			} else {
+				t.Fatalf("%v: Copy = %d, %v; want timeout", name, n, err)
 			}
 		}
 	}

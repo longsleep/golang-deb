@@ -264,7 +264,7 @@ func (check *Checker) typesSummary(list []Type, variadic bool) string {
 		var s string
 		switch {
 		case t == nil:
-			fallthrough // should not happend but be cautious
+			fallthrough // should not happen but be cautious
 		case t == Typ[Invalid]:
 			s = "<T>"
 		case isUntyped(t):
@@ -313,7 +313,7 @@ func (check *Checker) assignError(rhs []ast.Expr, nvars, nvals int) {
 }
 
 // If returnStmt != nil, initVars is called to type-check the assignment
-// of return expressions, and returnStmt is the the return statement.
+// of return expressions, and returnStmt is the return statement.
 func (check *Checker) initVars(lhs []*Var, origRHS []ast.Expr, returnStmt ast.Stmt) {
 	rhs, commaOk := check.exprList(origRHS, len(lhs) == 2 && returnStmt == nil)
 

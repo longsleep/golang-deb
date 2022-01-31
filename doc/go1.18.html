@@ -32,17 +32,32 @@ Do not send CLs removing the interior tags from such phrases.
   <a href="https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md">Type
     Parameters Proposal</a>.
   This includes major - but fully backward-compatible - changes to the language.
+</p>
+
+<p>
+  These new language changes required a large amount of new code that
+  has not had significant testing in production settings. That will
+  only happen as more people write and use generic code. We believe
+  that this feature is well implemented and high quality. However,
+  unlike most aspects of Go, we can't back up that belief with real
+  world experience. Therefore, while we encourage the use of generics
+  where it makes sense, please use appropriate caution when deploying
+  generic code in production.
+</p>
+
+<p>
   The following is a list of the most visible changes. For a more comprehensive overview, see the
   <a href="https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md">proposal</a>.
-  For details see the <a href="https://golang.org/ref/spec">language spec</a>.
+  For details see the <a href="/ref/spec">language spec</a>.
 </p>
+
 <ul>
   <li>
     The syntax for
-    <a href="https://golang.org/ref/spec#Function_declarations">Function</a> and
-    <a href="https://golang.org/ref/spec#Type_declarations">type declarations</a>
+    <a href="/ref/spec#Function_declarations">function</a> and
+    <a href="/ref/spec#Type_declarations">type declarations</a>
     now accepts
-    <a href="https://golang.org/ref/spec#Type_parameters">type parameters</a>.
+    <a href="/ref/spec#Type_parameters">type parameters</a>.
   </li>
   <li>
     Parameterized functions and types can be instantiated by following them with a list of
@@ -50,11 +65,11 @@ Do not send CLs removing the interior tags from such phrases.
   </li>
   <li>
     The new token <code>~</code> has been added to the set of
-    <a href="https://golang.org/ref/spec#Operators_and_punctuation">operators and punctuation</a>.
+    <a href="/ref/spec#Operators_and_punctuation">operators and punctuation</a>.
   </li>
   <li>
     The syntax for
-    <a href="https://golang.org/ref/spec#Interface_types">Interface types</a>
+    <a href="/ref/spec#Interface_types">Interface types</a>
     now permits the embedding of arbitrary types (not just type names of interfaces)
     as well as union and <code>~T</code> type elements. Such interfaces may only be used
     as type constraints.
@@ -62,13 +77,13 @@ Do not send CLs removing the interior tags from such phrases.
   </li>
   <li>
     The new
-    <a href="https://golang.org/ref/spec#Predeclared_identifiers">predeclared identifier</a>
+    <a href="/ref/spec#Predeclared_identifiers">predeclared identifier</a>
     <code>any</code> is an alias for the empty interface. It may be used instead of
     <code>interface{}</code>.
   </li>
   <li>
     The new
-    <a href="https://golang.org/ref/spec#Predeclared_identifiers">predeclared identifier</a>
+    <a href="/ref/spec#Predeclared_identifiers">predeclared identifier</a>
     <code>comparable</code> is an interface the denotes the set of all types which can be
     compared using <code>==</code> or <code>!=</code>. It may only be used as (or embedded in)
     a type constraint.
@@ -81,6 +96,17 @@ Do not send CLs removing the interior tags from such phrases.
     <li><!-- https://golang.org/issue/47631 -->
       The Go compiler cannot currently handle type declarations inside generic functions
       or methods. We hope to provide support for this feature in Go 1.19.
+    </li>
+    <li><!-- https://golang.org/issue/49030 -->
+      Embedding a type parameter, or a pointer to a type parameter, as
+      an unnamed field in a struct type is not permitted. Similarly
+      embedding a type parameter in an interface type is not permitted.
+      Whether these will ever be permitted is unclear at present.
+    </li>
+    <li>
+      A union element with more than one term may not contain an
+      interface type with a non-empty method set. Whether this will
+      ever be permitted is unclear at present.
     </li>
   </ul>
 </p>
@@ -101,7 +127,7 @@ Do not send CLs removing the interior tags from such phrases.
 
 <p>
   The Go 1.18 compiler now reports an overflow when passing a rune constant expression
-  such as <code>'1' << 32</code> as an argument to the predeclared functions
+  such as <code>'1' &lt;&lt; 32</code> as an argument to the predeclared functions
   <code>print</code> and <code>println</code>, consistent with the behavior of
   user-defined functions. Before Go 1.18, the compiler did not report an error
   in such cases but silently accepted such constant arguments if they fit into an
@@ -117,11 +143,12 @@ Do not send CLs removing the interior tags from such phrases.
 <h3 id="amd64">AMD64</h3>
 
 <p><!-- CL 349595 -->
-  Go 1.18 introduces the new <code>GOAMD64</code> environment variable which selects
-  a version of the AMD64 architecture. Allowed values are <code>v1</code>,
+  Go 1.18 introduces the new <code>GOAMD64</code> environment variable, which selects at compile time
+  a mininum target version of the AMD64 architecture. Allowed values are <code>v1</code>,
   <code>v2</code>, <code>v3</code>, or <code>v4</code>. Each higher level requires,
-  and takes advantage of, additional processor features.  A detailed description of the
-  versions is <a href="https://en.wikipedia.org/wiki/X86-64#Microarchitecture_levels">here</a>.
+  and takes advantage of, additional processor features. A detailed
+  description can be found
+  <a href="https://golang.org/wiki/MinimumRequirements#amd64">here</a>.
 </p>
 <p>
   The <code>GOAMD64</code> environment variable defaults to <code>v1</code>.
@@ -220,13 +247,22 @@ Do not send CLs removing the interior tags from such phrases.
   including build and tool tags (set with <code>-tags</code>), compiler,
   assembler, and linker flags (like <code>-gcflags</code>), whether cgo was
   enabled, and if it was, the values of the cgo environment variables
-  (like <code>CGO_CFLAGS</code>). This information may be omitted using the
-  flag <code>-buildinfo=false</code>. Both VCS and build information may be
-  read together with module information using <code>go</code>
-  <code>version</code> <code>-m</code> <code>file</code> or
+  (like <code>CGO_CFLAGS</code>).
+  Both VCS and build information may be read together with module
+  information using
+  <code>go</code> <code>version</code> <code>-m</code> <code>file</code> or
   <code>runtime/debug.ReadBuildInfo</code> (for the currently running binary)
   or the new <a href="#debug/buildinfo"><code>debug/buildinfo</code></a>
   package.
+</p>
+
+<p><!-- CL 369977 -->
+  The underlying data format of the embedded build information can change with
+  new go releases, so an older version of <code>go</code> may not handle the
+  build information produced with a newer version of <code>go</code>.
+  To read the version information from a binary built with <code>go</code> 1.18,
+  use the <code>go</code> <code>version</code> command and the
+  <code>debug/buildinfo</code> package from <code>go</code> 1.18+.
 </p>
 
 <p><!-- https://golang.org/issue/44435 -->
@@ -256,6 +292,50 @@ Do not send CLs removing the interior tags from such phrases.
   now support an <code>-asan</code> flag that enables interoperation
   with C (or C++) code compiled with the address sanitizer (C compiler
   option <code>-fsanitize=address</code>).
+</p>
+
+<p><!-- https://golang.org/issue/47738 -->
+  The <code>go</code> <code>mod</code> <code>tidy</code> command now retains
+  additional checksums in the <code>go.sum</code> file for modules whose source
+  code is needed to verify that each imported package is provided by only one
+  module in the <a href="/ref/mod#glos-build-list">build list</a>. Because this
+  condition is rare and failure to apply it results in a build error, this
+  change is <em>not</em> conditioned on the <code>go</code> version in the main
+  module's <code>go.mod</code> file.
+</p>
+
+<p><!-- https://golang.org/issue/45713 -->
+  The <code>go</code> command now supports a "Workspace" mode. If a
+  <code>go.work</code> file is found in the working directory or a
+  parent directory, or one is specified using the <code>-workfile</code>
+  flag, it will put the <code>go</code> command into workspace mode.
+  In workspace mode, the <code>go.work</code> file will be used to
+  determine the set of main modules used as the roots for module
+  resolution, instead of using the normally-found <code>go.mod</code>
+  file to specify the single main module. For more information see the
+  <a href="/pkg/cmd/go#hdr-Workspace_maintenance"><code>go work</code></a>
+  documentation.
+</p>
+
+<p><!-- CL 251441 -->
+  The <code>go</code> command now supports additional command line
+  options for the new <a href="#fuzzing">fuzzing support described
+  above</a>:
+  <ul>
+    <li>
+      <code>go test</code> supports
+      <code>-fuzz</code>, <code>-fuzztime</code>, and
+      <code>-fuzzminimizetime</code> options.
+      For documentation on these see
+      <a href="/pkg/cmd/go#hdr-Testing_flags"><code>go help testflag</code></a>.
+    </li>
+    <li>
+      <code>go clean</code> supports a <code>-fuzzcache</code>
+      option.
+      For documentation see
+      <a href="/pkg/cmd/go#hdr-Remove_object_files_and_cached_files"><code>go help clean</code></a>.
+    </li>
+  </ul>
 </p>
 
 <h3 id="gofmt"><code>gofmt</code></h3>
@@ -382,6 +462,18 @@ Do not send CLs removing the interior tags from such phrases.
   generic functions.
 </p>
 
+<h3 id="debug/buildinfo">New <code>debug/buildinfo</code> package</h3>
+
+<p><!-- golang.org/issue/39301 -->
+  The new <a href="/pkg/debug/buildinfo"><code>debug/buildinfo</code></a> package
+  provides access to module versions, version control information, and build
+  flags embedded in executable files built by the <code>go</code> command.
+  The same information is also available via
+  <a href="/pkg/runtime/debug#ReadBuildInfo"><code>runtime/debug.ReadBuildInfo</code></a>
+  for the currently running binary and via <code>go</code>
+  <code>version</code> <code>-m</code> on the command line.
+</p>
+
 <h3 id="netip">New <code>net/netip</code> package</h3>
 
 <p>
@@ -400,15 +492,45 @@ Do not send CLs removing the interior tags from such phrases.
   a network CIDR prefix.
 </p>
 <p>
+  The package also defines several functions to create and examine
+  these new types:
+  <a href="/pkg/net/netip#AddrFrom4"><code>AddrFrom4</code></a>,
+  <a href="/pkg/net/netip#AddrFrom16"><code>AddrFrom16</code></a>,
+  <a href="/pkg/net/netip#AddrFromSlice"><code>AddrFromSlice</code></a>,
+  <a href="/pkg/net/netip#AddrPortFrom"><code>AddrPortFrom</code></a>,
+  <a href="/pkg/net/netip#IPv4Unspecified"><code>IPv4Unspecified</code></a>,
+  <a href="/pkg/net/netip#IPv6LinkLocalAllNodes"><code>IPv6LinkLocalAllNodes</code></a>,
+  <a href="/pkg/net/netip#IPv6Unspecified"><code>IPv6Unspecified</code></a>,
+  <a href="/pkg/net/netip#MustParseAddr"><code>MustParseAddr</code></a>,
+  <a href="/pkg/net/netip#MustParseAddrPort"><code>MustParseAddrPort</code></a>,
+  <a href="/pkg/net/netip#MustParsePrefix"><code>MustParsePrefix</code></a>,
+  <a href="/pkg/net/netip#ParseAddr"><code>ParseAddr</code></a>,
+  <a href="/pkg/net/netip#ParseAddrPort"><code>ParseAddrPort</code></a>,
+  <a href="/pkg/net/netip#ParsePrefix"><code>ParsePrefix</code></a>,
+  <a href="/pkg/net/netip#PrefixFrom"><code>PrefixFrom</code></a>.
+</p>
+<p>
   The <a href="/pkg/net/"><code>net</code></a> package includes new
   methods that parallel existing methods, but
   return <code>netip.AddrPort</code> instead of the
   heavier-weight <a href="/pkg/net/#IP"><code>net.IP</code></a> or
-  <a href="/pkg/net/#UDPAddr"<code>*net.UDPAddr</code></a> types.
+  <a href="/pkg/net/#UDPAddr"><code>*net.UDPAddr</code></a> types:
+  <a href="/pkg/net/#Resolver.LookupNetIP"><code>Resolver.LookupNetIP</code></a>,
+  <a href="/pkg/net/#UDPConn.ReadFromUDPAddrPort"><code>UDPConn.ReadFromUDPAddrPort</code></a>,
+  <a href="/pkg/net/#UDPConn.ReadMsgUDPAddrPort"><code>UDPConn.ReadMsgUDPAddrPort</code></a>,
+  <a href="/pkg/net/#UDPConn.WriteToUDPAddrPort"><code>UDPConn.WriteToUDPAddrPort</code></a>,
+  <a href="/pkg/net/#UDPConn.WriteMsgUDPAddrPort"><code>UDPConn.WriteMsgUDPAddrPort</code></a>.
+  The new <code>UDPConn</code> methods support allocation-free I/O.
+</p>
+<p>
   The <code>net</code> package also now includes functions and methods
   to convert between the existing
-  <a href="/pkg/net/#TCPAddr"><code>TCPAddr</code>/<a href="/pkg/net/#UDPAddr"><code>UDPAddr</code>
-  types and <code>netip.AddrPort</code>.
+  <a href="/pkg/net/#TCPAddr"><code>TCPAddr</code></a>/<a href="/pkg/net/#UDPAddr"><code>UDPAddr</code></a>
+  types and <code>netip.AddrPort</code>:
+  <a href="/pkg/net/#TCPAddrFromAddrPort"><code>TCPAddrFromAddrPort</code></a>,
+  <a href="/pkg/net/#UDPAddrFromAddrPort"><code>UDPAddrFromAddrPort</code></a>,
+  <a href="/pkg/net/#TCPAddr.AddrPort"><code>TCPAddr.AddrPort</code></a>,
+  <a href="/pkg/net/#UDPAddr.AddrPort"><code>UDPAddr.AddrPort</code></a>.
 </p>
 
 <h3 id="minor_library_changes">Minor changes to the library</h3>
@@ -425,7 +547,7 @@ Do not send CLs removing the interior tags from such phrases.
       The new <a href="/pkg/bufio#Writer.AvailableBuffer"><code>Writer.AvailableBuffer</code></a>
       method returns an empty buffer with a possibly non-empty capacity for use
       with append-like APIs. After appending, the buffer can be provided to a
-			succeeding <code>Write</code> call and possibly avoid any copying.
+      succeeding <code>Write</code> call and possibly avoid any copying.
     </p>
 
     <p><!-- CL 345570 -->
@@ -451,7 +573,7 @@ Do not send CLs removing the interior tags from such phrases.
 
     <p><!-- CL 323318, CL 332771 -->
       <a href="/pkg/bytes/#Trim"><code>Trim</code></a>, <a href="/pkg/bytes/#TrimLeft"><code>TrimLeft</code></a>,
-      and <a href="/pkg/bytes/#TrimRight"><code>TrimRight</code></a> are now allocation free and, especially for 
+      and <a href="/pkg/bytes/#TrimRight"><code>TrimRight</code></a> are now allocation free and, especially for
       small ASCII cutsets, up to 10 times faster.
     </p>
 
@@ -473,18 +595,36 @@ Do not send CLs removing the interior tags from such phrases.
   </dd>
 </dl><!-- crypto/tls -->
 
-<dl id="debug/buildinfo"><dt><a href="/pkg/debug/buildinfo">debug/buildinfo</a></dt>
+<dl id="debug/dwarf"><dt><a href="/pkg/debug/dwarf/">debug/dwarf</a></dt>
   <dd>
-    <p><!-- golang.org/issue/39301 -->
-      This new package provides access to module versions, version control
-      information, and build flags embedded in executable files built by
-      the <code>go</code> command. The same information is also available via
-      <a href="/pkg/runtime/debug#ReadBuildInfo"><code>runtime/debug.ReadBuildInfo</code></a>
-      for the currently running binary and via <code>go</code>
-      <code>version</code> <code>-m</code> on the command line.
-    </p>
+    <p><!-- CL 380714 -->
+      The <a href="/pkg/debug/dwarf#StructField"><code>StructField</code></a>
+      and <a href="/pkg/debug/dwarf#BasicType"><code>BasicType</code></a>
+      structs both now have a <code>DataBitOffset</code> field, which
+      holds the value of the <code>DW_AT_data_bit_offset</code>
+      attribute if present.
   </dd>
 </dl>
+
+<dl id="debug/elf"><dt><a href="/pkg/debug/elf/">debug/elf</a></dt>
+  <dd>
+    <p><!-- CL 352829 -->
+      The <a href="/pkg/debug/elf/#R_PPC64_RELATIVE"><code>R_PPC64_RELATIVE</code></a>
+      constant has been added.
+    </p>
+  </dd>
+</dl><!-- debug/elf -->
+
+<dl id="debug/plan9obj"><dt><a href="/pkg/debug/plan9obj/">debug/plan9obj</a></dt>
+  <dd>
+    <p><!-- CL 350229 -->
+      The <a href="/pkg/debug/plan9obj#File.Symbols">File.Symbols</a>
+      method now returns the new exported error
+      value <a href="/pkg/debug/plan9obj#ErrNoSymbols">ErrNoSymbols</a>
+      if the file has no symbol section.
+    </p>
+  </dd>
+</dl><!-- debug/plan9obj -->
 
 <dl id="go/ast"><dt><a href="/pkg/go/ast/">go/ast</a></dt>
   <dd>
@@ -533,10 +673,10 @@ Do not send CLs removing the interior tags from such phrases.
 
 <dl id="go/types"><dt><a href="/pkg/go/types/">go/types</a></dt>
   <dd>
-		<p><!-- https://golang.org/issue/46648 -->
-			The new <a href="/pkg/go/types/#Config.GoVersion"><code>Config.GoVersion</code></a>
-			field sets the accepted Go language version.
-		</p>
+    <p><!-- https://golang.org/issue/46648 -->
+      The new <a href="/pkg/go/types/#Config.GoVersion"><code>Config.GoVersion</code></a>
+      field sets the accepted Go language version.
+    </p>
 
     <p><!-- https://golang.org/issue/47916 -->
       Per the proposal
@@ -615,11 +755,33 @@ Do not send CLs removing the interior tags from such phrases.
       <li><!-- CL 353089 -->
         The new type <a href="/pkg/go/types/#Context"><code>Context</code></a> and factory function
         <a href="/pkg/go/types/#NewContext"><code>NewContext</code></a>
-        are added to facilitate sharing of identical type instances across type-checked packages.
+        are added to facilitate sharing of identical type instances
+        across type-checked packages, via the new
+        <a href="/pkg/go/types/#Config.Context"><code>Config.Context</code></a>
+        field.
       </li>
     </ul>
   </dd>
 </dl>
+
+<dl id="html/template"><dt><a href="/pkg/html/template/">html/template</a></dt>
+  <dd>
+    <p><!-- CL 321491 -->
+      Within a <code>range</code> pipeline the new
+      <code>{{break}}</code> command will end the loop early and the
+      new <code>{{continue}}</code> command will immediately start the
+      next loop iteration.
+    </p>
+
+    <p><!-- CL 321490 -->
+      The <code>and</code> function no longer always evaluates all arguments; it
+      stops evaluating arguments after the first argument that evaluates to
+      false.  Similarly, the <code>or</code> function now stops evaluating
+      arguments after the first argument that evaluates to true. This makes a
+      difference if any of the arguments is a function call.
+    </p>
+  </dd>
+</dl><!-- html/template -->
 
 <dl id="image/draw"><dt><a href="/pkg/image/draw/">image/draw</a></dt>
   <dd>
@@ -655,6 +817,14 @@ Do not send CLs removing the interior tags from such phrases.
       The new
       <a href="/pkg/net/http#Cookie.Valid"><code>Cookie.Valid</code></a>
       method reports whether the cookie is valid.
+    </p>
+
+    <p><!-- CL 346569 -->
+      The new
+      <a href="/pkg/net/http#MaxBytesHandler"><code>MaxBytesHandler</code></a>
+      function creates a <code>Handler</code> that wraps its
+      <code>ResponseWriter</code> and <code>Request.Body</code> with a
+      <a href="/pkg/net/http#MaxBytesReader"><code>MaxBytesReader</code></a>.
     </p>
   </dd>
 </dl><!-- net/http -->
@@ -739,6 +909,27 @@ Do not send CLs removing the interior tags from such phrases.
   </dd>
 </dl><!-- regexp -->
 
+<dl id="runtime/debug"><dt><a href="/pkg/runtime/debug/">runtime/debug</a></dt>
+  <dd>
+    <p><!-- CL 354569 -->
+      The <a href="/pkg/runtime/debug#BuildInfo"><code>BuildInfo</code></a>
+      struct has two new fields, containing additional information
+      about how the binary was built:
+      <ul>
+	<li><a href="/pkg/runtime/debug#BuildInfo.GoVersion"><code>GoVersion</code></a>
+	  holds the version of Go used to build the binary.
+	</li>
+	<li>
+	  <a href="/pkg/runtime/debug#BuildInfo.Settings"><code>Settings</code></a>
+	  is a slice of
+	  <a href="/pkg/runtime/debug#BuildSettings"><code>BuildSettings</code></a>
+	  structs holding key/value pairs describing the build.
+	</li>
+      </ul>
+    </p>
+  </dd>
+</dl><!-- runtime/debug -->
+
 <dl id="strconv"><dt><a href="/pkg/strconv/">strconv</a></dt>
   <dd>
     <p><!-- CL 343877 -->
@@ -768,7 +959,7 @@ Do not send CLs removing the interior tags from such phrases.
 
     <p><!-- CL 323318, CL 332771 -->
       <a href="/pkg/strings/#Trim"><code>Trim</code></a>, <a href="/pkg/strings/#TrimLeft"><code>TrimLeft</code></a>,
-      and <a href="/pkg/strings/#TrimRight"><code>TrimRight</code></a> are now allocation free and, especially for 
+      and <a href="/pkg/strings/#TrimRight"><code>TrimRight</code></a> are now allocation free and, especially for
       small ASCII cutsets, up to 10 times faster.
     </p>
 
@@ -828,7 +1019,7 @@ Do not send CLs removing the interior tags from such phrases.
       The precedence of <code>/</code> in the argument for <code>-run</code> and
       <code>-bench</code> has been increased. <code>A/B|C/D</code> used to be
       treated as <code>A/(B|C)/D</code> and is now treated as
-      <code>(A/B)/(C/D)</code>.
+      <code>(A/B)|(C/D)</code>.
     </p>
 
     <p><!-- CL 356669 -->
@@ -837,17 +1028,51 @@ Do not send CLs removing the interior tags from such phrases.
       existing tests in the unlikely case that a test changes the set of subtests
       that are run each time the test function itself is run.
     </p>
+
+    <p><!-- CL 251441 -->
+      The new <a href="/pkg/testing#F"><code>testing.F</code></a> type
+      is used by the new <a href="#fuzzing">fuzzing support described
+      above</a>. Tests also now support the command line
+      options <code>-test.fuzz</code>, <code>-test.fuzztime</code>, and
+      <code>-test.fuzzminimizetime</code>.
+    </p>
   </dd>
 </dl><!-- testing -->
 
 <dl id="text/template"><dt><a href="/pkg/text/template/">text/template</a></dt>
   <dd>
+    <p><!-- CL 321491 -->
+      Within a <code>range</code> pipeline the new
+      <code>{{break}}</code> command will end the loop early and the
+      new <code>{{continue}}</code> command will immediately start the
+      next loop iteration.
+    </p>
+
     <p><!-- CL 321490 -->
       The <code>and</code> function no longer always evaluates all arguments; it
       stops evaluating arguments after the first argument that evaluates to
       false.  Similarly, the <code>or</code> function now stops evaluating
       arguments after the first argument that evaluates to true. This makes a
       difference if any of the arguments is a function call.
+    </p>
+  </dd>
+</dl><!-- text/template -->
+
+<dl id="text/template/parse"><dt><a href="/pkg/text/template/parse/">text/template/parse</a></dt>
+  <dd>
+    <p><!-- CL 321491 -->
+      The package supports the new
+      <a href="/pkg/text/template/">text/template</a> and
+      <a href="/pkg/html/template/">html/template</a>
+      <code>{{break}}</code> command via the new constant
+      <a href="/pkg/text/template/parse#NodeBreak"><code>NodeBreak</code></a>
+      and the new type
+      <a href="/pkg/text/template/parse#BreakNode"><code>BreakNode</code></a>,
+      and similarly supports the new <code>{{continue}}</code> command
+      via the new constant
+      <a href="/pkg/text/template/parse#NodeContinue"><code>NodeContinue</code></a>
+      and the new type
+      <a href="/pkg/text/template/parse#ContinueNode"><code>ContinueNode</code></a>.
     </p>
   </dd>
 </dl><!-- text/template -->
