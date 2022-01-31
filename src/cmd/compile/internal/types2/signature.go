@@ -73,9 +73,6 @@ func (s *Signature) SetTypeParams(tparams []*TypeParam) { s.tparams = bindTParam
 // RecvTypeParams returns the receiver type parameters of signature s, or nil.
 func (s *Signature) RecvTypeParams() *TypeParamList { return s.rparams }
 
-// SetRecvTypeParams sets the receiver type params of signature s.
-func (s *Signature) SetRecvTypeParams(rparams []*TypeParam) { s.rparams = bindTParams(rparams) }
-
 // Params returns the parameters of signature s, or nil.
 func (s *Signature) Params() *Tuple { return s.params }
 
@@ -90,9 +87,6 @@ func (s *Signature) String() string   { return TypeString(s, nil) }
 
 // ----------------------------------------------------------------------------
 // Implementation
-
-// Disabled by default, but enabled when running tests (via types_test.go).
-var acceptMethodTypeParams bool
 
 // funcType type-checks a function or method type.
 func (check *Checker) funcType(sig *Signature, recvPar *syntax.Field, tparams []*syntax.Field, ftyp *syntax.FuncType) {
@@ -163,13 +157,8 @@ func (check *Checker) funcType(sig *Signature, recvPar *syntax.Field, tparams []
 	}
 
 	if tparams != nil {
+		// The parser will complain about invalid type parameters for methods.
 		check.collectTypeParams(&sig.tparams, tparams)
-		// Always type-check method type parameters but complain if they are not enabled.
-		// (A separate check is needed when type-checking interface method signatures because
-		// they don't have a receiver specification.)
-		if recvPar != nil && !acceptMethodTypeParams {
-			check.error(ftyp, "methods cannot have type parameters")
-		}
 	}
 
 	// Value (non-type) parameters' scope starts in the function body. Use a temporary scope for their

@@ -79,10 +79,6 @@ func cpuHog2(x int) int {
 	return foo
 }
 
-func cpuHog3(x int) int {
-	return cpuHog0(x, 1e5)
-}
-
 // Return a list of functions that we don't want to ever appear in CPU
 // profiles. For gccgo, that list includes the sigprof handler itself.
 func avoidFunctions() []string {
@@ -158,79 +154,81 @@ func TestCPUProfileMultithreadMagnitude(t *testing.T) {
 		maxDiff = 0.40
 	}
 
-	parallelism := runtime.GOMAXPROCS(0)
+	compare := func(a, b time.Duration, maxDiff float64) error {
+		if a <= 0 || b <= 0 {
+			return fmt.Errorf("Expected both time reports to be positive")
+		}
 
-	// This test compares the process's total CPU time against the CPU
-	// profiler's view of time spent in direct execution of user code.
-	// Background work, especially from the garbage collector, adds noise to
-	// that measurement. Disable automatic triggering of the GC, and then
-	// request a complete GC cycle (up through sweep termination).
-	defer debug.SetGCPercent(debug.SetGCPercent(-1))
-	runtime.GC()
+		if a < b {
+			a, b = b, a
+		}
 
-	var cpuTime1, cpuTimeN time.Duration
-	matches := matchAndAvoidStacks(stackContains, []string{"runtime/pprof.cpuHog1", "runtime/pprof.cpuHog3"}, avoidFunctions())
-	p := testCPUProfile(t, matches, func(dur time.Duration) {
-		cpuTime1 = diffCPUTime(t, func() {
-			// Consume CPU in one goroutine
-			cpuHogger(cpuHog1, &salt1, dur)
+		diff := float64(a-b) / float64(a)
+		if diff > maxDiff {
+			return fmt.Errorf("CPU usage reports are too different (limit -%.1f%%, got -%.1f%%)", maxDiff*100, diff*100)
+		}
+
+		return nil
+	}
+
+	for _, tc := range []struct {
+		name    string
+		workers int
+	}{
+		{
+			name:    "serial",
+			workers: 1,
+		},
+		{
+			name:    "parallel",
+			workers: runtime.GOMAXPROCS(0),
+		},
+	} {
+		// check that the OS's perspective matches what the Go runtime measures.
+		t.Run(tc.name, func(t *testing.T) {
+			t.Logf("Running with %d workers", tc.workers)
+
+			var cpuTime time.Duration
+			matches := matchAndAvoidStacks(stackContains, []string{"runtime/pprof.cpuHog1"}, avoidFunctions())
+			p := testCPUProfile(t, matches, func(dur time.Duration) {
+				cpuTime = diffCPUTime(t, func() {
+					var wg sync.WaitGroup
+					var once sync.Once
+					for i := 0; i < tc.workers; i++ {
+						wg.Add(1)
+						go func() {
+							defer wg.Done()
+							var salt = 0
+							cpuHogger(cpuHog1, &salt, dur)
+							once.Do(func() { salt1 = salt })
+						}()
+					}
+					wg.Wait()
+				})
+			})
+
+			for i, unit := range []string{"count", "nanoseconds"} {
+				if have, want := p.SampleType[i].Unit, unit; have != want {
+					t.Errorf("pN SampleType[%d]; %q != %q", i, have, want)
+				}
+			}
+
+			// cpuHog1 called above is the primary source of CPU
+			// load, but there may be some background work by the
+			// runtime. Since the OS rusage measurement will
+			// include all work done by the process, also compare
+			// against all samples in our profile.
+			var value time.Duration
+			for _, sample := range p.Sample {
+				value += time.Duration(sample.Value[1]) * time.Nanosecond
+			}
+
+			t.Logf("compare %s vs %s", cpuTime, value)
+			if err := compare(cpuTime, value, maxDiff); err != nil {
+				t.Errorf("compare got %v want nil", err)
+			}
 		})
-
-		cpuTimeN = diffCPUTime(t, func() {
-			// Next, consume CPU in several goroutines
-			var wg sync.WaitGroup
-			var once sync.Once
-			for i := 0; i < parallelism; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					var salt = 0
-					cpuHogger(cpuHog3, &salt, dur)
-					once.Do(func() { salt1 = salt })
-				}()
-			}
-			wg.Wait()
-		})
-	})
-
-	for i, unit := range []string{"count", "nanoseconds"} {
-		if have, want := p.SampleType[i].Unit, unit; have != want {
-			t.Errorf("pN SampleType[%d]; %q != %q", i, have, want)
-		}
 	}
-
-	var value1, valueN time.Duration
-	for _, sample := range p.Sample {
-		if stackContains("runtime/pprof.cpuHog1", uintptr(sample.Value[0]), sample.Location, sample.Label) {
-			value1 += time.Duration(sample.Value[1]) * time.Nanosecond
-		}
-		if stackContains("runtime/pprof.cpuHog3", uintptr(sample.Value[0]), sample.Location, sample.Label) {
-			valueN += time.Duration(sample.Value[1]) * time.Nanosecond
-		}
-	}
-
-	compare := func(a, b time.Duration, maxDiff float64) func(*testing.T) {
-		return func(t *testing.T) {
-			t.Logf("compare %s vs %s", a, b)
-			if a <= 0 || b <= 0 {
-				t.Errorf("Expected both time reports to be positive")
-				return
-			}
-
-			if a < b {
-				a, b = b, a
-			}
-
-			diff := float64(a-b) / float64(a)
-			if diff > maxDiff {
-				t.Errorf("CPU usage reports are too different (limit -%.1f%%, got -%.1f%%)", maxDiff*100, diff*100)
-			}
-		}
-	}
-
-	// check that the OS's perspective matches what the Go runtime measures
-	t.Run("serial execution OS vs pprof", compare(cpuTime1, value1, maxDiff))
-	t.Run("parallel execution OS vs pprof", compare(cpuTimeN, valueN, maxDiff))
 }
 
 // containsInlinedCall reports whether the function body for the function f is
@@ -1432,40 +1430,78 @@ func TestLabelSystemstack(t *testing.T) {
 
 	matches := matchAndAvoidStacks(stackContainsLabeled, []string{"runtime.systemstack;key=value"}, avoidFunctions())
 	p := testCPUProfile(t, matches, func(dur time.Duration) {
-		Do(context.Background(), Labels("key", "value"), func(context.Context) {
-			var wg sync.WaitGroup
-			stop := make(chan struct{})
-			for i := 0; i < runtime.GOMAXPROCS(0); i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					labelHog(stop, gogc)
-				}()
-			}
-
-			time.Sleep(dur)
-			close(stop)
-			wg.Wait()
+		Do(context.Background(), Labels("key", "value"), func(ctx context.Context) {
+			parallelLabelHog(ctx, dur, gogc)
 		})
 	})
 
-	// labelHog should always be labeled.
+	// Two conditions to check:
+	// * labelHog should always be labeled.
+	// * The label should _only_ appear on labelHog and the Do call above.
 	for _, s := range p.Sample {
+		isLabeled := s.Label != nil && contains(s.Label["key"], "value")
+		var (
+			mayBeLabeled     bool
+			mustBeLabeled    bool
+			mustNotBeLabeled bool
+		)
 		for _, loc := range s.Location {
 			for _, l := range loc.Line {
-				if l.Function.Name != "runtime/pprof.labelHog" {
-					continue
+				switch l.Function.Name {
+				case "runtime/pprof.labelHog", "runtime/pprof.parallelLabelHog", "runtime/pprof.parallelLabelHog.func1":
+					mustBeLabeled = true
+				case "runtime/pprof.Do":
+					// Do sets the labels, so samples may
+					// or may not be labeled depending on
+					// which part of the function they are
+					// at.
+					mayBeLabeled = true
+				case "runtime.bgsweep", "runtime.bgscavenge", "runtime.forcegchelper", "runtime.gcBgMarkWorker", "runtime.runfinq", "runtime.sysmon":
+					// Runtime system goroutines or threads
+					// (such as those identified by
+					// runtime.isSystemGoroutine). These
+					// should never be labeled.
+					mustNotBeLabeled = true
+				case "gogo", "gosave_systemstack_switch", "racecall":
+					// These are context switch/race
+					// critical that we can't do a full
+					// traceback from. Typically this would
+					// be covered by the runtime check
+					// below, but these symbols don't have
+					// the package name.
+					mayBeLabeled = true
 				}
 
-				if s.Label == nil {
-					t.Errorf("labelHog sample labels got nil want key=value")
-					continue
-				}
-				if !contains(s.Label["key"], "value") {
-					t.Errorf("labelHog sample labels got %+v want contains key=value", s.Label)
-					continue
+				if strings.HasPrefix(l.Function.Name, "runtime.") {
+					// There are many places in the runtime
+					// where we can't do a full traceback.
+					// Ideally we'd list them all, but
+					// barring that allow anything in the
+					// runtime, unless explicitly excluded
+					// above.
+					mayBeLabeled = true
 				}
 			}
+		}
+		if mustNotBeLabeled {
+			// If this must not be labeled, then mayBeLabeled hints
+			// are not relevant.
+			mayBeLabeled = false
+		}
+		if mustBeLabeled && !isLabeled {
+			var buf bytes.Buffer
+			fprintStack(&buf, s.Location)
+			t.Errorf("Sample labeled got false want true: %s", buf.String())
+		}
+		if mustNotBeLabeled && isLabeled {
+			var buf bytes.Buffer
+			fprintStack(&buf, s.Location)
+			t.Errorf("Sample labeled got true want false: %s", buf.String())
+		}
+		if isLabeled && !(mayBeLabeled || mustBeLabeled) {
+			var buf bytes.Buffer
+			fprintStack(&buf, s.Location)
+			t.Errorf("Sample labeled got true want false: %s", buf.String())
 		}
 	}
 }
@@ -1473,6 +1509,10 @@ func TestLabelSystemstack(t *testing.T) {
 // labelHog is designed to burn CPU time in a way that a high number of CPU
 // samples end up running on systemstack.
 func labelHog(stop chan struct{}, gogc int) {
+	// Regression test for issue 50032. We must give GC an opportunity to
+	// be initially triggered by a labelled goroutine.
+	runtime.GC()
+
 	for i := 0; ; i++ {
 		select {
 		case <-stop:
@@ -1481,6 +1521,23 @@ func labelHog(stop chan struct{}, gogc int) {
 			debug.SetGCPercent(gogc)
 		}
 	}
+}
+
+// parallelLabelHog runs GOMAXPROCS goroutines running labelHog.
+func parallelLabelHog(ctx context.Context, dur time.Duration, gogc int) {
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			labelHog(stop, gogc)
+		}()
+	}
+
+	time.Sleep(dur)
+	close(stop)
+	wg.Wait()
 }
 
 // Check that there is no deadlock when the program receives SIGPROF while in

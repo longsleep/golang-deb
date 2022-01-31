@@ -118,6 +118,7 @@ type Checker struct {
 	nextID  uint64                 // unique Id for type parameters (first valid Id is 1)
 	objMap  map[Object]*declInfo   // maps package-level objects and (non-interface) methods to declaration info
 	impMap  map[importKey]*Package // maps (import path, source directory) to (complete or fake) package
+	infoMap map[*Named]typeInfo    // maps named types to their associated type info (for cycle detection)
 
 	// pkgPathMap maps package names to the set of distinct import paths we've
 	// seen for that name, anywhere in the import graph. It is used for
@@ -136,6 +137,8 @@ type Checker struct {
 	imports       []*PkgName                // list of imported packages
 	dotImportMap  map[dotImportKey]*PkgName // maps dot-imported objects to the package they were dot-imported through
 	recvTParamMap map[*ast.Ident]*TypeParam // maps blank receiver type parameters to their type
+	brokenAliases map[*TypeName]bool        // set of aliases with broken (not yet determined) types
+	unionTypeSets map[*Union]*_TypeSet      // computed type sets for union types
 	mono          monoGraph                 // graph for detecting non-monomorphizable instantiation loops
 
 	firstErr error                 // first error encountered
@@ -163,6 +166,27 @@ func (check *Checker) addDeclDep(to Object) {
 		return // to is not a package-level object
 	}
 	from.addDep(to)
+}
+
+// brokenAlias records that alias doesn't have a determined type yet.
+// It also sets alias.typ to Typ[Invalid].
+func (check *Checker) brokenAlias(alias *TypeName) {
+	if check.brokenAliases == nil {
+		check.brokenAliases = make(map[*TypeName]bool)
+	}
+	check.brokenAliases[alias] = true
+	alias.typ = Typ[Invalid]
+}
+
+// validAlias records that alias has the valid type typ (possibly Typ[Invalid]).
+func (check *Checker) validAlias(alias *TypeName, typ Type) {
+	delete(check.brokenAliases, alias)
+	alias.typ = typ
+}
+
+// isBrokenAlias reports whether alias doesn't have a determined type yet.
+func (check *Checker) isBrokenAlias(alias *TypeName) bool {
+	return alias.typ == Typ[Invalid] && check.brokenAliases[alias]
 }
 
 func (check *Checker) rememberUntyped(e ast.Expr, lhs bool, mode operandMode, typ *Basic, val constant.Value) {
@@ -228,6 +252,7 @@ func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *Ch
 		version: version,
 		objMap:  make(map[Object]*declInfo),
 		impMap:  make(map[importKey]*Package),
+		infoMap: make(map[*Named]typeInfo),
 	}
 }
 
@@ -323,6 +348,8 @@ func (check *Checker) checkFiles(files []*ast.File) (err error) {
 	check.pkgPathMap = nil
 	check.seenPkgMap = nil
 	check.recvTParamMap = nil
+	check.brokenAliases = nil
+	check.unionTypeSets = nil
 	check.defTypes = nil
 	check.ctxt = nil
 

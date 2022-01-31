@@ -63,7 +63,7 @@ type InternalFuzzTarget struct {
 // for an example, and see the F.Fuzz and F.Add method documentation for
 // details.
 //
-// *F methods can only be called before (*F).Fuzz. Once the the test is
+// *F methods can only be called before (*F).Fuzz. Once the test is
 // executing the fuzz target, only (*T) methods can be used. The only *F methods
 // that are allowed in the (*F).Fuzz function are (*F).Failed and (*F).Name.
 type F struct {
@@ -199,7 +199,7 @@ var supportedTypes = map[reflect.Type]bool{
 // the corresponding *T method instead. The only *F methods that are allowed in
 // the (*F).Fuzz function are (*F).Failed and (*F).Name.
 //
-// This function sould be fast and deterministic, and its behavior should not
+// This function should be fast and deterministic, and its behavior should not
 // depend on shared state. No mutatable input arguments, or pointers to them,
 // should be retained between executions of the fuzz function, as the memory
 // backing them may be mutated during a subsequent invocation. ff must not
@@ -323,12 +323,14 @@ func (f *F) Fuzz(ff any) {
 			for _, v := range e.Values {
 				args = append(args, reflect.ValueOf(v))
 			}
-			// Before reseting the current coverage, defer the snapshot so that we
-			// make sure it is called right before the tRunner function exits,
-			// regardless of whether it was executed cleanly, panicked, or if the
-			// fuzzFn called t.Fatal.
-			defer f.fuzzContext.deps.SnapshotCoverage()
-			f.fuzzContext.deps.ResetCoverage()
+			// Before resetting the current coverage, defer the snapshot so that
+			// we make sure it is called right before the tRunner function
+			// exits, regardless of whether it was executed cleanly, panicked,
+			// or if the fuzzFn called t.Fatal.
+			if f.testContext.isFuzzing {
+				defer f.fuzzContext.deps.SnapshotCoverage()
+				f.fuzzContext.deps.ResetCoverage()
+			}
 			fn.Call(args)
 		})
 		<-t.signal
@@ -666,6 +668,7 @@ func fRunner(f *F, fn func(*F)) {
 			// This only affects fuzz tests run as normal tests.
 			// While fuzzing, T.Parallel has no effect, so f.sub is empty, and this
 			// branch is not taken. f.barrier is nil in that case.
+			f.testContext.release()
 			close(f.barrier)
 			// Wait for the subtests to complete.
 			for _, sub := range f.sub {

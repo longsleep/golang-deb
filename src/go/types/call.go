@@ -75,17 +75,21 @@ func (check *Checker) instantiateSignature(pos token.Pos, typ *Signature, targs 
 
 	inst := check.instance(pos, typ, targs, check.bestContext(nil)).(*Signature)
 	assert(len(xlist) <= len(targs))
-	tparams := typ.TypeParams().list()
-	if i, err := check.verify(pos, tparams, targs); err != nil {
-		// best position for error reporting
-		pos := pos
-		if i < len(xlist) {
-			pos = xlist[i].Pos()
+
+	// verify instantiation lazily (was issue #50450)
+	check.later(func() {
+		tparams := typ.TypeParams().list()
+		if i, err := check.verify(pos, tparams, targs); err != nil {
+			// best position for error reporting
+			pos := pos
+			if i < len(xlist) {
+				pos = xlist[i].Pos()
+			}
+			check.softErrorf(atPos(pos), _InvalidTypeArg, "%s", err)
+		} else {
+			check.mono.recordInstance(check.pkg, pos, tparams, targs, xlist)
 		}
-		check.softErrorf(atPos(pos), _InvalidTypeArg, "%s", err)
-	} else {
-		check.mono.recordInstance(check.pkg, pos, tparams, targs, xlist)
-	}
+	})
 
 	return inst
 }
@@ -529,26 +533,31 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 
 	obj, index, indirect = LookupFieldOrMethod(x.typ, x.mode == variable, check.pkg, sel)
 	if obj == nil {
-		switch {
-		case index != nil:
+		// Don't report another error if the underlying type was invalid (issue #49541).
+		if under(x.typ) == Typ[Invalid] {
+			goto Error
+		}
+
+		if index != nil {
 			// TODO(gri) should provide actual type where the conflict happens
 			check.errorf(e.Sel, _AmbiguousSelector, "ambiguous selector %s.%s", x.expr, sel)
-		case indirect:
-			check.errorf(e.Sel, _InvalidMethodExpr, "cannot call pointer method %s on %s", sel, x.typ)
-		default:
-			var why string
-			if tpar, _ := x.typ.(*TypeParam); tpar != nil {
-				// Type parameter bounds don't specify fields, so don't mention "field".
-				if tname := tpar.iface().obj; tname != nil {
-					why = check.sprintf("interface %s has no method %s", tname.name, sel)
-				} else {
-					why = check.sprintf("type bound for %s has no method %s", x.typ, sel)
-				}
-			} else {
-				why = check.sprintf("type %s has no field or method %s", x.typ, sel)
-			}
+			goto Error
+		}
 
+		if indirect {
+			check.errorf(e.Sel, _InvalidMethodExpr, "cannot call pointer method %s on %s", sel, x.typ)
+			goto Error
+		}
+
+		var why string
+		if isInterfacePtr(x.typ) {
+			why = check.interfacePtrError(x.typ)
+		} else {
+			why = check.sprintf("type %s has no field or method %s", x.typ, sel)
 			// Check if capitalization of sel matters and provide better error message in that case.
+			// TODO(gri) This code only looks at the first character but LookupFieldOrMethod should
+			//           have an (internal) mechanism for case-insensitive lookup that we should use
+			//           instead (see types2).
 			if len(sel) > 0 {
 				var changeCase string
 				if r := rune(sel[0]); unicode.IsUpper(r) {
@@ -560,9 +569,8 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 					why += ", but does have " + changeCase
 				}
 			}
-
-			check.errorf(e.Sel, _MissingFieldOrMethod, "%s.%s undefined (%s)", x.expr, sel, why)
 		}
+		check.errorf(e.Sel, _MissingFieldOrMethod, "%s.%s undefined (%s)", x.expr, sel, why)
 		goto Error
 	}
 
