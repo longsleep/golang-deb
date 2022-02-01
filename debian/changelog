@@ -1,3 +1,10 @@
+golang-1.18 (1.18~beta2-1longsleep1+focal) focal; urgency=medium
+
+  * Change packaging for Ubuntu backports
+  * Run debina/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 01 Feb 2022 22:10:54 +0100
+
 golang-1.18 (1.18~beta2-1) unstable; urgency=medium
 
   * New upstream version 1.18 beta2
