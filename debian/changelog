@@ -1,3 +1,10 @@
+golang-1.16 (1.16.14-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * New upstream version 1.16.14
+  * Build for bullseye-backports
+
+ -- Anthony Fok <foka@debian.org>  Mon, 14 Feb 2022 23:00:07 -0700
+
 golang-1.16 (1.16.13-1~bpo11+1) bullseye-backports; urgency=medium
 
   * New upstream version 1.16.13
