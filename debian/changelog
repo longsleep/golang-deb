@@ -1,3 +1,10 @@
+golang-1.18 (1.18~rc1-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.18~rc1
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 18 Feb 2022 01:31:48 +0800
+
 golang-1.18 (1.18~beta2-1) unstable; urgency=medium
 
   * New upstream version 1.18 beta2
