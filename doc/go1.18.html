@@ -91,11 +91,49 @@ Do not send CLs removing the interior tags from such phrases.
 </ul>
 
 <p>
+  There are three experimental packages using generics that may be
+  useful.
+  These packages are in x/exp repository; their API is not covered by
+  the Go 1 guarantee and may change as we gain more experience with
+  generics.
+  <dl>
+    <dt><a href="https://pkg.go.dev/golang.org/x/exp/constraints"><code>golang.org/x/exp/constraints</code></a></dt>
+    <dd>
+      <p>
+	Constraints that are useful for generic code, such as
+	<a href="https://pkg.go.dev/golang.org/x/exp/constraints#Ordered"><code>constraints.Ordered</code></a>.
+      </p>
+    </dd>
+
+    <dt><a href="https://pkg.go.dev/golang.org/x/exp/slices"><code>golang.org/x/exp/slices</code></a></dt>
+    <dd>
+      <p>
+	A collection of generic functions that operate on slices of
+	any element type.
+      </p>
+    </dd>
+
+    <dt><a href="https://pkg.go.dev/golang.org/x/exp/maps"><code>golang.org/x/exp/maps</code></a></dt>
+    <dd>
+      <p>
+	A collection of generic functions that operate on maps of
+	any key or element type.
+      </p>
+    </dd>
+  </dl>
+</p>
+
+<p>
   The current generics implementation has the following limitations:
   <ul>
     <li><!-- https://golang.org/issue/47631 -->
       The Go compiler cannot currently handle type declarations inside generic functions
       or methods. We hope to provide support for this feature in Go 1.19.
+    </li>
+    <li><!-- https://golang.org/issue/50937 -->
+      The Go compiler currently does not accept arguments of type parameter type with
+      the predeclared functions <code>real</code>, <code>imag</code>, and <code>complex</code>.
+      We hope to remove this restriction in Go 1.19.
     </li>
     <li><!-- https://golang.org/issue/49030 -->
       Embedding a type parameter, or a pointer to a type parameter, as
@@ -294,7 +332,7 @@ Do not send CLs removing the interior tags from such phrases.
   option <code>-fsanitize=address</code>).
 </p>
 
-<p><!-- https://golang.org/issue/47738 -->
+<p><!-- https://golang.org/issue/47738, CL 344572 -->
   The <code>go</code> <code>mod</code> <code>tidy</code> command now retains
   additional checksums in the <code>go.sum</code> file for modules whose source
   code is needed to verify that each imported package is provided by only one
@@ -307,8 +345,8 @@ Do not send CLs removing the interior tags from such phrases.
 <p><!-- https://golang.org/issue/45713 -->
   The <code>go</code> command now supports a "Workspace" mode. If a
   <code>go.work</code> file is found in the working directory or a
-  parent directory, or one is specified using the <code>-workfile</code>
-  flag, it will put the <code>go</code> command into workspace mode.
+  parent directory, or one is specified using the <code>GOWORK</code>
+  environment variable, it will put the <code>go</code> command into workspace mode.
   In workspace mode, the <code>go.work</code> file will be used to
   determine the set of main modules used as the roots for module
   resolution, instead of using the normally-found <code>go.mod</code>
@@ -336,6 +374,10 @@ Do not send CLs removing the interior tags from such phrases.
       <a href="/pkg/cmd/go#hdr-Remove_object_files_and_cached_files"><code>go help clean</code></a>.
     </li>
   </ul>
+</p>
+
+<p><!-- CL 240611 -->
+  TODO: <a href="https://golang.org/cl/240611">https://golang.org/cl/240611</a>: 240611: cmd/fix: add buildtag fix
 </p>
 
 <h3 id="gofmt"><code>gofmt</code></h3>
@@ -438,6 +480,14 @@ Do not send CLs removing the interior tags from such phrases.
   new <code>go</code> command <code>-asan</code> option.
 </p>
 
+<p><!-- https://golang.org/issue/50954 -->
+  Because the compiler's type checker was replaced in its entirety to
+  support generics, some error messages now may use different wording
+  than before. In some cases, pre-Go 1.18 error messages provided more
+  detail or were phrased in a more helpful way.
+  We intend to address these cases in Go 1.19.
+</p>
+
 <p> <!-- https://github.com/golang/go/issues/49569 -->
   Because of changes in the compiler related to supporting generics, the
   Go 1.18 compile speed can be roughly 15% slower than the Go 1.17 compile speed.
@@ -447,20 +497,26 @@ Do not send CLs removing the interior tags from such phrases.
 
 <h2 id="linker">Linker</h2>
 
+<p>
+  The linker emits <a href="https://tailscale.com/blog/go-linker/">far fewer relocations</a>.
+  As a result, most codebases will link faster, require less memory to link,
+  and generate smaller binaries.
+  Tools that process Go binaries should use Go 1.18's <code>debug/gosym</code> package
+  to transparently handle both old and new binaries.
+</p>
+
 <p><!-- CL 298610 -->
   The new linker <code>-asan</code> option supports the
   new <code>go</code> command <code>-asan</code> option.
 </p>
 
-<h2 id="library">Core library</h2>
+<h2 id="build">Build</h2>
 
-<h3 id="constraints">New <code>constraints</code> package</h3>
-
-<p><!-- CL 349709 -->
-  The new <a href="/pkg/constraints/"><code>constraints</code></a> package
-  defines a set of useful constraints that can be used with type parameters of
-  generic functions.
+<p><!-- CL 369914, CL 370274 -->
+  TODO: <a href="https://golang.org/cl/369914">https://golang.org/cl/369914</a>: for default bootstrap, use Go 1.17 if present, falling back to Go 1.4
 </p>
+
+<h2 id="library">Core library</h2>
 
 <h3 id="debug/buildinfo">New <code>debug/buildinfo</code> package</h3>
 
@@ -533,6 +589,39 @@ Do not send CLs removing the interior tags from such phrases.
   <a href="/pkg/net/#UDPAddr.AddrPort"><code>UDPAddr.AddrPort</code></a>.
 </p>
 
+<h3 id="tls10">TLS 1.0 and 1.1 disabled by default client-side</h3>
+
+<p><!-- CL 359779, golang.org/issue/45428 -->
+  If <a href="/pkg/crypto/tls/#Config.MinVersion"><code>Config.MinVersion</code></a>
+  is not set, it now defaults to TLS 1.2 for client connections. Any safely
+  up-to-date server is expected to support TLS 1.2, and browsers have required
+  it since 2020. TLS 1.0 and 1.1 are still supported by setting
+  <code>Config.MinVersion</code> to <code>VersionTLS10</code>.
+  The server-side default is unchanged at TLS 1.0.
+</p>
+
+<p>
+  The default can be temporarily reverted to TLS 1.0 by setting the
+  <code>GODEBUG=tls10default=1</code> environment variable.
+  This option will be removed in Go 1.19.
+</p>
+
+<h3 id="sha1">Rejecting SHA-1 certificates</h3>
+
+<p><!-- CL 359777, golang.org/issue/41682 -->
+  <code>crypto/x509</code> will now
+  reject certificates signed with the SHA-1 hash function. This doesn't
+  apply to self-signed root certificates. Practical attacks against SHA-1
+  <a href="https://shattered.io/">have been demonstrated since 2017</a> and publicly
+  trusted Certificate Authorities have not issued SHA-1 certificates since 2015.
+</p>
+
+<p>
+  This can be temporarily reverted by setting the
+  <code>GODEBUG=x509sha1=1</code> environment variable.
+  This option will be removed in Go 1.19.
+</p>
+
 <h3 id="minor_library_changes">Minor changes to the library</h3>
 
 <p>
@@ -585,6 +674,35 @@ Do not send CLs removing the interior tags from such phrases.
   </dd>
 </dl><!-- bytes -->
 
+<dl id="crypto/elliptic"><dt><a href="/pkg/crypto/elliptic/">crypto/elliptic</a></dt>
+  <dd>
+    <p><!-- CL 320071, CL 320072, CL 320074, CL 361402, CL 360014 -->
+      The <a href="/pkg/crypto/elliptic#P224"><code>P224</code></a>,
+      <a href="/pkg/crypto/elliptic#P384"><code>P384</code></a>, and
+      <a href="/pkg/crypto/elliptic#P521"><code>P521</code></a> curve
+      implementations are now all backed by code generated by the
+      <a href="https://github.com/mmcloughlin/addchain">addchain</a> and
+      <a href="https://github.com/mit-plv/fiat-crypto">fiat-crypto</a>
+      projects, the latter of which is based on a formally-verified model
+      of the arithmetic operations. They now use safer complete formulas
+      and internal APIs. P-224 and P-384 are now approximately four times
+      faster. All specific curve implementations are now constant-time.
+    </p>
+
+    <p>
+      Operating on invalid curve points (those for which the
+      <code>IsOnCurve</code> method returns false, and which are never returned
+      by <a href="/pkg/crypto/elliptic#Unmarshal"><code>Unmarshal</code></a> or
+      a <code>Curve</code> method operating on a valid point) has always been
+      undefined behavior, can lead to key recovery attacks, and is now
+      unsupported by the new backend. If an invalid point is supplied to a
+      <code>P224</code>, <code>P384</code>, or <code>P521</code> method, that
+      method will now return a random point. The behavior might change to an
+      explicit panic in a future release.
+    </p>
+  </dd>
+</dl><!-- crypto/elliptic -->
+
 <dl id="crypto/tls"><dt><a href="/pkg/crypto/tls/">crypto/tls</a></dt>
   <dd>
     <p><!-- CL 325250 -->
@@ -594,6 +712,46 @@ Do not send CLs removing the interior tags from such phrases.
     </p>
   </dd>
 </dl><!-- crypto/tls -->
+
+<dl id="crypto/x509"><dt><a href="/pkg/crypto/x509">crypto/x509</a></dt>
+  <dd>
+    <p><!-- CL 353132, CL 353403 -->
+      <a href="/pkg/crypto/x509/#Certificate.Verify"><code>Certificate.Verify</code></a>
+      now uses platform APIs to verify certificate validity on macOS and iOS when it
+      is called with a nil
+      <a href="/pkg/crypto/x509/#VerifyOpts.Roots"><code>VerifyOpts.Roots</code></a>
+      or when using the root pool returned from
+      <a href="/pkg/crypto/x509/#SystemCertPool"><code>SystemCertPool</code></a>.
+    </p>
+
+    <p><!-- CL 353589 -->
+      <a href="/pkg/crypto/x509/#SystemCertPool"><code>SystemCertPool</code></a>
+      is now available on Windows.
+    </p>
+
+    <p>
+      On Windows, macOS, and iOS, when a
+      <a href="/pkg/crypto/x509/#CertPool"><code>CertPool</code></a> returned by
+      <a href="/pkg/crypto/x509/#SystemCertPool"><code>SystemCertPool</code></a>
+      has additional certificates added to it,
+      <a href="/pkg/crypto/x509/#Certificate.Verify"><code>Certificate.Verify</code></a>
+      will do two verifications: one using the platform verifier APIs and the
+      system roots, and one using the Go verifier and the additional roots.
+      Chains returned by the platform verifier APIs will be prioritized.
+    </p>
+
+    <p>
+      <a href="/pkg/crypto/x509/#CertPool.Subjects"><code>CertPool.Subjects</code></a>
+      is deprecated. On Windows, macOS, and iOS the
+      <a href="/pkg/crypto/x509/#CertPool"><code>CertPool</code></a> returned by
+      <a href="/pkg/crypto/x509/#SystemCertPool"><code>SystemCertPool</code></a>
+      will return a pool which does not include system roots in the slice
+      returned by <code>Subjects</code>, as a static list can't appropriately
+      represent the platform policies and might not be available at all from the
+      platform APIs.
+    </p>
+  </dd>
+</dl>
 
 <dl id="debug/dwarf"><dt><a href="/pkg/debug/dwarf/">debug/dwarf</a></dt>
   <dd>
@@ -761,6 +919,19 @@ Do not send CLs removing the interior tags from such phrases.
         field.
       </li>
     </ul>
+    <p>
+      The predicates
+      <a href="/pkg/go/types/#AssignableTo"><code>AssignableTo</code></a>,
+      <a href="/pkg/go/types/#ConvertibleTo"><code>ConvertibleTo</code></a>,
+      <a href="/pkg/go/types/#Implements"><code>Implements</code></a>,
+      <a href="/pkg/go/types/#Identical"><code>Identical</code></a>,
+      <a href="/pkg/go/types/#IdenticalIgnoreTags"><code>IdenticalIgnoreTags</code></a>, and
+      <a href="/pkg/go/types/#AssertableTo"><code>AssertableTo</code></a>
+      now also work with arguments that are or contain generalized interfaces, i.e. interfaces
+      that may only be used as type constraints in Go code.
+      Note that the behavior of <code>AssertableTo</code> is undefined if the first argument
+      is a generalized interface.
+    </p>
   </dd>
 </dl>
 
@@ -897,7 +1068,7 @@ Do not send CLs removing the interior tags from such phrases.
       The old names will continue to work, but will be deprecated in a
       future Go release.
     </p>
-  </dd>
+  </dd><!-- CL 321889 and CL 345486 are optimizations, no need to mention. -->
 </dl><!-- reflect -->
 
 <dl id="regexp"><dt><a href="/pkg/regexp/">regexp</a></dt>
