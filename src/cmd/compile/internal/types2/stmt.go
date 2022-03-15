@@ -239,7 +239,7 @@ L:
 		}
 		// Order matters: By comparing v against x, error positions are at the case values.
 		res := v // keep original v unchanged
-		check.comparison(&res, x, syntax.Eql)
+		check.comparison(&res, x, syntax.Eql, true)
 		if res.mode == invalid {
 			continue L
 		}
@@ -274,7 +274,8 @@ func (check *Checker) isNil(e syntax.Expr) bool {
 	return false
 }
 
-func (check *Checker) caseTypes(x *operand, xtyp *Interface, types []syntax.Expr, seen map[Type]syntax.Expr) (T Type) {
+// If the type switch expression is invalid, x is nil.
+func (check *Checker) caseTypes(x *operand, types []syntax.Expr, seen map[Type]syntax.Expr) (T Type) {
 	var dummy operand
 L:
 	for _, e := range types {
@@ -305,8 +306,8 @@ L:
 			}
 		}
 		seen[T] = e
-		if T != nil && xtyp != nil {
-			check.typeAssertion(e, x, xtyp, T, true)
+		if x != nil && T != nil {
+			check.typeAssertion(e, x, T, true)
 		}
 	}
 	return
@@ -408,9 +409,9 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 		if ch.mode == invalid || val.mode == invalid {
 			return
 		}
-		u := structuralType(ch.typ)
+		u := coreType(ch.typ)
 		if u == nil {
-			check.errorf(s, invalidOp+"cannot send to %s: no structural type", &ch)
+			check.errorf(s, invalidOp+"cannot send to %s: no core type", &ch)
 			return
 		}
 		uch, _ := u.(*Chan)
@@ -625,13 +626,14 @@ func (check *Checker) stmt(ctxt stmtContext, s syntax.Stmt) {
 
 	case *syntax.ForStmt:
 		inner |= breakOk | continueOk
-		check.openScope(s, "for")
-		defer check.closeScope()
 
 		if rclause, _ := s.Init.(*syntax.RangeClause); rclause != nil {
 			check.rangeStmt(inner, s, rclause)
 			break
 		}
+
+		check.openScope(s, "for")
+		defer check.closeScope()
 
 		check.simpleStmt(s.Init)
 		if s.Cond != nil {
@@ -733,12 +735,13 @@ func (check *Checker) typeSwitchStmt(inner stmtContext, s *syntax.SwitchStmt, gu
 	}
 
 	// TODO(gri) we may want to permit type switches on type parameter values at some point
-	var xtyp *Interface
+	var sx *operand // switch expression against which cases are compared against; nil if invalid
 	if isTypeParam(x.typ) {
 		check.errorf(&x, "cannot use type switch on type parameter value %s", &x)
 	} else {
-		xtyp, _ = under(x.typ).(*Interface)
-		if xtyp == nil {
+		if _, ok := under(x.typ).(*Interface); ok {
+			sx = &x
+		} else {
 			check.errorf(&x, "%s is not an interface", &x)
 		}
 	}
@@ -758,7 +761,7 @@ func (check *Checker) typeSwitchStmt(inner stmtContext, s *syntax.SwitchStmt, gu
 		}
 		// Check each type in this type switch case.
 		cases := unpackExpr(clause.Cases)
-		T := check.caseTypes(&x, xtyp, cases, seen)
+		T := check.caseTypes(sx, cases, seen)
 		check.openScopeUntil(clause, end, "case")
 		// If lhs exists, declare a corresponding variable in the case-local scope.
 		if lhs != nil {
@@ -807,8 +810,6 @@ func (check *Checker) typeSwitchStmt(inner stmtContext, s *syntax.SwitchStmt, gu
 }
 
 func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *syntax.RangeClause) {
-	// scope already opened
-
 	// determine lhs, if any
 	sKey := rclause.Lhs // possibly nil
 	var sValue, sExtra syntax.Expr
@@ -833,9 +834,9 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 	// determine key/value types
 	var key, val Type
 	if x.mode != invalid {
-		// Ranging over a type parameter is permitted if it has a structural type.
+		// Ranging over a type parameter is permitted if it has a core type.
 		var cause string
-		u := structuralType(x.typ)
+		u := coreType(x.typ)
 		if t, _ := u.(*Chan); t != nil {
 			if sValue != nil {
 				check.softErrorf(sValue, "range over %s permits only one iteration variable", &x)
@@ -850,7 +851,7 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 				// ok to continue
 			}
 			if u == nil {
-				cause = check.sprintf("%s has no structural type", x.typ)
+				cause = check.sprintf("%s has no core type", x.typ)
 			}
 		}
 		key, val = rangeKeyVal(u)
@@ -864,6 +865,11 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 		}
 	}
 
+	// Open the for-statement block scope now, after the range clause.
+	// Iteration variables declared with := need to go in this scope (was issue #51437).
+	check.openScope(s, "range")
+	defer check.closeScope()
+
 	// check assignment to/declaration of iteration variables
 	// (irregular assignment, cannot easily map to existing assignment checks)
 
@@ -872,9 +878,7 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 	rhs := [2]Type{key, val} // key, val may be nil
 
 	if rclause.Def {
-		// short variable declaration; variable scope starts after the range clause
-		// (the for loop opens a new scope, so variables on the lhs never redeclare
-		// previously declared variables)
+		// short variable declaration
 		var vars []*Var
 		for i, lhs := range lhs {
 			if lhs == nil {
@@ -911,12 +915,8 @@ func (check *Checker) rangeStmt(inner stmtContext, s *syntax.ForStmt, rclause *s
 
 		// declare variables
 		if len(vars) > 0 {
-			scopePos := syntax.EndPos(rclause.X) // TODO(gri) should this just be s.Body.Pos (spec clarification)?
+			scopePos := s.Body.Pos()
 			for _, obj := range vars {
-				// spec: "The scope of a constant or variable identifier declared inside
-				// a function begins at the end of the ConstSpec or VarSpec (ShortVarDecl
-				// for short variable declarations) and ends at the end of the innermost
-				// containing block."
 				check.declare(check.scope, nil /* recordDef already called */, obj, scopePos)
 			}
 		} else {
