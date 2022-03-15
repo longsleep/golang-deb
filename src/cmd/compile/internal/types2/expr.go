@@ -899,7 +899,7 @@ func (check *Checker) incomparableCause(typ Type) string {
 	}
 	// see if we can extract a more specific error
 	var cause string
-	comparable(typ, nil, func(format string, args ...interface{}) {
+	comparable(typ, true, nil, func(format string, args ...interface{}) {
 		cause = check.sprintf(format, args...)
 	})
 	return cause
@@ -1360,6 +1360,10 @@ func (check *Checker) exprInternal(x *operand, e syntax.Expr, hint Type) exprKin
 			// no composite literal type present - use hint (element type of enclosing type)
 			typ = hint
 			base, _ = deref(coreType(typ)) // *T implies &T{}
+			if base == nil {
+				check.errorf(e, "invalid composite literal element type %s: no core type", typ)
+				goto Error
+			}
 
 		default:
 			// TODO(gri) provide better error messages depending on context
@@ -1552,7 +1556,7 @@ func (check *Checker) exprInternal(x *operand, e syntax.Expr, hint Type) exprKin
 		return kind
 
 	case *syntax.SelectorExpr:
-		check.selector(x, e)
+		check.selector(x, e, nil)
 
 	case *syntax.IndexExpr:
 		if check.indexExpr(x, e) {
@@ -1638,6 +1642,7 @@ func (check *Checker) exprInternal(x *operand, e syntax.Expr, hint Type) exprKin
 				case invalid:
 					goto Error
 				case typexpr:
+					check.validVarType(e.X, x.typ)
 					x.typ = &Pointer{base: x.typ}
 				default:
 					var base Type
