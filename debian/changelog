@@ -1,3 +1,9 @@
+golang-1.18 (1.18-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * Rebuild for bullseye-backports.
+
+ -- Anthony Fok <foka@debian.org>  Sun, 20 Mar 2022 00:20:40 -0600
+
 golang-1.18 (1.18-1) unstable; urgency=medium
 
   * New upstream version 1.18
