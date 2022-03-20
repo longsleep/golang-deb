@@ -1,3 +1,12 @@
+golang-1.17 (1.17.8-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * Rebuild for bullseye-backports.
+  * New upstream version 1.17.8
+    + CVE-2022-24921: regexp: stack exhaustion compiling deeply nested
+      expressions
+
+ -- Anthony Fok <foka@debian.org>  Sat, 19 Mar 2022 23:45:48 -0600
+
 golang-1.17 (1.17.8-1) unstable; urgency=medium
 
   * Team upload.
