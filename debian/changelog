@@ -1,3 +1,12 @@
+golang-1.17 (1.17.8-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.17.8
+    + CVE-2022-24921: regexp: stack exhaustion compiling deeply nested
+      expressions
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 04 Mar 2022 11:08:00 +0800
+
 golang-1.17 (1.17.7-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
