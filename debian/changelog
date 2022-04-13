@@ -1,6 +1,11 @@
 golang-1.18 (1.18.1-1) unstable; urgency=medium
 
   * New upstream version 1.18.1
+    + CVE-2022-24675: encoding/pem: fix stack overflow in Decode
+    + CVE-2022-28327: crypto/elliptic: tolerate all oversized scalars
+      in generic P-256
+    + CVE-2022-27536: crypto/x509: non-compliant certificates can
+      cause a panic in Verify on macOS in Go 1.18
 
  -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Wed, 13 Apr 2022 12:54:36 -0500
 
