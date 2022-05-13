@@ -2,3 +2,4 @@
 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch
 0005-cmd-dist-increase-default-timeout-scale-for-arm.patch
 0006-skip-userns-test-in-schroot-as-well.patch
+0007-cmd-link-use-TOC-relative-trampolines-on-PPC64-when-.patch
