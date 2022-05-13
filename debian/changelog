@@ -1,3 +1,12 @@
+golang-1.18 (1.18.2-1) unstable; urgency=medium
+
+  * New upstream version 1.18.2
+  * d/p/0007-cmd-link-use-TOC-relative-trampolines-on-PPC64-when-.patch:
+    Use TOC-relative trampolines on ppc64el when needed.  Fix link error
+    when building PIE binaries. (Closes: #1010942)
+
+ -- Sergio Durigan Junior <sergiodj@debian.org>  Fri, 13 May 2022 14:07:03 -0400
+
 golang-1.18 (1.18.1-1) unstable; urgency=medium
 
   * New upstream version 1.18.1
