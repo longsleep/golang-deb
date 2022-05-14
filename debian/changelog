@@ -1,3 +1,11 @@
+golang-1.18 (1.18.2-2) unstable; urgency=medium
+
+  * d/p/0007-cmd-link-use-TOC-relative-trampolines-on-PPC64-when-.patch:
+    Remove patch.  It's causing the build on ppc64el to FTBFS during link
+    time.
+
+ -- Sergio Durigan Junior <sergiodj@debian.org>  Sat, 14 May 2022 15:22:04 -0400
+
 golang-1.18 (1.18.2-1) unstable; urgency=medium
 
   * New upstream version 1.18.2
