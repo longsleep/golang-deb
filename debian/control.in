@@ -14,7 +14,7 @@ Build-Depends: debhelper-compat (= 13),
 Standards-Version: 4.6.0
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-X.Y
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-X.Y
-Homepage: https://golang.org
+Homepage: https://go.dev/
 Rules-Requires-Root: no
 
 Package: golang-X.Y-go
