@@ -1,3 +1,17 @@
+golang-1.17 (1.17.11-1) unstable; urgency=medium
+
+  * New upstream version 1.17.11
+    + CVE-2022-30634: crypto/rand: rand.Read hangs with extremely large buffers
+      (Go issue https://go.dev/issue/52561)
+    + CVE-2022-30629: crypto/tls: session tickets lack random ticket_age_add
+      (Go issue https://go.dev/issue/52814)
+    + CVE-2022-30580: os/exec: empty Cmd.Path can result in running unintended
+      binary on Windows (Go issue https://go.dev/issue/52574)
+    + CVE-2022-29804: path/filepath: Clean(`.\c:`) returns `c:` on Windows
+      (Go issue https://go.dev/issue/52476)
+
+ -- Anthony Fok <foka@debian.org>  Sat, 04 Jun 2022 01:35:32 -0600
+
 golang-1.17 (1.17.10-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
