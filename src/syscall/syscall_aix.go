@@ -15,6 +15,11 @@ import (
 	"unsafe"
 )
 
+func Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
+func Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
+func RawSyscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
+func RawSyscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
+
 // Implemented in runtime/syscall_aix.go.
 func rawSyscall6(trap, nargs, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
 func syscall6(trap, nargs, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
@@ -60,6 +65,7 @@ func Access(path string, mode uint32) (err error) {
 //sys	Dup2(old int, new int) (err error)
 
 //sysnb pipe(p *[2]_C_int) (err error)
+
 func Pipe(p []int) (err error) {
 	if len(p) != 2 {
 		return EINVAL
@@ -74,12 +80,14 @@ func Pipe(p []int) (err error) {
 }
 
 //sys	readlink(path string, buf []byte, bufSize uint64) (n int, err error)
+
 func Readlink(path string, buf []byte) (n int, err error) {
 	s := uint64(len(buf))
 	return readlink(path, buf, s)
 }
 
 //sys	utimes(path string, times *[2]Timeval) (err error)
+
 func Utimes(path string, tv []Timeval) error {
 	if len(tv) != 2 {
 		return EINVAL
@@ -88,6 +96,7 @@ func Utimes(path string, tv []Timeval) error {
 }
 
 //sys	utimensat(dirfd int, path string, times *[2]Timespec, flag int) (err error)
+
 func UtimesNano(path string, ts []Timespec) error {
 	if len(ts) != 2 {
 		return EINVAL
@@ -96,6 +105,7 @@ func UtimesNano(path string, ts []Timespec) error {
 }
 
 //sys	unlinkat(dirfd int, path string, flags int) (err error)
+
 func Unlinkat(dirfd int, path string) (err error) {
 	return unlinkat(dirfd, path, 0)
 }
@@ -201,11 +211,13 @@ func sendfile(outfd int, infd int, offset *int64, count int) (written int, err e
 }
 
 //sys	getdirent(fd int, buf []byte) (n int, err error)
+
 func ReadDirent(fd int, buf []byte) (n int, err error) {
 	return getdirent(fd, buf)
 }
 
 //sys  wait4(pid _Pid_t, status *_C_int, options int, rusage *Rusage) (wpid _Pid_t, err error)
+
 func Wait4(pid int, wstatus *WaitStatus, options int, rusage *Rusage) (wpid int, err error) {
 	var status _C_int
 	var r _Pid_t
@@ -223,6 +235,7 @@ func Wait4(pid int, wstatus *WaitStatus, options int, rusage *Rusage) (wpid int,
 }
 
 //sys	fsyncRange(fd int, how int, start int64, length int64) (err error) = fsync_range
+
 func Fsync(fd int) error {
 	return fsyncRange(fd, O_SYNC, 0, 0)
 }
@@ -308,6 +321,7 @@ func Getsockname(fd int) (sa Sockaddr, err error) {
 }
 
 //sys	accept(s int, rsa *RawSockaddrAny, addrlen *_Socklen) (fd int, err error)
+
 func Accept(fd int) (nfd int, sa Sockaddr, err error) {
 	var rsa RawSockaddrAny
 	var len _Socklen = SizeofSockaddrAny
@@ -594,6 +608,7 @@ func PtraceDetach(pid int) (err error) { return ptrace64(PT_DETACH, int64(pid), 
 //sys	Getppid() (ppid int)
 //sys	Getpriority(which int, who int) (n int, err error)
 //sysnb	Getrlimit(which int, lim *Rlimit) (err error)
+//sysnb	Getrusage(who int, rusage *Rusage) (err error)
 //sysnb	Getuid() (uid int)
 //sys	Kill(pid int, signum Signal) (err error)
 //sys	Lchown(path string, uid int, gid int) (err error)
@@ -603,8 +618,8 @@ func PtraceDetach(pid int) (err error) { return ptrace64(PT_DETACH, int64(pid), 
 //sys	Mkdirat(dirfd int, path string, mode uint32) (err error)
 //sys	Mknodat(dirfd int, path string, mode uint32, dev int) (err error)
 //sys	Open(path string, mode int, perm uint32) (fd int, err error)
-//sys	Pread(fd int, p []byte, offset int64) (n int, err error)
-//sys	Pwrite(fd int, p []byte, offset int64) (n int, err error)
+//sys	pread(fd int, p []byte, offset int64) (n int, err error)
+//sys	pwrite(fd int, p []byte, offset int64) (n int, err error)
 //sys	read(fd int, p []byte) (n int, err error)
 //sys	Reboot(how int) (err error)
 //sys	Rename(from string, to string) (err error)

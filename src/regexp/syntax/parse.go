@@ -43,6 +43,7 @@ const (
 	ErrMissingRepeatArgument ErrorCode = "missing argument to repetition operator"
 	ErrTrailingBackslash     ErrorCode = "trailing backslash at end of expression"
 	ErrUnexpectedParen       ErrorCode = "unexpected )"
+	ErrNestingDepth          ErrorCode = "expression nests too deeply"
 )
 
 func (e ErrorCode) String() string {
@@ -133,7 +134,7 @@ func (p *parser) checkHeight(re *Regexp) {
 		}
 	}
 	if p.calcHeight(re, true) > maxHeight {
-		panic(ErrInternalError)
+		panic(ErrNestingDepth)
 	}
 }
 
@@ -444,12 +445,16 @@ func (p *parser) collapse(subs []*Regexp, op Op) *Regexp {
 // frees (passes to p.reuse) any removed *Regexps.
 //
 // For example,
-//     ABC|ABD|AEF|BCX|BCY
-// simplifies by literal prefix extraction to
-//     A(B(C|D)|EF)|BC(X|Y)
-// which simplifies by character class introduction to
-//     A(B[CD]|EF)|BC[XY]
 //
+//	ABC|ABD|AEF|BCX|BCY
+//
+// simplifies by literal prefix extraction to
+//
+//	A(B(C|D)|EF)|BC(X|Y)
+//
+// which simplifies by character class introduction to
+//
+//	A(B[CD]|EF)|BC[XY]
 func (p *parser) factor(sub []*Regexp) []*Regexp {
 	if len(sub) < 2 {
 		return sub
@@ -757,8 +762,8 @@ func parse(s string, flags Flags) (_ *Regexp, err error) {
 			panic(r)
 		case nil:
 			// ok
-		case ErrInternalError:
-			err = &Error{Code: ErrInternalError, Expr: s}
+		case ErrNestingDepth:
+			err = &Error{Code: ErrNestingDepth, Expr: s}
 		}
 	}()
 

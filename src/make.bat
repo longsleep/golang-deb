@@ -46,10 +46,7 @@ if x%4==x--no-local goto nolocal
 setlocal
 :nolocal
 
-set GOENV=off
 set GOBUILDFAIL=0
-set GOFLAGS=
-set GO111MODULE=
 
 if exist make.bat goto ok
 echo Must run make.bat from Go src directory.
@@ -99,13 +96,16 @@ set GOROOT=%GOROOT_BOOTSTRAP%
 set GOOS=
 set GOARCH=
 set GOBIN=
+set GOEXPERIMENT=
 set GO111MODULE=off
+set GOENV=off
+set GOFLAGS=
 "%GOROOT_BOOTSTRAP%\bin\go.exe" build -o cmd\dist\dist.exe .\cmd\dist
 endlocal
 if errorlevel 1 goto fail
 .\cmd\dist\dist.exe env -w -p >env.bat
 if errorlevel 1 goto fail
-call env.bat
+call .\env.bat
 del env.bat
 if x%vflag==x-v echo.
 

@@ -143,31 +143,6 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		p1.To.Type = obj.TYPE_REG
 		p1.To.Reg = v.Reg1()
 
-	case ssa.OpPPC64LoweredAdd64Carry:
-		// ADDC		Rarg2, -1, Rtmp
-		// ADDE		Rarg1, Rarg0, Reg0
-		// ADDZE	Rzero, Reg1
-		r0 := v.Args[0].Reg()
-		r1 := v.Args[1].Reg()
-		r2 := v.Args[2].Reg()
-		p := s.Prog(ppc64.AADDC)
-		p.From.Type = obj.TYPE_CONST
-		p.From.Offset = -1
-		p.Reg = r2
-		p.To.Type = obj.TYPE_REG
-		p.To.Reg = ppc64.REGTMP
-		p1 := s.Prog(ppc64.AADDE)
-		p1.From.Type = obj.TYPE_REG
-		p1.From.Reg = r1
-		p1.Reg = r0
-		p1.To.Type = obj.TYPE_REG
-		p1.To.Reg = v.Reg0()
-		p2 := s.Prog(ppc64.AADDZE)
-		p2.From.Type = obj.TYPE_REG
-		p2.From.Reg = ppc64.REGZERO
-		p2.To.Type = obj.TYPE_REG
-		p2.To.Reg = v.Reg1()
-
 	case ssa.OpPPC64LoweredAtomicAnd8,
 		ssa.OpPPC64LoweredAtomicAnd32,
 		ssa.OpPPC64LoweredAtomicOr8,
@@ -468,6 +443,10 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		p8 := s.Prog(obj.ANOP)
 		p6.To.SetTarget(p8)
 
+	case ssa.OpPPC64LoweredPubBarrier:
+		// LWSYNC
+		s.Prog(v.Op.Asm())
+
 	case ssa.OpPPC64LoweredGetClosurePtr:
 		// Closure pointer is R11 (already)
 		ssagen.CheckLoweredGetClosurePtr(v)
@@ -476,7 +455,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		// caller's SP is FixedFrameSize below the address of the first arg
 		p := s.Prog(ppc64.AMOVD)
 		p.From.Type = obj.TYPE_ADDR
-		p.From.Offset = -base.Ctxt.FixedFrameSize()
+		p.From.Offset = -base.Ctxt.Arch.FixedFrameSize
 		p.From.Name = obj.NAME_PARAM
 		p.To.Type = obj.TYPE_REG
 		p.To.Reg = v.Reg()
@@ -509,7 +488,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		for _, a := range v.Block.Func.RegArgs {
 			// Pass the spill/unspill information along to the assembler, offset by size of
 			// the saved LR slot.
-			addr := ssagen.SpillSlotAddr(a, ppc64.REGSP, base.Ctxt.FixedFrameSize())
+			addr := ssagen.SpillSlotAddr(a, ppc64.REGSP, base.Ctxt.Arch.FixedFrameSize)
 			s.FuncInfo().AddSpill(
 				obj.RegSpill{Reg: a.Reg, Addr: addr, Unspill: loadByType(a.Type), Spill: storeByType(a.Type)})
 		}
@@ -733,6 +712,41 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		p.To.Type = obj.TYPE_REG
 		p.To.Reg = v.Reg()
 
+	case ssa.OpPPC64ADDC, ssa.OpPPC64ADDE, ssa.OpPPC64SUBC, ssa.OpPPC64SUBE:
+		r := v.Reg0() // CA is the first, implied argument.
+		r1 := v.Args[0].Reg()
+		r2 := v.Args[1].Reg()
+		p := s.Prog(v.Op.Asm())
+		p.From.Type = obj.TYPE_REG
+		p.From.Reg = r2
+		p.Reg = r1
+		p.To.Type = obj.TYPE_REG
+		p.To.Reg = r
+
+	case ssa.OpPPC64ADDZEzero, ssa.OpPPC64SUBZEzero:
+		p := s.Prog(v.Op.Asm())
+		p.From.Type = obj.TYPE_REG
+		p.From.Reg = ppc64.REG_R0
+		p.To.Type = obj.TYPE_REG
+		p.To.Reg = v.Reg()
+
+	case ssa.OpPPC64ADDCconst:
+		p := s.Prog(v.Op.Asm())
+		p.Reg = v.Args[0].Reg()
+		p.From.Type = obj.TYPE_CONST
+		p.From.Offset = v.AuxInt
+		p.To.Type = obj.TYPE_REG
+		// Output is a pair, the second is the CA, which is implied.
+		p.To.Reg = v.Reg0()
+
+	case ssa.OpPPC64SUBCconst:
+		p := s.Prog(v.Op.Asm())
+		p.SetFrom3Const(v.AuxInt)
+		p.From.Type = obj.TYPE_REG
+		p.From.Reg = v.Args[0].Reg()
+		p.To.Type = obj.TYPE_REG
+		p.To.Reg = v.Reg0()
+
 	case ssa.OpPPC64SUBFCconst:
 		p := s.Prog(v.Op.Asm())
 		p.SetFrom3Const(v.AuxInt)
@@ -816,7 +830,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 	case ssa.OpPPC64MOVDload, ssa.OpPPC64MOVWload:
 
 		// MOVDload and MOVWload are DS form instructions that are restricted to
-		// offsets that are a multiple of 4. If the offset is not a multple of 4,
+		// offsets that are a multiple of 4. If the offset is not a multiple of 4,
 		// then the address of the symbol to be loaded is computed (base + offset)
 		// and used as the new base register and the offset field in the instruction
 		// can be set to zero.
@@ -919,7 +933,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 	case ssa.OpPPC64MOVDstore, ssa.OpPPC64MOVDstorezero:
 
 		// MOVDstore and MOVDstorezero become DS form instructions that are restricted
-		// to offset values that are a multple of 4. If the offset field is not a
+		// to offset values that are a multiple of 4. If the offset field is not a
 		// multiple of 4, then the full address of the store target is computed (base +
 		// offset) and used as the new base register and the offset in the instruction
 		// is set to 0.
@@ -1108,7 +1122,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 			p = s.Prog(ppc64.ABC)
 			p.From.Type = obj.TYPE_CONST
 			p.From.Offset = ppc64.BO_BCTR
-			p.Reg = ppc64.REG_R0
+			p.Reg = ppc64.REG_CR0LT
 			p.To.Type = obj.TYPE_BRANCH
 			p.To.SetTarget(top)
 		}
@@ -1308,7 +1322,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 			p = s.Prog(ppc64.ABC)
 			p.From.Type = obj.TYPE_CONST
 			p.From.Offset = ppc64.BO_BCTR
-			p.Reg = ppc64.REG_R0
+			p.Reg = ppc64.REG_CR0LT
 			p.To.Type = obj.TYPE_BRANCH
 			p.To.SetTarget(top)
 		}
@@ -1487,7 +1501,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 			p = s.Prog(ppc64.ABC)
 			p.From.Type = obj.TYPE_CONST
 			p.From.Offset = ppc64.BO_BCTR
-			p.Reg = ppc64.REG_R0
+			p.Reg = ppc64.REG_CR0LT
 			p.To.Type = obj.TYPE_BRANCH
 			p.To.SetTarget(top)
 
@@ -1734,7 +1748,7 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 			p = s.Prog(ppc64.ABC)
 			p.From.Type = obj.TYPE_CONST
 			p.From.Offset = ppc64.BO_BCTR
-			p.Reg = ppc64.REG_R0
+			p.Reg = ppc64.REG_CR0LT
 			p.To.Type = obj.TYPE_BRANCH
 			p.To.SetTarget(top)
 
@@ -1866,9 +1880,14 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		}
 
 		pp := s.Call(v)
-		pp.To.Reg = ppc64.REG_LR
 
-		// Insert a hint this is not a subroutine return.
+		// Convert the call into a blrl with hint this is not a subroutine return.
+		// The full bclrl opcode must be specified when passing a hint.
+		pp.As = ppc64.ABCL
+		pp.From.Type = obj.TYPE_CONST
+		pp.From.Offset = ppc64.BO_ALWAYS
+		pp.Reg = ppc64.REG_CR0LT // The preferred value if BI is ignored.
+		pp.To.Reg = ppc64.REG_LR
 		pp.SetFrom3Const(1)
 
 		if base.Ctxt.Flag_shared {

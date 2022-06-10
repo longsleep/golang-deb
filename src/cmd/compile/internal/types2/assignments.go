@@ -44,7 +44,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 				x.mode = invalid
 				return
 			}
-		} else if T == nil || IsInterface(T) && !isTypeParam(T) {
+		} else if T == nil || isNonTypeParamInterface(T) {
 			target = Default(x.typ)
 		}
 		newType, val, code := check.implicitTypeAndValue(x, target)
@@ -441,8 +441,8 @@ func (check *Checker) assignVars(lhs, orig_rhs []syntax.Expr) {
 // unpack unpacks a *syntax.ListExpr into a list of syntax.Expr.
 // Helper introduced for the go/types -> types2 port.
 // TODO(gri) Should find a more efficient solution that doesn't
-//           require introduction of a new slice for simple
-//           expressions.
+// require introduction of a new slice for simple
+// expressions.
 func unpackExpr(x syntax.Expr) []syntax.Expr {
 	if x, _ := x.(*syntax.ListExpr); x != nil {
 		return x.ElemList

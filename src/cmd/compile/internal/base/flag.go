@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 
+	"cmd/internal/obj"
 	"cmd/internal/objabi"
 	"cmd/internal/sys"
 )
@@ -55,10 +56,9 @@ type CmdFlags struct {
 	C CountFlag    "help:\"disable printing of columns in error messages\""
 	D string       "help:\"set relative `path` for local imports\""
 	E CountFlag    "help:\"debug symbol export\""
-	G CountFlag    "help:\"accept generic code\""
 	I func(string) "help:\"add `directory` to import search path\""
 	K CountFlag    "help:\"debug missing line numbers\""
-	L CountFlag    "help:\"show full file names in error messages\""
+	L CountFlag    "help:\"also show actual source file names in error messages for positions affected by //line directives\""
 	N CountFlag    "help:\"disable optimizations\""
 	S CountFlag    "help:\"print assembly listing\""
 	// V is added by objabi.AddVersionFlag
@@ -141,7 +141,6 @@ type CmdFlags struct {
 
 // ParseFlags parses the command-line flags into Flag.
 func ParseFlags() {
-	Flag.G = 3
 	Flag.I = addImportDir
 
 	Flag.LowerC = 1
@@ -193,6 +192,7 @@ func ParseFlags() {
 	Ctxt.Flag_optimize = Flag.N == 0
 	Ctxt.Debugasm = int(Flag.S)
 	Ctxt.Flag_maymorestack = Debug.MayMoreStack
+	Ctxt.Flag_noRefName = Debug.NoRefName != 0
 
 	if flag.NArg() < 1 {
 		usage()
@@ -201,6 +201,10 @@ func ParseFlags() {
 	if Flag.GoVersion != "" && Flag.GoVersion != runtime.Version() {
 		fmt.Printf("compile: version %q does not match go tool version %q\n", runtime.Version(), Flag.GoVersion)
 		Exit(2)
+	}
+
+	if *Flag.LowerP == "" {
+		*Flag.LowerP = obj.UnlinkablePkg
 	}
 
 	if Flag.LowerO == "" {

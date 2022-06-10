@@ -168,6 +168,9 @@ type Frontend interface {
 
 	// MyImportPath provides the import name (roughly, the package) for the function being compiled.
 	MyImportPath() string
+
+	// LSym returns the linker symbol of the function being compiled.
+	LSym() string
 }
 
 // NewConfig returns a new configuration object for the given architecture.
@@ -239,6 +242,7 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.registers = registersPPC64[:]
 		c.gpRegMask = gpRegMaskPPC64
 		c.fpRegMask = fpRegMaskPPC64
+		c.specialRegMask = specialRegMaskPPC64
 		c.intParamRegs = paramIntRegPPC64
 		c.floatParamRegs = paramFloatRegPPC64
 		c.FPReg = framepointerRegPPC64
@@ -258,6 +262,17 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.specialRegMask = specialRegMaskMIPS64
 		c.FPReg = framepointerRegMIPS64
 		c.LinkReg = linkRegMIPS64
+		c.hasGReg = true
+	case "loong64":
+		c.PtrSize = 8
+		c.RegSize = 8
+		c.lowerBlock = rewriteBlockLOONG64
+		c.lowerValue = rewriteValueLOONG64
+		c.registers = registersLOONG64[:]
+		c.gpRegMask = gpRegMaskLOONG64
+		c.fpRegMask = fpRegMaskLOONG64
+		c.FPReg = framepointerRegLOONG64
+		c.LinkReg = linkRegLOONG64
 		c.hasGReg = true
 	case "s390x":
 		c.PtrSize = 8
@@ -296,6 +311,8 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.registers = registersRISCV64[:]
 		c.gpRegMask = gpRegMaskRISCV64
 		c.fpRegMask = fpRegMaskRISCV64
+		c.intParamRegs = paramIntRegRISCV64
+		c.floatParamRegs = paramFloatRegRISCV64
 		c.FPReg = framepointerRegRISCV64
 		c.hasGReg = true
 	case "wasm":
@@ -326,8 +343,8 @@ func NewConfig(arch string, types Types, ctxt *obj.Link, optimize, softfloat boo
 		c.floatParamRegs = nil // no FP registers in softfloat mode
 	}
 
-	c.ABI0 = abi.NewABIConfig(0, 0, ctxt.FixedFrameSize())
-	c.ABI1 = abi.NewABIConfig(len(c.intParamRegs), len(c.floatParamRegs), ctxt.FixedFrameSize())
+	c.ABI0 = abi.NewABIConfig(0, 0, ctxt.Arch.FixedFrameSize)
+	c.ABI1 = abi.NewABIConfig(len(c.intParamRegs), len(c.floatParamRegs), ctxt.Arch.FixedFrameSize)
 
 	// On Plan 9, floating point operations are not allowed in note handler.
 	if buildcfg.GOOS == "plan9" {

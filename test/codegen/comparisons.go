@@ -45,7 +45,7 @@ func CompareString3(s string) bool {
 // Check that arrays compare use 2/4/8 byte compares
 
 func CompareArray1(a, b [2]byte) bool {
-	// amd64:`CMPW\t""[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPW\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
 	// arm64:-`MOVBU\t`
 	// ppc64le:-`MOVBZ\t`
 	// s390x:-`MOVBZ\t`
@@ -53,25 +53,25 @@ func CompareArray1(a, b [2]byte) bool {
 }
 
 func CompareArray2(a, b [3]uint16) bool {
-	// amd64:`CMPL\t""[.+_a-z0-9]+\(SP\), [A-Z]`
-	// amd64:`CMPW\t""[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPL\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPW\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
 	return a == b
 }
 
 func CompareArray3(a, b [3]int16) bool {
-	// amd64:`CMPL\t""[.+_a-z0-9]+\(SP\), [A-Z]`
-	// amd64:`CMPW\t""[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPL\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPW\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
 	return a == b
 }
 
 func CompareArray4(a, b [12]int8) bool {
-	// amd64:`CMPQ\t""[.+_a-z0-9]+\(SP\), [A-Z]`
-	// amd64:`CMPL\t""[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPQ\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPL\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
 	return a == b
 }
 
 func CompareArray5(a, b [15]byte) bool {
-	// amd64:`CMPQ\t""[.+_a-z0-9]+\(SP\), [A-Z]`
+	// amd64:`CMPQ\tcommand-line-arguments[.+_a-z0-9]+\(SP\), [A-Z]`
 	return a == b
 }
 
@@ -161,7 +161,7 @@ func CmpZero4(a int64, ptr *int) {
 	}
 }
 
-func CmpToZero(a, b, d int32, e, f int64) int32 {
+func CmpToZero(a, b, d int32, e, f int64, deOptC0, deOptC1 bool) int32 {
 	// arm:`TST`,-`AND`
 	// arm64:`TSTW`,-`AND`
 	// 386:`TESTL`,-`ANDL`
@@ -201,13 +201,17 @@ func CmpToZero(a, b, d int32, e, f int64) int32 {
 	} else if c4 {
 		return 5
 	} else if c5 {
-		return b + d
+		return 6
 	} else if c6 {
-		return a & d
-	} else if c7 {
 		return 7
+	} else if c7 {
+		return 9
 	} else if c8 {
-		return 8
+		return 10
+	} else if deOptC0 {
+		return b + d
+	} else if deOptC1 {
+		return a & d
 	} else {
 		return 0
 	}

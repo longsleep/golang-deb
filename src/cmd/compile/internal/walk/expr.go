@@ -20,7 +20,8 @@ import (
 )
 
 // The result of walkExpr MUST be assigned back to n, e.g.
-// 	n.Left = walkExpr(n.Left, init)
+//
+//	n.Left = walkExpr(n.Left, init)
 func walkExpr(n ir.Node, init *ir.Nodes) ir.Node {
 	if n == nil {
 		return n
@@ -479,7 +480,7 @@ func walkAddString(n *ir.AddStringExpr, init *ir.Nodes) ir.Node {
 
 		t := types.NewSlice(types.Types[types.TSTRING])
 		// args[1:] to skip buf arg
-		slice := ir.NewCompLitExpr(base.Pos, ir.OCOMPLIT, ir.TypeNode(t), args[1:])
+		slice := ir.NewCompLitExpr(base.Pos, ir.OCOMPLIT, t, args[1:])
 		slice.Prealloc = n.Prealloc
 		args = []ir.Node{buf, slice}
 		slice.SetEsc(ir.EscNone)
@@ -493,6 +494,16 @@ func walkAddString(n *ir.AddStringExpr, init *ir.Nodes) ir.Node {
 	r1.SetType(n.Type())
 
 	return r1
+}
+
+type hookInfo struct {
+	paramType   types.Kind
+	argsNum     int
+	runtimeFunc string
+}
+
+var hooks = map[string]hookInfo{
+	"strings.EqualFold": {paramType: types.TSTRING, argsNum: 2, runtimeFunc: "libfuzzerHookEqualFold"},
 }
 
 // walkCall walks an OCALLFUNC or OCALLINTER node.
@@ -590,6 +601,20 @@ func walkCall1(n *ir.CallExpr, init *ir.Nodes) {
 	}
 
 	n.Args = args
+	funSym := n.X.Sym()
+	if base.Debug.Libfuzzer != 0 && funSym != nil {
+		if hook, found := hooks[funSym.Pkg.Path+"."+funSym.Name]; found {
+			if len(args) != hook.argsNum {
+				panic(fmt.Sprintf("%s.%s expects %d arguments, but received %d", funSym.Pkg.Path, funSym.Name, hook.argsNum, len(args)))
+			}
+			var hookArgs []ir.Node
+			for _, arg := range args {
+				hookArgs = append(hookArgs, tracecmpArg(arg, types.Types[hook.paramType], init))
+			}
+			hookArgs = append(hookArgs, fakePC(n))
+			init.Append(mkcall(hook.runtimeFunc, nil, init, hookArgs...))
+		}
+	}
 }
 
 // walkDivMod walks an ODIV or OMOD node.
@@ -665,7 +690,7 @@ func walkDotType(n *ir.TypeAssertExpr, init *ir.Nodes) ir.Node {
 	n.X = walkExpr(n.X, init)
 	// Set up interface type addresses for back end.
 	if !n.Type().IsInterface() && !n.X.Type().IsEmptyInterface() {
-		n.Itab = reflectdata.ITabAddr(n.Type(), n.X.Type())
+		n.ITab = reflectdata.ITabAddr(n.Type(), n.X.Type())
 	}
 	return n
 }
@@ -673,7 +698,8 @@ func walkDotType(n *ir.TypeAssertExpr, init *ir.Nodes) ir.Node {
 // walkDynamicdotType walks an ODYNAMICDOTTYPE or ODYNAMICDOTTYPE2 node.
 func walkDynamicDotType(n *ir.DynamicTypeAssertExpr, init *ir.Nodes) ir.Node {
 	n.X = walkExpr(n.X, init)
-	n.T = walkExpr(n.T, init)
+	n.RType = walkExpr(n.RType, init)
+	n.ITab = walkExpr(n.ITab, init)
 	return n
 }
 
@@ -723,21 +749,23 @@ func walkIndex(n *ir.IndexExpr, init *ir.Nodes) ir.Node {
 }
 
 // mapKeyArg returns an expression for key that is suitable to be passed
-// as the key argument for mapaccess and mapdelete functions.
+// as the key argument for runtime map* functions.
 // n is is the map indexing or delete Node (to provide Pos).
-// Note: this is not used for mapassign, which does distinguish pointer vs.
-// integer key.
-func mapKeyArg(fast int, n, key ir.Node) ir.Node {
-	switch fast {
-	case mapslow:
+func mapKeyArg(fast int, n, key ir.Node, assigned bool) ir.Node {
+	if fast == mapslow {
 		// standard version takes key by reference.
-		// order.expr made sure key is addressable.
+		// orderState.expr made sure key is addressable.
 		return typecheck.NodAddr(key)
+	}
+	if assigned {
+		// mapassign does distinguish pointer vs. integer key.
+		return key
+	}
+	// mapaccess and mapdelete don't distinguish pointer vs. integer key.
+	switch fast {
 	case mapfast32ptr:
-		// mapaccess and mapdelete don't distinguish pointer vs. integer key.
 		return ir.NewConvExpr(n.Pos(), ir.OCONVNOP, types.Types[types.TUINT32], key)
 	case mapfast64ptr:
-		// mapaccess and mapdelete don't distinguish pointer vs. integer key.
 		return ir.NewConvExpr(n.Pos(), ir.OCONVNOP, types.Types[types.TUINT64], key)
 	default:
 		// fast version takes key by value.
@@ -746,34 +774,27 @@ func mapKeyArg(fast int, n, key ir.Node) ir.Node {
 }
 
 // walkIndexMap walks an OINDEXMAP node.
+// It replaces m[k] with *map{access1,assign}(maptype, m, &k)
 func walkIndexMap(n *ir.IndexExpr, init *ir.Nodes) ir.Node {
-	// Replace m[k] with *map{access1,assign}(maptype, m, &k)
 	n.X = walkExpr(n.X, init)
 	n.Index = walkExpr(n.Index, init)
 	map_ := n.X
-	key := n.Index
 	t := map_.Type()
-	var call *ir.CallExpr
-	if n.Assigned {
-		// This m[k] expression is on the left-hand side of an assignment.
-		fast := mapfast(t)
-		if fast == mapslow {
-			// standard version takes key by reference.
-			// order.expr made sure key is addressable.
-			key = typecheck.NodAddr(key)
-		}
-		call = mkcall1(mapfn(mapassign[fast], t, false), nil, init, reflectdata.TypePtr(t), map_, key)
-	} else {
-		// m[k] is not the target of an assignment.
-		fast := mapfast(t)
-		key = mapKeyArg(fast, n, key)
-		if w := t.Elem().Size(); w <= zeroValSize {
-			call = mkcall1(mapfn(mapaccess1[fast], t, false), types.NewPtr(t.Elem()), init, reflectdata.TypePtr(t), map_, key)
-		} else {
-			z := reflectdata.ZeroAddr(w)
-			call = mkcall1(mapfn("mapaccess1_fat", t, true), types.NewPtr(t.Elem()), init, reflectdata.TypePtr(t), map_, key, z)
-		}
+	fast := mapfast(t)
+	key := mapKeyArg(fast, n, n.Index, n.Assigned)
+	args := []ir.Node{reflectdata.TypePtr(t), map_, key}
+
+	var mapFn ir.Node
+	switch {
+	case n.Assigned:
+		mapFn = mapfn(mapassign[fast], t, false)
+	case t.Elem().Size() > zeroValSize:
+		args = append(args, reflectdata.ZeroAddr(t.Elem().Size()))
+		mapFn = mapfn("mapaccess1_fat", t, true)
+	default:
+		mapFn = mapfn(mapaccess1[fast], t, false)
 	}
+	call := mkcall1(mapFn, nil, init, args...)
 	call.SetType(types.NewPtr(t.Elem()))
 	call.MarkNonNil() // mapaccess1* and mapassign always return non-nil pointers.
 	star := ir.NewStarExpr(base.Pos, call)
@@ -1011,9 +1032,6 @@ func usefield(n *ir.SelectorExpr) {
 	}
 	if outer.Sym() == nil {
 		base.Errorf("tracked field must be in named struct type")
-	}
-	if !types.IsExported(field.Sym.Name) {
-		base.Errorf("tracked field must be exported (upper case)")
 	}
 
 	sym := reflectdata.TrackSym(outer, field)

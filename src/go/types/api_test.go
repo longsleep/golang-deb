@@ -43,7 +43,7 @@ func pkgForMode(path, source string, info *Info, mode parser.Mode) (*Package, er
 	return conf.Check(f.Name.Name, fset, []*ast.File{f}, info)
 }
 
-func mustTypecheck(t *testing.T, path, source string, info *Info) string {
+func mustTypecheck(t testing.TB, path, source string, info *Info) string {
 	pkg, err := pkgFor(path, source, info)
 	if err != nil {
 		name := path
@@ -731,6 +731,8 @@ func TestUsesInfo(t *testing.T) {
 			`m`,
 			`func (generic_m10.E[int]).m()`,
 		},
+		{`package generic_m11; type T[A any] interface{ m(); n() }; func _(t1 T[int], t2 T[string]) { t1.m(); t2.n() }`, `m`, `func (generic_m11.T[int]).m()`},
+		{`package generic_m12; type T[A any] interface{ m(); n() }; func _(t1 T[int], t2 T[string]) { t1.m(); t2.n() }`, `n`, `func (generic_m12.T[string]).n()`},
 	}
 
 	for _, test := range tests {
@@ -1432,15 +1434,23 @@ type C struct {
 	c int
 }
 
+type G[P any] struct {
+	p P
+}
+
+func (G[P]) m(P) {}
+
+var Inst G[int]
+
 func (C) g()
 func (*C) h()
 
 func main() {
 	// qualified identifiers
 	var _ lib.T
-        _ = lib.C
-        _ = lib.F
-        _ = lib.V
+	_ = lib.C
+	_ = lib.F
+	_ = lib.V
 	_ = lib.T.M
 
 	// fields
@@ -1456,25 +1466,30 @@ func main() {
 	_ = A{}.c
 	_ = new(A).c
 
+	_ = Inst.p
+	_ = G[string]{}.p
+
 	// methods
-        _ = A{}.f
-        _ = new(A).f
-        _ = A{}.g
-        _ = new(A).g
-        _ = new(A).h
+	_ = A{}.f
+	_ = new(A).f
+	_ = A{}.g
+	_ = new(A).g
+	_ = new(A).h
 
-        _ = B{}.f
-        _ = new(B).f
+	_ = B{}.f
+	_ = new(B).f
 
-        _ = C{}.g
-        _ = new(C).g
-        _ = new(C).h
+	_ = C{}.g
+	_ = new(C).g
+	_ = new(C).h
+	_ = Inst.m
 
 	// method expressions
-        _ = A.f
-        _ = (*A).f
-        _ = B.f
-        _ = (*B).f
+	_ = A.f
+	_ = (*A).f
+	_ = B.f
+	_ = (*B).f
+	_ = G[string].m
 }`
 
 	wantOut := map[string][2]string{
@@ -1488,6 +1503,7 @@ func main() {
 		"new(A).b": {"field (*main.A) b int", "->[0 0]"},
 		"A{}.c":    {"field (main.A) c int", ".[1 0]"},
 		"new(A).c": {"field (*main.A) c int", "->[1 0]"},
+		"Inst.p":   {"field (main.G[int]) p int", ".[0]"},
 
 		"A{}.f":    {"method (main.A) f(int)", "->[0 0]"},
 		"new(A).f": {"method (*main.A) f(int)", "->[0 0]"},
@@ -1499,11 +1515,14 @@ func main() {
 		"C{}.g":    {"method (main.C) g()", ".[0]"},
 		"new(C).g": {"method (*main.C) g()", "->[0]"},
 		"new(C).h": {"method (*main.C) h()", "->[1]"}, // TODO(gri) should this report .[1] ?
+		"Inst.m":   {"method (main.G[int]) m(int)", ".[0]"},
 
-		"A.f":    {"method expr (main.A) f(main.A, int)", "->[0 0]"},
-		"(*A).f": {"method expr (*main.A) f(*main.A, int)", "->[0 0]"},
-		"B.f":    {"method expr (main.B) f(main.B, int)", ".[0]"},
-		"(*B).f": {"method expr (*main.B) f(*main.B, int)", "->[0]"},
+		"A.f":           {"method expr (main.A) f(main.A, int)", "->[0 0]"},
+		"(*A).f":        {"method expr (*main.A) f(*main.A, int)", "->[0 0]"},
+		"B.f":           {"method expr (main.B) f(main.B, int)", ".[0]"},
+		"(*B).f":        {"method expr (*main.B) f(*main.B, int)", "->[0]"},
+		"G[string].m":   {"method expr (main.G[string]) m(main.G[string], string)", ".[0]"},
+		"G[string]{}.p": {"field (main.G[string]) p string", ".[0]"},
 	}
 
 	makePkg("lib", libSrc)
@@ -2297,7 +2316,7 @@ func TestInstantiateErrors(t *testing.T) {
 		}
 
 		if argErr.Index != test.wantAt {
-			t.Errorf("Instantate(%v, %v): error at index %d, want index %d", T, test.targs, argErr.Index, test.wantAt)
+			t.Errorf("Instantiate(%v, %v): error at index %d, want index %d", T, test.targs, argErr.Index, test.wantAt)
 		}
 	}
 }
@@ -2351,15 +2370,19 @@ type T[P any] struct {
 	field P
 }
 
-func (recv *T[Q]) concreteMethod() {}
+func (recv *T[Q]) concreteMethod(mParam Q) (mResult Q) { return }
 
-type FT[P any] func(ftp P) (ftrp P)
+type FT[P any] func(ftParam P) (ftResult P)
 
-func F[P any](fp P) (frp P){ return }
+func F[P any](fParam P) (fResult P){ return }
 
 type I[P any] interface {
 	interfaceMethod(P)
 }
+
+type R[P any] T[P]
+
+func (R[P]) m() {} // having a method triggers expansion of R
 
 var (
 	t T[int]
@@ -2367,6 +2390,11 @@ var (
 	f = F[int]
 	i I[int]
 )
+
+func fn() {
+	var r R[int]
+	_ = r
+}
 `
 	info := &Info{
 		Defs: make(map[*ast.Ident]Object),
@@ -2383,18 +2411,32 @@ var (
 	}
 
 	lookup := func(name string) Type { return pkg.Scope().Lookup(name).Type() }
+	fnScope := pkg.Scope().Lookup("fn").(*Func).Scope()
+
 	tests := []struct {
 		name string
 		obj  Object
 	}{
+		// Struct fields
 		{"field", lookup("t").Underlying().(*Struct).Field(0)},
+		{"field", fnScope.Lookup("r").Type().Underlying().(*Struct).Field(0)},
+
+		// Methods and method fields
 		{"concreteMethod", lookup("t").(*Named).Method(0)},
 		{"recv", lookup("t").(*Named).Method(0).Type().(*Signature).Recv()},
-		{"ftp", lookup("ft").Underlying().(*Signature).Params().At(0)},
-		{"ftrp", lookup("ft").Underlying().(*Signature).Results().At(0)},
-		{"fp", lookup("f").(*Signature).Params().At(0)},
-		{"frp", lookup("f").(*Signature).Results().At(0)},
+		{"mParam", lookup("t").(*Named).Method(0).Type().(*Signature).Params().At(0)},
+		{"mResult", lookup("t").(*Named).Method(0).Type().(*Signature).Results().At(0)},
+
+		// Interface methods
 		{"interfaceMethod", lookup("i").Underlying().(*Interface).Method(0)},
+
+		// Function type fields
+		{"ftParam", lookup("ft").Underlying().(*Signature).Params().At(0)},
+		{"ftResult", lookup("ft").Underlying().(*Signature).Results().At(0)},
+
+		// Function fields
+		{"fParam", lookup("f").(*Signature).Params().At(0)},
+		{"fResult", lookup("f").(*Signature).Results().At(0)},
 	}
 
 	// Collect all identifiers by name.
@@ -2417,6 +2459,9 @@ var (
 			if def == test.obj {
 				t.Fatalf("info.Defs[%s] contains the test object", test.name)
 			}
+			if orig := originObject(test.obj); def != orig {
+				t.Errorf("info.Defs[%s] does not match obj.Origin()", test.name)
+			}
 			if def.Pkg() != test.obj.Pkg() {
 				t.Errorf("Pkg() = %v, want %v", def.Pkg(), test.obj.Pkg())
 			}
@@ -2438,6 +2483,16 @@ var (
 			// String and Type are expected to differ.
 		})
 	}
+}
+
+func originObject(obj Object) Object {
+	switch obj := obj.(type) {
+	case *Var:
+		return obj.Origin()
+	case *Func:
+		return obj.Origin()
+	}
+	return obj
 }
 
 func TestImplements(t *testing.T) {

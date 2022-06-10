@@ -20,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 	"unicode"
 )
 
@@ -90,9 +91,26 @@ func replaceEnv(cmd *exec.Cmd, key, value string) {
 // mustRun executes t and fails cmd with a well-formatted message if it fails.
 func mustRun(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
-	out, err := cmd.CombinedOutput()
+	out := new(strings.Builder)
+	cmd.Stdout = out
+	cmd.Stderr = out
+
+	err := cmd.Start()
 	if err != nil {
-		t.Fatalf("%#q exited with %v\n%s", strings.Join(cmd.Args, " "), err, out)
+		t.Fatalf("%v: %v", cmd, err)
+	}
+
+	if deadline, ok := t.Deadline(); ok {
+		timeout := time.Until(deadline)
+		timeout -= timeout / 10 // Leave 10% headroom for logging and cleanup.
+		timer := time.AfterFunc(timeout, func() {
+			cmd.Process.Signal(syscall.SIGQUIT)
+		})
+		defer timer.Stop()
+	}
+
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("%v exited with %v\n%s", cmd, err, out)
 	}
 }
 
@@ -184,17 +202,16 @@ func compilerVersion() (version, error) {
 			var match [][]byte
 			if bytes.HasPrefix(out, []byte("gcc")) {
 				compiler.name = "gcc"
-
-				cmd, err := cc("-dumpversion")
+				cmd, err := cc("-v")
 				if err != nil {
 					return err
 				}
-				out, err := cmd.Output()
+				out, err := cmd.CombinedOutput()
 				if err != nil {
-					// gcc, but does not support gcc's "-dumpversion" flag?!
+					// gcc, but does not support gcc's "-v" flag?!
 					return err
 				}
-				gccRE := regexp.MustCompile(`(\d+)\.(\d+)`)
+				gccRE := regexp.MustCompile(`gcc version (\d+)\.(\d+)`)
 				match = gccRE.FindSubmatch(out)
 			} else {
 				clangRE := regexp.MustCompile(`clang version (\d+)\.(\d+)`)
@@ -230,6 +247,22 @@ func compilerSupportsLocation() bool {
 		return compiler.major >= 10
 	case "clang":
 		return true
+	default:
+		return false
+	}
+}
+
+// compilerRequiredAsanVersion reports whether the compiler is the version required by Asan.
+func compilerRequiredAsanVersion() bool {
+	compiler, err := compilerVersion()
+	if err != nil {
+		return false
+	}
+	switch compiler.name {
+	case "gcc":
+		return compiler.major >= 7
+	case "clang":
+		return compiler.major >= 9
 	default:
 		return false
 	}
@@ -478,7 +511,7 @@ func mSanSupported(goos, goarch string) bool {
 func aSanSupported(goos, goarch string) bool {
 	switch goos {
 	case "linux":
-		return goarch == "amd64" || goarch == "arm64"
+		return goarch == "amd64" || goarch == "arm64" || goarch == "riscv64"
 	default:
 		return false
 	}

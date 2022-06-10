@@ -58,6 +58,7 @@ type Flags struct {
 	FieldTrack        bool
 	PreemptibleLoops  bool
 	StaticLockRanking bool
+	BoringCrypto      bool
 
 	// Unified enables the compiler's unified IR construction
 	// experiment.
@@ -72,23 +73,12 @@ type Flags struct {
 	// ABI0 and ABIInternal functions. Without this, the ABIs are
 	// assumed to be identical so cross-ABI calls are direct.
 	RegabiWrappers bool
-	// RegabiReflect enables the register-passing paths in
-	// reflection calls. This is also gated by intArgRegs in
-	// reflect and runtime (which are disabled by default) so it
-	// can be used in targeted tests.
-	RegabiReflect bool
 	// RegabiArgs enables register arguments/results in all
 	// compiled Go functions.
 	//
 	// Requires wrappers (to do ABI translation), and reflect (so
 	// reflection calls use registers).
 	RegabiArgs bool
-
-	// PacerRedesign enables the new GC pacer in the runtime.
-	//
-	// Details regarding the new pacer may be found at
-	// https://golang.org/design/44167-gc-pacer-redesign
-	PacerRedesign bool
 
 	// HeapMinimum512KiB reduces the minimum heap size to 512 KiB.
 	//

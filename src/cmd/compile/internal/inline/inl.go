@@ -120,6 +120,17 @@ func CanInline(fn *ir.Func) {
 		return
 	}
 
+	// If marked as "go:uintptrkeepalive", don't inline, since the
+	// keep alive information is lost during inlining.
+	//
+	// TODO(prattmic): This is handled on calls during escape analysis,
+	// which is after inlining. Move prior to inlining so the keep-alive is
+	// maintained after inlining.
+	if fn.Pragma&ir.UintptrKeepAlive != 0 {
+		reason = "marked as having a keep-alive uintptr argument"
+		return
+	}
+
 	// If marked as "go:uintptrescapes", don't inline, since the
 	// escape information is lost during inlining.
 	if fn.Pragma&ir.UintptrEscapes != 0 {
@@ -358,8 +369,7 @@ func (v *hairyVisitor) doNode(n ir.Node) bool {
 			return true
 		}
 
-	case ir.OSELECT,
-		ir.OGO,
+	case ir.OGO,
 		ir.ODEFER,
 		ir.ODCLTYPE, // can't print yet
 		ir.OTAILCALL:
@@ -473,10 +483,6 @@ func inlcopy(n ir.Node) ir.Node {
 			newfn.Nname = ir.NewNameAt(oldfn.Nname.Pos(), oldfn.Nname.Sym())
 			// XXX OK to share fn.Type() ??
 			newfn.Nname.SetType(oldfn.Nname.Type())
-			// Ntype can be nil for -G=3 mode.
-			if oldfn.Nname.Ntype != nil {
-				newfn.Nname.Ntype = inlcopy(oldfn.Nname.Ntype).(ir.Ntype)
-			}
 			newfn.Body = inlcopylist(oldfn.Body)
 			// Make shallow copy of the Dcl and ClosureVar slices
 			newfn.Dcl = append([]*ir.Name(nil), oldfn.Dcl...)
@@ -523,7 +529,8 @@ func InlineCalls(fn *ir.Func) {
 // but then you may as well do it here.  so this is cleaner and
 // shorter and less complicated.
 // The result of inlnode MUST be assigned back to n, e.g.
-// 	n.Left = inlnode(n.Left)
+//
+//	n.Left = inlnode(n.Left)
 func inlnode(n ir.Node, maxCost int32, inlMap map[*ir.Func]bool, edit func(ir.Node) ir.Node) ir.Node {
 	if n == nil {
 		return n
@@ -658,7 +665,8 @@ var NewInline = func(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCa
 // inlined function body, and (List, Rlist) contain the (input, output)
 // parameters.
 // The result of mkinlcall MUST be assigned back to n, e.g.
-// 	n.Left = mkinlcall(n.Left, fn, isddd)
+//
+//	n.Left = mkinlcall(n.Left, fn, isddd)
 func mkinlcall(n *ir.CallExpr, fn *ir.Func, maxCost int32, inlMap map[*ir.Func]bool, edit func(ir.Node) ir.Node) ir.Node {
 	if fn.Inl == nil {
 		if logopt.Enabled() {
@@ -693,16 +701,35 @@ func mkinlcall(n *ir.CallExpr, fn *ir.Func, maxCost int32, inlMap map[*ir.Func]b
 	// apparent when we first created the instantiation of the generic function.
 	// We can't handle this if we actually do the inlining, since we want to know
 	// all interface conversions immediately after stenciling. So, we avoid
-	// inlining in this case. See #49309.
-	if !fn.Type().HasShape() {
+	// inlining in this case, see issue #49309. (1)
+	//
+	// See discussion on go.dev/cl/406475 for more background.
+	if !fn.Type().Params().HasShape() {
 		for _, arg := range n.Args {
 			if arg.Type().HasShape() {
 				if logopt.Enabled() {
 					logopt.LogOpt(n.Pos(), "cannotInlineCall", "inline", ir.FuncName(ir.CurFunc),
-						fmt.Sprintf("inlining non-shape function %v with shape args", ir.FuncName(fn)))
+						fmt.Sprintf("inlining function %v has no-shape params with shape args", ir.FuncName(fn)))
 				}
 				return n
 			}
+		}
+	} else {
+		// Don't inline a function fn that has shape parameters, but is passed no shape arg.
+		// See comments (1) above, and issue #51909.
+		inlineable := len(n.Args) == 0 // Function has shape in type, with no arguments can always be inlined.
+		for _, arg := range n.Args {
+			if arg.Type().HasShape() {
+				inlineable = true
+				break
+			}
+		}
+		if !inlineable {
+			if logopt.Enabled() {
+				logopt.LogOpt(n.Pos(), "cannotInlineCall", "inline", ir.FuncName(ir.CurFunc),
+					fmt.Sprintf("inlining function %v has shape params with no-shape args", ir.FuncName(fn)))
+			}
+			return n
 		}
 	}
 
@@ -922,10 +949,6 @@ func oldInline(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.InlinedCallExpr
 	lab := ir.NewLabelStmt(base.Pos, retlabel)
 	body = append(body, lab)
 
-	if !typecheck.Go117ExportTypes {
-		typecheck.Stmts(body)
-	}
-
 	if base.Flag.GenDwarfInl > 0 {
 		for _, v := range inlfvars {
 			v.SetPos(subst.updatedPos(v.Pos()))
@@ -1125,11 +1148,6 @@ func (subst *inlsubst) closure(n *ir.ClosureExpr) ir.Node {
 	oldfn := n.Func
 	newfn := ir.NewClosureFunc(oldfn.Pos(), true)
 
-	// Ntype can be nil for -G=3 mode.
-	if oldfn.Nname.Ntype != nil {
-		newfn.Nname.Ntype = subst.node(oldfn.Nname.Ntype).(ir.Ntype)
-	}
-
 	if subst.newclofn != nil {
 		//fmt.Printf("Inlining a closure with a nested closure\n")
 	}
@@ -1310,7 +1328,7 @@ func (subst *inlsubst) node(n ir.Node) ir.Node {
 	ir.EditChildren(m, subst.edit)
 
 	if subst.newclofn == nil {
-		// Translate any label on FOR, RANGE loops or SWITCH
+		// Translate any label on FOR, RANGE loops, SWITCH or SELECT
 		switch m.Op() {
 		case ir.OFOR:
 			m := m.(*ir.ForStmt)
@@ -1326,8 +1344,12 @@ func (subst *inlsubst) node(n ir.Node) ir.Node {
 			m := m.(*ir.SwitchStmt)
 			m.Label = translateLabel(m.Label)
 			return m
-		}
 
+		case ir.OSELECT:
+			m := m.(*ir.SelectStmt)
+			m.Label = translateLabel(m.Label)
+			return m
+		}
 	}
 
 	switch m := m.(type) {

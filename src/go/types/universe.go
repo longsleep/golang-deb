@@ -98,7 +98,7 @@ func defPredeclaredTypes() {
 		err := NewFunc(token.NoPos, nil, "Error", sig)
 
 		// interface{ Error() string }
-		ityp := &Interface{obj: obj, methods: []*Func{err}, complete: true}
+		ityp := &Interface{methods: []*Func{err}, complete: true}
 		computeInterfaceTypeSet(nil, token.NoPos, ityp) // prevent races due to lazy computation of tset
 
 		typ.SetUnderlying(ityp)
@@ -112,7 +112,7 @@ func defPredeclaredTypes() {
 		typ := NewNamed(obj, nil, nil)
 
 		// interface{} // marked as comparable
-		ityp := &Interface{obj: obj, complete: true, tset: &_TypeSet{nil, allTermlist, true}}
+		ityp := &Interface{complete: true, tset: &_TypeSet{nil, allTermlist, true}}
 
 		typ.SetUnderlying(ityp)
 		def(obj)
@@ -246,7 +246,6 @@ func init() {
 // Objects with names containing blanks are internal and not entered into
 // a scope. Objects with exported names are inserted in the unsafe package
 // scope; other objects are inserted in the universe scope.
-//
 func def(obj Object) {
 	assert(obj.color() == black)
 	name := obj.Name()

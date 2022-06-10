@@ -1,6 +1,6 @@
 <!--{
 	"Title": "The Go Programming Language Specification",
-	"Subtitle": "Version of March 10, 2022",
+	"Subtitle": "Version of May 12, 2022",
 	"Path": "/ref/spec"
 }-->
 
@@ -22,20 +22,23 @@ dependencies.
 </p>
 
 <p>
-The grammar is compact and simple to parse, allowing for easy analysis
+The syntax is compact and simple to parse, allowing for easy analysis
 by automatic tools such as integrated development environments.
 </p>
 
 <h2 id="Notation">Notation</h2>
 <p>
-The syntax is specified using Extended Backus-Naur Form (EBNF):
+The syntax is specified using a
+<a href="https://en.wikipedia.org/wiki/Wirth_syntax_notation">variant</a>
+of Extended Backus-Naur Form (EBNF):
 </p>
 
 <pre class="grammar">
+Syntax      = { Production } .
 Production  = production_name "=" [ Expression ] "." .
-Expression  = Alternative { "|" Alternative } .
-Alternative = Term { Term } .
-Term        = production_name | token [ "…" token ] | Group | Option | Repetition .
+Expression  = Term { "|" Term } .
+Term        = Factor { Factor } .
+Factor      = production_name | token [ "…" token ] | Group | Option | Repetition .
 Group       = "(" Expression ")" .
 Option      = "[" Expression "]" .
 Repetition  = "{" Expression "}" .
@@ -53,7 +56,7 @@ operators, in increasing precedence:
 </pre>
 
 <p>
-Lower-case production names are used to identify lexical tokens.
+Lowercase production names are used to identify lexical (terminal) tokens.
 Non-terminals are in CamelCase. Lexical tokens are enclosed in
 double quotes <code>""</code> or back quotes <code>``</code>.
 </p>
@@ -79,7 +82,7 @@ will use the unqualified term <i>character</i> to refer to a Unicode code point
 in the source text.
 </p>
 <p>
-Each code point is distinct; for instance, upper and lower case letters
+Each code point is distinct; for instance, uppercase and lowercase letters
 are different characters.
 </p>
 <p>
@@ -96,13 +99,13 @@ A byte order mark may be disallowed anywhere else in the source.
 <h3 id="Characters">Characters</h3>
 
 <p>
-The following terms are used to denote specific Unicode character classes:
+The following terms are used to denote specific Unicode character categories:
 </p>
 <pre class="ebnf">
 newline        = /* the Unicode code point U+000A */ .
 unicode_char   = /* an arbitrary Unicode code point except newline */ .
-unicode_letter = /* a Unicode code point classified as "Letter" */ .
-unicode_digit  = /* a Unicode code point classified as "Number, decimal digit" */ .
+unicode_letter = /* a Unicode code point categorized as "Letter" */ .
+unicode_digit  = /* a Unicode code point categorized as "Number, decimal digit" */ .
 </pre>
 
 <p>
@@ -115,7 +118,7 @@ as Unicode letters, and those in the Number category Nd as Unicode digits.
 <h3 id="Letters_and_digits">Letters and digits</h3>
 
 <p>
-The underscore character <code>_</code> (U+005F) is considered a letter.
+The underscore character <code>_</code> (U+005F) is considered a lowercase letter.
 </p>
 <pre class="ebnf">
 letter        = unicode_letter | "_" .
@@ -170,7 +173,7 @@ valid token.
 <h3 id="Semicolons">Semicolons</h3>
 
 <p>
-The formal grammar uses semicolons <code>";"</code> as terminators in
+The formal syntax uses semicolons <code>";"</code> as terminators in
 a number of productions. Go programs may omit most of these semicolons
 using the following two rules:
 </p>
@@ -406,7 +409,7 @@ An imaginary literal represents the imaginary part of a
 <a href="#Constants">complex constant</a>.
 It consists of an <a href="#Integer_literals">integer</a> or
 <a href="#Floating-point_literals">floating-point</a> literal
-followed by the lower-case letter <code>i</code>.
+followed by the lowercase letter <code>i</code>.
 The value of an imaginary literal is the value of the respective
 integer or floating-point literal multiplied by the imaginary unit <i>i</i>.
 </p>
@@ -529,6 +532,7 @@ escaped_char     = `\` ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | `\` | "'" | `
 'aa'         // illegal: too many characters
 '\xa'        // illegal: too few hexadecimal digits
 '\0'         // illegal: too few octal digits
+'\400'       // illegal: octal value over 255
 '\uDFFF'     // illegal: surrogate half
 '\U00110000' // illegal: invalid Unicode code point
 </pre>
@@ -796,7 +800,7 @@ TypeName  = identifier | QualifiedIdent .
 TypeArgs  = "[" TypeList [ "," ] "]" .
 TypeList  = Type { "," Type } .
 TypeLit   = ArrayType | StructType | PointerType | FunctionType | InterfaceType |
-	    SliceType | MapType | ChannelType .
+            SliceType | MapType | ChannelType .
 </pre>
 
 <p>
@@ -1085,7 +1089,7 @@ of a struct except that they cannot be used as field names in
 </p>
 
 <p>
-Given a struct type <code>S</code> and a <a href="#Type_definitions">defined type</a>
+Given a struct type <code>S</code> and a <a href="#Types">named type</a>
 <code>T</code>, promoted methods are included in the method set of the struct as follows:
 </p>
 <ul>
@@ -1277,7 +1281,8 @@ then the <code>File</code> interface is implemented by both <code>S1</code> and
 <p>
 Every type that is a member of the type set of an interface implements that interface.
 Any given type may implement several distinct interfaces.
-For instance, all types implement the <i>empty interface</i> which stands for the set of all types:
+For instance, all types implement the <i>empty interface</i> which stands for the set
+of all (non-interface) types:
 </p>
 
 <pre>
@@ -1379,7 +1384,7 @@ definition of an interface's type set as follows:
 		of its interface elements.
 	</li>
 
-	<li>The type set of a method specification is the set of types
+	<li>The type set of a method specification is the set of all non-interface types
 		whose method sets include that method.
 	</li>
 
@@ -1388,7 +1393,7 @@ definition of an interface's type set as follows:
 	</li>
 
 	<li>The type set of a term of the form <code>~T</code>
-		is the set of types whose underlying type is <code>T</code>.
+		is the set of all types whose underlying type is <code>T</code>.
 	</li>
 
 	<li>The type set of a <i>union</i> of terms
@@ -1396,6 +1401,15 @@ definition of an interface's type set as follows:
 		is the union of the type sets of the terms.
 	</li>
 </ul>
+
+<p>
+The quantification "the set of all non-interface types" refers not just to all (non-interface)
+types declared in the program at hand, but all possible types in all possible programs, and
+hence is infinite.
+Similarly, given the set of all non-interface types that implement a particular method, the
+intersection of the method sets of those types will contain exactly that method, even if all
+types in the program at hand always pair that method with another method.
+</p>
 
 <p>
 By construction, an interface's type set never contains an interface type.
@@ -1454,7 +1468,8 @@ type Float interface {
 </pre>
 
 <p>
-In a union, a term cannot be a <a href="#Type_parameter_declarations">type parameter</a>, and the type sets of all
+The type <code>T</code> in a term of the form <code>T</code> or <code>~T</code> cannot
+be a <a href="#Type_parameter_declarations">type parameter</a>, and the type sets of all
 non-interface terms must be pairwise disjoint (the pairwise intersection of the type sets must be empty).
 Given a type parameter <code>P</code>:
 </p>
@@ -1462,7 +1477,7 @@ Given a type parameter <code>P</code>:
 <pre>
 interface {
 	P                // illegal: P is a type parameter
-	int | P          // illegal: P is a type parameter
+	int | ~P         // illegal: P is a type parameter
 	~int | MyInt     // illegal: the type sets for ~int and MyInt are not disjoint (~int includes MyInt)
 	float32 | Float  // overlapping type sets but Float is an interface
 }
@@ -1878,7 +1893,7 @@ A4, func(int, float64) *[]string, and A5
 B0 and C0
 D0[int, string] and E0
 []int and []int
-struct{ a, b *T5 } and struct{ a, b *T5 }
+struct{ a, b *B5 } and struct{ a, b *B5 }
 func(x int, y float64) *[]string, func(int, float64) (result *[]string), and A5
 </pre>
 
@@ -1908,7 +1923,8 @@ A value <code>x</code> of type <code>V</code> is <i>assignable</i> to a <a href=
 </li>
 <li>
 <code>V</code> and <code>T</code> have identical
-<a href="#Underlying_types">underlying types</a> and at least one of <code>V</code>
+<a href="#Underlying_types">underlying types</a>
+but are not type parameters and at least one of <code>V</code>
 or <code>T</code> is not a <a href="#Types">named type</a>.
 </li>
 <li>
@@ -2146,9 +2162,8 @@ Go is lexically scoped using <a href="#Blocks">blocks</a>:
 	    or result variable is the function body.</li>
 
 	<li>The scope of an identifier denoting a type parameter of a function
-	    or declared by a method receiver is the function body and all parameter lists of the
-	    function.
-	</li>
+	    or declared by a method receiver begins after the name of the function
+	    and ends at the end of the function body.</li>
 
 	<li>The scope of an identifier denoting a type parameter of a type
 	    begins after the name of the type and ends at the end
@@ -2234,8 +2249,8 @@ An identifier may be <i>exported</i> to permit access to it from another package
 An identifier is exported if both:
 </p>
 <ol>
-	<li>the first character of the identifier's name is a Unicode upper case
-	letter (Unicode class "Lu"); and</li>
+	<li>the first character of the identifier's name is a Unicode uppercase
+	letter (Unicode character category Lu); and</li>
 	<li>the identifier is declared in the <a href="#Blocks">package block</a>
 	or it is a <a href="#Struct_types">field name</a> or
 	<a href="#MethodName">method name</a>.</li>
@@ -2750,7 +2765,7 @@ with initializer expressions but no types:
 </p>
 
 <pre class="grammar">
-"var" IdentifierList = ExpressionList .
+"var" IdentifierList "=" ExpressionList .
 </pre>
 
 <pre>
@@ -2768,12 +2783,14 @@ variables provided they were originally declared earlier in the same block
 and at least one of the non-<a href="#Blank_identifier">blank</a> variables is new.
 As a consequence, redeclaration can only appear in a multi-variable short declaration.
 Redeclaration does not introduce a new variable; it just assigns a new value to the original.
+The non-blank variable names on the left side of <code>:=</code>
+must be <a href="#Uniqueness_of_identifiers">unique</a>.
 </p>
 
 <pre>
 field1, offset := nextField(str, 0)
 field2, offset := nextField(str, offset)  // redeclares offset
-a, a := 1, 2                              // illegal: double declaration of a or no new variable if a was declared elsewhere
+x, y, x := 1, 2, 3                        // illegal: x repeated on left side of :=
 </pre>
 
 <p>
@@ -2998,7 +3015,7 @@ declared in the <a href="#Blocks">package block</a> of that package.
 </p>
 
 <pre>
-math.Sin	// denotes the Sin function in package math
+math.Sin // denotes the Sin function in package math
 </pre>
 
 <h3 id="Composite_literals">Composite literals</h3>
@@ -3024,7 +3041,7 @@ Element       = Expression | LiteralValue .
 <p>
 The LiteralType's <a href="#Core_types">core type</a> <code>T</code>
 must be a struct, array, slice, or map type
-(the grammar enforces this constraint except when the type is given
+(the syntax enforces this constraint except when the type is given
 as a TypeName).
 The types of the elements and keys must be <a href="#Assignability">assignable</a>
 to the respective field, element, and key types of type <code>T</code>;
@@ -4195,7 +4212,7 @@ type parameter list    type arguments    after substitution
 <p>
 For a generic function, type arguments may be provided explicitly, or they
 may be partially or completely <a href="#Type_inference">inferred</a>.
-A generic function that is is <i>not</i> <a href="#Calls">called</a> requires a
+A generic function that is <i>not</i> <a href="#Calls">called</a> requires a
 type argument list for instantiation; if the list is partial, all
 remaining type arguments must be inferrable.
 A generic function that is called may provide a (possibly partial) type
@@ -4824,7 +4841,7 @@ due to two's-complement <a href="#Integer_overflow">integer overflow</a>:
 </p>
 
 <pre>
-			 x, q
+                         x, q
 int8                     -128
 int16                  -32768
 int32             -2147483648
@@ -6797,7 +6814,8 @@ OuterLoop:
 
 <p>
 A "continue" statement begins the next iteration of the
-innermost <a href="#For_statements">"for" loop</a> at its post statement.
+innermost enclosing <a href="#For_statements">"for" loop</a>
+by advancing control to the end of the loop block.
 The "for" loop must be within the same function.
 </p>
 

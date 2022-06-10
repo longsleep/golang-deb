@@ -127,7 +127,7 @@ func parseUnion(check *Checker, uexpr syntax.Expr) Type {
 				check.softErrorf(tlist[i], "overlapping terms %s and %s", t, terms[j])
 			}
 		}
-	})
+	}).describef(uexpr, "check term validity %s", uexpr)
 
 	return u
 }
@@ -146,7 +146,11 @@ func parseTilde(check *Checker, tx syntax.Expr) *Term {
 	// simply use its underlying type (like we do for other named, embedded interfaces),
 	// and since the underlying type is an interface the embedding is well defined.
 	if isTypeParam(typ) {
-		check.error(x, "cannot embed a type parameter")
+		if tilde {
+			check.errorf(x, "type in term %s cannot be a type parameter", tx)
+		} else {
+			check.error(x, "term cannot be a type parameter")
+		}
 		typ = Typ[Invalid]
 	}
 	term := NewTerm(tilde, typ)

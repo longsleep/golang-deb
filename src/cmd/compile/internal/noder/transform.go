@@ -74,8 +74,7 @@ func stringtoruneslit(n *ir.ConvExpr) ir.Node {
 		i++
 	}
 
-	nn := ir.NewCompLitExpr(base.Pos, ir.OCOMPLIT, ir.TypeNode(n.Type()), nil)
-	nn.List = list
+	nn := ir.NewCompLitExpr(base.Pos, ir.OCOMPLIT, n.Type(), list)
 	typed(n.Type(), nn)
 	// Need to transform the OCOMPLIT.
 	return transformCompLit(nn)
@@ -163,6 +162,7 @@ func transformCall(n *ir.CallExpr) {
 	ir.SetPos(n)
 	// n.Type() can be nil for calls with no return value
 	assert(n.Typecheck() == 1)
+	typecheck.RewriteNonNameCall(n)
 	transformArgs(n)
 	l := n.X
 	t := l.Type()
@@ -1046,13 +1046,7 @@ func transformCompLit(n *ir.CompLitExpr) (res ir.Node) {
 				kv := l.(*ir.KeyExpr)
 				key := kv.Key
 
-				// Sym might have resolved to name in other top-level
-				// package, because of import dot. Redirect to correct sym
-				// before we do the lookup.
 				s := key.Sym()
-				if id, ok := key.(*ir.Ident); ok && typecheck.DotImportRefs[id] != nil {
-					s = typecheck.Lookup(s.Name)
-				}
 				if types.IsExported(s.Name) && s.Pkg != types.LocalPkg {
 					// Exported field names should always have
 					// local pkg. We only need to do this

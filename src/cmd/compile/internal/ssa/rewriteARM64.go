@@ -2283,6 +2283,24 @@ func rewriteValueARM64_OpARM64ANDconst(v *Value) bool {
 		v.AddArg(x)
 		return true
 	}
+	// match: (ANDconst [c] (UBFX [bfc] x))
+	// cond: isARM64BFMask(0, c, 0)
+	// result: (UBFX [armBFAuxInt(bfc.getARM64BFlsb(), min(bfc.getARM64BFwidth(), arm64BFWidth(c, 0)))] x)
+	for {
+		c := auxIntToInt64(v.AuxInt)
+		if v_0.Op != OpARM64UBFX {
+			break
+		}
+		bfc := auxIntToArm64BitField(v_0.AuxInt)
+		x := v_0.Args[0]
+		if !(isARM64BFMask(0, c, 0)) {
+			break
+		}
+		v.reset(OpARM64UBFX)
+		v.AuxInt = arm64BitFieldToAuxInt(armBFAuxInt(bfc.getARM64BFlsb(), min(bfc.getARM64BFwidth(), arm64BFWidth(c, 0))))
+		v.AddArg(x)
+		return true
+	}
 	return false
 }
 func rewriteValueARM64_OpARM64ANDshiftLL(v *Value) bool {
@@ -7321,12 +7339,154 @@ func rewriteValueARM64_OpARM64MOVBUreg(v *Value) bool {
 		v.AuxInt = int64ToAuxInt(int64(uint8(c)))
 		return true
 	}
-	// match: (MOVBUreg x)
-	// cond: x.Type.IsBoolean()
+	// match: (MOVBUreg x:(Equal _))
 	// result: (MOVDreg x)
 	for {
 		x := v_0
-		if !(x.Type.IsBoolean()) {
+		if x.Op != OpARM64Equal {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(NotEqual _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64NotEqual {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(LessThan _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64LessThan {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(LessThanU _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64LessThanU {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(LessThanF _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64LessThanF {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(LessEqual _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64LessEqual {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(LessEqualU _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64LessEqualU {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(LessEqualF _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64LessEqualF {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(GreaterThan _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64GreaterThan {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(GreaterThanU _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64GreaterThanU {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(GreaterThanF _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64GreaterThanF {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(GreaterEqual _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64GreaterEqual {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(GreaterEqualU _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64GreaterEqualU {
+			break
+		}
+		v.reset(OpARM64MOVDreg)
+		v.AddArg(x)
+		return true
+	}
+	// match: (MOVBUreg x:(GreaterEqualF _))
+	// result: (MOVDreg x)
+	for {
+		x := v_0
+		if x.Op != OpARM64GreaterEqualF {
 			break
 		}
 		v.reset(OpARM64MOVDreg)
@@ -21802,6 +21962,24 @@ func rewriteValueARM64_OpARM64UBFIZ(v *Value) bool {
 }
 func rewriteValueARM64_OpARM64UBFX(v *Value) bool {
 	v_0 := v.Args[0]
+	// match: (UBFX [bfc] (ANDconst [c] x))
+	// cond: isARM64BFMask(0, c, 0) && bfc.getARM64BFlsb() + bfc.getARM64BFwidth() <= arm64BFWidth(c, 0)
+	// result: (UBFX [bfc] x)
+	for {
+		bfc := auxIntToArm64BitField(v.AuxInt)
+		if v_0.Op != OpARM64ANDconst {
+			break
+		}
+		c := auxIntToInt64(v_0.AuxInt)
+		x := v_0.Args[0]
+		if !(isARM64BFMask(0, c, 0) && bfc.getARM64BFlsb()+bfc.getARM64BFwidth() <= arm64BFWidth(c, 0)) {
+			break
+		}
+		v.reset(OpARM64UBFX)
+		v.AuxInt = arm64BitFieldToAuxInt(bfc)
+		v.AddArg(x)
+		return true
+	}
 	// match: (UBFX [bfc] (SRLconst [sc] x))
 	// cond: sc+bfc.getARM64BFwidth()+bfc.getARM64BFlsb() < 64
 	// result: (UBFX [armBFAuxInt(bfc.getARM64BFlsb()+sc, bfc.getARM64BFwidth())] x)
@@ -27313,6 +27491,7 @@ func rewriteValueARM64_OpZero(v *Value) bool {
 	return false
 }
 func rewriteBlockARM64(b *Block) bool {
+	typ := &b.Func.Config.Types
 	switch b.Kind {
 	case BlockARM64EQ:
 		// match: (EQ (CMPWconst [0] x:(ANDconst [c] y)) yes no)
@@ -28660,10 +28839,24 @@ func rewriteBlockARM64(b *Block) bool {
 			return true
 		}
 		// match: (If cond yes no)
-		// result: (NZ cond yes no)
+		// result: (TBNZ [0] cond yes no)
 		for {
 			cond := b.Controls[0]
-			b.resetWithControl(BlockARM64NZ, cond)
+			b.resetWithControl(BlockARM64TBNZ, cond)
+			b.AuxInt = int64ToAuxInt(0)
+			return true
+		}
+	case BlockJumpTable:
+		// match: (JumpTable idx)
+		// result: (JUMPTABLE {makeJumpTableSym(b)} idx (MOVDaddr <typ.Uintptr> {makeJumpTableSym(b)} (SB)))
+		for {
+			idx := b.Controls[0]
+			v0 := b.NewValue0(b.Pos, OpARM64MOVDaddr, typ.Uintptr)
+			v0.Aux = symToAux(makeJumpTableSym(b))
+			v1 := b.NewValue0(b.Pos, OpSB, typ.Uintptr)
+			v0.AddArg(v1)
+			b.resetWithControl2(BlockARM64JUMPTABLE, idx, v0)
+			b.Aux = symToAux(makeJumpTableSym(b))
 			return true
 		}
 	case BlockARM64LE:
@@ -30050,6 +30243,161 @@ func rewriteBlockARM64(b *Block) bool {
 				break
 			}
 			b.Reset(BlockFirst)
+			return true
+		}
+	case BlockARM64TBNZ:
+		// match: (TBNZ [0] (Equal cc) yes no)
+		// result: (EQ cc yes no)
+		for b.Controls[0].Op == OpARM64Equal {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64EQ, cc)
+			return true
+		}
+		// match: (TBNZ [0] (NotEqual cc) yes no)
+		// result: (NE cc yes no)
+		for b.Controls[0].Op == OpARM64NotEqual {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64NE, cc)
+			return true
+		}
+		// match: (TBNZ [0] (LessThan cc) yes no)
+		// result: (LT cc yes no)
+		for b.Controls[0].Op == OpARM64LessThan {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64LT, cc)
+			return true
+		}
+		// match: (TBNZ [0] (LessThanU cc) yes no)
+		// result: (ULT cc yes no)
+		for b.Controls[0].Op == OpARM64LessThanU {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64ULT, cc)
+			return true
+		}
+		// match: (TBNZ [0] (LessEqual cc) yes no)
+		// result: (LE cc yes no)
+		for b.Controls[0].Op == OpARM64LessEqual {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64LE, cc)
+			return true
+		}
+		// match: (TBNZ [0] (LessEqualU cc) yes no)
+		// result: (ULE cc yes no)
+		for b.Controls[0].Op == OpARM64LessEqualU {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64ULE, cc)
+			return true
+		}
+		// match: (TBNZ [0] (GreaterThan cc) yes no)
+		// result: (GT cc yes no)
+		for b.Controls[0].Op == OpARM64GreaterThan {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64GT, cc)
+			return true
+		}
+		// match: (TBNZ [0] (GreaterThanU cc) yes no)
+		// result: (UGT cc yes no)
+		for b.Controls[0].Op == OpARM64GreaterThanU {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64UGT, cc)
+			return true
+		}
+		// match: (TBNZ [0] (GreaterEqual cc) yes no)
+		// result: (GE cc yes no)
+		for b.Controls[0].Op == OpARM64GreaterEqual {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64GE, cc)
+			return true
+		}
+		// match: (TBNZ [0] (GreaterEqualU cc) yes no)
+		// result: (UGE cc yes no)
+		for b.Controls[0].Op == OpARM64GreaterEqualU {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64UGE, cc)
+			return true
+		}
+		// match: (TBNZ [0] (LessThanF cc) yes no)
+		// result: (FLT cc yes no)
+		for b.Controls[0].Op == OpARM64LessThanF {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64FLT, cc)
+			return true
+		}
+		// match: (TBNZ [0] (LessEqualF cc) yes no)
+		// result: (FLE cc yes no)
+		for b.Controls[0].Op == OpARM64LessEqualF {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64FLE, cc)
+			return true
+		}
+		// match: (TBNZ [0] (GreaterThanF cc) yes no)
+		// result: (FGT cc yes no)
+		for b.Controls[0].Op == OpARM64GreaterThanF {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64FGT, cc)
+			return true
+		}
+		// match: (TBNZ [0] (GreaterEqualF cc) yes no)
+		// result: (FGE cc yes no)
+		for b.Controls[0].Op == OpARM64GreaterEqualF {
+			v_0 := b.Controls[0]
+			cc := v_0.Args[0]
+			if auxIntToInt64(b.AuxInt) != 0 {
+				break
+			}
+			b.resetWithControl(BlockARM64FGE, cc)
 			return true
 		}
 	case BlockARM64UGE:

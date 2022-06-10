@@ -583,7 +583,7 @@
 (AtomicOr32  ...) => (LoweredAtomicOr32  ...)
 
 // Conditional branches
-(If cond yes no) => (BNEZ cond yes no)
+(If cond yes no) => (BNEZ (MOVBUreg <typ.UInt64> cond) yes no)
 
 // Optimizations
 
@@ -620,6 +620,10 @@
 (MOVHstore [off] {sym} ptr (MOVDconst [0]) mem) => (MOVHstorezero [off] {sym} ptr mem)
 (MOVWstore [off] {sym} ptr (MOVDconst [0]) mem) => (MOVWstorezero [off] {sym} ptr mem)
 (MOVDstore [off] {sym} ptr (MOVDconst [0]) mem) => (MOVDstorezero [off] {sym} ptr mem)
+
+// Boolean ops are already extended.
+(MOVBUreg x:((SEQZ|SNEZ) _)) => x
+(MOVBUreg x:((SLT|SLTU) _ _)) => x
 
 // Avoid sign/zero extension for consts.
 (MOVBreg  (MOVDconst [c])) => (MOVDconst [int64(int8(c))])
@@ -731,9 +735,9 @@
 (NEGW (MOVDconst [x])) => (MOVDconst [int64(int32(-x))])
 
 // Shift of a constant.
-(SLLI [x] (MOVDconst [y])) && is32Bit(y << x) => (MOVDconst [y << x])
-(SRLI [x] (MOVDconst [y])) => (MOVDconst [int64(uint64(y) >> x)])
-(SRAI [x] (MOVDconst [y])) => (MOVDconst [int64(y) >> x])
+(SLLI [x] (MOVDconst [y])) && is32Bit(y << uint32(x)) => (MOVDconst [y << uint32(x)])
+(SRLI [x] (MOVDconst [y])) => (MOVDconst [int64(uint64(y) >> uint32(x))])
+(SRAI [x] (MOVDconst [y])) => (MOVDconst [int64(y) >> uint32(x)])
 
 // SLTI/SLTIU with constants.
 (SLTI  [x] (MOVDconst [y])) => (MOVDconst [b2i(int64(y) < int64(x))])

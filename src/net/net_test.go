@@ -529,17 +529,19 @@ func TestNotTemporaryRead(t *testing.T) {
 		<-dialed
 		cs.(*TCPConn).SetLinger(0)
 		cs.Close()
-
-		ln.Close()
 	}()
-	defer func() { <-serverDone }()
+	defer func() {
+		ln.Close()
+		<-serverDone
+	}()
 
 	ss, err := Dial("tcp", ln.Addr().String())
+	close(dialed)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ss.Close()
-	close(dialed)
+
 	_, err = ss.Read([]byte{0})
 	if err == nil {
 		t.Fatal("Read succeeded unexpectedly")
@@ -549,9 +551,7 @@ func TestNotTemporaryRead(t *testing.T) {
 		if runtime.GOOS == "plan9" {
 			return
 		}
-		// TODO: during an open development cycle, try making this a failure
-		// and see whether it causes the test to become flaky anywhere else.
-		return
+		t.Fatal("Read unexpectedly returned io.EOF after socket was abruptly closed")
 	}
 	if ne, ok := err.(Error); !ok {
 		t.Errorf("Read error does not implement net.Error: %v", err)

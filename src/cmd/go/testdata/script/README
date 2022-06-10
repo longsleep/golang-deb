@@ -7,7 +7,7 @@ In general script files should have short names: a few words, not whole sentence
 The first word should be the general category of behavior being tested,
 often the name of a go subcommand (list, build, test, ...) or concept (vendor, pattern).
 
-Each script is a text archive (go doc cmd/go/internal/txtar).
+Each script is a text archive (go doc internal/txtar).
 The script begins with an actual command script to run
 followed by the content of zero or more supporting files to
 create in the script's temporary file system before it starts executing.
@@ -90,6 +90,8 @@ should only run when the condition is satisfied. The available conditions are:
    - [exec:prog] for whether prog is available for execution (found by exec.LookPath)
    - [GODEBUG:value] for whether value is one of the comma-separated entries in the GODEBUG variable
    - [buildmode:value] for whether -buildmode=value is supported
+   - [trimpath] for whether the 'go' binary was built with -trimpath
+   - [mismatched-goroot] for whether the test's GOROOT_FINAL does not match the real GOROOT
 
 A condition can be negated: [!short] means to run the rest of the line
 when testing.Short() is false. Multiple conditions may be given for a single

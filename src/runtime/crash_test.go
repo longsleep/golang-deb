@@ -665,7 +665,7 @@ retry:
 func TestBadTraceback(t *testing.T) {
 	output := runTestProg(t, "testprog", "BadTraceback")
 	for _, want := range []string{
-		"runtime: unexpected return pc",
+		"unexpected return pc",
 		"called from 0xbad",
 		"00000bad",    // Smashed LR in hex dump
 		"<main.badLR", // Symbolization in hex dump (badLR1 or badLR2)
@@ -797,6 +797,50 @@ func TestDoublePanic(t *testing.T) {
 	for _, want := range wants {
 		if !strings.Contains(output, want) {
 			t.Errorf("output:\n%s\n\nwant output containing: %s", output, want)
+		}
+	}
+}
+
+// Test that panic while panicking discards error message
+// See issue 52257
+func TestPanicWhilePanicking(t *testing.T) {
+	tests := []struct {
+		Want string
+		Func string
+	}{
+		{
+			"panic while printing panic value: important error message",
+			"ErrorPanic",
+		},
+		{
+			"panic while printing panic value: important stringer message",
+			"StringerPanic",
+		},
+		{
+			"panic while printing panic value: type",
+			"DoubleErrorPanic",
+		},
+		{
+			"panic while printing panic value: type",
+			"DoubleStringerPanic",
+		},
+		{
+			"panic while printing panic value: type",
+			"CircularPanic",
+		},
+		{
+			"important string message",
+			"StringPanic",
+		},
+		{
+			"nil",
+			"NilPanic",
+		},
+	}
+	for _, x := range tests {
+		output := runTestProg(t, "testprog", x.Func)
+		if !strings.Contains(output, x.Want) {
+			t.Errorf("output does not contain %q:\n%s", x.Want, output)
 		}
 	}
 }

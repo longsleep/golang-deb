@@ -28,7 +28,6 @@ func Seek(fd int, offset int64, whence int) (newoffset int64, err error) {
 	return newoffset, nil
 }
 
-//sys	accept(s int, rsa *RawSockaddrAny, addrlen *_Socklen) (fd int, err error)
 //sys	accept4(s int, rsa *RawSockaddrAny, addrlen *_Socklen, flags int) (fd int, err error)
 //sys	bind(s int, addr unsafe.Pointer, addrlen _Socklen) (err error)
 //sys	connect(s int, addr unsafe.Pointer, addrlen _Socklen) (err error)
@@ -73,8 +72,8 @@ func Seek(fd int, offset int64, whence int) (newoffset int64, err error) {
 //sys	Utime(path string, buf *Utimbuf) (err error)
 //sys	utimes(path string, times *[2]Timeval) (err error)
 
-//sys   Pread(fd int, p []byte, offset int64) (n int, err error) = SYS_PREAD64
-//sys   Pwrite(fd int, p []byte, offset int64) (n int, err error) = SYS_PWRITE64
+//sys   pread(fd int, p []byte, offset int64) (n int, err error) = SYS_PREAD64
+//sys   pwrite(fd int, p []byte, offset int64) (n int, err error) = SYS_PWRITE64
 //sys	Truncate(path string, length int64) (err error) = SYS_TRUNCATE64
 //sys	Ftruncate(fd int, length int64) (err error) = SYS_FTRUNCATE64
 
