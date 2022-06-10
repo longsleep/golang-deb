@@ -2,7 +2,7 @@
 # WARNING: "debian/control" is generated via "debian/rules gencontrol" (sourced from "debian/control.in")
 #
 
-Source: golang-1.18
+Source: golang-1.19
 Maintainer: Debian Go Compiler Team <team+go-compiler@tracker.debian.org>
 Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Paul Tagliamonte <paultag@debian.org>,
@@ -16,14 +16,14 @@ Build-Depends: debhelper-compat (= 13),
                golang-any (>= 2:1.4~) | golang-go (>= 2:1.4~) | gccgo (>= 4:5~),
                netbase
 Standards-Version: 4.6.0
-Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.18
-Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.18
+Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.19
+Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.19
 Homepage: https://go.dev/
 Rules-Requires-Root: no
 
-Package: golang-1.18-go
+Package: golang-1.19-go
 Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
-Depends: golang-1.18-src (>= ${source:Version}),
+Depends: golang-1.19-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
@@ -44,9 +44,9 @@ Description: Go programming language compiler, linker, compiled stdlib
  for the Go programming language.
  .
  To use this version, instead of the default one provided by golang-go package,
- add /usr/lib/go-1.18/bin/ to PATH, or invoke /usr/lib/go-1.18/bin/go directly.
+ add /usr/lib/go-1.19/bin/ to PATH, or invoke /usr/lib/go-1.19/bin/go directly.
 
-Package: golang-1.18-src
+Package: golang-1.19-src
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
@@ -63,7 +63,7 @@ Description: Go programming language - source files
  This package provides the Go programming language source files needed for
  compilation.
 
-Package: golang-1.18-doc
+Package: golang-1.19-doc
 Depends: ${misc:Depends}
 Architecture: all
 Multi-Arch: foreign
@@ -82,10 +82,10 @@ Description: Go programming language - documentation
  This package provides the documentation for the Go programming
  language.
 
-Package: golang-1.18
-Depends: golang-1.18-doc (>= ${source:Version}),
-         golang-1.18-go (>= ${source:Version}),
-         golang-1.18-src (>= ${source:Version}),
+Package: golang-1.19
+Depends: golang-1.19-doc (>= ${source:Version}),
+         golang-1.19-go (>= ${source:Version}),
+         golang-1.19-src (>= ${source:Version}),
          ${misc:Depends}
 Architecture: all
 Description: Go programming language compiler - metapackage
@@ -103,5 +103,5 @@ Description: Go programming language compiler - metapackage
  that (most of) a full Go development environment is installed.
  .
  To use this version, instead of the default one provided by golang-go
- package, add /usr/lib/go-1.18/bin/ to PATH, or invoke /usr/lib/go-1.18/bin/go
+ package, add /usr/lib/go-1.19/bin/ to PATH, or invoke /usr/lib/go-1.19/bin/go
  directly.
