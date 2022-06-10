@@ -105,7 +105,6 @@ func (o Op) GoString() string {
 //
 //	%v	Go syntax ("+", "<-", "print")
 //	%+v	Debug syntax ("ADD", "RECV", "PRINT")
-//
 func (o Op) Format(s fmt.State, verb rune) {
 	switch verb {
 	default:
@@ -129,7 +128,6 @@ func (o Op) Format(s fmt.State, verb rune) {
 //	%v	Go syntax
 //	%L	Go syntax followed by " (type T)" if type is known.
 //	%+v	Debug syntax, as in Dump.
-//
 func fmtNode(n Node, s fmt.State, verb rune) {
 	// %+v prints Dump.
 	// Otherwise we print Go syntax.
@@ -202,7 +200,6 @@ var OpPrec = []int{
 	ONIL:           8,
 	ONONAME:        8,
 	OOFFSETOF:      8,
-	OPACK:          8,
 	OPANIC:         8,
 	OPAREN:         8,
 	OPRINTN:        8,
@@ -213,13 +210,6 @@ var OpPrec = []int{
 	OSTR2BYTES:     8,
 	OSTR2RUNES:     8,
 	OSTRUCTLIT:     8,
-	OTARRAY:        8,
-	OTSLICE:        8,
-	OTCHAN:         8,
-	OTFUNC:         8,
-	OTINTER:        8,
-	OTMAP:          8,
-	OTSTRUCT:       8,
 	OTYPE:          8,
 	OUNSAFEADD:     8,
 	OUNSAFESLICE:   8,
@@ -640,7 +630,7 @@ func exprFmt(n Node, s fmt.State, prec int) {
 			return
 		}
 		fallthrough
-	case OPACK, ONONAME:
+	case ONONAME:
 		fmt.Fprint(s, n.Sym())
 
 	case OLINKSYMOFFSET:
@@ -653,52 +643,6 @@ func exprFmt(n Node, s fmt.State, prec int) {
 			return
 		}
 		fmt.Fprintf(s, "%v", n.Type())
-
-	case OTSLICE:
-		n := n.(*SliceType)
-		if n.DDD {
-			fmt.Fprintf(s, "...%v", n.Elem)
-		} else {
-			fmt.Fprintf(s, "[]%v", n.Elem) // happens before typecheck
-		}
-
-	case OTARRAY:
-		n := n.(*ArrayType)
-		if n.Len == nil {
-			fmt.Fprintf(s, "[...]%v", n.Elem)
-		} else {
-			fmt.Fprintf(s, "[%v]%v", n.Len, n.Elem)
-		}
-
-	case OTMAP:
-		n := n.(*MapType)
-		fmt.Fprintf(s, "map[%v]%v", n.Key, n.Elem)
-
-	case OTCHAN:
-		n := n.(*ChanType)
-		switch n.Dir {
-		case types.Crecv:
-			fmt.Fprintf(s, "<-chan %v", n.Elem)
-
-		case types.Csend:
-			fmt.Fprintf(s, "chan<- %v", n.Elem)
-
-		default:
-			if n.Elem != nil && n.Elem.Op() == OTCHAN && n.Elem.(*ChanType).Dir == types.Crecv {
-				fmt.Fprintf(s, "chan (%v)", n.Elem)
-			} else {
-				fmt.Fprintf(s, "chan %v", n.Elem)
-			}
-		}
-
-	case OTSTRUCT:
-		fmt.Fprint(s, "<struct>")
-
-	case OTINTER:
-		fmt.Fprint(s, "<inter>")
-
-	case OTFUNC:
-		fmt.Fprint(s, "<func>")
 
 	case OCLOSURE:
 		n := n.(*ClosureExpr)
@@ -719,15 +663,10 @@ func exprFmt(n Node, s fmt.State, prec int) {
 				fmt.Fprintf(s, "%v{%s}", typ, ellipsisIf(len(n.List) != 0))
 				return
 			}
-			if n.Ntype != nil {
-				fmt.Fprintf(s, "%v{%s}", n.Ntype, ellipsisIf(len(n.List) != 0))
-				return
-			}
-
 			fmt.Fprint(s, "composite literal")
 			return
 		}
-		fmt.Fprintf(s, "(%v{ %.v })", n.Ntype, n.List)
+		fmt.Fprintf(s, "(%v{ %.v })", n.Type(), n.List)
 
 	case OPTRLIT:
 		n := n.(*AddrExpr)
@@ -774,10 +713,6 @@ func exprFmt(n Node, s fmt.State, prec int) {
 	case ODOTTYPE, ODOTTYPE2:
 		n := n.(*TypeAssertExpr)
 		exprFmt(n.X, s, nprec)
-		if n.Ntype != nil {
-			fmt.Fprintf(s, ".(%v)", n.Ntype)
-			return
-		}
 		fmt.Fprintf(s, ".(%v)", n.Type())
 
 	case OINDEX, OINDEXMAP:
@@ -976,7 +911,6 @@ func ellipsisIf(b bool) string {
 //	%v	Go syntax, semicolon-separated
 //	%.v	Go syntax, comma-separated
 //	%+v	Debug syntax, as in DumpList.
-//
 func (l Nodes) Format(s fmt.State, verb rune) {
 	if s.Flag('+') && verb == 'v' {
 		// %+v is DumpList output
@@ -1191,11 +1125,6 @@ func dumpNode(w io.Writer, n Node, depth int) {
 			fmt.Fprintf(w, "%+v", n.Op())
 		}
 		dumpNodeHeader(w, n)
-		if n.Type() == nil && n.Name() != nil && n.Name().Ntype != nil {
-			indent(w, depth)
-			fmt.Fprintf(w, "%+v-ntype", n.Op())
-			dumpNode(w, n.Name().Ntype, depth+1)
-		}
 		return
 
 	case OASOP:
@@ -1206,11 +1135,6 @@ func dumpNode(w io.Writer, n Node, depth int) {
 	case OTYPE:
 		fmt.Fprintf(w, "%+v %+v", n.Op(), n.Sym())
 		dumpNodeHeader(w, n)
-		if n.Type() == nil && n.Name() != nil && n.Name().Ntype != nil {
-			indent(w, depth)
-			fmt.Fprintf(w, "%+v-ntype", n.Op())
-			dumpNode(w, n.Name().Ntype, depth+1)
-		}
 		return
 
 	case OCLOSURE:

@@ -8,6 +8,7 @@ package types
 
 import (
 	"go/constant"
+	"go/token"
 	"unicode"
 )
 
@@ -74,7 +75,9 @@ func (check *Checker) conversion(x *operand, T Type) {
 		if compilerErrorMessages {
 			if cause != "" {
 				// Add colon at end of line if we have a following cause.
-				check.errorf(x, _InvalidConversion, "cannot convert %s to type %s:\n\t%s", x, T, cause)
+				err := newErrorf(x, _InvalidConversion, "cannot convert %s to type %s:", x, T)
+				err.errorf(token.NoPos, cause)
+				check.report(err)
 			} else {
 				check.errorf(x, _InvalidConversion, "cannot convert %s to type %s", x, T)
 			}
@@ -101,7 +104,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 		// - Keep untyped nil for untyped nil arguments.
 		// - For constant integer to string conversions, keep the argument type.
 		//   (See also the TODO below.)
-		if IsInterface(T) && !isTypeParam(T) || constArg && !isConstType(T) || x.isNil() {
+		if isNonTypeParamInterface(T) || constArg && !isConstType(T) || x.isNil() {
 			final = Default(x.typ) // default type of untyped nil is untyped nil
 		} else if x.mode == constant_ && isInteger(x.typ) && allString(T) {
 			final = x.typ

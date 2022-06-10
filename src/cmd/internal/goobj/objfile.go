@@ -20,7 +20,6 @@ package goobj
 
 import (
 	"cmd/internal/bio"
-	"crypto/sha1"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -178,6 +177,7 @@ const (
 	PkgIdxHashed                        // Hashed (content-addressable) symbols
 	PkgIdxBuiltin                       // Predefined runtime symbols (ex: runtime.newobject)
 	PkgIdxSelf                          // Symbols defined in the current package
+	PkgIdxSpecial  = PkgIdxSelf         // Indices above it has special meanings
 	PkgIdxInvalid  = 0
 	// The index of other referenced packages starts from 1.
 )
@@ -264,15 +264,16 @@ func (p *ImportedPkg) Write(w *Writer) {
 // Symbol definition.
 //
 // Serialized format:
-// Sym struct {
-//    Name  string
-//    ABI   uint16
-//    Type  uint8
-//    Flag  uint8
-//    Flag2 uint8
-//    Siz   uint32
-//    Align uint32
-// }
+//
+//	Sym struct {
+//	   Name  string
+//	   ABI   uint16
+//	   Type  uint8
+//	   Flag  uint8
+//	   Flag2 uint8
+//	   Siz   uint32
+//	   Align uint32
+//	}
 type Sym [SymSize]byte
 
 const SymSize = stringRefSize + 2 + 1 + 1 + 1 + 4 + 4
@@ -280,9 +281,10 @@ const SymSize = stringRefSize + 2 + 1 + 1 + 1 + 4 + 4
 const SymABIstatic = ^uint16(0)
 
 const (
-	ObjFlagShared            = 1 << iota // this object is built with -shared
-	ObjFlagNeedNameExpansion             // the linker needs to expand `"".` to package path in symbol names
-	ObjFlagFromAssembly                  // object is from asm src, not go
+	ObjFlagShared       = 1 << iota // this object is built with -shared
+	_                               // was ObjFlagNeedNameExpansion
+	ObjFlagFromAssembly             // object is from asm src, not go
+	ObjFlagUnlinkable               // unlinkable package (linker will emit an error)
 )
 
 // Sym.Flag
@@ -365,18 +367,19 @@ const Hash64Size = 8
 // Hash
 type HashType [HashSize]byte
 
-const HashSize = sha1.Size
+const HashSize = 16 // truncated SHA256
 
 // Relocation.
 //
 // Serialized format:
-// Reloc struct {
-//    Off  int32
-//    Siz  uint8
-//    Type uint16
-//    Add  int64
-//    Sym  SymRef
-// }
+//
+//	Reloc struct {
+//	   Off  int32
+//	   Siz  uint8
+//	   Type uint16
+//	   Add  int64
+//	   Sym  SymRef
+//	}
 type Reloc [RelocSize]byte
 
 const RelocSize = 4 + 1 + 2 + 8 + 8
@@ -414,10 +417,11 @@ func (r *Reloc) fromBytes(b []byte) { copy(r[:], b) }
 // Aux symbol info.
 //
 // Serialized format:
-// Aux struct {
-//    Type uint8
-//    Sym  SymRef
-// }
+//
+//	Aux struct {
+//	   Type uint8
+//	   Sym  SymRef
+//	}
 type Aux [AuxSize]byte
 
 const AuxSize = 1 + 8
@@ -457,11 +461,12 @@ func (a *Aux) fromBytes(b []byte) { copy(a[:], b) }
 // Referenced symbol flags.
 //
 // Serialized format:
-// RefFlags struct {
-//    Sym   symRef
-//    Flag  uint8
-//    Flag2 uint8
-// }
+//
+//	RefFlags struct {
+//	   Sym   symRef
+//	   Flag  uint8
+//	   Flag2 uint8
+//	}
 type RefFlags [RefFlagsSize]byte
 
 const RefFlagsSize = 8 + 1 + 1
@@ -489,10 +494,11 @@ const huge = (1<<31 - 1) / RelocSize
 // Referenced symbol name.
 //
 // Serialized format:
-// RefName struct {
-//    Sym  symRef
-//    Name string
-// }
+//
+//	RefName struct {
+//	   Sym  symRef
+//	   Name string
+//	}
 type RefName [RefNameSize]byte
 
 const RefNameSize = 8 + stringRefSize
@@ -866,6 +872,6 @@ func (r *Reader) Flags() uint32 {
 	return r.h.Flags
 }
 
-func (r *Reader) Shared() bool            { return r.Flags()&ObjFlagShared != 0 }
-func (r *Reader) NeedNameExpansion() bool { return r.Flags()&ObjFlagNeedNameExpansion != 0 }
-func (r *Reader) FromAssembly() bool      { return r.Flags()&ObjFlagFromAssembly != 0 }
+func (r *Reader) Shared() bool       { return r.Flags()&ObjFlagShared != 0 }
+func (r *Reader) FromAssembly() bool { return r.Flags()&ObjFlagFromAssembly != 0 }
+func (r *Reader) Unlinkable() bool   { return r.Flags()&ObjFlagUnlinkable != 0 }

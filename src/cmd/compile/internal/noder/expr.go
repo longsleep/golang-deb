@@ -6,6 +6,7 @@ package noder
 
 import (
 	"fmt"
+	"go/constant"
 
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
@@ -62,6 +63,14 @@ func (g *irgen) expr(expr syntax.Expr) ir.Node {
 		case types2.UntypedNil:
 			// ok; can appear in type switch case clauses
 			// TODO(mdempsky): Handle as part of type switches instead?
+		case types2.UntypedInt, types2.UntypedFloat, types2.UntypedComplex:
+			// Untyped rhs of non-constant shift, e.g. x << 1.0.
+			// If we have a constant value, it must be an int >= 0.
+			if tv.Value != nil {
+				s := constant.ToInt(tv.Value)
+				assert(s.Kind() == constant.Int && constant.Sign(s) >= 0)
+			}
+			typ = types2.Typ[types2.Uint]
 		case types2.UntypedBool:
 			typ = types2.Typ[types2.Bool] // expression in "if" or "for" condition
 		case types2.UntypedString:
@@ -188,7 +197,7 @@ func (g *irgen) expr0(typ types2.Type, expr syntax.Expr) ir.Node {
 // substType does a normal type substition, but tparams is in the form of a field
 // list, and targs is in terms of a slice of type nodes. substType records any newly
 // instantiated types into g.instTypeList.
-func (g *irgen) substType(typ *types.Type, tparams *types.Type, targs []ir.Node) *types.Type {
+func (g *irgen) substType(typ *types.Type, tparams *types.Type, targs []ir.Ntype) *types.Type {
 	fields := tparams.FieldSlice()
 	tparams1 := make([]*types.Type, len(fields))
 	for i, f := range fields {
@@ -330,7 +339,7 @@ func (g *irgen) selectorExpr(pos src.XPos, typ types2.Type, expr *syntax.Selecto
 				typed(method.Type(), n)
 
 				xt := deref(x.Type())
-				targs := make([]ir.Node, len(xt.RParams()))
+				targs := make([]ir.Ntype, len(xt.RParams()))
 				for i := range targs {
 					targs[i] = ir.TypeNode(xt.RParams()[i])
 				}
@@ -439,7 +448,6 @@ func (g *irgen) funcLit(typ2 types2.Type, expr *syntax.FuncLit) ir.Node {
 	for _, cv := range fn.ClosureVars {
 		cv.SetType(cv.Canonical().Type())
 		cv.SetTypecheck(1)
-		cv.SetWalkdef(1)
 	}
 
 	if g.topFuncIsGeneric {

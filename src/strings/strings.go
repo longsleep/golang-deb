@@ -244,6 +244,9 @@ func genSplit(s, sep string, sepSave, n int) []string {
 		n = Count(s, sep) + 1
 	}
 
+	if n > len(s)+1 {
+		n = len(s) + 1
+	}
 	a := make([]string, n)
 	n--
 	i := 0
@@ -264,9 +267,10 @@ func genSplit(s, sep string, sepSave, n int) []string {
 // the substrings between those separators.
 //
 // The count determines the number of substrings to return:
-//   n > 0: at most n substrings; the last substring will be the unsplit remainder.
-//   n == 0: the result is nil (zero substrings)
-//   n < 0: all substrings
+//
+//	n > 0: at most n substrings; the last substring will be the unsplit remainder.
+//	n == 0: the result is nil (zero substrings)
+//	n < 0: all substrings
 //
 // Edge cases for s and sep (for example, empty strings) are handled
 // as described in the documentation for Split.
@@ -278,9 +282,10 @@ func SplitN(s, sep string, n int) []string { return genSplit(s, sep, 0, n) }
 // returns a slice of those substrings.
 //
 // The count determines the number of substrings to return:
-//   n > 0: at most n substrings; the last substring will be the unsplit remainder.
-//   n == 0: the result is nil (zero substrings)
-//   n < 0: all substrings
+//
+//	n > 0: at most n substrings; the last substring will be the unsplit remainder.
+//	n == 0: the result is nil (zero substrings)
+//	n < 0: all substrings
 //
 // Edge cases for s and sep (for example, empty strings) are handled
 // as described in the documentation for SplitAfter.
@@ -957,7 +962,8 @@ func TrimSpace(s string) string {
 	for ; stop > start; stop-- {
 		c := s[stop-1]
 		if c >= utf8.RuneSelf {
-			return TrimFunc(s[start:stop], unicode.IsSpace)
+			// start has been already trimmed above, should trim end only
+			return TrimRightFunc(s[start:stop], unicode.IsSpace)
 		}
 		if asciiSpace[c] == 0 {
 			break
@@ -1038,7 +1044,7 @@ func ReplaceAll(s, old, new string) string {
 }
 
 // EqualFold reports whether s and t, interpreted as UTF-8 strings,
-// are equal under Unicode case-folding, which is a more general
+// are equal under simple Unicode case-folding, which is a more general
 // form of case-insensitivity.
 func EqualFold(s, t string) bool {
 	for s != "" && t != "" {

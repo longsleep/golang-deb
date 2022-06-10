@@ -10,8 +10,15 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"internal/pkgbits"
 	"sync"
 )
+
+func assert(b bool) {
+	if !b {
+		panic("assertion failed")
+	}
+}
 
 func errorf(format string, args ...any) {
 	panic(fmt.Sprintf(format, args...))
@@ -148,3 +155,15 @@ type anyType struct{}
 
 func (t anyType) Underlying() types.Type { return t }
 func (t anyType) String() string         { return "any" }
+
+// See cmd/compile/internal/noder.derivedInfo.
+type derivedInfo struct {
+	idx    pkgbits.Index
+	needed bool
+}
+
+// See cmd/compile/internal/noder.typeInfo.
+type typeInfo struct {
+	idx     pkgbits.Index
+	derived bool
+}

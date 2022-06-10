@@ -27,6 +27,7 @@ func cmdtest() {
 	gogcflags = os.Getenv("GO_GCFLAGS")
 
 	var t tester
+
 	var noRebuild bool
 	flag.BoolVar(&t.listMode, "list", false, "list available tests")
 	flag.BoolVar(&t.rebuild, "rebuild", false, "rebuild everything first")
@@ -38,6 +39,9 @@ func cmdtest() {
 	flag.StringVar(&t.runRxStr, "run", os.Getenv("GOTESTONLY"),
 		"run only those tests matching the regular expression; empty means to run all. "+
 			"Special exception: if the string begins with '!', the match is inverted.")
+	flag.BoolVar(&t.msan, "msan", false, "run in memory sanitizer builder mode")
+	flag.BoolVar(&t.asan, "asan", false, "run in address sanitizer builder mode")
+
 	xflagparse(-1) // any number of args
 	if noRebuild {
 		t.rebuild = false
@@ -49,6 +53,8 @@ func cmdtest() {
 // tester executes cmdtest.
 type tester struct {
 	race        bool
+	msan        bool
+	asan        bool
 	listMode    bool
 	rebuild     bool
 	failed      bool
@@ -91,15 +97,9 @@ type distTest struct {
 func (t *tester) run() {
 	timelog("start", "dist test")
 
-	var exeSuffix string
-	if goos == "windows" {
-		exeSuffix = ".exe"
-	}
-	if _, err := os.Stat(filepath.Join(gobin, "go"+exeSuffix)); err == nil {
-		os.Setenv("PATH", fmt.Sprintf("%s%c%s", gobin, os.PathListSeparator, os.Getenv("PATH")))
-	}
+	os.Setenv("PATH", fmt.Sprintf("%s%c%s", gorootBin, os.PathListSeparator, os.Getenv("PATH")))
 
-	cmd := exec.Command("go", "env", "CGO_ENABLED")
+	cmd := exec.Command(gorootBinGo, "env", "CGO_ENABLED")
 	cmd.Stderr = new(bytes.Buffer)
 	slurp, err := cmd.Output()
 	if err != nil {
@@ -218,6 +218,15 @@ func (t *tester) run() {
 		}
 	}
 
+	if err := t.maybeLogMetadata(); err != nil {
+		t.failed = true
+		if t.keepGoing {
+			log.Printf("Failed logging metadata: %v", err)
+		} else {
+			fatalf("Failed logging metadata: %v", err)
+		}
+	}
+
 	for _, dt := range t.tests {
 		if !t.shouldRunTest(dt.name) {
 			t.partial = true
@@ -266,6 +275,22 @@ func (t *tester) shouldRunTest(name string) bool {
 		}
 	}
 	return false
+}
+
+func (t *tester) maybeLogMetadata() error {
+	if t.compileOnly {
+		// We need to run a subprocess to log metadata. Don't do that
+		// on compile-only runs.
+		return nil
+	}
+	t.out("Test execution environment.")
+	// Helper binary to print system metadata (CPU model, etc). This is a
+	// separate binary from dist so it need not build with the bootstrap
+	// toolchain.
+	//
+	// TODO(prattmic): If we split dist bootstrap and dist test then this
+	// could be simplified to directly use internal/sysinfo here.
+	return t.dirCmd(filepath.Join(goroot, "src/cmd/internal/metadata"), "go", []string{"run", "."}).Run()
 }
 
 // short returns a -short flag value to use with 'go test'
@@ -333,15 +358,10 @@ var (
 	benchMatches []string
 )
 
-func (t *tester) registerStdTest(pkg string, useG3 bool) {
+func (t *tester) registerStdTest(pkg string) {
 	heading := "Testing packages."
 	testPrefix := "go_test:"
 	gcflags := gogcflags
-	if useG3 {
-		heading = "Testing packages with -G=3."
-		testPrefix = "go_test_g3:"
-		gcflags += " -G=3"
-	}
 
 	testName := testPrefix + pkg
 	if t.runRx == nil || t.runRx.MatchString(testName) == t.runRxWant {
@@ -377,16 +397,24 @@ func (t *tester) registerStdTest(pkg string, useG3 bool) {
 				"-short=" + short(),
 				t.tags(),
 				t.timeout(timeoutSec),
-				"-gcflags=all=" + gcflags,
+			}
+			if gcflags != "" {
+				args = append(args, "-gcflags=all="+gcflags)
 			}
 			if t.race {
 				args = append(args, "-race")
+			}
+			if t.msan {
+				args = append(args, "-msan")
+			}
+			if t.asan {
+				args = append(args, "-asan")
 			}
 			if t.compileOnly {
 				args = append(args, "-run=^$")
 			}
 			args = append(args, stdMatches...)
-			cmd := exec.Command("go", args...)
+			cmd := exec.Command(gorootBinGo, args...)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			return cmd.Run()
@@ -423,7 +451,7 @@ func (t *tester) registerRaceBenchTest(pkg string) {
 				args = append(args, "-bench=.*")
 			}
 			args = append(args, benchMatches...)
-			cmd := exec.Command("go", args...)
+			cmd := exec.Command(gorootBinGo, args...)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			return cmd.Run()
@@ -442,10 +470,7 @@ func (t *tester) registerTests() {
 	if len(t.runNames) > 0 {
 		for _, name := range t.runNames {
 			if strings.HasPrefix(name, "go_test:") {
-				t.registerStdTest(strings.TrimPrefix(name, "go_test:"), false)
-			}
-			if strings.HasPrefix(name, "go_test_g3:") {
-				t.registerStdTest(strings.TrimPrefix(name, "go_test_g3:"), true)
+				t.registerStdTest(strings.TrimPrefix(name, "go_test:"))
 			}
 			if strings.HasPrefix(name, "go_test_bench:") {
 				t.registerRaceBenchTest(strings.TrimPrefix(name, "go_test_bench:"))
@@ -454,7 +479,7 @@ func (t *tester) registerTests() {
 	} else {
 		// Use a format string to only list packages and commands that have tests.
 		const format = "{{if (or .TestGoFiles .XTestGoFiles)}}{{.ImportPath}}{{end}}"
-		cmd := exec.Command("go", "list", "-f", format)
+		cmd := exec.Command(gorootBinGo, "list", "-f", format)
 		if t.race {
 			cmd.Args = append(cmd.Args, "-tags=race")
 		}
@@ -468,15 +493,8 @@ func (t *tester) registerTests() {
 			fatalf("Error running go list std cmd: %v:\n%s", err, cmd.Stderr)
 		}
 		pkgs := strings.Fields(string(all))
-		if false {
-			// Disable -G=3 option for standard tests for now, since
-			// they are flaky on the builder.
-			for _, pkg := range pkgs {
-				t.registerStdTest(pkg, true /* -G=3 flag */)
-			}
-		}
 		for _, pkg := range pkgs {
-			t.registerStdTest(pkg, false)
+			t.registerStdTest(pkg)
 		}
 		if t.race {
 			for _, pkg := range pkgs {
@@ -533,6 +551,55 @@ func (t *tester) registerTests() {
 		})
 	}
 
+	// morestack tests. We only run these on in long-test mode
+	// (with GO_TEST_SHORT=false) because the runtime test is
+	// already quite long and mayMoreStackMove makes it about
+	// twice as slow.
+	if !t.compileOnly && short() == "false" {
+		// hooks is the set of maymorestack hooks to test with.
+		hooks := []string{"mayMoreStackPreempt", "mayMoreStackMove"}
+		// pkgs is the set of test packages to run.
+		pkgs := []string{"runtime", "reflect", "sync"}
+		// hookPkgs is the set of package patterns to apply
+		// the maymorestack hook to.
+		hookPkgs := []string{"runtime/...", "reflect", "sync"}
+		// unhookPkgs is the set of package patterns to
+		// exclude from hookPkgs.
+		unhookPkgs := []string{"runtime/testdata/..."}
+		for _, hook := range hooks {
+			// Construct the build flags to use the
+			// maymorestack hook in the compiler and
+			// assembler. We pass this via the GOFLAGS
+			// environment variable so that it applies to
+			// both the test itself and to binaries built
+			// by the test.
+			goFlagsList := []string{}
+			for _, flag := range []string{"-gcflags", "-asmflags"} {
+				for _, hookPkg := range hookPkgs {
+					goFlagsList = append(goFlagsList, flag+"="+hookPkg+"=-d=maymorestack=runtime."+hook)
+				}
+				for _, unhookPkg := range unhookPkgs {
+					goFlagsList = append(goFlagsList, flag+"="+unhookPkg+"=")
+				}
+			}
+			goFlags := strings.Join(goFlagsList, " ")
+
+			for _, pkg := range pkgs {
+				pkg := pkg
+				testName := hook + ":" + pkg
+				t.tests = append(t.tests, distTest{
+					name:    testName,
+					heading: "maymorestack=" + hook,
+					fn: func(dt *distTest) error {
+						cmd := t.addCmd(dt, "src", t.goTest(), t.timeout(600), pkg, "-short")
+						setEnv(cmd, "GOFLAGS", goFlags)
+						return nil
+					},
+				})
+			}
+		}
+	}
+
 	// This test needs its stdout/stderr to be terminals, so we don't run it from cmd/go's tests.
 	// See issue 18153.
 	if goos == "linux" {
@@ -547,7 +614,7 @@ func (t *tester) registerTests() {
 					fmt.Println("skipping terminal test; stdout/stderr not terminals")
 					return nil
 				}
-				cmd := exec.Command("go", "test")
+				cmd := exec.Command(gorootBinGo, "test")
 				setDir(cmd, filepath.Join(os.Getenv("GOROOT"), "src/cmd/go/testdata/testterminal18153"))
 				cmd.Stdout = os.Stdout
 				cmd.Stderr = os.Stderr
@@ -931,7 +998,11 @@ func flattenCmdline(cmdline []interface{}) (bin string, args []string) {
 	}
 	list = out
 
-	return list[0], list[1:]
+	bin = list[0]
+	if bin == "go" {
+		bin = gorootBinGo
+	}
+	return bin, list[1:]
 }
 
 func (t *tester) addCmd(dt *distTest, dir string, cmdline ...interface{}) *exec.Cmd {
@@ -963,7 +1034,7 @@ func (t *tester) extLink() bool {
 		"darwin-amd64", "darwin-arm64",
 		"dragonfly-amd64",
 		"freebsd-386", "freebsd-amd64", "freebsd-arm",
-		"linux-386", "linux-amd64", "linux-arm", "linux-arm64", "linux-ppc64le", "linux-mips64", "linux-mips64le", "linux-mips", "linux-mipsle", "linux-riscv64", "linux-s390x",
+		"linux-386", "linux-amd64", "linux-arm", "linux-arm64", "linux-loong64", "linux-ppc64le", "linux-mips64", "linux-mips64le", "linux-mips", "linux-mipsle", "linux-riscv64", "linux-s390x",
 		"netbsd-386", "netbsd-amd64",
 		"openbsd-386", "openbsd-amd64",
 		"windows-386", "windows-amd64":
@@ -989,7 +1060,7 @@ func (t *tester) internalLink() bool {
 	// Internally linking cgo is incomplete on some architectures.
 	// https://golang.org/issue/10373
 	// https://golang.org/issue/14449
-	if goarch == "mips64" || goarch == "mips64le" || goarch == "mips" || goarch == "mipsle" || goarch == "riscv64" {
+	if goarch == "loong64" || goarch == "mips64" || goarch == "mips64le" || goarch == "mips" || goarch == "mipsle" || goarch == "riscv64" {
 		return false
 	}
 	if goos == "aix" {
@@ -1085,7 +1156,7 @@ func (t *tester) registerHostTest(name, heading, dir, pkg string) {
 }
 
 func (t *tester) runHostTest(dir, pkg string) error {
-	out, err := exec.Command("go", "env", "GOEXE", "GOTMPDIR").Output()
+	out, err := exec.Command(gorootBinGo, "env", "GOEXE", "GOTMPDIR").Output()
 	if err != nil {
 		return err
 	}
@@ -1110,18 +1181,14 @@ func (t *tester) runHostTest(dir, pkg string) error {
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	return t.dirCmd(dir, f.Name(), "-test.short="+short()).Run()
+	return t.dirCmd(dir, f.Name(), "-test.short="+short(), "-test.timeout="+t.timeoutDuration(300).String()).Run()
 }
 
 func (t *tester) cgoTest(dt *distTest) error {
 	cmd := t.addCmd(dt, "misc/cgo/test", t.goTest())
 	setEnv(cmd, "GOFLAGS", "-ldflags=-linkmode=auto")
 
-	// Skip internal linking cases on arm64 to support GCC-9.4 and above.
-	// See issue #39466.
-	skipInternalLink := goarch == "arm64" && goos != "darwin"
-
-	if t.internalLink() && !skipInternalLink {
+	if t.internalLink() {
 		cmd := t.addCmd(dt, "misc/cgo/test", t.goTest(), "-tags=internal")
 		setEnv(cmd, "GOFLAGS", "-ldflags=-linkmode=internal")
 	}
@@ -1197,7 +1264,7 @@ func (t *tester) cgoTest(dt *distTest) error {
 
 			if t.supportedBuildmode("pie") {
 				t.addCmd(dt, "misc/cgo/test", t.goTest(), "-buildmode=pie")
-				if t.internalLink() && t.internalLinkPIE() && !skipInternalLink {
+				if t.internalLink() && t.internalLinkPIE() {
 					t.addCmd(dt, "misc/cgo/test", t.goTest(), "-buildmode=pie", "-ldflags=-linkmode=internal", "-tags=internal,internal_pie")
 				}
 				t.addCmd(dt, "misc/cgo/testtls", t.goTest(), "-buildmode=pie")

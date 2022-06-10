@@ -21,13 +21,12 @@ const useConstraintTypeInference = true
 // If successful, infer returns the complete list of type arguments, one for each type parameter.
 // Otherwise the result is nil and appropriate errors will be reported.
 //
-// Inference proceeds as follows:
+// Inference proceeds as follows. Starting with given type arguments:
 //
-//   Starting with given type arguments
-//   1) apply FTI (function type inference) with typed arguments,
-//   2) apply CTI (constraint type inference),
-//   3) apply FTI with untyped function arguments,
-//   4) apply CTI.
+//  1. apply FTI (function type inference) with typed arguments,
+//  2. apply CTI (constraint type inference),
+//  3. apply FTI with untyped function arguments,
+//  4. apply CTI.
 //
 // The process stops as soon as all type arguments are known or an error occurs.
 func (check *Checker) infer(pos syntax.Pos, tparams []*TypeParam, targs []Type, params *Tuple, args []*operand) (result []Type) {
@@ -111,11 +110,11 @@ func (check *Checker) infer(pos syntax.Pos, tparams []*TypeParam, targs []Type, 
 
 			renameMap := makeRenameMap(tparams, tparams2)
 			for i, tparam := range tparams {
-				tparams2[i].bound = check.subst(pos, tparam.bound, renameMap, nil)
+				tparams2[i].bound = check.subst(pos, tparam.bound, renameMap, nil, check.context())
 			}
 
 			tparams = tparams2
-			params = check.subst(pos, params, renameMap, nil).(*Tuple)
+			params = check.subst(pos, params, renameMap, nil, check.context()).(*Tuple)
 		}
 	}
 
@@ -189,7 +188,7 @@ func (check *Checker) infer(pos syntax.Pos, tparams []*TypeParam, targs []Type, 
 	//           but that doesn't impact the isParameterized check for now).
 	if params.Len() > 0 {
 		smap := makeSubstMap(tparams, targs)
-		params = check.subst(nopos, params, smap, nil).(*Tuple)
+		params = check.subst(nopos, params, smap, nil, check.context()).(*Tuple)
 	}
 
 	// Unify parameter and argument types for generic parameters with typed arguments
@@ -225,7 +224,7 @@ func (check *Checker) infer(pos syntax.Pos, tparams []*TypeParam, targs []Type, 
 			}
 		}
 		smap := makeSubstMap(tparams, targs)
-		inferred := check.subst(arg.Pos(), tpar, smap, nil)
+		inferred := check.subst(arg.Pos(), tpar, smap, nil, check.context())
 		if inferred != tpar {
 			check.errorf(arg, "%s %s of %s does not match inferred type %s for %s", kind, targ, arg.expr, inferred, tpar)
 		} else {
@@ -355,7 +354,7 @@ func typeParamsString(list []*TypeParam) string {
 	return b.String()
 }
 
-// IsParameterized reports whether typ contains any of the type parameters of tparams.
+// isParameterized reports whether typ contains any of the type parameters of tparams.
 func isParameterized(tparams []*TypeParam, typ Type) bool {
 	w := tpWalker{
 		seen:    make(map[Type]bool),
@@ -435,7 +434,7 @@ func (w *tpWalker) isParameterized(typ Type) (res bool) {
 		return w.isParameterized(t.elem)
 
 	case *Named:
-		return w.isParameterizedTypeList(t.targs.list())
+		return w.isParameterizedTypeList(t.TypeArgs().list())
 
 	case *TypeParam:
 		// t must be one of w.tparams
@@ -627,7 +626,7 @@ func (check *Checker) inferB(pos syntax.Pos, tparams []*TypeParam, targs []Type)
 		n := 0
 		for _, index := range dirty {
 			t0 := types[index]
-			if t1 := check.subst(nopos, t0, smap, nil); t1 != t0 {
+			if t1 := check.subst(nopos, t0, smap, nil, check.context()); t1 != t0 {
 				types[index] = t1
 				dirty[n] = index
 				n++

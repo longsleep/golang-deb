@@ -21,7 +21,6 @@
 // Type inference computes the type (Type) of every expression (syntax.Expr)
 // and checks for compliance with the language specification.
 // Use Info.Types[expr].Type for the results of type inference.
-//
 package types2
 
 import (
@@ -285,7 +284,6 @@ type Info struct {
 
 // TypeOf returns the type of expression e, or nil if not found.
 // Precondition: the Types, Uses and Defs maps are populated.
-//
 func (info *Info) TypeOf(e syntax.Expr) Type {
 	if t, ok := info.Types[e]; ok {
 		return t.Type
@@ -305,7 +303,6 @@ func (info *Info) TypeOf(e syntax.Expr) Type {
 // it defines, not the type (*TypeName) it uses.
 //
 // Precondition: the Uses and Defs maps are populated.
-//
 func (info *Info) ObjectOf(id *syntax.Name) Object {
 	if obj := info.Defs[id]; obj != nil {
 		return obj
@@ -423,9 +420,9 @@ func (conf *Config) Check(path string, files []*syntax.File, info *Info) (*Packa
 // AssertableTo reports whether a value of type V can be asserted to have type T.
 //
 // The behavior of AssertableTo is undefined in two cases:
-//  - if V is a generalized interface; i.e., an interface that may only be used
-//    as a type constraint in Go code
-//  - if T is an uninstantiated generic type
+//   - if V is a generalized interface; i.e., an interface that may only be used
+//     as a type constraint in Go code
+//   - if T is an uninstantiated generic type
 func AssertableTo(V *Interface, T Type) bool {
 	// Checker.newAssertableTo suppresses errors for invalid types, so we need special
 	// handling here.

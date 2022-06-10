@@ -345,7 +345,7 @@ func TestTLSPointFormats(t *testing.T) {
 				}
 			} else {
 				if len(serverHello.supportedPoints) != 0 {
-					t.Fatalf("unexcpected ec_point_format extension from server: %v", serverHello.supportedPoints)
+					t.Fatalf("unexpected ec_point_format extension from server: %v", serverHello.supportedPoints)
 				}
 			}
 		})
@@ -399,16 +399,6 @@ func TestVersion(t *testing.T) {
 	_, _, err = testHandshake(t, clientConfig, serverConfig)
 	if err == nil {
 		t.Fatalf("expected failure to connect with TLS 1.0/1.1")
-	}
-
-	defer func(old bool) { debugEnableTLS10 = old }(debugEnableTLS10)
-	debugEnableTLS10 = true
-	_, _, err = testHandshake(t, clientConfig, serverConfig)
-	if err != nil {
-		t.Fatalf("handshake failed: %s", err)
-	}
-	if state.Version != VersionTLS11 {
-		t.Fatalf("incorrect version %x, should be %x", state.Version, VersionTLS11)
 	}
 }
 
@@ -1944,7 +1934,7 @@ func TestAESCipherReorderingTLS13(t *testing.T) {
 	}
 }
 
-// TestServerHandshakeContextCancellation tests that cancelling
+// TestServerHandshakeContextCancellation tests that canceling
 // the context given to the server side conn.HandshakeContext
 // interrupts the in-progress handshake.
 func TestServerHandshakeContextCancellation(t *testing.T) {

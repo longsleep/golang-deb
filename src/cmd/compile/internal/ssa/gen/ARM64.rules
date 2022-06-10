@@ -532,7 +532,9 @@
 (If (GreaterThanF cc) yes no) => (FGT cc yes no)
 (If (GreaterEqualF cc) yes no) => (FGE cc yes no)
 
-(If cond yes no) => (NZ cond yes no)
+(If cond yes no) => (TBNZ [0] cond yes no)
+
+(JumpTable idx) => (JUMPTABLE {makeJumpTableSym(b)} idx (MOVDaddr <typ.Uintptr> {makeJumpTableSym(b)} (SB)))
 
 // atomic intrinsics
 // Note: these ops do not accept offset.
@@ -592,6 +594,21 @@
 (NZ (LessEqualF cc) yes no) => (FLE cc yes no)
 (NZ (GreaterThanF cc) yes no) => (FGT cc yes no)
 (NZ (GreaterEqualF cc) yes no) => (FGE cc yes no)
+
+(TBNZ [0] (Equal cc) yes no) => (EQ cc yes no)
+(TBNZ [0] (NotEqual cc) yes no) => (NE cc yes no)
+(TBNZ [0] (LessThan cc) yes no) => (LT cc yes no)
+(TBNZ [0] (LessThanU cc) yes no) => (ULT cc yes no)
+(TBNZ [0] (LessEqual cc) yes no) => (LE cc yes no)
+(TBNZ [0] (LessEqualU cc) yes no) => (ULE cc yes no)
+(TBNZ [0] (GreaterThan cc) yes no) => (GT cc yes no)
+(TBNZ [0] (GreaterThanU cc) yes no) => (UGT cc yes no)
+(TBNZ [0] (GreaterEqual cc) yes no) => (GE cc yes no)
+(TBNZ [0] (GreaterEqualU cc) yes no) => (UGE cc yes no)
+(TBNZ [0] (LessThanF cc) yes no) => (FLT cc yes no)
+(TBNZ [0] (LessEqualF cc) yes no) => (FLE cc yes no)
+(TBNZ [0] (GreaterThanF cc) yes no) => (FGT cc yes no)
+(TBNZ [0] (GreaterEqualF cc) yes no) => (FGE cc yes no)
 
 (EQ (CMPWconst [0] x:(ANDconst [c] y)) yes no) && x.Uses == 1 => (EQ (TSTWconst [int32(c)] y) yes no)
 (NE (CMPWconst [0] x:(ANDconst [c] y)) yes no) && x.Uses == 1 => (NE (TSTWconst [int32(c)] y) yes no)
@@ -1149,7 +1166,7 @@
 // But for now, this is enough to get rid of lots of them.
 (MOVDnop (MOVDconst [c])) => (MOVDconst [c])
 
-// fold constant into arithmatic ops
+// fold constant into arithmetic ops
 (ADD x (MOVDconst [c])) => (ADDconst [c] x)
 (SUB x (MOVDconst [c])) => (SUBconst [c] x)
 (AND x (MOVDconst [c])) => (ANDconst [c] x)
@@ -1563,9 +1580,9 @@
 (GreaterThanF (InvertFlags x)) => (LessThanF x)
 (GreaterEqualF (InvertFlags x)) => (LessEqualF x)
 
-// Boolean-generating instructions always
+// Boolean-generating instructions (NOTE: NOT all boolean Values) always
 // zero upper bit of the register; no need to zero-extend
-(MOVBUreg x) && x.Type.IsBoolean() => (MOVDreg x)
+(MOVBUreg x:((Equal|NotEqual|LessThan|LessThanU|LessThanF|LessEqual|LessEqualU|LessEqualF|GreaterThan|GreaterThanU|GreaterThanF|GreaterEqual|GreaterEqualU|GreaterEqualF) _)) => (MOVDreg x)
 
 // absorb flag constants into conditional instructions
 (CSEL [cc] x _ flag) && ccARM64Eval(cc, flag) > 0 => x
@@ -1918,7 +1935,11 @@
 // (x & ac) >> sc
 (SRLconst [sc] (ANDconst [ac] x)) && isARM64BFMask(sc, ac, sc)
 	=> (UBFX [armBFAuxInt(sc, arm64BFWidth(ac, sc))] x)
-
+// merge ANDconst and ubfx into ubfx
+(ANDconst [c] (UBFX [bfc] x)) && isARM64BFMask(0, c, 0) =>
+	(UBFX [armBFAuxInt(bfc.getARM64BFlsb(), min(bfc.getARM64BFwidth(), arm64BFWidth(c, 0)))] x)
+(UBFX [bfc] (ANDconst [c] x)) && isARM64BFMask(0, c, 0) && bfc.getARM64BFlsb() + bfc.getARM64BFwidth() <= arm64BFWidth(c, 0) =>
+	(UBFX [bfc] x)
 // merge ubfx and zerso-extension into ubfx
 (MOVWUreg (UBFX [bfc] x)) && bfc.getARM64BFwidth() <= 32 => (UBFX [bfc] x)
 (MOVHUreg (UBFX [bfc] x)) && bfc.getARM64BFwidth() <= 16 => (UBFX [bfc] x)

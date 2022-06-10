@@ -31,6 +31,7 @@ type DebugFlags struct {
 	LocationLists        int    `help:"print information about DWARF location list creation"`
 	Nil                  int    `help:"print information about nil checks"`
 	NoOpenDefer          int    `help:"disable open-coded defers"`
+	NoRefName            int    `help:"do not include referenced symbol names in object file"`
 	PCTab                string `help:"print named pc-value table\nOne of: pctospadj, pctofile, pctoline, pctoinline, pctopcdata"`
 	Panic                int    `help:"show all compiler panics"`
 	Slice                int    `help:"print information about slice compilation"`
@@ -39,7 +40,6 @@ type DebugFlags struct {
 	TypeAssert           int    `help:"print information about type assertion inlining"`
 	TypecheckInl         int    `help:"eager typechecking of inline function bodies"`
 	Unified              int    `help:"enable unified IR construction"`
-	UnifiedQuirks        int    `help:"enable unified IR construction's quirks mode"`
 	WB                   int    `help:"print information about write barriers"`
 	ABIWrap              int    `help:"print information about ABI wrapper generation"`
 	MayMoreStack         string `help:"call named function before all stack growth checks"`

@@ -134,9 +134,10 @@ var runtimeDecls = [...]struct {
 	{"makeslice64", funcTag, 114},
 	{"makeslicecopy", funcTag, 115},
 	{"growslice", funcTag, 117},
-	{"unsafeslice", funcTag, 118},
-	{"unsafeslice64", funcTag, 119},
-	{"unsafeslicecheckptr", funcTag, 119},
+	{"unsafeslicecheckptr", funcTag, 118},
+	{"panicunsafeslicelen", funcTag, 9},
+	{"panicunsafeslicenilptr", funcTag, 9},
+	{"mulUintptr", funcTag, 119},
 	{"memmove", funcTag, 120},
 	{"memclrNoHeapPointers", funcTag, 121},
 	{"memclrHasPointers", funcTag, 121},
@@ -204,6 +205,8 @@ var runtimeDecls = [...]struct {
 	{"libfuzzerTraceConstCmp2", funcTag, 146},
 	{"libfuzzerTraceConstCmp4", funcTag, 147},
 	{"libfuzzerTraceConstCmp8", funcTag, 148},
+	{"libfuzzerHookStrCmp", funcTag, 149},
+	{"libfuzzerHookEqualFold", funcTag, 149},
 	{"x86HasPOPCNT", varTag, 6},
 	{"x86HasSSE41", varTag, 6},
 	{"x86HasFMA", varTag, 6},
@@ -212,6 +215,7 @@ var runtimeDecls = [...]struct {
 }
 
 // Not inlining this function removes a significant chunk of init code.
+//
 //go:noinline
 func newSig(params, results []*types.Field) *types.Type {
 	return types.NewSignature(types.NoPkg, nil, nil, params, results)
@@ -226,7 +230,7 @@ func params(tlist ...*types.Type) []*types.Field {
 }
 
 func runtimeTypes() []*types.Type {
-	var typs [149]*types.Type
+	var typs [150]*types.Type
 	typs[0] = types.ByteType
 	typs[1] = types.NewPtr(typs[0])
 	typs[2] = types.Types[types.TANY]
@@ -345,8 +349,8 @@ func runtimeTypes() []*types.Type {
 	typs[115] = newSig(params(typs[1], typs[15], typs[15], typs[7]), params(typs[7]))
 	typs[116] = types.NewSlice(typs[2])
 	typs[117] = newSig(params(typs[1], typs[116], typs[15]), params(typs[116]))
-	typs[118] = newSig(params(typs[1], typs[7], typs[15]), nil)
-	typs[119] = newSig(params(typs[1], typs[7], typs[22]), nil)
+	typs[118] = newSig(params(typs[1], typs[7], typs[22]), nil)
+	typs[119] = newSig(params(typs[5], typs[5]), params(typs[5], typs[6]))
 	typs[120] = newSig(params(typs[3], typs[3], typs[5]), nil)
 	typs[121] = newSig(params(typs[7], typs[5]), nil)
 	typs[122] = newSig(params(typs[3], typs[3], typs[5]), params(typs[6]))
@@ -372,9 +376,10 @@ func runtimeTypes() []*types.Type {
 	typs[142] = newSig(params(typs[7], typs[1], typs[5]), nil)
 	typs[143] = types.NewSlice(typs[7])
 	typs[144] = newSig(params(typs[7], typs[143]), nil)
-	typs[145] = newSig(params(typs[66], typs[66]), nil)
-	typs[146] = newSig(params(typs[60], typs[60]), nil)
-	typs[147] = newSig(params(typs[62], typs[62]), nil)
-	typs[148] = newSig(params(typs[24], typs[24]), nil)
+	typs[145] = newSig(params(typs[66], typs[66], typs[15]), nil)
+	typs[146] = newSig(params(typs[60], typs[60], typs[15]), nil)
+	typs[147] = newSig(params(typs[62], typs[62], typs[15]), nil)
+	typs[148] = newSig(params(typs[24], typs[24], typs[15]), nil)
+	typs[149] = newSig(params(typs[28], typs[28], typs[15]), nil)
 	return typs[:]
 }

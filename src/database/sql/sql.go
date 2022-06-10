@@ -79,7 +79,7 @@ func Drivers() []string {
 // For a more concise way to create NamedArg values, see
 // the Named function.
 type NamedArg struct {
-	_Named_Fields_Required struct{}
+	_NamedFieldsRequired struct{}
 
 	// Name is the name of the parameter placeholder.
 	//
@@ -99,14 +99,14 @@ type NamedArg struct {
 //
 // Example usage:
 //
-//     db.ExecContext(ctx, `
-//         delete from Invoice
-//         where
-//             TimeCreated < @end
-//             and TimeCreated >= @start;`,
-//         sql.Named("start", startTime),
-//         sql.Named("end", endTime),
-//     )
+//	db.ExecContext(ctx, `
+//	    delete from Invoice
+//	    where
+//	        TimeCreated < @end
+//	        and TimeCreated >= @start;`,
+//	    sql.Named("start", startTime),
+//	    sql.Named("end", endTime),
+//	)
 func Named(name string, value any) NamedArg {
 	// This method exists because the go1compat promise
 	// doesn't guarantee that structs don't grow more fields,
@@ -176,15 +176,14 @@ type RawBytes []byte
 // NullString implements the Scanner interface so
 // it can be used as a scan destination:
 //
-//  var s NullString
-//  err := db.QueryRow("SELECT name FROM foo WHERE id=?", id).Scan(&s)
-//  ...
-//  if s.Valid {
-//     // use s.String
-//  } else {
-//     // NULL value
-//  }
-//
+//	var s NullString
+//	err := db.QueryRow("SELECT name FROM foo WHERE id=?", id).Scan(&s)
+//	...
+//	if s.Valid {
+//	   // use s.String
+//	} else {
+//	   // NULL value
+//	}
 type NullString struct {
 	String string
 	Valid  bool // Valid is true if String is not NULL
@@ -421,10 +420,10 @@ type Scanner interface {
 //
 // Example usage:
 //
-//   var outArg string
-//   _, err := db.ExecContext(ctx, "ProcName", sql.Named("Arg1", sql.Out{Dest: &outArg}))
+//	var outArg string
+//	_, err := db.ExecContext(ctx, "ProcName", sql.Named("Arg1", sql.Out{Dest: &outArg}))
 type Out struct {
-	_Named_Fields_Required struct{}
+	_NamedFieldsRequired struct{}
 
 	// Dest is a pointer to the value that will be set to the result of the
 	// stored procedure's OUTPUT parameter.
@@ -722,7 +721,6 @@ func (db *DB) removeDep(x finalCloser, dep any) error {
 }
 
 func (db *DB) removeDepLocked(x finalCloser, dep any) func() error {
-
 	xdep, ok := db.dep[x]
 	if !ok {
 		panic(fmt.Sprintf("unpaired removeDep: no deps for %T", x))
@@ -2379,11 +2377,12 @@ func (tx *Tx) Prepare(query string) (*Stmt, error) {
 // an existing statement.
 //
 // Example:
-//  updateMoney, err := db.Prepare("UPDATE balance SET money=money+? WHERE id=?")
-//  ...
-//  tx, err := db.Begin()
-//  ...
-//  res, err := tx.StmtContext(ctx, updateMoney).Exec(123.45, 98293203)
+//
+//	updateMoney, err := db.Prepare("UPDATE balance SET money=money+? WHERE id=?")
+//	...
+//	tx, err := db.Begin()
+//	...
+//	res, err := tx.StmtContext(ctx, updateMoney).Exec(123.45, 98293203)
 //
 // The provided context is used for the preparation of the statement, not for the
 // execution of the statement.
@@ -2466,11 +2465,12 @@ func (tx *Tx) StmtContext(ctx context.Context, stmt *Stmt) *Stmt {
 // an existing statement.
 //
 // Example:
-//  updateMoney, err := db.Prepare("UPDATE balance SET money=money+? WHERE id=?")
-//  ...
-//  tx, err := db.Begin()
-//  ...
-//  res, err := tx.Stmt(updateMoney).Exec(123.45, 98293203)
+//
+//	updateMoney, err := db.Prepare("UPDATE balance SET money=money+? WHERE id=?")
+//	...
+//	tx, err := db.Begin()
+//	...
+//	res, err := tx.Stmt(updateMoney).Exec(123.45, 98293203)
 //
 // The returned statement operates within the transaction and will be closed
 // when the transaction has been committed or rolled back.
@@ -2858,8 +2858,8 @@ func (s *Stmt) QueryRowContext(ctx context.Context, args ...any) *Row {
 //
 // Example usage:
 //
-//  var name string
-//  err := nameByUseridStmt.QueryRow(id).Scan(&name)
+//	var name string
+//	err := nameByUseridStmt.QueryRow(id).Scan(&name)
 //
 // QueryRow uses context.Background internally; to specify the context, use
 // QueryRowContext.
@@ -3210,16 +3210,16 @@ func rowsColumnInfoSetupConnLocked(rowsi driver.Rows) []*ColumnType {
 // Scan converts columns read from the database into the following
 // common Go types and special types provided by the sql package:
 //
-//    *string
-//    *[]byte
-//    *int, *int8, *int16, *int32, *int64
-//    *uint, *uint8, *uint16, *uint32, *uint64
-//    *bool
-//    *float32, *float64
-//    *interface{}
-//    *RawBytes
-//    *Rows (cursor value)
-//    any type implementing Scanner (see Scanner docs)
+//	*string
+//	*[]byte
+//	*int, *int8, *int16, *int32, *int64
+//	*uint, *uint8, *uint16, *uint32, *uint64
+//	*bool
+//	*float32, *float64
+//	*interface{}
+//	*RawBytes
+//	*Rows (cursor value)
+//	any type implementing Scanner (see Scanner docs)
 //
 // In the most simple case, if the type of the value from the source
 // column is an integer, bool or string type T and dest is of type *T,
@@ -3331,6 +3331,8 @@ func (rs *Rows) close(err error) error {
 		rs.closeStmt.Close()
 	}
 	rs.releaseConn(err)
+
+	rs.lasterr = rs.lasterrOrErrLocked(err)
 	return err
 }
 

@@ -49,9 +49,12 @@ func (i *Int32) Add(delta int32) int32 {
 
 // Int64 is an atomically accessed int64 value.
 //
+// 8-byte aligned on all platforms, unlike a regular int64.
+//
 // An Int64 must not be copied.
 type Int64 struct {
 	noCopy noCopy
+	_      align64
 	value  int64
 }
 
@@ -122,6 +125,28 @@ func (u *Uint8) And(value uint8) {
 // The full process is performed atomically.
 func (u *Uint8) Or(value uint8) {
 	Or8(&u.value, value)
+}
+
+// Bool is an atomically accessed bool value.
+//
+// A Bool must not be copied.
+type Bool struct {
+	// Inherits noCopy from Uint8.
+	u Uint8
+}
+
+// Load accesses and returns the value atomically.
+func (b *Bool) Load() bool {
+	return b.u.Load() != 0
+}
+
+// Store updates the value atomically.
+func (b *Bool) Store(value bool) {
+	s := uint8(0)
+	if value {
+		s = 1
+	}
+	b.u.Store(s)
 }
 
 // Uint32 is an atomically accessed uint32 value.
@@ -220,9 +245,12 @@ func (u *Uint32) Add(delta int32) uint32 {
 
 // Uint64 is an atomically accessed uint64 value.
 //
+// 8-byte aligned on all platforms, unlike a regular uint64.
+//
 // A Uint64 must not be copied.
 type Uint64 struct {
 	noCopy noCopy
+	_      align64
 	value  uint64
 }
 
@@ -324,8 +352,11 @@ func (u *Uintptr) Add(delta uintptr) uintptr {
 
 // Float64 is an atomically accessed float64 value.
 //
+// 8-byte aligned on all platforms, unlike a regular float64.
+//
 // A Float64 must not be copied.
 type Float64 struct {
+	// Inherits noCopy and align64 from Uint64.
 	u Uint64
 }
 
@@ -393,3 +424,8 @@ type noCopy struct{}
 // Lock is a no-op used by -copylocks checker from `go vet`.
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
+
+// align64 may be added to structs that must be 64-bit aligned.
+// This struct is recognized by a special case in the compiler
+// and will not work if copied to any other package.
+type align64 struct{}

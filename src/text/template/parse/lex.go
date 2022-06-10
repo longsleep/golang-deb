@@ -118,7 +118,7 @@ type lexer struct {
 	emitComment bool      // emit itemComment tokens.
 	pos         Pos       // current position in the input
 	start       Pos       // start position of this item
-	width       Pos       // width of last rune read from input
+	atEOF       bool      // we have hit the end of input and returned eof
 	items       chan item // channel of scanned items
 	parenDepth  int       // nesting depth of ( ) exprs
 	line        int       // 1+number of newlines seen
@@ -130,12 +130,11 @@ type lexer struct {
 // next returns the next rune in the input.
 func (l *lexer) next() rune {
 	if int(l.pos) >= len(l.input) {
-		l.width = 0
+		l.atEOF = true
 		return eof
 	}
 	r, w := utf8.DecodeRuneInString(l.input[l.pos:])
-	l.width = Pos(w)
-	l.pos += l.width
+	l.pos += Pos(w)
 	if r == '\n' {
 		l.line++
 	}
@@ -149,12 +148,15 @@ func (l *lexer) peek() rune {
 	return r
 }
 
-// backup steps back one rune. Can only be called once per call of next.
+// backup steps back one rune.
 func (l *lexer) backup() {
-	l.pos -= l.width
-	// Correct newline count.
-	if l.width == 1 && l.input[l.pos] == '\n' {
-		l.line--
+	if !l.atEOF && l.pos > 0 {
+		r, w := utf8.DecodeLastRuneInString(l.input[:l.pos])
+		l.pos -= Pos(w)
+		// Correct newline count.
+		if r == '\n' {
+			l.line--
+		}
 	}
 }
 
@@ -209,7 +211,7 @@ func (l *lexer) drain() {
 }
 
 // lex creates a new scanner for the input string.
-func lex(name, input, left, right string, emitComment bool) *lexer {
+func lex(name, input, left, right string, emitComment, breakOK, continueOK bool) *lexer {
 	if left == "" {
 		left = leftDelim
 	}
@@ -222,6 +224,8 @@ func lex(name, input, left, right string, emitComment bool) *lexer {
 		leftDelim:   left,
 		rightDelim:  right,
 		emitComment: emitComment,
+		breakOK:     breakOK,
+		continueOK:  continueOK,
 		items:       make(chan item),
 		line:        1,
 		startLine:   1,
@@ -249,7 +253,6 @@ const (
 
 // lexText scans until an opening action delimiter, "{{".
 func lexText(l *lexer) stateFn {
-	l.width = 0
 	if x := strings.Index(l.input[l.pos:], l.leftDelim); x >= 0 {
 		ldn := Pos(len(l.leftDelim))
 		l.pos += Pos(x)
@@ -541,13 +544,7 @@ func (l *lexer) atTerminator() bool {
 	case eof, '.', ',', '|', ':', ')', '(':
 		return true
 	}
-	// Does r start the delimiter? This can be ambiguous (with delim=="//", $x/2 will
-	// succeed but should fail) but only in extremely rare cases caused by willfully
-	// bad choice of delimiter.
-	if rd, _ := utf8.DecodeRuneInString(l.rightDelim); rd == r {
-		return true
-	}
-	return false
+	return strings.HasPrefix(l.input[l.pos:], l.rightDelim)
 }
 
 // lexChar scans a character constant. The initial quote is already

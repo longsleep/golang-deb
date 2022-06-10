@@ -237,7 +237,8 @@ func isaddrokay(n ir.Node) bool {
 // If the original argument n is not okay, addrTemp creates a tmp, emits
 // tmp = n, and then returns tmp.
 // The result of addrTemp MUST be assigned back to n, e.g.
-// 	n.Left = o.addrTemp(n.Left)
+//
+//	n.Left = o.addrTemp(n.Left)
 func (o *orderState) addrTemp(n ir.Node) ir.Node {
 	if n.Op() == ir.OLITERAL || n.Op() == ir.ONIL {
 		// TODO: expand this to all static composite literal nodes?
@@ -316,8 +317,10 @@ func (o *orderState) mapKeyTemp(t *types.Type, n ir.Node) ir.Node {
 // Returns a bool that signals if a modification was made.
 //
 // For:
-//  x = m[string(k)]
-//  x = m[T1{... Tn{..., string(k), ...}]
+//
+//	x = m[string(k)]
+//	x = m[T1{... Tn{..., string(k), ...}]
+//
 // where k is []byte, T1 to Tn is a nesting of struct and array literals,
 // the allocation of backing bytes for the string can be avoided
 // by reusing the []byte backing array. These are special cases
@@ -400,9 +403,12 @@ func (o *orderState) stmtList(l ir.Nodes) {
 }
 
 // orderMakeSliceCopy matches the pattern:
-//  m = OMAKESLICE([]T, x); OCOPY(m, s)
+//
+//	m = OMAKESLICE([]T, x); OCOPY(m, s)
+//
 // and rewrites it to:
-//  m = OMAKESLICECOPY([]T, x, s); nil
+//
+//	m = OMAKESLICECOPY([]T, x, s); nil
 func orderMakeSliceCopy(s []ir.Node) {
 	if base.Flag.N != 0 || base.Flag.Cfg.Instrumenting {
 		return
@@ -440,21 +446,31 @@ func (o *orderState) edge() {
 		return
 	}
 
-	// Create a new uint8 counter to be allocated in section
-	// __libfuzzer_extra_counters.
+	// Create a new uint8 counter to be allocated in section __sancov_cntrs
 	counter := staticinit.StaticName(types.Types[types.TUINT8])
-	counter.SetLibfuzzerExtraCounter(true)
-	// As well as setting SetLibfuzzerExtraCounter, we preemptively set the
-	// symbol type to SLIBFUZZER_EXTRA_COUNTER so that the race detector
+	counter.SetLibfuzzer8BitCounter(true)
+	// As well as setting SetLibfuzzer8BitCounter, we preemptively set the
+	// symbol type to SLIBFUZZER_8BIT_COUNTER so that the race detector
 	// instrumentation pass (which does not have access to the flags set by
-	// SetLibfuzzerExtraCounter) knows to ignore them. This information is
-	// lost by the time it reaches the compile step, so SetLibfuzzerExtraCounter
+	// SetLibfuzzer8BitCounter) knows to ignore them. This information is
+	// lost by the time it reaches the compile step, so SetLibfuzzer8BitCounter
 	// is still necessary.
-	counter.Linksym().Type = objabi.SLIBFUZZER_EXTRA_COUNTER
+	counter.Linksym().Type = objabi.SLIBFUZZER_8BIT_COUNTER
 
-	// counter += 1
-	incr := ir.NewAssignOpStmt(base.Pos, ir.OADD, counter, ir.NewInt(1))
-	o.append(incr)
+	// We guarantee that the counter never becomes zero again once it has been
+	// incremented once. This implementation follows the NeverZero optimization
+	// presented by the paper:
+	// "AFL++: Combining Incremental Steps of Fuzzing Research"
+	// The NeverZero policy avoids the overflow to 0 by setting the counter to one
+	// after it reaches 255 and so, if an edge is executed at least one time, the entry is
+	// never 0.
+	// Another policy presented in the paper is the Saturated Counters policy which
+	// freezes the counter when it reaches the value of 255. However, a range
+	// of experiments showed that that decreases overall performance.
+	o.append(ir.NewIfStmt(base.Pos,
+		ir.NewBinaryExpr(base.Pos, ir.OEQ, counter, ir.NewInt(0xff)),
+		[]ir.Node{ir.NewAssignStmt(base.Pos, counter, ir.NewInt(1))},
+		[]ir.Node{ir.NewAssignOpStmt(base.Pos, ir.OADD, counter, ir.NewInt(1))}))
 }
 
 // orderBlock orders the block of statements in n into a new slice,
@@ -473,7 +489,8 @@ func orderBlock(n *ir.Nodes, free map[string][]*ir.Name) {
 // exprInPlace orders the side effects in *np and
 // leaves them as the init list of the final *np.
 // The result of exprInPlace MUST be assigned back to n, e.g.
-// 	n.Left = o.exprInPlace(n.Left)
+//
+//	n.Left = o.exprInPlace(n.Left)
 func (o *orderState) exprInPlace(n ir.Node) ir.Node {
 	var order orderState
 	order.free = o.free
@@ -489,7 +506,9 @@ func (o *orderState) exprInPlace(n ir.Node) ir.Node {
 // orderStmtInPlace orders the side effects of the single statement *np
 // and replaces it with the resulting statement list.
 // The result of orderStmtInPlace MUST be assigned back to n, e.g.
-// 	n.Left = orderStmtInPlace(n.Left)
+//
+//	n.Left = orderStmtInPlace(n.Left)
+//
 // free is a map that can be used to obtain temporary variables by type.
 func orderStmtInPlace(n ir.Node, free map[string][]*ir.Name) ir.Node {
 	var order orderState
@@ -697,7 +716,8 @@ func (o *orderState) stmt(n ir.Node) {
 		case ir.ODYNAMICDOTTYPE2:
 			r := r.(*ir.DynamicTypeAssertExpr)
 			r.X = o.expr(r.X, nil)
-			r.T = o.expr(r.T, nil)
+			r.RType = o.expr(r.RType, nil)
+			r.ITab = o.expr(r.ITab, nil)
 		case ir.ORECV:
 			r := r.(*ir.UnaryExpr)
 			r.X = o.expr(r.X, nil)
@@ -1087,7 +1107,8 @@ func (o *orderState) exprNoLHS(n ir.Node) ir.Node {
 // Otherwise lhs == nil. (When lhs != nil it may be possible
 // to avoid copying the result of the expression to a temporary.)
 // The result of expr MUST be assigned back to n, e.g.
-// 	n.Left = o.expr(n.Left, lhs)
+//
+//	n.Left = o.expr(n.Left, lhs)
 func (o *orderState) expr(n, lhs ir.Node) ir.Node {
 	if n == nil {
 		return n
@@ -1433,6 +1454,15 @@ func (o *orderState) expr1(n, lhs ir.Node) ir.Node {
 			typecheck.Stmt(as) // Note: this converts the OINDEX to an OINDEXMAP
 			o.stmt(as)
 		}
+
+		// Remember that we issued these assignments so we can include that count
+		// in the map alloc hint.
+		// We're assuming here that all the keys in the map literal are distinct.
+		// If any are equal, this will be an overcount. Probably not worth accounting
+		// for that, as equal keys in map literals are rare, and at worst we waste
+		// a bit of space.
+		n.Len += int64(len(dynamics))
+
 		return m
 	}
 
@@ -1442,10 +1472,14 @@ func (o *orderState) expr1(n, lhs ir.Node) ir.Node {
 // as2func orders OAS2FUNC nodes. It creates temporaries to ensure left-to-right assignment.
 // The caller should order the right-hand side of the assignment before calling order.as2func.
 // It rewrites,
+//
 //	a, b, a = ...
+//
 // as
+//
 //	tmp1, tmp2, tmp3 = ...
 //	a, b, a = tmp1, tmp2, tmp3
+//
 // This is necessary to ensure left to right assignment order.
 func (o *orderState) as2func(n *ir.AssignListStmt) {
 	results := n.Rhs[0].Type()

@@ -11,6 +11,28 @@ import (
 	"unsafe"
 )
 
+// throwType indicates the current type of ongoing throw, which affects the
+// amount of detail printed to stderr. Higher values include more detail.
+type throwType uint32
+
+const (
+	// throwTypeNone means that we are not throwing.
+	throwTypeNone throwType = iota
+
+	// throwTypeUser is a throw due to a problem with the application.
+	//
+	// These throws do not include runtime frames, system goroutines, or
+	// frame metadata.
+	throwTypeUser
+
+	// throwTypeRuntime is a throw due to a problem with Go itself.
+	//
+	// These throws include as much information as possible to aid in
+	// debugging the runtime, including runtime frames, system goroutines,
+	// and frame metadata.
+	throwTypeRuntime
+)
+
 // We have two different ways of doing defers. The older way involves creating a
 // defer record at the time that a defer statement is executing and adding it to a
 // defer chain. This chain is inspected by the deferreturn call at all function
@@ -84,38 +106,54 @@ func panicCheck2(err string) {
 // a space-minimal register calling convention.
 
 // failures in the comparisons for s[x], 0 <= x < y (y == len(s))
+//
+//go:yeswritebarrierrec
 func goPanicIndex(x int, y int) {
 	panicCheck1(getcallerpc(), "index out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsIndex})
 }
+
+//go:yeswritebarrierrec
 func goPanicIndexU(x uint, y int) {
 	panicCheck1(getcallerpc(), "index out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsIndex})
 }
 
 // failures in the comparisons for s[:x], 0 <= x <= y (y == len(s) or cap(s))
+//
+//go:yeswritebarrierrec
 func goPanicSliceAlen(x int, y int) {
 	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSliceAlen})
 }
+
+//go:yeswritebarrierrec
 func goPanicSliceAlenU(x uint, y int) {
 	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSliceAlen})
 }
+
+//go:yeswritebarrierrec
 func goPanicSliceAcap(x int, y int) {
 	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSliceAcap})
 }
+
+//go:yeswritebarrierrec
 func goPanicSliceAcapU(x uint, y int) {
 	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSliceAcap})
 }
 
 // failures in the comparisons for s[x:y], 0 <= x <= y
+//
+//go:yeswritebarrierrec
 func goPanicSliceB(x int, y int) {
 	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: true, y: y, code: boundsSliceB})
 }
+
+//go:yeswritebarrierrec
 func goPanicSliceBU(x uint, y int) {
 	panicCheck1(getcallerpc(), "slice bounds out of range")
 	panic(boundsError{x: int64(x), signed: false, y: y, code: boundsSliceB})
@@ -187,6 +225,7 @@ func panicSliceConvert(x int, y int)
 
 var shiftError = error(errorString("negative shift amount"))
 
+//go:yeswritebarrierrec
 func panicshift() {
 	panicCheck1(getcallerpc(), "negative shift amount")
 	panic(shiftError)
@@ -194,6 +233,7 @@ func panicshift() {
 
 var divideError = error(errorString("integer divide by zero"))
 
+//go:yeswritebarrierrec
 func panicdivide() {
 	panicCheck2("integer divide by zero")
 	panic(divideError)
@@ -525,8 +565,14 @@ func Goexit() {
 // Used when crashing with panicking.
 func preprintpanics(p *_panic) {
 	defer func() {
-		if recover() != nil {
-			throw("panic while printing panic value")
+		text := "panic while printing panic value"
+		switch r := recover().(type) {
+		case nil:
+			// nothing to do
+		case string:
+			throw(text + ": " + r)
+		default:
+			throw(text + ": type " + efaceOf(&r)._type.string())
 		}
 	}()
 	for p != nil {
@@ -944,6 +990,7 @@ func gopanic(e any) {
 
 // getargp returns the location where the caller
 // writes outgoing function call arguments.
+//
 //go:nosplit
 //go:noinline
 func getargp() uintptr {
@@ -956,6 +1003,7 @@ func getargp() uintptr {
 //
 // TODO(rsc): Once we commit to CopyStackAlways,
 // this doesn't need to be nosplit.
+//
 //go:nosplit
 func gorecover(argp uintptr) any {
 	// Must be in a function running as part of a deferred call during the panic.
@@ -978,6 +1026,16 @@ func sync_throw(s string) {
 	throw(s)
 }
 
+//go:linkname sync_fatal sync.fatal
+func sync_fatal(s string) {
+	fatal(s)
+}
+
+// throw triggers a fatal error that dumps a stack trace and exits.
+//
+// throw should be used for runtime-internal fatal errors where Go itself,
+// rather than user code, may be at fault for the failure.
+//
 //go:nosplit
 func throw(s string) {
 	// Everything throw does should be recursively nosplit so it
@@ -985,12 +1043,27 @@ func throw(s string) {
 	systemstack(func() {
 		print("fatal error: ", s, "\n")
 	})
-	gp := getg()
-	if gp.m.throwing == 0 {
-		gp.m.throwing = 1
-	}
-	fatalthrow()
-	*(*int)(nil) = 0 // not reached
+
+	fatalthrow(throwTypeRuntime)
+}
+
+// fatal triggers a fatal error that dumps a stack trace and exits.
+//
+// fatal is equivalent to throw, but is used when user code is expected to be
+// at fault for the failure, such as racing map writes.
+//
+// fatal does not include runtime frames, system goroutines, or frame metadata
+// (fp, sp, pc) in the stack trace unless GOTRACEBACK=system or higher.
+//
+//go:nosplit
+func fatal(s string) {
+	// Everything fatal does should be recursively nosplit so it
+	// can be called even when it's unsafe to grow the stack.
+	systemstack(func() {
+		print("fatal error: ", s, "\n")
+	})
+
+	fatalthrow(throwTypeUser)
 }
 
 // runningPanicDefers is non-zero while running deferred functions for panic.
@@ -1035,12 +1108,17 @@ func recovery(gp *g) {
 // process.
 //
 //go:nosplit
-func fatalthrow() {
+func fatalthrow(t throwType) {
 	pc := getcallerpc()
 	sp := getcallersp()
 	gp := getg()
-	// Switch to the system stack to avoid any stack growth, which
-	// may make things worse if the runtime is in a bad state.
+
+	if gp.m.throwing == throwTypeNone {
+		gp.m.throwing = t
+	}
+
+	// Switch to the system stack to avoid any stack growth, which may make
+	// things worse if the runtime is in a bad state.
 	systemstack(func() {
 		startpanic_m()
 
@@ -1183,7 +1261,7 @@ func dopanic_m(gp *g, pc, sp uintptr) bool {
 			print("\n")
 			goroutineheader(gp)
 			traceback(pc, sp, 0, gp)
-		} else if level >= 2 || _g_.m.throwing > 0 {
+		} else if level >= 2 || _g_.m.throwing >= throwTypeRuntime {
 			print("\nruntime stack:\n")
 			traceback(pc, sp, 0, gp)
 		}
@@ -1225,7 +1303,7 @@ func canpanic(gp *g) bool {
 	if gp == nil || gp != mp.curg {
 		return false
 	}
-	if mp.locks != 0 || mp.mallocing != 0 || mp.throwing != 0 || mp.preemptoff != "" || mp.dying != 0 {
+	if mp.locks != 0 || mp.mallocing != 0 || mp.throwing != throwTypeNone || mp.preemptoff != "" || mp.dying != 0 {
 		return false
 	}
 	status := readgstatus(gp)

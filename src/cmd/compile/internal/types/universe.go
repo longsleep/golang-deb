@@ -42,7 +42,7 @@ var typedefs = [...]struct {
 
 func InitTypes(defTypeName func(sym *Sym, typ *Type) Object) {
 	if PtrSize == 0 {
-		base.Fatalf("typeinit before betypeinit")
+		base.Fatalf("InitTypes called before PtrSize was set")
 	}
 
 	SlicePtrOffset = 0
@@ -64,8 +64,7 @@ func InitTypes(defTypeName func(sym *Sym, typ *Type) Object) {
 	defBasic := func(kind Kind, pkg *Pkg, name string) *Type {
 		typ := newType(kind)
 		obj := defTypeName(pkg.Lookup(name), typ)
-		typ.sym = obj.Sym()
-		typ.nod = obj
+		typ.obj = obj
 		if kind != TANY {
 			CheckSize(typ)
 		}
@@ -114,10 +113,6 @@ func InitTypes(defTypeName func(sym *Sym, typ *Type) Object) {
 	AnyType = defBasic(TFORW, BuiltinPkg, "any")
 	AnyType.SetUnderlying(NewInterface(BuiltinPkg, []*Field{}, false))
 	ResumeCheckSize()
-
-	if base.Flag.G == 0 {
-		ComparableType.Sym().Def = nil
-	}
 
 	Types[TUNSAFEPTR] = defBasic(TUNSAFEPTR, UnsafePkg, "Pointer")
 

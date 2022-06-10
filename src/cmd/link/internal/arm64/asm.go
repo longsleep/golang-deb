@@ -91,9 +91,7 @@ func adddynrel(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, s loade
 		if targType == sym.SDYNIMPORT {
 			ldr.Errorf(s, "unexpected R_AARCH64_PREL32 relocation for dynamic symbol %s", ldr.SymName(targ))
 		}
-		// TODO(mwhudson): the test of VisibilityHidden here probably doesn't make
-		// sense and should be removed when someone has thought about it properly.
-		if (targType == 0 || targType == sym.SXREF) && !ldr.AttrVisibilityHidden(targ) {
+		if targType == 0 || targType == sym.SXREF {
 			ldr.Errorf(s, "unknown symbol %s in pcrel", ldr.SymName(targ))
 		}
 		su := ldr.MakeSymbolUpdater(s)
@@ -121,7 +119,7 @@ func adddynrel(target *ld.Target, ldr *loader.Loader, syms *ld.ArchSyms, s loade
 			su.SetRelocSym(rIdx, syms.PLT)
 			su.SetRelocAdd(rIdx, r.Add()+int64(ldr.SymPlt(targ)))
 		}
-		if (targType == 0 || targType == sym.SXREF) && !ldr.AttrVisibilityHidden(targ) {
+		if targType == 0 || targType == sym.SXREF {
 			ldr.Errorf(s, "unknown symbol %s in callarm64", ldr.SymName(targ))
 		}
 		su := ldr.MakeSymbolUpdater(s)
@@ -1146,7 +1144,8 @@ func gensymlate(ctxt *ld.Link, ldr *loader.Loader) {
 		if !ldr.AttrReachable(s) {
 			continue
 		}
-		if ldr.SymType(s) == sym.STEXT {
+		t := ldr.SymType(s)
+		if t == sym.STEXT {
 			if ctxt.IsDarwin() || ctxt.IsWindows() {
 				// Cannot relocate into middle of function.
 				// Generate symbol names for every offset we need in duffcopy/duffzero (only 64 each).
@@ -1158,6 +1157,9 @@ func gensymlate(ctxt *ld.Link, ldr *loader.Loader) {
 				}
 			}
 			continue // we don't target the middle of other functions
+		}
+		if t >= sym.SDWARFSECT {
+			continue // no need to add label for DWARF symbols
 		}
 		sz := ldr.SymSize(s)
 		if sz <= limit {

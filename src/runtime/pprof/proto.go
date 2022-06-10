@@ -56,9 +56,10 @@ type memMap struct {
 }
 
 // symbolizeFlag keeps track of symbolization result.
-//   0                  : no symbol lookup was performed
-//   1<<0 (lookupTried) : symbol lookup was performed
-//   1<<1 (lookupFailed): symbol lookup was performed but failed
+//
+//	0                  : no symbol lookup was performed
+//	1<<0 (lookupTried) : symbol lookup was performed
+//	1<<1 (lookupFailed): symbol lookup was performed but failed
 type symbolizeFlag uint8
 
 const (
@@ -244,6 +245,11 @@ type locInfo struct {
 	// to represent inlined functions
 	// https://github.com/golang/go/blob/d6f2f833c93a41ec1c68e49804b8387a06b131c5/src/runtime/traceback.go#L347-L368
 	pcs []uintptr
+
+	// firstPCFrames and firstPCSymbolizeResult hold the results of the
+	// allFrames call for the first (leaf-most) PC this locInfo represents
+	firstPCFrames          []runtime.Frame
+	firstPCSymbolizeResult symbolizeFlag
 }
 
 // newProfileBuilder returns a new profileBuilder.
@@ -399,6 +405,24 @@ func (b *profileBuilder) appendLocsForStack(locs []uint64, stk []uintptr) (newLo
 	for len(stk) > 0 {
 		addr := stk[0]
 		if l, ok := b.locs[addr]; ok {
+			// When generating code for an inlined function, the compiler adds
+			// NOP instructions to the outermost function as a placeholder for
+			// each layer of inlining. When the runtime generates tracebacks for
+			// stacks that include inlined functions, it uses the addresses of
+			// those NOPs as "fake" PCs on the stack as if they were regular
+			// function call sites. But if a profiling signal arrives while the
+			// CPU is executing one of those NOPs, its PC will show up as a leaf
+			// in the profile with its own Location entry. So, always check
+			// whether addr is a "fake" PC in the context of the current call
+			// stack by trying to add it to the inlining deck before assuming
+			// that the deck is complete.
+			if len(b.deck.pcs) > 0 {
+				if added := b.deck.tryAdd(addr, l.firstPCFrames, l.firstPCSymbolizeResult); added {
+					stk = stk[1:]
+					continue
+				}
+			}
+
 			// first record the location if there is any pending accumulated info.
 			if id := b.emitLocation(); id > 0 {
 				locs = append(locs, id)
@@ -451,6 +475,27 @@ func (b *profileBuilder) appendLocsForStack(locs []uint64, stk []uintptr) (newLo
 	return locs
 }
 
+// Here's an example of how Go 1.17 writes out inlined functions, compiled for
+// linux/amd64. The disassembly of main.main shows two levels of inlining: main
+// calls b, b calls a, a does some work.
+//
+//   inline.go:9   0x4553ec  90              NOPL                 // func main()    { b(v) }
+//   inline.go:6   0x4553ed  90              NOPL                 // func b(v *int) { a(v) }
+//   inline.go:5   0x4553ee  48c7002a000000  MOVQ $0x2a, 0(AX)    // func a(v *int) { *v = 42 }
+//
+// If a profiling signal arrives while executing the MOVQ at 0x4553ee (for line
+// 5), the runtime will report the stack as the MOVQ frame being called by the
+// NOPL at 0x4553ed (for line 6) being called by the NOPL at 0x4553ec (for line
+// 9).
+//
+// The role of pcDeck is to collapse those three frames back into a single
+// location at 0x4553ee, with file/line/function symbolization info representing
+// the three layers of calls. It does that via sequential calls to pcDeck.tryAdd
+// starting with the leaf-most address. The fourth call to pcDeck.tryAdd will be
+// for the caller of main.main. Because main.main was not inlined in its caller,
+// the deck will reject the addition, and the fourth PC on the stack will get
+// its own location.
+
 // pcDeck is a helper to detect a sequence of inlined functions from
 // a stack trace returned by the runtime.
 //
@@ -464,9 +509,10 @@ func (b *profileBuilder) appendLocsForStack(locs []uint64, stk []uintptr) (newLo
 // and looking up debug info is not ideal, so we use a heuristic to filter
 // the fake pcs and restore the inlined and entry functions. Inlined functions
 // have the following properties:
-//   Frame's Func is nil (note: also true for non-Go functions), and
-//   Frame's Entry matches its entry function frame's Entry (note: could also be true for recursive calls and non-Go functions), and
-//   Frame's Name does not match its entry function frame's name (note: inlined functions cannot be directly recursive).
+//
+//	Frame's Func is nil (note: also true for non-Go functions), and
+//	Frame's Entry matches its entry function frame's Entry (note: could also be true for recursive calls and non-Go functions), and
+//	Frame's Name does not match its entry function frame's name (note: inlined functions cannot be directly recursive).
 //
 // As reading and processing the pcs in a stack trace one by one (from leaf to the root),
 // we use pcDeck to temporarily hold the observed pcs and their expanded frames
@@ -475,19 +521,28 @@ type pcDeck struct {
 	pcs             []uintptr
 	frames          []runtime.Frame
 	symbolizeResult symbolizeFlag
+
+	// firstPCFrames indicates the number of frames associated with the first
+	// (leaf-most) PC in the deck
+	firstPCFrames int
+	// firstPCSymbolizeResult holds the results of the allFrames call for the
+	// first (leaf-most) PC in the deck
+	firstPCSymbolizeResult symbolizeFlag
 }
 
 func (d *pcDeck) reset() {
 	d.pcs = d.pcs[:0]
 	d.frames = d.frames[:0]
 	d.symbolizeResult = 0
+	d.firstPCFrames = 0
+	d.firstPCSymbolizeResult = 0
 }
 
 // tryAdd tries to add the pc and Frames expanded from it (most likely one,
 // since the stack trace is already fully expanded) and the symbolizeResult
 // to the deck. If it fails the caller needs to flush the deck and retry.
 func (d *pcDeck) tryAdd(pc uintptr, frames []runtime.Frame, symbolizeResult symbolizeFlag) (success bool) {
-	if existing := len(d.pcs); existing > 0 {
+	if existing := len(d.frames); existing > 0 {
 		// 'd.frames' are all expanded from one 'pc' and represent all
 		// inlined functions so we check only the last one.
 		newFrame := frames[0]
@@ -509,6 +564,10 @@ func (d *pcDeck) tryAdd(pc uintptr, frames []runtime.Frame, symbolizeResult symb
 	d.pcs = append(d.pcs, pc)
 	d.frames = append(d.frames, frames...)
 	d.symbolizeResult |= symbolizeResult
+	if len(d.pcs) == 1 {
+		d.firstPCFrames = len(d.frames)
+		d.firstPCSymbolizeResult = symbolizeResult
+	}
 	return true
 }
 
@@ -535,7 +594,12 @@ func (b *profileBuilder) emitLocation() uint64 {
 	newFuncs := make([]newFunc, 0, 8)
 
 	id := uint64(len(b.locs)) + 1
-	b.locs[addr] = locInfo{id: id, pcs: append([]uintptr{}, b.deck.pcs...)}
+	b.locs[addr] = locInfo{
+		id:                     id,
+		pcs:                    append([]uintptr{}, b.deck.pcs...),
+		firstPCSymbolizeResult: b.deck.firstPCSymbolizeResult,
+		firstPCFrames:          append([]runtime.Frame{}, b.deck.frames[:b.deck.firstPCFrames]...),
+	}
 
 	start := b.pb.startMessage()
 	b.pb.uint64Opt(tagLocation_ID, id)

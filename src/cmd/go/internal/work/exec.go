@@ -12,17 +12,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"internal/buildcfg"
-	exec "internal/execabs"
 	"internal/lazyregexp"
 	"io"
 	"io/fs"
 	"log"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -304,7 +304,9 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 			fmt.Fprintf(h, "fuzz %q\n", fuzzFlags)
 		}
 	}
-	fmt.Fprintf(h, "modinfo %q\n", p.Internal.BuildInfo)
+	if p.Internal.BuildInfo != "" {
+		fmt.Fprintf(h, "modinfo %q\n", p.Internal.BuildInfo)
+	}
 
 	// Configuration specific to compiler toolchain.
 	switch cfg.BuildToolchainName {
@@ -320,8 +322,8 @@ func (b *Builder) buildActionID(a *Action) cache.ActionID {
 		key, val := cfg.GetArchEnv()
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
-		if goexperiment := buildcfg.GOEXPERIMENT(); goexperiment != "" {
-			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", goexperiment)
+		if cfg.CleanGOEXPERIMENT != "" {
+			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", cfg.CleanGOEXPERIMENT)
 		}
 
 		// TODO(rsc): Convince compiler team not to add more magic environment variables,
@@ -560,7 +562,7 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 		return nil
 	}
 
-	if err := allowInstall(a); err != nil {
+	if err := AllowInstall(a); err != nil {
 		return err
 	}
 
@@ -1301,8 +1303,8 @@ func (b *Builder) printLinkerConfig(h io.Writer, p *load.Package) {
 		key, val := cfg.GetArchEnv()
 		fmt.Fprintf(h, "%s=%s\n", key, val)
 
-		if goexperiment := buildcfg.GOEXPERIMENT(); goexperiment != "" {
-			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", goexperiment)
+		if cfg.CleanGOEXPERIMENT != "" {
+			fmt.Fprintf(h, "GOEXPERIMENT=%q\n", cfg.CleanGOEXPERIMENT)
 		}
 
 		// The linker writes source file paths that say GOROOT_FINAL, but
@@ -1346,7 +1348,7 @@ func (b *Builder) link(ctx context.Context, a *Action) (err error) {
 		return err
 	}
 
-	if err := allowInstall(a); err != nil {
+	if err := AllowInstall(a); err != nil {
 		return err
 	}
 
@@ -1527,7 +1529,7 @@ func (b *Builder) getPkgConfigFlags(p *load.Package) (cflags, ldflags []string, 
 }
 
 func (b *Builder) installShlibname(ctx context.Context, a *Action) error {
-	if err := allowInstall(a); err != nil {
+	if err := AllowInstall(a); err != nil {
 		return err
 	}
 
@@ -1581,7 +1583,7 @@ func (b *Builder) linkShared(ctx context.Context, a *Action) (err error) {
 	}
 	defer b.flushOutput(a)
 
-	if err := allowInstall(a); err != nil {
+	if err := AllowInstall(a); err != nil {
 		return err
 	}
 
@@ -1652,7 +1654,7 @@ func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 		if !a.buggyInstall && !b.IsCmdList {
 			if cfg.BuildN {
 				b.Showcmd("", "touch %s", a.Target)
-			} else if err := allowInstall(a); err == nil {
+			} else if err := AllowInstall(a); err == nil {
 				now := time.Now()
 				os.Chtimes(a.Target, now, now)
 			}
@@ -1666,7 +1668,7 @@ func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 		a.built = a1.built
 		return nil
 	}
-	if err := allowInstall(a); err != nil {
+	if err := AllowInstall(a); err != nil {
 		return err
 	}
 
@@ -1698,12 +1700,12 @@ func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 	return b.moveOrCopyFile(a.Target, a1.built, perm, false)
 }
 
-// allowInstall returns a non-nil error if this invocation of the go command is
+// AllowInstall returns a non-nil error if this invocation of the go command is
 // allowed to install a.Target.
 //
-// (The build of cmd/go running under its own test is forbidden from installing
-// to its original GOROOT.)
-var allowInstall = func(*Action) error { return nil }
+// The build of cmd/go running under its own test is forbidden from installing
+// to its original GOROOT. The var is exported so it can be set by TestMain.
+var AllowInstall = func(*Action) error { return nil }
 
 // cleanup removes a's object dir to keep the amount of
 // on-disk garbage down in a large build. On an operating system
@@ -1868,7 +1870,7 @@ func (b *Builder) installHeader(ctx context.Context, a *Action) error {
 		return nil
 	}
 
-	if err := allowInstall(a); err != nil {
+	if err := AllowInstall(a); err != nil {
 		return err
 	}
 
@@ -1883,6 +1885,7 @@ func (b *Builder) installHeader(ctx context.Context, a *Action) error {
 }
 
 // cover runs, in effect,
+//
 //	go tool cover -mode=b.coverMode -var="varName" -o dst.go src.go
 func (b *Builder) cover(a *Action, dst, src string, varName string) error {
 	return b.run(a, a.Objdir, "cover "+a.Package.ImportPath, nil,
@@ -1949,7 +1952,6 @@ func mayberemovefile(s string) {
 //
 //	fmtcmd replaces the name of the current directory with dot (.)
 //	but only when it is at the beginning of a space-separated token.
-//
 func (b *Builder) fmtcmd(dir string, format string, args ...any) string {
 	cmd := fmt.Sprintf(format, args...)
 	if dir != "" && dir != "/" {
@@ -2006,7 +2008,6 @@ func (b *Builder) Showcmd(dir string, format string, args ...any) {
 //
 // If a is not nil and a.output is not nil, showOutput appends to that slice instead of
 // printing to b.Print.
-//
 func (b *Builder) showOutput(a *Action, dir, desc, out string) {
 	prefix := "# " + desc
 	suffix := "\n" + out
@@ -2116,8 +2117,10 @@ func (b *Builder) runOut(a *Action, dir string, env []string, cmdargs ...any) ([
 	cmd.Stderr = &buf
 	cleanup := passLongArgsInResponseFiles(cmd)
 	defer cleanup()
-	cmd.Dir = dir
-	cmd.Env = base.AppendPWD(os.Environ(), cmd.Dir)
+	if dir != "." {
+		cmd.Dir = dir
+	}
+	cmd.Env = cmd.Environ() // Pre-allocate with correct PWD.
 
 	// Add the TOOLEXEC_IMPORTPATH environment variable for -toolexec tools.
 	// It doesn't really matter if -toolexec isn't being used.
@@ -2525,6 +2528,13 @@ func (b *Builder) compilerCmd(compiler []string, incdir, workdir string) []strin
 		a = append(a, "-Qunused-arguments")
 	}
 
+	// zig cc passes --gc-sections to the underlying linker, which then causes
+	// undefined symbol errors when compiling with cgo but without C code.
+	// https://github.com/golang/go/issues/52690
+	if b.gccSupportsFlag(compiler, "-Wl,--no-gc-sections") {
+		a = append(a, "-Wl,--no-gc-sections")
+	}
+
 	// disable word wrapping in error messages
 	a = append(a, "-fmessage-length=0")
 
@@ -2581,7 +2591,12 @@ func (b *Builder) gccSupportsFlag(compiler []string, flag string) bool {
 	}
 
 	tmp := os.DevNull
-	if runtime.GOOS == "windows" {
+
+	// On the iOS builder the command
+	//   $CC -Wl,--no-gc-sections -x c - -o /dev/null < /dev/null
+	// is failing with:
+	//   Unable to remove existing file: Invalid argument
+	if runtime.GOOS == "windows" || runtime.GOOS == "ios" {
 		f, err := os.CreateTemp(b.WorkDir, "")
 		if err != nil {
 			return false
@@ -2591,13 +2606,21 @@ func (b *Builder) gccSupportsFlag(compiler []string, flag string) bool {
 		defer os.Remove(tmp)
 	}
 
-	// We used to write an empty C file, but that gets complicated with
-	// go build -n. We tried using a file that does not exist, but that
-	// fails on systems with GCC version 4.2.1; that is the last GPLv2
-	// version of GCC, so some systems have frozen on it.
-	// Now we pass an empty file on stdin, which should work at least for
-	// GCC and clang.
-	cmdArgs := str.StringList(compiler, flag, "-c", "-x", "c", "-", "-o", tmp)
+	// We used to write an empty C file, but that gets complicated with go
+	// build -n. We tried using a file that does not exist, but that fails on
+	// systems with GCC version 4.2.1; that is the last GPLv2 version of GCC,
+	// so some systems have frozen on it. Now we pass an empty file on stdin,
+	// which should work at least for GCC and clang.
+	//
+	// If the argument is "-Wl,", then it's testing the linker. In that case,
+	// skip "-c". If it's not "-Wl,", then we are testing the compiler and
+	// can emit the linking step with "-c".
+	cmdArgs := str.StringList(compiler, flag)
+	if !strings.HasPrefix(flag, "-Wl,") /* linker flag */ {
+		cmdArgs = append(cmdArgs, "-c")
+	}
+	cmdArgs = append(cmdArgs, "-x", "c", "-", "-o", tmp)
+
 	if cfg.BuildN || cfg.BuildX {
 		b.Showcmd(b.WorkDir, "%s || true", joinUnambiguously(cmdArgs))
 		if cfg.BuildN {
@@ -2606,17 +2629,20 @@ func (b *Builder) gccSupportsFlag(compiler []string, flag string) bool {
 	}
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Dir = b.WorkDir
-	cmd.Env = base.AppendPWD(os.Environ(), cmd.Dir)
-	cmd.Env = append(cmd.Env, "LC_ALL=C")
+	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
 	out, _ := cmd.CombinedOutput()
 	// GCC says "unrecognized command line option".
 	// clang says "unknown argument".
+	// tcc says "unsupported"
+	// AIX says "not recognized"
 	// Older versions of GCC say "unrecognised debug output level".
 	// For -fsplit-stack GCC says "'-fsplit-stack' is not supported".
 	supported := !bytes.Contains(out, []byte("unrecognized")) &&
 		!bytes.Contains(out, []byte("unknown")) &&
 		!bytes.Contains(out, []byte("unrecognised")) &&
-		!bytes.Contains(out, []byte("is not supported"))
+		!bytes.Contains(out, []byte("is not supported")) &&
+		!bytes.Contains(out, []byte("not recognized")) &&
+		!bytes.Contains(out, []byte("unsupported"))
 	b.flagCache[key] = supported
 	return supported
 }
@@ -2653,6 +2679,8 @@ func (b *Builder) gccArchArgs() []string {
 		} else if cfg.GOMIPS == "softfloat" {
 			return append(args, "-msoft-float")
 		}
+	case "loong64":
+		return []string{"-mabi=lp64d"}
 	case "ppc64":
 		if cfg.Goos == "aix" {
 			return []string{"-maix64"}
@@ -2990,7 +3018,26 @@ func (b *Builder) dynimport(a *Action, p *load.Package, objdir, importGo, cgoExe
 		return err
 	}
 
-	linkobj := str.StringList(ofile, outObj, mkAbsFiles(p.Dir, p.SysoFiles))
+	// Gather .syso files from this package and all (transitive) dependencies.
+	var syso []string
+	seen := make(map[*Action]bool)
+	var gatherSyso func(*Action)
+	gatherSyso = func(a1 *Action) {
+		if seen[a1] {
+			return
+		}
+		seen[a1] = true
+		if p1 := a1.Package; p1 != nil {
+			syso = append(syso, mkAbsFiles(p1.Dir, p1.SysoFiles)...)
+		}
+		for _, a2 := range a1.Deps {
+			gatherSyso(a2)
+		}
+	}
+	gatherSyso(a)
+	sort.Strings(syso)
+	str.Uniq(&syso)
+	linkobj := str.StringList(ofile, outObj, syso)
 	dynobj := objdir + "_cgo_.o"
 
 	ldflags := cgoLDFLAGS
@@ -3071,7 +3118,7 @@ var (
 )
 
 func (b *Builder) swigDoVersionCheck() error {
-	out, err := b.runOut(nil, "", nil, "swig", "-version")
+	out, err := b.runOut(nil, ".", nil, "swig", "-version")
 	if err != nil {
 		return err
 	}

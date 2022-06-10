@@ -16,7 +16,6 @@ import (
 // An Object describes a named language entity such as a package,
 // constant, type, variable, function (incl. methods), or label.
 // All objects implement the Object interface.
-//
 type Object interface {
 	Parent() *Scope  // scope in which this object is declared; nil for methods and struct fields
 	Pos() syntax.Pos // position of object identifier in declaration
@@ -280,19 +279,7 @@ func NewTypeName(pos syntax.Pos, pkg *Package, name string, typ Type) *TypeName 
 // lazily calls resolve to finish constructing the Named object.
 func NewTypeNameLazy(pos syntax.Pos, pkg *Package, name string, load func(named *Named) (tparams []*TypeParam, underlying Type, methods []*Func)) *TypeName {
 	obj := NewTypeName(pos, pkg, name, nil)
-
-	resolve := func(_ *Context, t *Named) (*TypeParamList, Type, *methodList) {
-		tparams, underlying, methods := load(t)
-
-		switch underlying.(type) {
-		case nil, *Named:
-			panic(fmt.Sprintf("invalid underlying type %T", t.underlying))
-		}
-
-		return bindTParams(tparams), underlying, newMethodList(methods)
-	}
-
-	NewNamed(obj, nil, nil).resolver = resolve
+	NewNamed(obj, nil, nil).loader = load
 	return obj
 }
 
@@ -328,6 +315,7 @@ type Var struct {
 	embedded bool // if set, the variable is an embedded struct field, and name is the type name
 	isField  bool // var is struct field
 	used     bool // set if the variable was used
+	origin   *Var // if non-nil, the Var from which this one was instantiated
 }
 
 // NewVar returns a new variable.
@@ -343,7 +331,7 @@ func NewParam(pos syntax.Pos, pkg *Package, name string, typ Type) *Var {
 
 // NewField returns a new variable representing a struct field.
 // For embedded fields, the name is the unqualified type name
-/// under which the field is accessible.
+// under which the field is accessible.
 func NewField(pos syntax.Pos, pkg *Package, name string, typ Type, embedded bool) *Var {
 	return &Var{object: object{nil, pos, pkg, name, typ, 0, colorFor(typ), nopos}, embedded: embedded, isField: true}
 }
@@ -358,6 +346,20 @@ func (obj *Var) Embedded() bool { return obj.embedded }
 // IsField reports whether the variable is a struct field.
 func (obj *Var) IsField() bool { return obj.isField }
 
+// Origin returns the canonical Var for its receiver, i.e. the Var object
+// recorded in Info.Defs.
+//
+// For synthetic Vars created during instantiation (such as struct fields or
+// function parameters that depend on type arguments), this will be the
+// corresponding Var on the generic (uninstantiated) type. For all other Vars
+// Origin returns the receiver.
+func (obj *Var) Origin() *Var {
+	if obj.origin != nil {
+		return obj.origin
+	}
+	return obj
+}
+
 func (*Var) isDependency() {} // a variable may be a dependency of an initialization expression
 
 // A Func represents a declared function, concrete method, or abstract
@@ -365,7 +367,8 @@ func (*Var) isDependency() {} // a variable may be a dependency of an initializa
 // An abstract method may belong to many interfaces due to embedding.
 type Func struct {
 	object
-	hasPtrRecv_ bool // only valid for methods that don't have a type yet; use hasPtrRecv() to read
+	hasPtrRecv_ bool  // only valid for methods that don't have a type yet; use hasPtrRecv() to read
+	origin      *Func // if non-nil, the Func from which this one was instantiated
 }
 
 // NewFunc returns a new function with the given signature, representing
@@ -376,7 +379,7 @@ func NewFunc(pos syntax.Pos, pkg *Package, name string, sig *Signature) *Func {
 	if sig != nil {
 		typ = sig
 	}
-	return &Func{object{nil, pos, pkg, name, typ, 0, colorFor(typ), nopos}, false}
+	return &Func{object{nil, pos, pkg, name, typ, 0, colorFor(typ), nopos}, false, nil}
 }
 
 // FullName returns the package- or receiver-type-qualified name of
@@ -391,6 +394,20 @@ func (obj *Func) FullName() string {
 // The result is nil for imported or instantiated functions and methods
 // (but there is also no mechanism to get to an instantiated function).
 func (obj *Func) Scope() *Scope { return obj.typ.(*Signature).scope }
+
+// Origin returns the canonical Func for its receiver, i.e. the Func object
+// recorded in Info.Defs.
+//
+// For synthetic functions created during instantiation (such as methods on an
+// instantiated Named type or interface methods that depend on type arguments),
+// this will be the corresponding Func on the generic (uninstantiated) type.
+// For all other Funcs Origin returns the receiver.
+func (obj *Func) Origin() *Func {
+	if obj.origin != nil {
+		return obj.origin
+	}
+	return obj
+}
 
 // hasPtrRecv reports whether the receiver is of the form *T for the given method obj.
 func (obj *Func) hasPtrRecv() bool {

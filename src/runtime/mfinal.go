@@ -166,13 +166,16 @@ func runfinq() {
 		argRegs  int
 	)
 
+	gp := getg()
+	lock(&finlock)
+	fing = gp
+	unlock(&finlock)
+
 	for {
 		lock(&finlock)
 		fb := finq
 		finq = nil
 		if fb == nil {
-			gp := getg()
-			fing = gp
 			fingwait = true
 			goparkunlock(&finlock, waitReasonFinalizerWait, traceEvGoBlock, 1)
 			continue
@@ -318,11 +321,23 @@ func runfinq() {
 // closing p.d, causing syscall.Write to fail because it is writing to
 // a closed file descriptor (or, worse, to an entirely different
 // file descriptor opened by a different goroutine). To avoid this problem,
-// call runtime.KeepAlive(p) after the call to syscall.Write.
+// call KeepAlive(p) after the call to syscall.Write.
 //
 // A single goroutine runs all finalizers for a program, sequentially.
 // If a finalizer must run for a long time, it should do so by starting
 // a new goroutine.
+//
+// In the terminology of the Go memory model, a call
+// SetFinalizer(x, f) “synchronizes before” the finalization call f(x).
+// However, there is no guarantee that KeepAlive(x) or any other use of x
+// “synchronizes before” f(x), so in general a finalizer should use a mutex
+// or other synchronization mechanism if it needs to access mutable state in x.
+// For example, consider a finalizer that inspects a mutable field in x
+// that is modified from time to time in the main program before x
+// becomes unreachable and the finalizer is invoked.
+// The modifications in the main program and the inspection in the finalizer
+// need to use appropriate synchronization, such as mutexes or atomic updates,
+// to avoid read-write races.
 func SetFinalizer(obj any, finalizer any) {
 	if debug.sbrk != 0 {
 		// debug.sbrk never frees memory, so no finalizers run
@@ -439,6 +454,7 @@ okarg:
 }
 
 // Mark KeepAlive as noinline so that it is easily detectable as an intrinsic.
+//
 //go:noinline
 
 // KeepAlive marks its argument as currently reachable.
@@ -446,16 +462,17 @@ okarg:
 // before the point in the program where KeepAlive is called.
 //
 // A very simplified example showing where KeepAlive is required:
-// 	type File struct { d int }
-// 	d, err := syscall.Open("/file/path", syscall.O_RDONLY, 0)
-// 	// ... do something if err != nil ...
-// 	p := &File{d}
-// 	runtime.SetFinalizer(p, func(p *File) { syscall.Close(p.d) })
-// 	var buf [10]byte
-// 	n, err := syscall.Read(p.d, buf[:])
-// 	// Ensure p is not finalized until Read returns.
-// 	runtime.KeepAlive(p)
-// 	// No more uses of p after this point.
+//
+//	type File struct { d int }
+//	d, err := syscall.Open("/file/path", syscall.O_RDONLY, 0)
+//	// ... do something if err != nil ...
+//	p := &File{d}
+//	runtime.SetFinalizer(p, func(p *File) { syscall.Close(p.d) })
+//	var buf [10]byte
+//	n, err := syscall.Read(p.d, buf[:])
+//	// Ensure p is not finalized until Read returns.
+//	runtime.KeepAlive(p)
+//	// No more uses of p after this point.
 //
 // Without the KeepAlive call, the finalizer could run at the start of
 // syscall.Read, closing the file descriptor before syscall.Read makes

@@ -234,12 +234,14 @@ var optab = []Optab{
 	{as: AMOVD, a1: C_LACON, a6: C_REG, type_: 26, size: 8},
 	{as: AMOVD, a1: C_ADDR, a6: C_REG, type_: 75, size: 8},
 	{as: AMOVD, a1: C_SOREG, a6: C_REG, type_: 8, size: 4},
+	{as: AMOVD, a1: C_SOREG, a6: C_SPR, type_: 107, size: 8},
 	{as: AMOVD, a1: C_LOREG, a6: C_REG, type_: 36, size: 8},
 	{as: AMOVD, a1: C_TLS_LE, a6: C_REG, type_: 79, size: 8},
 	{as: AMOVD, a1: C_TLS_IE, a6: C_REG, type_: 80, size: 12},
 	{as: AMOVD, a1: C_SPR, a6: C_REG, type_: 66, size: 4},
 	{as: AMOVD, a1: C_REG, a6: C_ADDR, type_: 74, size: 8},
 	{as: AMOVD, a1: C_REG, a6: C_SOREG, type_: 7, size: 4},
+	{as: AMOVD, a1: C_SPR, a6: C_SOREG, type_: 106, size: 8},
 	{as: AMOVD, a1: C_REG, a6: C_LOREG, type_: 35, size: 8},
 	{as: AMOVD, a1: C_REG, a6: C_SPR, type_: 66, size: 4},
 	{as: AMOVD, a1: C_REG, a6: C_REG, type_: 13, size: 4},
@@ -291,20 +293,16 @@ var optab = []Optab{
 	{as: ASYSCALL, a1: C_SCON, type_: 77, size: 12},
 	{as: ABEQ, a6: C_SBRA, type_: 16, size: 4},
 	{as: ABEQ, a1: C_CREG, a6: C_SBRA, type_: 16, size: 4},
-	{as: ABR, a6: C_LBRA, type_: 11, size: 4},
-	{as: ABR, a6: C_LBRAPIC, type_: 11, size: 8},
-	{as: ABC, a1: C_SCON, a2: C_REG, a6: C_SBRA, type_: 16, size: 4},
-	{as: ABC, a1: C_SCON, a2: C_REG, a6: C_LBRA, type_: 17, size: 4},
-	{as: ABR, a6: C_LR, type_: 18, size: 4},
-	{as: ABR, a3: C_SCON, a6: C_LR, type_: 18, size: 4},
-	{as: ABR, a6: C_CTR, type_: 18, size: 4},
-	{as: ABR, a1: C_REG, a6: C_CTR, type_: 18, size: 4},
-	{as: ABR, a6: C_ZOREG, type_: 15, size: 8},
-	{as: ABC, a2: C_REG, a6: C_LR, type_: 18, size: 4},
-	{as: ABC, a2: C_REG, a6: C_CTR, type_: 18, size: 4},
-	{as: ABC, a1: C_SCON, a2: C_REG, a6: C_LR, type_: 18, size: 4},
-	{as: ABC, a1: C_SCON, a2: C_REG, a6: C_CTR, type_: 18, size: 4},
-	{as: ABC, a6: C_ZOREG, type_: 15, size: 8},
+	{as: ABR, a6: C_LBRA, type_: 11, size: 4},                                    // b label
+	{as: ABR, a6: C_LBRAPIC, type_: 11, size: 8},                                 // b label; nop
+	{as: ABR, a6: C_LR, type_: 18, size: 4},                                      // blr
+	{as: ABR, a6: C_CTR, type_: 18, size: 4},                                     // bctr
+	{as: ABC, a1: C_SCON, a2: C_CRBIT, a6: C_SBRA, type_: 16, size: 4},           // bc bo, bi, label
+	{as: ABC, a1: C_SCON, a2: C_CRBIT, a6: C_LBRA, type_: 17, size: 4},           // bc bo, bi, label
+	{as: ABC, a1: C_SCON, a2: C_CRBIT, a6: C_LR, type_: 18, size: 4},             // bclr bo, bi
+	{as: ABC, a1: C_SCON, a2: C_CRBIT, a3: C_SCON, a6: C_LR, type_: 18, size: 4}, // bclr bo, bi, bh
+	{as: ABC, a1: C_SCON, a2: C_CRBIT, a6: C_CTR, type_: 18, size: 4},            // bcctr bo, bi
+	{as: ABDNZ, a6: C_SBRA, type_: 16, size: 4},
 	{as: ASYNC, type_: 46, size: 4},
 	{as: AWORD, a1: C_LCON, type_: 40, size: 4},
 	{as: ADWORD, a1: C_64CON, type_: 31, size: 8},
@@ -312,8 +310,8 @@ var optab = []Optab{
 	{as: AADDME, a1: C_REG, a6: C_REG, type_: 47, size: 4},
 	{as: AEXTSB, a1: C_REG, a6: C_REG, type_: 48, size: 4},
 	{as: AEXTSB, a6: C_REG, type_: 48, size: 4},
-	{as: AISEL, a1: C_LCON, a2: C_REG, a3: C_REG, a6: C_REG, type_: 84, size: 4},
-	{as: AISEL, a1: C_ZCON, a2: C_REG, a3: C_REG, a6: C_REG, type_: 84, size: 4},
+	{as: AISEL, a1: C_U5CON, a2: C_REG, a3: C_REG, a6: C_REG, type_: 84, size: 4},
+	{as: AISEL, a1: C_CRBIT, a2: C_REG, a3: C_REG, a6: C_REG, type_: 84, size: 4},
 	{as: ANEG, a1: C_REG, a6: C_REG, type_: 47, size: 4},
 	{as: ANEG, a6: C_REG, type_: 47, size: 4},
 	{as: AREM, a1: C_REG, a6: C_REG, type_: 50, size: 12},
@@ -707,7 +705,7 @@ func span9(ctxt *obj.Link, cursym *obj.LSym, newprog obj.ProgAlloc) {
 						q.Link = p.Link
 						p.To.SetTarget(p.Link)
 						p.Link = q
-						p.Reg = bi // TODO: This is a hack since BI bits are not enumerated as registers
+						p.Reg = REG_CRBIT0 + bi
 					} else {
 						// Rewrite
 						//     BC ...,far_away_target
@@ -916,7 +914,7 @@ func (c *ctxt9) aclass(a *obj.Addr) int {
 			return C_LOREG
 
 		case obj.NAME_PARAM:
-			c.instoffset = int64(c.autosize) + a.Offset + c.ctxt.FixedFrameSize()
+			c.instoffset = int64(c.autosize) + a.Offset + c.ctxt.Arch.FixedFrameSize
 			if c.instoffset >= -BIG && c.instoffset < BIG {
 				return C_SOREG
 			}
@@ -982,7 +980,7 @@ func (c *ctxt9) aclass(a *obj.Addr) int {
 			return C_LACON
 
 		case obj.NAME_PARAM:
-			c.instoffset = int64(c.autosize) + a.Offset + c.ctxt.FixedFrameSize()
+			c.instoffset = int64(c.autosize) + a.Offset + c.ctxt.Arch.FixedFrameSize
 			if c.instoffset >= -BIG && c.instoffset < BIG {
 				return C_SACON
 			}
@@ -1778,6 +1776,9 @@ func buildop(ctxt *obj.Link) {
 		case ABC:
 			opset(ABCL, r0)
 
+		case ABDNZ:
+			opset(ABDZ, r0)
+
 		case AEXTSB: /* op Rs, Ra */
 			opset(AEXTSBCC, r0)
 
@@ -1871,9 +1872,6 @@ func buildop(ctxt *obj.Link) {
 
 		case AFCMPO:
 			opset(AFCMPU, r0)
-
-		case AISEL:
-			opset(AISEL, r0)
 
 		case AMTFSB0:
 			opset(AMTFSB0CC, r0)
@@ -2038,6 +2036,7 @@ func buildop(ctxt *obj.Link) {
 			ACLRLSLWI,
 			AMTVSRDD,
 			APNOP,
+			AISEL,
 			obj.ANOP,
 			obj.ATEXT,
 			obj.AUNDEF,
@@ -2552,7 +2551,13 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 		case AROTLW:
 			o1 = OP_RLW(OP_RLWNM, uint32(p.To.Reg), uint32(r), uint32(p.From.Reg), 0, 31)
 		default:
-			o1 = LOP_RRR(c.oprrr(p.As), uint32(p.To.Reg), uint32(r), uint32(p.From.Reg))
+			if p.As == AOR && p.From.Type == obj.TYPE_CONST && p.From.Offset == 0 {
+				// Compile "OR $0, Rx, Ry" into ori. If Rx == Ry == 0, this is the preferred
+				// hardware no-op. This happens because $0 matches C_REG before C_ZCON.
+				o1 = LOP_IRR(OP_ORI, uint32(p.To.Reg), uint32(r), 0)
+			} else {
+				o1 = LOP_RRR(c.oprrr(p.As), uint32(p.To.Reg), uint32(r), uint32(p.From.Reg))
+			}
 		}
 
 	case 7: /* mov r, soreg ==> stw o(r) */
@@ -2799,20 +2804,6 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 			c.ctxt.Diag("branch too far\n%v", p)
 		}
 		o1 = OP_BC(c.opirr(p.As), uint32(a), uint32(r), uint32(v), 0)
-
-	case 15: /* br/bl (r) => mov r,lr; br/bl (lr) */
-		var v int32
-		if p.As == ABC || p.As == ABCL {
-			v = c.regoff(&p.To) & 31
-		} else {
-			v = 20 /* unconditional */
-		}
-		o1 = AOP_RRR(OP_MTSPR, uint32(p.To.Reg), 0, 0) | (REG_LR&0x1f)<<16 | ((REG_LR>>5)&0x1f)<<11
-		o2 = OPVCC(19, 16, 0, 0)
-		if p.As == ABL || p.As == ABCL {
-			o2 |= 1
-		}
-		o2 = OP_BCR(o2, uint32(v), uint32(p.To.Index))
 
 	case 18: /* br/bl (lr/ctr); bc/bcl bo,bi,(lr/ctr) */
 		var v int32
@@ -3600,6 +3591,10 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 
 	case 84: // ISEL BC,RA,RB,RT -> isel rt,ra,rb,bc
 		bc := c.vregoff(&p.From)
+		if o.a1 == C_CRBIT {
+			// CR bit is encoded as a register, not a constant.
+			bc = int64(p.From.Reg)
+		}
 
 		// rt = To.Reg, ra = p.Reg, rb = p.From3.Reg
 		o1 = AOP_ISEL(OP_ISEL, uint32(p.To.Reg), uint32(p.Reg), uint32(p.GetFrom3().Reg), uint32(bc))
@@ -3758,6 +3753,30 @@ func (c *ctxt9) asmout(p *obj.Prog, o *Optab, out []uint32) {
 	case 105: /* PNOP */
 		o1 = 0x07000000
 		o2 = 0x00000000
+
+	case 106: /* MOVD spr, soreg */
+		v := int32(p.From.Reg)
+		o1 = OPVCC(31, 339, 0, 0) /* mfspr */
+		o1 = AOP_RRR(o1, uint32(REGTMP), 0, 0) | (uint32(v)&0x1f)<<16 | ((uint32(v)>>5)&0x1f)<<11
+		so := c.regoff(&p.To)
+		o2 = AOP_IRR(c.opstore(AMOVD), uint32(REGTMP), uint32(p.To.Reg), uint32(so))
+		if so&0x3 != 0 {
+			log.Fatalf("invalid offset for DS form load/store %v", p)
+		}
+		if p.To.Reg == REGTMP {
+			log.Fatalf("SPR move to memory will clobber R31 %v", p)
+		}
+
+	case 107: /* MOVD soreg, spr */
+		v := int32(p.From.Reg)
+		so := c.regoff(&p.From)
+		o1 = AOP_IRR(c.opload(AMOVD), uint32(REGTMP), uint32(v), uint32(so))
+		o2 = OPVCC(31, 467, 0, 0) /* mtspr */
+		v = int32(p.To.Reg)
+		o2 = AOP_RRR(o2, uint32(REGTMP), 0, 0) | (uint32(v)&0x1f)<<16 | ((uint32(v)>>5)&0x1f)<<11
+		if so&0x3 != 0 {
+			log.Fatalf("invalid offset for DS form load/store %v", p)
+		}
 	}
 
 	out[0] = o1
@@ -4869,21 +4888,25 @@ func (c *ctxt9) opirr(a obj.As) uint32 {
 		return OPVCC(16, 0, 0, 0) | 1
 
 	case ABEQ:
-		return AOP_RRR(16<<26, 12, 2, 0)
+		return AOP_RRR(16<<26, BO_BCR, BI_EQ, 0)
 	case ABGE:
-		return AOP_RRR(16<<26, 4, 0, 0)
+		return AOP_RRR(16<<26, BO_NOTBCR, BI_LT, 0)
 	case ABGT:
-		return AOP_RRR(16<<26, 12, 1, 0)
+		return AOP_RRR(16<<26, BO_BCR, BI_GT, 0)
 	case ABLE:
-		return AOP_RRR(16<<26, 4, 1, 0)
+		return AOP_RRR(16<<26, BO_NOTBCR, BI_GT, 0)
 	case ABLT:
-		return AOP_RRR(16<<26, 12, 0, 0)
+		return AOP_RRR(16<<26, BO_BCR, BI_LT, 0)
 	case ABNE:
-		return AOP_RRR(16<<26, 4, 2, 0)
+		return AOP_RRR(16<<26, BO_NOTBCR, BI_EQ, 0)
 	case ABVC:
-		return AOP_RRR(16<<26, 4, 3, 0) // apparently unordered-clear
+		return AOP_RRR(16<<26, BO_NOTBCR, BI_FU, 0)
 	case ABVS:
-		return AOP_RRR(16<<26, 12, 3, 0) // apparently unordered-set
+		return AOP_RRR(16<<26, BO_BCR, BI_FU, 0)
+	case ABDZ:
+		return AOP_RRR(16<<26, BO_NOTBCTR, 0, 0)
+	case ABDNZ:
+		return AOP_RRR(16<<26, BO_BCTR, 0, 0)
 
 	case ACMP:
 		return OPVCC(11, 0, 0, 0) | 1<<21 /* L=1 */

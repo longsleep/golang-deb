@@ -12,6 +12,7 @@ import (
 )
 
 // This is exported via linkname to assembly in runtime/cgo.
+//
 //go:linkname exit
 //go:nosplit
 //go:cgo_unsafe_args
@@ -45,6 +46,7 @@ func thrkill_trampoline()
 // mmap is used to do low-level memory allocation via mmap. Don't allow stack
 // splits, since this function (used by sysAlloc) is called in a lot of low-level
 // parts of the runtime and callers often assume it won't acquire any locks.
+//
 //go:nosplit
 func mmap(addr unsafe.Pointer, n uintptr, prot, flags, fd int32, off uint32) (unsafe.Pointer, int) {
 	args := struct {
@@ -110,10 +112,6 @@ func write1(fd uintptr, p unsafe.Pointer, n int32) int32 {
 	return ret
 }
 func write_trampoline()
-
-func pipe() (r, w int32, errno int32) {
-	return pipe2(0)
-}
 
 func pipe2(flags int32) (r, w int32, errno int32) {
 	var p [2]int32
@@ -256,12 +254,6 @@ func exitThread(wait *uint32) {
 //go:nosplit
 func closeonexec(fd int32) {
 	fcntl(fd, _F_SETFD, _FD_CLOEXEC)
-}
-
-//go:nosplit
-func setNonblock(fd int32) {
-	flags := fcntl(fd, _F_GETFL, 0)
-	fcntl(fd, _F_SETFL, flags|_O_NONBLOCK)
 }
 
 // Tell the linker that the libc_* functions are to be found

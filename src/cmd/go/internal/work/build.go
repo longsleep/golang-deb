@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"go/build"
-	exec "internal/execabs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -79,6 +79,8 @@ and test commands:
 	-asan
 		enable interoperation with address sanitizer.
 		Supported only on linux/arm64, linux/amd64.
+		Supported only on linux/amd64 or linux/arm64 and only with GCC 7 and higher
+		or Clang/LLVM 9 and higher.
 	-v
 		print the names of packages as they are compiled.
 	-work
@@ -397,7 +399,7 @@ func oneMainPkg(pkgs []*load.Package) []*load.Package {
 
 var pkgsFilter = func(pkgs []*load.Package) []*load.Package { return pkgs }
 
-var runtimeVersion = runtime.Version()
+var RuntimeVersion = runtime.Version()
 
 func runBuild(ctx context.Context, cmd *base.Command, args []string) {
 	modload.InitWorkfile()
@@ -558,16 +560,22 @@ See also: go build, go get, go clean.
 // libname returns the filename to use for the shared library when using
 // -buildmode=shared. The rules we use are:
 // Use arguments for special 'meta' packages:
+//
 //	std --> libstd.so
 //	std cmd --> libstd,cmd.so
+//
 // A single non-meta argument with trailing "/..." is special cased:
+//
 //	foo/... --> libfoo.so
 //	(A relative path like "./..."  expands the "." first)
+//
 // Use import paths for other cases, changing '/' to '-':
+//
 //	somelib --> libsubdir-somelib.so
 //	./ or ../ --> libsubdir-somelib.so
 //	gopkg.in/tomb.v2 -> libgopkg.in-tomb.v2.so
 //	a/... b/... ---> liba/c,b/d.so - all matching import paths
+//
 // Name parts are joined with ','.
 func libname(args []string, pkgs []*load.Package) (string, error) {
 	var libname string
