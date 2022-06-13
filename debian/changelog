@@ -1,3 +1,9 @@
+golang-1.19 (1.19~beta1-1) unstable; urgency=medium
+
+  * New upstream version 1.19 beta1
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Fri, 10 Jun 2022 13:52:13 -0500
+
 golang-1.18 (1.18.3-1) unstable; urgency=medium
 
   * New upstream version 1.18.3
