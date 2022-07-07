@@ -35,7 +35,7 @@ Do not send CLs removing the interior tags from such phrases.
   the memory model used by C, C++, Java, JavaScript, Rust, and Swift.
   Go only provides sequentially consistent atomics, not any of the more relaxed forms found in other languages.
   Along with the memory model update,
-  Go 1.19 introduces <a href="#sync/atomic">new types in the <code>sync/atomic</code> package</a>
+  Go 1.19 introduces <a href="#atomic_types">new types in the <code>sync/atomic</code> package</a>
   that make it easier to use atomic values, such as
   <a href="/pkg/sync/atomic/#Int64">atomic.Int64</a>
   and
@@ -44,8 +44,17 @@ Do not send CLs removing the interior tags from such phrases.
 
 <h2 id="ports">Ports</h2>
 
+<h3 id="loong64">Loongson 64-bit</h3>
 <p><!-- https://go.dev/issue/46229 -->
-  Go 1.19 supports the Loongson 64-bit architecture LoongArch on Linux (<code>GOOS=linux</code>, <code>GOARCH=loong64</code>).
+  Go 1.19 adds support for the Loongson 64-bit architecture LoongArch
+  on Linux (<code>GOOS=linux</code>, <code>GOARCH=loong64</code>).
+</p>
+
+<h3 id="riscv64">RISC-V</h3>
+<p><!-- CL 402374 -->
+  The <code>riscv64</code> port now supports passing function arguments
+  and result using registers. Benchmarking shows typical performance
+  improvements of 10% or more on <code>riscv64</code>.
 </p>
 
 <h2 id="tools">Tools</h2>
@@ -63,7 +72,7 @@ provides parsing and reformatting of doc comments
 as well as support for rendering them to HTML, Markdown, and text.
 </p>
 
-<h3 id="go-unix">New <code>unix</code> build constraint</h4>
+<h3 id="go-unix">New <code>unix</code> build constraint</h3>
 
 <p><!-- CL 389934 --><!-- https://go.dev/issue/20322 --><!-- https://go.dev/issue/51572 -->
   The build constraint <code>unix</code> is now recognized
@@ -109,9 +118,14 @@ as well as support for rendering them to HTML, Markdown, and text.
   and <code>GOGCCFLAGS</code> variables it reports.
 </p>
 
+<p><!-- CL 410821 -->
+  The <code>go</code> command now caches information necessary to load some modules,
+  which should result in a speed-up of some <code>go</code> <code>list</code> invocations.
+</p>
+
 <h3 id="vet">Vet</h3>
 
-<p><!-- https://go.dev/issue/47528 -->:
+<p><!-- https://go.dev/issue/47528 -->
   The <code>vet</code> checker “errorsas” now reports when
   <a href="/pkg/errors/#As"><code>errors.As</code></a> is called
   with a second argument of type <code>*error</code>,
@@ -134,7 +148,7 @@ as well as support for rendering them to HTML, Markdown, and text.
   / <a href="/pkg/runtime/#hdr-Environment_Variables"><code>GOGC</code></a>,
   and will be respected even if <code>GOGC=off</code>, allowing Go programs to
   always make maximal use of their memory limit, improving resource efficiency
-  in some cases. See <a href="https://go.dev/doc/gc-guide">the GC guide</a> for
+  in some cases. See <a href="/doc/gc-guide">the GC guide</a> for
   a detailed guide explaining the soft memory limit in more detail, as well as
   a variety of common use-cases and scenarios. Please note that small memory
   limits, on the order of tens of megabytes or less, are less likely to be
@@ -212,11 +226,6 @@ as well as support for rendering them to HTML, Markdown, and text.
   on the order of 20% faster.
   (<code>GOARCH=amd64</code> and <code>GOARCH=arm64</code> only)
 </p>
-<p><!-- CL 402374 -->
-  The <code>riscv64</code> port now supports passing function arguments
-  and result using registers. Benchmarking shows typical performance
-  improvements of 10% or more on <code>riscv64</code>.
-</p>
 <p><!-- CL 391014 -->
   The Go compiler now requires the <code>-p=importpath</code> flag to
   build a linkable object file. This is already supplied by
@@ -272,7 +281,7 @@ as well as support for rendering them to HTML, Markdown, and text.
   <a href="/pkg/os/exec/#Command"><code>Command</code></a> and
   <a href="/pkg/os/exec/#LookPath"><code>LookPath</code></a> no longer
   allow results from a PATH search to be found relative to the current directory.
-  This removes a <a href="https://go.dev/blog/path-security">common source of security problems</a>
+  This removes a <a href="/blog/path-security">common source of security problems</a>
   but may also break existing programs that depend on using, say, <code>exec.Command("prog")</code>
   to run a binary named <code>prog</code> (or, on Windows, <code>prog.exe</code>) in the current directory.
   See the <a href="/pkg/os/exec/"><code>os/exec</code></a> package documentation for
@@ -367,9 +376,9 @@ as well as support for rendering them to HTML, Markdown, and text.
       <code>RawIssuer</code>, <code>Signature</code>,
       <code>AuthorityKeyId</code>, and <code>Extensions</code>.
 
-      The new method <a href="/pkg/crypto/x509/#RevocationList.CheckSignatureFrom"><code>RevocationList.CheckSignatureFrom</a>
+      The new method <a href="/pkg/crypto/x509/#RevocationList.CheckSignatureFrom"><code>RevocationList.CheckSignatureFrom</code></a>
       checks that the signature on a CRL is a valid signature from a
-      <a href="/pkg/crypto/x509/#Certificate">Certificate</a>.
+      <a href="/pkg/crypto/x509/#Certificate"><code>Certificate</code></a>.
 
       With the new CRL functionality, the existing functions
       <a href="/pkg/crypto/x509/#ParseCRL"><code>ParseCRL</code></a> and
@@ -391,7 +400,7 @@ as well as support for rendering them to HTML, Markdown, and text.
     <p><!-- CL 390834 -->
       The types <a href="/pkg/crypto/x509/pkix#CertificateList"><code>CertificateList</code></a> and
       <a href="/pkg/crypto/x509/pkix#TBSCertificateList"><code>TBSCertificateList</code></a>
-      have been deprecated. The new <a href="#crypto/x509"><code>crypto/x509</code></code> CRL functionality</a>
+      have been deprecated. The new <a href="#crypto/x509"><code>crypto/x509</code> CRL functionality</a>
       should be used instead.
     </p>
   </dd>
@@ -713,7 +722,7 @@ as well as support for rendering them to HTML, Markdown, and text.
       The methods <a href="/pkg/reflect/#Value.Len"><code>Value.Len</code></a>
       and <a href="/pkg/reflect/#Value.Cap"><code>Value.Cap</code></a>
       now successfully operate on a pointer to an array and return the length of that array,
-      to match what the <a href="https://go.dev/ref/spec#Length_and_capacity">builtin
+      to match what the <a href="/ref/spec#Length_and_capacity">builtin
       <code>len</code> and <code>cap</code> functions do</a>.
     </p>
   </dd>
@@ -732,7 +741,7 @@ as well as support for rendering them to HTML, Markdown, and text.
   </dd>
 </dl><!-- regexp -->
 
-<dl id="runtime"><dt><a href="/pkg/runtime/">runtime</a></dt>
+<dl id="pkg-runtime"><dt><a href="/pkg/runtime/">runtime</a></dt>
   <dd>
     <p><!-- https://go.dev/issue/51461 -->
       The <a href="/pkg/runtime/#GOROOT"><code>GOROOT</code></a> function now returns the empty string
@@ -798,6 +807,7 @@ as well as support for rendering them to HTML, Markdown, and text.
       Compared to v2, it is now typically 1.5x to 2x faster, uses half
       as much memory, and it supports an unlimited number of
       goroutines.
+      On Linux, the race detector now requires at least glibc version 2.17.
     </p>
 
     <p><!-- CL 336549 -->
@@ -837,7 +847,6 @@ as well as support for rendering them to HTML, Markdown, and text.
       <a href="/pkg/sort/#Search">Search</a>
       but often easier to use: it returns an additional boolean reporting whether an equal value was found.
     </p>
-  </dd>
   </dd>
 </dl><!-- sort -->
 
