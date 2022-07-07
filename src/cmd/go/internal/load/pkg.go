@@ -686,6 +686,9 @@ func LoadImport(ctx context.Context, opts PackageOpts, path, srcDir string, pare
 }
 
 func loadImport(ctx context.Context, opts PackageOpts, pre *preload, path, srcDir string, parent *Package, stk *ImportStack, importPos []token.Position, mode int) *Package {
+	ctx, span := trace.StartSpan(ctx, "modload.loadImport "+path)
+	defer span.Done()
+
 	if path == "" {
 		panic("LoadImport called with empty package path")
 	}
@@ -801,6 +804,9 @@ func loadImport(ctx context.Context, opts PackageOpts, pre *preload, path, srcDi
 // loadPackageData returns a boolean, loaded, which is true if this is the
 // first time the package was loaded. Callers may preload imports in this case.
 func loadPackageData(ctx context.Context, path, parentPath, parentDir, parentRoot string, parentIsStd bool, mode int) (bp *build.Package, loaded bool, err error) {
+	ctx, span := trace.StartSpan(ctx, "load.loadPackageData "+path)
+	defer span.Done()
+
 	if path == "" {
 		panic("loadPackageData called with empty package path")
 	}
@@ -872,8 +878,8 @@ func loadPackageData(ctx context.Context, path, parentPath, parentDir, parentRoo
 				buildMode = build.ImportComment
 			}
 			if modroot := modload.PackageModRoot(ctx, r.path); modroot != "" {
-				if mi, err := modindex.Get(modroot); err == nil {
-					data.p, data.err = mi.Import(cfg.BuildContext, mi.RelPath(r.dir), buildMode)
+				if rp, err := modindex.GetPackage(modroot, r.dir); err == nil {
+					data.p, data.err = rp.Import(cfg.BuildContext, buildMode)
 					goto Happy
 				} else if !errors.Is(err, modindex.ErrNotIndexed) {
 					base.Fatalf("go: %v", err)
@@ -2063,7 +2069,7 @@ func resolveEmbed(pkgdir string, patterns []string) (files []string, pmap map[st
 		}
 
 		// Glob to find matches.
-		match, err := fsys.Glob(pkgdir + string(filepath.Separator) + filepath.FromSlash(glob))
+		match, err := fsys.Glob(str.QuoteGlob(pkgdir) + string(filepath.Separator) + filepath.FromSlash(glob))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -2341,7 +2347,17 @@ func (p *Package) setBuildInfo(includeVCS bool) {
 		appendSetting("-gcflags", gcflags)
 	}
 	if ldflags := BuildLdflags.String(); ldflags != "" {
-		appendSetting("-ldflags", ldflags)
+		// https://go.dev/issue/52372: only include ldflags if -trimpath is not set,
+		// since it can include system paths through various linker flags (notably
+		// -extar, -extld, and -extldflags).
+		//
+		// TODO: since we control cmd/link, in theory we can parse ldflags to
+		// determine whether they may refer to system paths. If we do that, we can
+		// redact only those paths from the recorded -ldflags setting and still
+		// record the system-independent parts of the flags.
+		if !cfg.BuildTrimpath {
+			appendSetting("-ldflags", ldflags)
+		}
 	}
 	if cfg.BuildMSan {
 		appendSetting("-msan", "true")
@@ -2360,7 +2376,14 @@ func (p *Package) setBuildInfo(includeVCS bool) {
 		cgo = "1"
 	}
 	appendSetting("CGO_ENABLED", cgo)
-	if cfg.BuildContext.CgoEnabled {
+	// https://go.dev/issue/52372: only include CGO flags if -trimpath is not set.
+	// (If -trimpath is set, it is possible that these flags include system paths.)
+	// If cgo is involved, reproducibility is already pretty well ruined anyway,
+	// given that we aren't stamping header or library versions.
+	//
+	// TODO(bcmills): perhaps we could at least parse the flags and stamp the
+	// subset of flags that are known not to be paths?
+	if cfg.BuildContext.CgoEnabled && !cfg.BuildTrimpath {
 		for _, name := range []string{"CGO_CFLAGS", "CGO_CPPFLAGS", "CGO_CXXFLAGS", "CGO_LDFLAGS"} {
 			appendSetting(name, cfg.Getenv(name))
 		}

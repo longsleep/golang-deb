@@ -344,6 +344,11 @@ var (
 	// to support internal linking mode.
 	externalobj = false
 
+	// dynimportfail is a list of packages for which generating
+	// the dynimport file, _cgo_import.go, failed. If there are
+	// any of these objects, we must link externally. Issue 52863.
+	dynimportfail []string
+
 	// unknownObjFormat is set to true if we see an object whose
 	// format we don't recognize.
 	unknownObjFormat = false
@@ -645,6 +650,11 @@ func loadWindowsHostArchives(ctxt *Link) {
 		if isunresolved[0] {
 			if p := ctxt.findLibPath("crt2.o"); p != "none" {
 				hostObject(ctxt, "crt2", p)
+			}
+		}
+		if *flagRace {
+			if p := ctxt.findLibPath("libsynchronization.a"); p != "none" {
+				hostArchive(ctxt, p)
 			}
 		}
 		if p := ctxt.findLibPath("libmingwex.a"); p != "none" {
@@ -1028,6 +1038,10 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
 		// build modes.
 		if arhdr.name == pkgdef {
 			continue
+		}
+
+		if arhdr.name == "dynimportfail" {
+			dynimportfail = append(dynimportfail, lib.Pkg)
 		}
 
 		// Skip other special (non-object-file) sections that
@@ -1695,6 +1709,11 @@ func (ctxt *Link) hostlink() {
 		if !usingLLD {
 			p := writeGDBLinkerScript()
 			argv = append(argv, "-Wl,-T,"+p)
+		}
+		if *flagRace {
+			if p := ctxt.findLibPath("libsynchronization.a"); p != "libsynchronization.a" {
+				argv = append(argv, "-lsynchronization")
+			}
 		}
 		// libmingw32 and libmingwex have some inter-dependencies,
 		// so must use linker groups.

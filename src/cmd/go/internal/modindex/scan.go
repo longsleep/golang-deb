@@ -56,7 +56,7 @@ func indexModule(modroot string) ([]byte, error) {
 			return nil
 		}
 		if !str.HasFilePathPrefix(path, modroot) {
-			panic(fmt.Errorf("path %v in walk doesn't have modroot %v as prefix:", path, modroot))
+			panic(fmt.Errorf("path %v in walk doesn't have modroot %v as prefix", path, modroot))
 		}
 		rel := str.TrimFilePathPrefix(path, modroot)
 		packages = append(packages, importRaw(modroot, rel))
@@ -65,7 +65,15 @@ func indexModule(modroot string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return encodeModule(packages), nil
+	return encodeModuleBytes(packages), nil
+}
+
+// indexModule indexes the package at the given directory and returns its
+// encoded representation. It returns ErrNotIndexed if the package can't
+// be indexed.
+func indexPackage(modroot, pkgdir string) []byte {
+	p := importRaw(modroot, relPath(pkgdir, modroot))
+	return encodePackageBytes(p)
 }
 
 // rawPackage holds the information from each package that's needed to
