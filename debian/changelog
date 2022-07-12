@@ -1,3 +1,9 @@
+golang-1.19 (1.19~rc2-1) unstable; urgency=medium
+
+  * New upstream version 1.19 rc2
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Tue, 12 Jul 2022 18:32:28 -0500
+
 golang-1.19 (1.19~rc1-1) unstable; urgency=medium
 
   * Team upload.
