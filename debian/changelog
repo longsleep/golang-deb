@@ -1,3 +1,24 @@
+golang-1.18 (1.18.4-1) unstable; urgency=medium
+
+  * New upstream version 1.18.4
+    + CVE-2022-1705: net/http: improper sanitization of Transfer-Encoding
+      header
+    + CVE-2022-32148: When httputil.ReverseProxy.ServeHTTP was called with a
+      Request.Header map containing a nil value for the X-Forwarded-For header,
+      ReverseProxy would set the client IP as the value of the X-Forwarded-For
+      header, contrary to its documentation. In the more usual case where a
+      Director function set the X-Forwarded-For header value to nil,
+      ReverseProxy would leave the header unmodified as expected.
+    + CVE-2022-30631: compress/gzip: stack exhaustion in Reader.Read
+    + CVE-2022-30633: encoding/xml: stack exhaustion in Unmarshal
+    + CVE-2022-28131: encoding/xml: stack exhaustion in Decoder.Skip
+    + CVE-2022-30635: encoding/gob: stack exhaustion in Decoder.Decode
+    + CVE-2022-30632: path/filepath: stack exhaustion in Glob
+    + CVE-2022-30630: io/fs: stack exhaustion in Glob
+    + CVE-2022-1962: go/parser: stack exhaustion in all Parse* functions
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Tue, 12 Jul 2022 19:08:18 -0500
+
 golang-1.18 (1.18.3-1) unstable; urgency=medium
 
   * New upstream version 1.18.3
