@@ -1,3 +1,13 @@
+golang-1.18 (1.18.4-1longsleep1+focal) focal; urgency=medium
+
+  [ William Wilson ]
+  * Update upstream signing key
+
+  [ Simon Eisenmann ]
+  * New upstream version 1.18.4
+
+ -- Simon Eisenmann <simon@longsleep.org>  Wed, 13 Jul 2022 11:25:28 +0200
+
 golang-1.18 (1.18.3-1longsleep1+focal) focal; urgency=medium
 
   * New upstream version 1.18.3
