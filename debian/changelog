@@ -1,3 +1,10 @@
+golang-1.19 (1.19-1) unstable; urgency=medium
+
+  * New upstream version 1.19
+  * Update d/docs to reflect upstream removal of AUTHORS and CONTRIBUTORS
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Tue, 02 Aug 2022 15:35:20 -0500
+
 golang-1.19 (1.19~rc2-1) unstable; urgency=medium
 
   * New upstream version 1.19 rc2
