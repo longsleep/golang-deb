@@ -1,3 +1,23 @@
+golang-1.18 (1.18.5-1) unstable; urgency=medium
+
+  * New upstream version 1.18.5
+    + CVE-2022-32189: math/big: index out of range in Float.GobDecode
+    + cmd/go: Build information embedded by Go 1.18 impairs build
+      reproducibility with cgo flags (Closes: #1008114)
+  * Remove 0005-cmd-compile-revert-fix-missing-dict-pass-for-type-as.patch
+    which has been applied upstream in v1.18.5
+  * Bump Standards-Version to 4.6.1 (no change)
+
+ -- Anthony Fok <foka@debian.org>  Sat, 06 Aug 2022 04:56:18 -0600
+
+golang-1.18 (1.18.4-2) unstable; urgency=medium
+
+  * Team upload.
+  * cmd/compile: revert "fix missing dict pass for type assertions"
+    Backport patch from https://go.dev/cl/417615 (Closes: #1015088)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 26 Jul 2022 10:58:55 +0800
+
 golang-1.18 (1.18.4-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
