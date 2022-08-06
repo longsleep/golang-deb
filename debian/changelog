@@ -1,3 +1,15 @@
+golang-1.18 (1.18.5-1) unstable; urgency=medium
+
+  * New upstream version 1.18.5
+    + CVE-2022-32189: math/big: index out of range in Float.GobDecode
+    + cmd/go: Build information embedded by Go 1.18 impairs build
+      reproducibility with cgo flags (Closes: #1008114)
+  * Remove 0005-cmd-compile-revert-fix-missing-dict-pass-for-type-as.patch
+    which has been applied upstream in v1.18.5
+  * Bump Standards-Version to 4.6.1 (no change)
+
+ -- Anthony Fok <foka@debian.org>  Sat, 06 Aug 2022 04:56:18 -0600
+
 golang-1.18 (1.18.4-2) unstable; urgency=medium
 
   * Team upload.
