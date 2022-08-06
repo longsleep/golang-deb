@@ -623,7 +623,7 @@ func checkFetchBody(nameNode *ir.Name) {
 	}
 }
 
-// getInstantiation gets the instantiantion and dictionary of the function or method nameNode
+// getInstantiation gets the instantiation and dictionary of the function or method nameNode
 // with the type arguments shapes. If the instantiated function is not already
 // cached, then it calls genericSubst to create the new instantiation.
 func (g *genInst) getInstantiation(nameNode *ir.Name, shapes []*types.Type, isMeth bool) *instInfo {
@@ -1214,6 +1214,9 @@ func (subst *subster) node(n ir.Node) ir.Node {
 			if m.Tag != nil && m.Tag.Op() == ir.OTYPESW {
 				break // Nothing to do here for type switches.
 			}
+			if m.Tag != nil && !types.IsComparable(m.Tag.Type()) {
+				break // Nothing to do here for un-comparable types.
+			}
 			if m.Tag != nil && !m.Tag.Type().IsEmptyInterface() && m.Tag.Type().HasShape() {
 				// To implement a switch on a value that is or has a type parameter, we first convert
 				// that thing we're switching on to an interface{}.
@@ -1354,7 +1357,10 @@ func (g *genInst) dictPass(info *instInfo) {
 			}
 		case ir.ODOTTYPE, ir.ODOTTYPE2:
 			dt := m.(*ir.TypeAssertExpr)
-			if !dt.Type().HasShape() && !dt.X.Type().HasShape() {
+			if dt.Type().IsEmptyInterface() || (dt.Type().IsInterface() && !dt.Type().HasShape()) {
+				break
+			}
+			if !dt.Type().HasShape() && !(dt.X.Type().HasShape() && !dt.X.Type().IsEmptyInterface()) {
 				break
 			}
 			var rtype, itab ir.Node
@@ -1654,12 +1660,14 @@ func (g *genInst) getDictionarySym(gf *ir.Name, targs []*types.Type, isMeth bool
 				se := call.X.(*ir.SelectorExpr)
 				if se.X.Type().IsShape() {
 					// This is a method call enabled by a type bound.
-
-					// We need this extra check for method expressions,
-					// which don't add in the implicit XDOTs.
-					tmpse := ir.NewSelectorExpr(src.NoXPos, ir.OXDOT, se.X, se.Sel)
-					tmpse = typecheck.AddImplicitDots(tmpse)
-					tparam := tmpse.X.Type()
+					tparam := se.X.Type()
+					if call.X.Op() == ir.ODOTMETH {
+						// We need this extra check for method expressions,
+						// which don't add in the implicit XDOTs.
+						tmpse := ir.NewSelectorExpr(src.NoXPos, ir.OXDOT, se.X, se.Sel)
+						tmpse = typecheck.AddImplicitDots(tmpse)
+						tparam = tmpse.X.Type()
+					}
 					if !tparam.IsShape() {
 						// The method expression is not
 						// really on a typeparam.

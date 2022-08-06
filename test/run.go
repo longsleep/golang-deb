@@ -58,7 +58,7 @@ type envVars struct {
 }
 
 var env = func() (res envVars) {
-	cmd := exec.Command("go", "env", "-json")
+	cmd := exec.Command(goTool(), "env", "-json")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Fatal("StdoutPipe:", err)
@@ -710,6 +710,22 @@ func (t *test) run() {
 		if tempDirIsGOPATH {
 			cmd.Env = append(cmd.Env, "GOPATH="+t.tempDir)
 		}
+		// Put the bin directory of the GOROOT that built this program
+		// first in the path. This ensures that tests that use the "go"
+		// tool use the same one that built this program. This ensures
+		// that if you do "../bin/go run run.go" in this directory, all
+		// the tests that start subprocesses that "go tool compile" or
+		// whatever, use ../bin/go as their go tool, not whatever happens
+		// to be first in the user's path.
+		path := os.Getenv("PATH")
+		newdir := filepath.Join(runtime.GOROOT(), "bin")
+		if path != "" {
+			path = newdir + string(filepath.ListSeparator) + path
+		} else {
+			path = newdir
+		}
+		cmd.Env = append(cmd.Env, "PATH="+path)
+
 		cmd.Env = append(cmd.Env, runenv...)
 
 		var err error
@@ -1966,7 +1982,6 @@ var types2Failures32Bit = setOf(
 var go118Failures = setOf(
 	"typeparam/nested.go",     // 1.18 compiler doesn't support function-local types with generics
 	"typeparam/issue51521.go", // 1.18 compiler produces bad panic message and link error
-	"typeparam/issue53419.go", // 1.18 compiler mishandles generic selector resolution
 )
 
 // In all of these cases, the 1.17 compiler reports reasonable errors, but either the
