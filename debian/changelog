@@ -1,3 +1,27 @@
+golang-1.17 (1.17.13-1) unstable; urgency=medium
+
+  [ Shengjing Zhu ]
+  * Update upstream signing key.
+    Download from https://dl.google.com/dl/linux/linux_signing_key.pub
+
+  [ Anthony Fok ]
+  * New upstream version 1.17.13
+    - Security vulnerabilities fixed in 1.17.12:
+      + CVE-2022-1705: net/http: improper sanitization of Transfer-Encoding
+                       header
+      + CVE-2022-1962: go/parser: stack exhaustion in all Parse* functions
+      + CVE-2022-30630: io/fs: stack exhaustion in Glob
+      + CVE-2022-30631: compress/gzip: stack exhaustion in Reader.Read
+      + CVE-2022-30632: path/filepath: stack exhaustion in Glob
+      + CVE-2022-30633: encoding/xml: stack exhaustion in Unmarshal
+      + CVE-2022-30635: encoding/gob: stack exhaustion in Decoder.Decode
+      + CVE-2022-32148: net/http: Improper exposure of client IP addresses
+    - Security vulnerabilities fixed in 1.17.13:
+      + CVE-2022-32189: math/big: index out of range in Float.GobDecode
+  * Bump Standards-Version to 4.6.1 (no change)
+
+ -- Anthony Fok <foka@debian.org>  Wed, 10 Aug 2022 01:26:17 -0600
+
 golang-1.17 (1.17.11-1) unstable; urgency=medium
 
   * New upstream version 1.17.11
