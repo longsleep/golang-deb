@@ -1,3 +1,24 @@
+golang-1.17 (1.17.13-3) unstable; urgency=medium
+
+  * Remove debian/patches/0005-accept-larger-pie-size.patch.
+    Sorry, I was careless: this patch is not the solution to the recent
+    FTBFS with golang-1.17 on ppc64el.
+  * Apply debian/patches/0005-increase-size-limit-in-size-check.patch.
+    From https://go-review.googlesource.com/c/go/+/371634:
+      misc/cgo/testshared: increase size limit in size check
+      Recently in Fedora we switched binutils ld's separate-code on. This
+      led to increased size of binaries, especially on 64k aligned arches.
+      For example trivial test binary size grew from 80k to 211k on ppc64le
+      tripping the size check(RHBZ#2030308). Therefore adjusting the size limit.
+    Fixes recent FTBFS on ppc64el:
+      ##### ../misc/cgo/testshared
+      --- FAIL: TestTrivialExecutable (5.02s)
+          shared_test.go:483: file too large: got 138376, want <= 100000
+      --- FAIL: TestTrivialExecutablePIE (0.62s)
+          shared_test.go:483: file too large: got 138376, want <= 100000
+
+ -- Anthony Fok <foka@debian.org>  Thu, 11 Aug 2022 21:36:50 -0600
+
 golang-1.17 (1.17.13-2) unstable; urgency=medium
 
   * Renumber Debian patches in consecutive order
