@@ -1,3 +1,14 @@
+golang-1.17 (1.17.13-2) unstable; urgency=medium
+
+  * Renumber Debian patches in consecutive order
+  * Import 0002-accept-larger-pie-size.patch from Ubuntu golang-1.18
+    1.18.4-1ubuntu2.  This patches TestPIESize to allow the difference
+    between position-independent and position-dependent executables to
+    be larger than before.  This resolves an FTBFS on ppc64el.
+    Thanks to William 'jawn-smith' Wilson for the patch!
+
+ -- Anthony Fok <foka@debian.org>  Thu, 11 Aug 2022 20:05:06 -0600
+
 golang-1.17 (1.17.13-1) unstable; urgency=medium
 
   [ Shengjing Zhu ]
