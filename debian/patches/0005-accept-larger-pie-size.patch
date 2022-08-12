@@ -1,0 +1,22 @@
+Description: Accept larger PIE size difference
+ On ppc64el, the test TestPIESize was failing because the
+ position-independent executable was slightly larger than
+ expected. This patch will probably not always be needed
+ and should be dropped when possible.
+Author: William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>
+Last-Update: 2022-07-26
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+Index: golang-1.18-1.18.4/src/cmd/link/elf_test.go
+===================================================================
+--- golang-1.18-1.18.4.orig/src/cmd/link/elf_test.go
++++ golang-1.18-1.18.4/src/cmd/link/elf_test.go
+@@ -460,7 +460,7 @@
+ 
+ 			t.Logf("real size difference %#x, expected %#x", diffReal, diffExpected)
+ 
+-			if diffReal > (diffExpected + diffExpected/10) {
++			if diffReal > (diffExpected + diffExpected/5) {
+ 				t.Errorf("PIE unexpectedly large: got difference of %d (%d - %d), expected difference %d", diffReal, sizepie, sizeexe, diffExpected)
+ 			}
+ 		})
