@@ -1,3 +1,59 @@
+golang-1.17 (1.17.13-3) unstable; urgency=medium
+
+  * Remove debian/patches/0005-accept-larger-pie-size.patch.
+    Sorry, I was careless: this patch is not the solution to the recent
+    FTBFS with golang-1.17 on ppc64el.
+  * Apply debian/patches/0005-increase-size-limit-in-size-check.patch.
+    From https://go-review.googlesource.com/c/go/+/371634:
+      misc/cgo/testshared: increase size limit in size check
+      Recently in Fedora we switched binutils ld's separate-code on. This
+      led to increased size of binaries, especially on 64k aligned arches.
+      For example trivial test binary size grew from 80k to 211k on ppc64le
+      tripping the size check(RHBZ#2030308). Therefore adjusting the size limit.
+    Fixes recent FTBFS on ppc64el:
+      ##### ../misc/cgo/testshared
+      --- FAIL: TestTrivialExecutable (5.02s)
+          shared_test.go:483: file too large: got 138376, want <= 100000
+      --- FAIL: TestTrivialExecutablePIE (0.62s)
+          shared_test.go:483: file too large: got 138376, want <= 100000
+
+ -- Anthony Fok <foka@debian.org>  Thu, 11 Aug 2022 21:36:50 -0600
+
+golang-1.17 (1.17.13-2) unstable; urgency=medium
+
+  * Renumber Debian patches in consecutive order
+  * Import 0002-accept-larger-pie-size.patch from Ubuntu golang-1.18
+    1.18.4-1ubuntu2.  This patches TestPIESize to allow the difference
+    between position-independent and position-dependent executables to
+    be larger than before.  This resolves an FTBFS on ppc64el.
+    Thanks to William 'jawn-smith' Wilson for the patch!
+
+ -- Anthony Fok <foka@debian.org>  Thu, 11 Aug 2022 20:05:06 -0600
+
+golang-1.17 (1.17.13-1) unstable; urgency=medium
+
+  [ Shengjing Zhu ]
+  * Update upstream signing key.
+    Download from https://dl.google.com/dl/linux/linux_signing_key.pub
+
+  [ Anthony Fok ]
+  * New upstream version 1.17.13
+    - Security vulnerabilities fixed in 1.17.12:
+      + CVE-2022-1705: net/http: improper sanitization of Transfer-Encoding
+                       header
+      + CVE-2022-1962: go/parser: stack exhaustion in all Parse* functions
+      + CVE-2022-30630: io/fs: stack exhaustion in Glob
+      + CVE-2022-30631: compress/gzip: stack exhaustion in Reader.Read
+      + CVE-2022-30632: path/filepath: stack exhaustion in Glob
+      + CVE-2022-30633: encoding/xml: stack exhaustion in Unmarshal
+      + CVE-2022-30635: encoding/gob: stack exhaustion in Decoder.Decode
+      + CVE-2022-32148: net/http: Improper exposure of client IP addresses
+    - Security vulnerabilities fixed in 1.17.13:
+      + CVE-2022-32189: math/big: index out of range in Float.GobDecode
+  * Bump Standards-Version to 4.6.1 (no change)
+
+ -- Anthony Fok <foka@debian.org>  Wed, 10 Aug 2022 01:26:17 -0600
+
 golang-1.17 (1.17.11-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.

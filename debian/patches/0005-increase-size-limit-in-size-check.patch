@@ -1,0 +1,46 @@
+From 83fc0978e5d953ed058ca30bcfb8ddbc9ebdd88d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jakub=20=C4=8Cajka?= <jcajka@redhat.com>
+Date: Mon, 13 Dec 2021 15:57:25 +0100
+Subject: [PATCH] misc/cgo/testshared: increase size limit in size check
+
+Recently in Fedora we switched binutils ld's separate-code on. This
+led to increased size of binaries, especially on 64k aligned arches.
+For example trivial test binary size grew from 80k to 211k on ppc64le
+tripping the size check(RHBZ#2030308). Therefore adjusting the size limit.
+
+Change-Id: Ic722d90c338739c0b285f40b12ba4d675e9626a2
+Reviewed-on: https://go-review.googlesource.com/c/go/+/371634
+Run-TryBot: Ian Lance Taylor <iant@golang.org>
+TryBot-Result: Gopher Robot <gobot@golang.org>
+Reviewed-by: Ian Lance Taylor <iant@golang.org>
+Reviewed-by: Cherry Mui <cherryyz@google.com>
+---
+ misc/cgo/testshared/shared_test.go | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/misc/cgo/testshared/shared_test.go b/misc/cgo/testshared/shared_test.go
+index 7b8cc66c3a33..b78083bc8063 100644
+--- a/misc/cgo/testshared/shared_test.go
++++ b/misc/cgo/testshared/shared_test.go
+@@ -462,7 +462,9 @@ func TestTrivialExecutable(t *testing.T) {
+ 	run(t, "trivial executable", "../../bin/trivial")
+ 	AssertIsLinkedTo(t, "../../bin/trivial", soname)
+ 	AssertHasRPath(t, "../../bin/trivial", gorootInstallDir)
+-	checkSize(t, "../../bin/trivial", 100000) // it is 19K on linux/amd64, 100K should be enough
++	// It is 19K on linux/amd64, with separate-code in binutils ld and 64k being most common alignment
++	// 4*64k should be enough, but this might need revision eventually.
++	checkSize(t, "../../bin/trivial", 256000)
+ }
+ 
+ // Build a trivial program in PIE mode that links against the shared runtime and check it runs.
+@@ -471,7 +473,9 @@ func TestTrivialExecutablePIE(t *testing.T) {
+ 	run(t, "trivial executable", "./trivial.pie")
+ 	AssertIsLinkedTo(t, "./trivial.pie", soname)
+ 	AssertHasRPath(t, "./trivial.pie", gorootInstallDir)
+-	checkSize(t, "./trivial.pie", 100000) // it is 19K on linux/amd64, 100K should be enough
++	// It is 19K on linux/amd64, with separate-code in binutils ld and 64k being most common alignment
++	// 4*64k should be enough, but this might need revision eventually.
++	checkSize(t, "./trivial.pie", 256000)
+ }
+ 
+ // Check that the file size does not exceed a limit.
