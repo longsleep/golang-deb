@@ -1,3 +1,9 @@
+golang-1.17 (1.17.13-3~bpo11+1) bullseye-backports; urgency=medium
+
+  * Rebuild for bullseye-backports.
+
+ -- Anthony Fok <foka@debian.org>  Thu, 11 Aug 2022 23:34:05 -0600
+
 golang-1.17 (1.17.13-3) unstable; urgency=medium
 
   * Remove debian/patches/0005-accept-larger-pie-size.patch.
