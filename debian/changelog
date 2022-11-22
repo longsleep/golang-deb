@@ -1,3 +1,25 @@
+golang-1.18 (1.18.8-1) unstable; urgency=medium
+
+  * New upstream version 1.18.8
+    + CVE-2022-41716: syscall, os/exec: unsanitized NUL in environment variables
+      On Windows, syscall.StartProcess and os/exec.Cmd did not properly check
+      for invalid environment variable values. A malicious environment variable
+      value could exploit this behavior to set a value for a different
+      environment variable.
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Thu, 03 Nov 2022 08:20:54 -0500
+
+golang-1.18 (1.18.7-1) unstable; urgency=medium
+
+  * New upstream version 1.18.7
+    + CVE-2022-2879: archive/tar: unbounded memory consumption when reading
+      headers
+    + CVE-2022-2880: net/http/httputil: ReverseProxy should not forward
+      unparseable query parameters
+    + CVE-2022-41715: regexp/syntax: limit memory used by parsing regexps
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Tue, 04 Oct 2022 15:34:34 -0500
+
 golang-1.18 (1.18.6-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
