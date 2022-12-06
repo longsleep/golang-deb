@@ -1,3 +1,13 @@
+golang-1.18 (1.18.9-1) unstable; urgency=medium
+
+  * New upstream version 1.18.9
+    + CVE-2022-41720: os, net/http: avoid escapes from os.DirFS and http.Dir
+      on Windows
+    + CVE-2022-41717: net/http: limit canonical header cache by bytes, not
+      entries
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Tue, 06 Dec 2022 13:39:48 -0600
+
 golang-1.18 (1.18.8-1) unstable; urgency=medium
 
   * New upstream version 1.18.8
