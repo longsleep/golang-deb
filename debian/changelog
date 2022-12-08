@@ -1,3 +1,9 @@
+golang-1.19 (1.19.4-1longsleep1+focal) focal; urgency=medium
+
+  * New upstream version 1.19.4
+
+ -- Simon Eisenmann <simon@longsleep.org>  Thu, 08 Dec 2022 09:20:49 +0100
+
 golang-1.19 (1.19.3-1longsleep1+focal) focal; urgency=medium
 
   * New upstream version 1.19.3
