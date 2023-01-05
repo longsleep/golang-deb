@@ -1,27 +1,43 @@
-# golang-X.Y-src ships ELF object files and binaries as testdata for the
-# debug/dwarf, debug/elf and runtime/pprof packages.
-golang-X.Y-src: arch-dependent-file-in-usr-share
-golang-X.Y-src: unstripped-binary-or-object
-golang-X.Y-src: statically-linked-binary
+elf-error
+repeated-path-segment
+unpack-message-for-deb-data
 
-golang-X.Y-src: repeated-path-segment
-golang-X.Y-src: package-contains-documentation-outside-usr-share-doc
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/runtime/race/race_*.syso
-golang-X.Y-src: script-not-executable usr/share/go-X.Y/src/cmd/vendor/golang.org/x/sys/windows/mkknownfolderids.bash
-
-# These files are only testdata
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-1.17/src/cmd/objdump/testdata/*
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/dwarf/testdata/*
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/elf/testdata/*
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*
-golang-X.Y-src: arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/runtime/pprof/testdata/*
-golang-X.Y-src: binary-with-bad-dynamic-table usr/share/go-X.Y/src/debug/elf/testdata/*
-golang-X.Y-src: broken-bz2 usr/share/go-X.Y/src/compress/bzip2/testdata/*.bz2
-golang-X.Y-src: national-encoding usr/share/go-X.Y/src/fmt/fmt_test.go
-golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/dwarf/testdata/*
-golang-X.Y-src: portable-executable-missing-security-features usr/share/go-X.Y/src/debug/pe/testdata/*
-golang-X.Y-src: shared-library-lacks-prerequisites usr/share/go-X.Y/src/debug/elf/testdata/*
-golang-X.Y-src: undeclared-elf-prerequisites usr/share/go-X.Y/src/debug/dwarf/testdata/*
-golang-X.Y-src: undeclared-elf-prerequisites usr/share/go-X.Y/src/debug/elf/testdata/*
-golang-X.Y-src: unstripped-static-library usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/debug/elf/testdata/*]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
+arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/runtime/race/*.syso]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/debug/elf/testdata/*]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
+arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/runtime/race/*.syso]
+binary-with-bad-dynamic-table [usr/share/go-X.Y/src/debug/elf/testdata/*]
+broken-bz2 [usr/share/go-X.Y/src/compress/bzip2/testdata/*]
+broken-zip [usr/share/go-X.Y/src/archive/zip/testdata/*]
+executable-not-elf-or-script [usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/third_party/d3flamegraph/update.sh]
+national-encoding [usr/share/go-X.Y/src/fmt/fmt_test.go]
+no-code-sections [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
+no-code-sections [usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*]
+package-contains-documentation-outside-usr-share-doc
+package-contains-vcs-control-file [usr/share/go-X.Y/src/cmd/vendor/github.com/ianlancetaylor/demangle/.gitignore]
+package-contains-vcs-control-file [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/sys/unix/.gitignore]
+portable-executable-missing-security-features ASLR DEP/NX [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
+portable-executable-missing-security-features ASLR DEP/NX [usr/share/go-X.Y/src/debug/pe/testdata/*]
+shared-library-lacks-prerequisites [usr/share/go-X.Y/src/debug/elf/testdata/*]
+statically-linked-binary [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
+statically-linked-binary [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
+undeclared-elf-prerequisites (libc.so.6) [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
+undeclared-elf-prerequisites (libc.so.6) [usr/share/go-X.Y/src/debug/elf/testdata/*]
+unstripped-binary-or-object [usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso]
+unstripped-binary-or-object [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
+unstripped-binary-or-object [usr/share/go-X.Y/src/debug/elf/testdata/*]
+unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
+unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/race/*.syso]
+unstripped-static-library (_go_.o) [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
