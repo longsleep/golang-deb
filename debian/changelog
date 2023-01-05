@@ -7,7 +7,8 @@ golang-1.20 (1.20~rc2-1) unstable; urgency=medium
   * Drop i386 bootstrap workaround with Go < 1.16
   * Add patch to skip TestUseCgroupFD for schroot
   * Update Standards-Version to 4.6.2 (no changes)
-  * $GOROOT/pkg no longer stores pre-compiled package archives for the standard library
+  * $GOROOT/pkg no longer stores pre-compiled package archives for the
+    standard library
   * Make all scripts in src directory executable. To silence lintian.
   * Refresh lintian overrides
 
