@@ -41,3 +41,25 @@ unstripped-binary-or-object [usr/share/go-X.Y/src/debug/elf/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/race/*.syso]
 unstripped-static-library (_go_.o) [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
+
+# old syntax for ftp-master
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/cmd/objdump/testdata/*
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/crypto/internal/boring/syso/
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/debug/dwarf/testdata/*
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/debug/elf/*
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/runtime/pprof/testdata/*
+arch-dependent-file-in-usr-share usr/share/go-X.Y/src/runtime/race/*.syso
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/cmd/objdump/testdata/*
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/dwarf/testdata/*
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/elf/testdata/*
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/runtime/pprof/testdata/*
+arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/runtime/race/*.syso
+binary-with-bad-dynamic-table usr/share/go-X.Y/src/debug/elf/testdata/*
+statically-linked-binary usr/share/go-X.Y/src/debug/dwarf/testdata/*
+statically-linked-binary usr/share/go-X.Y/src/runtime/pprof/testdata/*
