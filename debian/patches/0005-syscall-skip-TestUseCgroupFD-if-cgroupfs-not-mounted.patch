@@ -1,0 +1,25 @@
+From: Shengjing Zhu <zsj950618@gmail.com>
+Date: Thu, 5 Jan 2023 15:00:25 +0800
+Subject: syscall: skip TestUseCgroupFD if cgroupfs not mounted
+
+When building in schroot (for building Debian package),
+the cgroupfs is not mounted in schroot (only sysfs is mounted).
+
+Forwarded: https://go-review.googlesource.com/c/go/+/460539
+---
+ src/syscall/exec_linux_test.go | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
+index 0e556f7..6a625b9 100644
+--- a/src/syscall/exec_linux_test.go
++++ b/src/syscall/exec_linux_test.go
+@@ -513,7 +513,7 @@ func prepareCgroupFD(t *testing.T) (int, string) {
+ 	subCgroup, err := os.MkdirTemp(prefix+string(bytes.TrimSpace(cg)), "subcg-")
+ 	if err != nil {
+ 		// Running in an unprivileged container, this may also return EROFS #57262.
+-		if os.IsPermission(err) || errors.Is(err, syscall.EROFS) {
++		if os.IsNotExist(err) || os.IsPermission(err) || errors.Is(err, syscall.EROFS) {
+ 			t.Skip(err)
+ 		}
+ 		t.Fatal(err)
