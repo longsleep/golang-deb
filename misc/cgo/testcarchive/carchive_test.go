@@ -47,6 +47,13 @@ func TestMain(m *testing.M) {
 		fmt.Printf("SKIP - short mode and $GO_BUILDER_NAME not set\n")
 		os.Exit(0)
 	}
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat("/etc/alpine-release"); err == nil {
+			fmt.Printf("SKIP - skipping failing test on alpine - go.dev/issue/19938\n")
+			os.Exit(0)
+		}
+	}
+
 	log.SetFlags(log.Lshortfile)
 	os.Exit(testMain(m))
 }
@@ -395,7 +402,7 @@ func checkELFArchive(t *testing.T, arname string) {
 		}
 
 		off += size
-		if _, err := f.Seek(off, os.SEEK_SET); err != nil {
+		if _, err := f.Seek(off, io.SeekStart); err != nil {
 			t.Errorf("%s: failed to seek to %d: %v", arname, off, err)
 		}
 	}

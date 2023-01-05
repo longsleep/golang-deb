@@ -547,7 +547,7 @@ func (g *genInst) instantiateMethods() {
 			// Lookup the method on the base generic type, since methods may
 			// not be set on imported instantiated types.
 			baseType := typ.OrigType()
-			for j, _ := range typ.Methods().Slice() {
+			for j := range typ.Methods().Slice() {
 				if baseType.Methods().Slice()[j].Nointerface() {
 					typ.Methods().Slice()[j].SetNointerface(true)
 				}
@@ -1656,9 +1656,11 @@ func (g *genInst) getDictionarySym(gf *ir.Name, targs []*types.Type, isMeth bool
 				var nameNode *ir.Name
 				se := call.X.(*ir.SelectorExpr)
 				if se.X.Type().IsShape() {
-					// This is a method call enabled by a type bound.
 					tparam := se.X.Type()
-					if call.X.Op() == ir.ODOTMETH {
+					// Ensure methods on all instantiating types are computed.
+					typecheck.CalcMethods(tparam)
+					if typecheck.Lookdot1(nil, se.Sel, tparam, tparam.AllMethods(), 0) != nil {
+						// This is a method call enabled by a type bound.
 						// We need this extra check for method expressions,
 						// which don't add in the implicit XDOTs.
 						tmpse := ir.NewSelectorExpr(src.NoXPos, ir.OXDOT, se.X, se.Sel)
@@ -2263,7 +2265,7 @@ func parameterizedBy1(t *types.Type, params []*types.Type, visited map[*types.Ty
 	}
 }
 
-// startClosures starts creation of a closure that has the function type typ. It
+// startClosure starts creation of a closure that has the function type typ. It
 // creates all the formal params and results according to the type typ. On return,
 // the body and closure variables of the closure must still be filled in, and
 // ir.UseClosure() called.
