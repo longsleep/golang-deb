@@ -116,16 +116,7 @@ override_dh_makeshlibs:
 override_dh_auto_build-arch:
 	[ -f VERSION ] || echo "debian snapshot $(DEB_VERSION)" > VERSION
 
-	# on i386, need to rebuild with go1.16 for GO386=softfloat
 	export GOROOT_BOOTSTRAP=$$(env -i GOPATH=$(GOPATH) go env GOROOT) \
-	&& if [ "$(DEB_HOST_ARCH)" = "i386" ] && dpkg --compare-versions $$(GOROOT_BOOTSTRAP=/usr ./debian/helpers/goenv.sh echo '$$GOVERSION_BOOTSTRAP') lt "1.16"; then \
-		mkdir -p $(CURDIR)/bootstrap \
-		&& cp -Rp $(CURDIR)/src bootstrap/ \
-		&& cp -Rp $(CURDIR)/VERSION bootstrap/ \
-		&& cd $(CURDIR)/bootstrap/src \
-		&& $(CURDIR)/debian/helpers/goenv.sh bash ./make.bash --no-banner \
-		&& export GOROOT_BOOTSTRAP=$(CURDIR)/bootstrap; \
-	fi \
 	&& cd $(CURDIR)/src \
 	&& $(CURDIR)/debian/helpers/goenv.sh bash ./make.bash --no-banner
 
