@@ -93,10 +93,8 @@ execute_after_dh_install-indep:
 	# Remove Plan9 rc(1) scripts
 	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src -type f -name '*.rc' -delete
 	# Make scripts executable which have been missed by upstream
-	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmp.bash
-	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/unix/mkall.sh
-	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/unix/mkerrors.sh
-	chmod a+x debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/cmd/vendor/golang.org/x/sys/windows/mkerrors.bash
+	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/ \
+		\( -name '*.sh' -o -name '*.bash' \) \( -not -executable \) -exec chmod a+x {} \;
 
 override_dh_strip:
 	dh_strip -Xtestdata
