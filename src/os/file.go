@@ -44,7 +44,6 @@ import (
 	"internal/poll"
 	"internal/safefilepath"
 	"internal/testlog"
-	"internal/unsafeheader"
 	"io"
 	"io/fs"
 	"runtime"
@@ -227,10 +226,6 @@ func (f *File) WriteAt(b []byte, off int64) (n int, err error) {
 // relative to the current offset, and 2 means relative to the end.
 // It returns the new offset and an error, if any.
 // The behavior of Seek on a file opened with O_APPEND is not specified.
-//
-// If f is a directory, the behavior of Seek varies by operating
-// system; you can seek to the beginning of the directory on Unix-like
-// operating systems, but not on Windows.
 func (f *File) Seek(offset int64, whence int) (ret int64, err error) {
 	if err := f.checkValid("seek"); err != nil {
 		return 0, err
@@ -248,11 +243,7 @@ func (f *File) Seek(offset int64, whence int) (ret int64, err error) {
 // WriteString is like Write, but writes the contents of string s rather than
 // a slice of bytes.
 func (f *File) WriteString(s string) (n int, err error) {
-	var b []byte
-	hdr := (*unsafeheader.Slice)(unsafe.Pointer(&b))
-	hdr.Data = (*unsafeheader.String)(unsafe.Pointer(&s)).Data
-	hdr.Cap = len(s)
-	hdr.Len = len(s)
+	b := unsafe.Slice(unsafe.StringData(s), len(s))
 	return f.Write(b)
 }
 
@@ -260,9 +251,6 @@ func (f *File) WriteString(s string) (n int, err error) {
 // bits (before umask).
 // If there is an error, it will be of type *PathError.
 func Mkdir(name string, perm FileMode) error {
-	if runtime.GOOS == "windows" && isWindowsNulName(name) {
-		return &PathError{Op: "mkdir", Path: name, Err: syscall.ENOTDIR}
-	}
 	longName := fixLongPath(name)
 	e := ignoringEINTR(func() error {
 		return syscall.Mkdir(longName, syscallMode(perm))
@@ -597,24 +585,6 @@ func (f *File) SyscallConn() (syscall.RawConn, error) {
 	return newRawConn(f)
 }
 
-// isWindowsNulName reports whether name is os.DevNull ('NUL') on Windows.
-// True is returned if name is 'NUL' whatever the case.
-func isWindowsNulName(name string) bool {
-	if len(name) != 3 {
-		return false
-	}
-	if name[0] != 'n' && name[0] != 'N' {
-		return false
-	}
-	if name[1] != 'u' && name[1] != 'U' {
-		return false
-	}
-	if name[2] != 'l' && name[2] != 'L' {
-		return false
-	}
-	return true
-}
-
 // DirFS returns a file system (an fs.FS) for the tree of files rooted at the directory dir.
 //
 // Note that DirFS("/prefix") only guarantees that the Open calls it makes to the
@@ -633,6 +603,7 @@ func DirFS(dir string) fs.FS {
 	return dirFS(dir)
 }
 
+// containsAny reports whether any bytes in chars are within s.
 func containsAny(s, chars string) bool {
 	for i := 0; i < len(s); i++ {
 		for j := 0; j < len(chars); j++ {
@@ -653,7 +624,12 @@ func (dir dirFS) Open(name string) (fs.File, error) {
 	}
 	f, err := Open(fullname)
 	if err != nil {
-		return nil, err // nil fs.File
+		// DirFS takes a string appropriate for GOOS,
+		// while the name argument here is always slash separated.
+		// dir.join will have mixed the two; undo that for
+		// error reporting.
+		err.(*PathError).Path = name
+		return nil, err
 	}
 	return f, nil
 }
@@ -665,6 +641,8 @@ func (dir dirFS) Stat(name string) (fs.FileInfo, error) {
 	}
 	f, err := Stat(fullname)
 	if err != nil {
+		// See comment in dirFS.Open.
+		err.(*PathError).Path = name
 		return nil, err
 	}
 	return f, nil
@@ -736,6 +714,8 @@ func ReadFile(name string) ([]byte, error) {
 // WriteFile writes data to the named file, creating it if necessary.
 // If the file does not exist, WriteFile creates it with permissions perm (before umask);
 // otherwise WriteFile truncates it before writing, without changing permissions.
+// Since Writefile requires multiple system calls to complete, a failure mid-operation
+// can leave the file in a partially written state.
 func WriteFile(name string, data []byte, perm FileMode) error {
 	f, err := OpenFile(name, O_WRONLY|O_CREATE|O_TRUNC, perm)
 	if err != nil {

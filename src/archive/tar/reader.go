@@ -7,6 +7,7 @@ package tar
 import (
 	"bytes"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,9 @@ func (tr *Reader) Next() (*Header, error) {
 	}
 	hdr, err := tr.next()
 	tr.err = err
+	if err == nil && tarinsecurepath.Value() == "0" && !filepath.IsLocal(hdr.Name) {
+		err = ErrInsecurePath
+	}
 	return hdr, err
 }
 
@@ -291,7 +295,7 @@ func mergePAX(hdr *Header, paxHdrs map[string]string) (err error) {
 }
 
 // parsePAX parses PAX headers.
-// If an extended header (type 'x') is invalid, ErrHeader is returned
+// If an extended header (type 'x') is invalid, ErrHeader is returned.
 func parsePAX(r io.Reader) (map[string]string, error) {
 	buf, err := readSpecialFile(r)
 	if err != nil {
@@ -683,7 +687,7 @@ func (fr regFileReader) logicalRemaining() int64 {
 	return fr.nb
 }
 
-// logicalRemaining implements fileState.physicalRemaining.
+// physicalRemaining implements fileState.physicalRemaining.
 func (fr regFileReader) physicalRemaining() int64 {
 	return fr.nb
 }

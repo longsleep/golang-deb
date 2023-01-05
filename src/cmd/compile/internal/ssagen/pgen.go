@@ -6,11 +6,8 @@ package ssagen
 
 import (
 	"internal/buildcfg"
-	"internal/race"
-	"math/rand"
 	"sort"
 	"sync"
-	"time"
 
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
@@ -64,7 +61,7 @@ func cmpstackvarlt(a, b *ir.Name) bool {
 	return a.Sym().Name < b.Sym().Name
 }
 
-// byStackvar implements sort.Interface for []*Node using cmpstackvarlt.
+// byStackVar implements sort.Interface for []*Node using cmpstackvarlt.
 type byStackVar []*ir.Name
 
 func (s byStackVar) Len() int           { return len(s) }
@@ -143,6 +140,7 @@ func (s *ssafn) AllocFrame(f *ssa.Func) {
 			continue
 		}
 		if !n.Used() {
+			fn.DebugInfo.(*ssa.FuncDebug).OptDcl = fn.Dcl[i:]
 			fn.Dcl = fn.Dcl[:i]
 			break
 		}
@@ -160,7 +158,7 @@ func (s *ssafn) AllocFrame(f *ssa.Func) {
 			w = 1
 		}
 		s.stksize += w
-		s.stksize = types.Rnd(s.stksize, n.Type().Alignment())
+		s.stksize = types.RoundUp(s.stksize, n.Type().Alignment())
 		if n.Type().Alignment() > int64(types.RegSize) {
 			s.stkalign = n.Type().Alignment()
 		}
@@ -173,8 +171,8 @@ func (s *ssafn) AllocFrame(f *ssa.Func) {
 		n.SetFrameOffset(-s.stksize)
 	}
 
-	s.stksize = types.Rnd(s.stksize, s.stkalign)
-	s.stkptrsize = types.Rnd(s.stkptrsize, s.stkalign)
+	s.stksize = types.RoundUp(s.stksize, s.stkalign)
+	s.stkptrsize = types.RoundUp(s.stkptrsize, s.stkalign)
 }
 
 const maxStackSize = 1 << 30
@@ -212,12 +210,6 @@ func Compile(fn *ir.Func, worker int) {
 	pp.Flush() // assemble, fill in boilerplate, etc.
 	// fieldtrack must be called after pp.Flush. See issue 20014.
 	fieldtrack(pp.Text.From.Sym, fn.FieldTrack)
-}
-
-func init() {
-	if race.Enabled {
-		rand.Seed(time.Now().UnixNano())
-	}
 }
 
 // StackOffset returns the stack location of a LocalSlot relative to the

@@ -139,7 +139,8 @@ func writebarrier(f *Func) {
 			// allocate auxiliary data structures for computing store order
 			sset = f.newSparseSet(f.NumValues())
 			defer f.retSparseSet(sset)
-			storeNumber = make([]int32, f.NumValues())
+			storeNumber = f.Cache.allocInt32Slice(f.NumValues())
+			defer f.Cache.freeInt32Slice(storeNumber)
 		}
 
 		// order values in store order
@@ -163,7 +164,7 @@ func writebarrier(f *Func) {
 					last = w
 					end = i + 1
 				}
-			case OpVarDef, OpVarLive, OpVarKill:
+			case OpVarDef, OpVarLive:
 				continue
 			default:
 				if last == nil {
@@ -279,7 +280,7 @@ func writebarrier(f *Func) {
 				fn = typedmemclr
 				typ = reflectdata.TypeLinksym(w.Aux.(*types.Type))
 				nWBops--
-			case OpVarDef, OpVarLive, OpVarKill:
+			case OpVarDef, OpVarLive:
 			}
 
 			// then block: emit write barrier call
@@ -301,7 +302,7 @@ func writebarrier(f *Func) {
 				}
 				// Note that we set up a writebarrier function call.
 				f.fe.SetWBPos(pos)
-			case OpVarDef, OpVarLive, OpVarKill:
+			case OpVarDef, OpVarLive:
 				memThen = bThen.NewValue1A(pos, w.Op, types.TypeMem, w.Aux, memThen)
 			}
 
@@ -315,15 +316,9 @@ func writebarrier(f *Func) {
 			case OpZeroWB:
 				memElse = bElse.NewValue2I(pos, OpZero, types.TypeMem, w.AuxInt, ptr, memElse)
 				memElse.Aux = w.Aux
-			case OpVarDef, OpVarLive, OpVarKill:
+			case OpVarDef, OpVarLive:
 				memElse = bElse.NewValue1A(pos, w.Op, types.TypeMem, w.Aux, memElse)
 			}
-		}
-
-		// mark volatile temps dead
-		for _, c := range volatiles {
-			tmpNode := c.tmp.Aux
-			memThen = bThen.NewValue1A(memThen.Pos, OpVarKill, types.TypeMem, tmpNode, memThen)
 		}
 
 		// merge memory
@@ -541,7 +536,7 @@ func wbcall(pos src.XPos, b *Block, fn, typ *obj.LSym, ptr, val, mem, sp, sb *Va
 	return b.NewValue1I(pos, OpSelectN, types.TypeMem, 0, call)
 }
 
-// round to a multiple of r, r is a power of 2
+// round to a multiple of r, r is a power of 2.
 func round(o int64, r int64) int64 {
 	return (o + r - 1) &^ (r - 1)
 }
@@ -658,7 +653,8 @@ func IsSanitizerSafeAddr(v *Value) bool {
 		// read-only once initialized.
 		return true
 	case OpAddr:
-		return v.Aux.(*obj.LSym).Type == objabi.SRODATA || v.Aux.(*obj.LSym).Type == objabi.SLIBFUZZER_8BIT_COUNTER
+		vt := v.Aux.(*obj.LSym).Type
+		return vt == objabi.SRODATA || vt == objabi.SLIBFUZZER_8BIT_COUNTER || vt == objabi.SCOVERAGE_COUNTER || vt == objabi.SCOVERAGE_AUXVAR
 	}
 	return false
 }
