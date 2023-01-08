@@ -7,6 +7,9 @@ include /usr/share/dpkg/architecture.mk
 # for DEB_VERSION_UPSTREAM
 include /usr/share/dpkg/pkg-info.mk
 
+# Ubuntu mangles png files by default, which can break the testdata.
+export NO_PNG_PKG_MANGLE := 1
+
 export GOVER := $(shell echo $(DEB_VERSION_UPSTREAM) | grep -oP '^([0-9]+\.[0-9]+)')
 
 export GOROOT := $(CURDIR)
