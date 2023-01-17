@@ -1,3 +1,13 @@
+golang-1.19 (1.19.4-1) unstable; urgency=medium
+
+  * New upstream version 1.19.4
+    + CVE-2022-41720: os, net/http: avoid escapes from os.DirFS and http.Dir
+      on Windows
+    + CVE-2022-41717: net/http: limit canonical header cache by bytes, not
+      entries
+
+ -- William 'jawn-smith' Wilson <jawn-smith@ubuntu.com>  Tue, 06 Dec 2022 16:10:54 -0600
+
 golang-1.19 (1.19.3-1~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
