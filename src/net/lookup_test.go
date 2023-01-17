@@ -49,21 +49,21 @@ var lookupGoogleSRVTests = []struct {
 	cname, target        string
 }{
 	{
-		"xmpp-server", "tcp", "google.com",
+		"ldap", "tcp", "google.com",
 		"google.com.", "google.com.",
 	},
 	{
-		"xmpp-server", "tcp", "google.com.",
+		"ldap", "tcp", "google.com.",
 		"google.com.", "google.com.",
 	},
 
 	// non-standard back door
 	{
-		"", "", "_xmpp-server._tcp.google.com",
+		"", "", "_ldap._tcp.google.com",
 		"google.com.", "google.com.",
 	},
 	{
-		"", "", "_xmpp-server._tcp.google.com.",
+		"", "", "_ldap._tcp.google.com.",
 		"google.com.", "google.com.",
 	},
 }
@@ -701,16 +701,16 @@ func testDots(t *testing.T, mode string) {
 		}
 	}
 
-	cname, srvs, err := LookupSRV("xmpp-server", "tcp", "google.com")
+	cname, srvs, err := LookupSRV("ldap", "tcp", "google.com")
 	if err != nil {
-		t.Errorf("LookupSRV(xmpp-server, tcp, google.com): %v (mode=%v)", err, mode)
+		t.Errorf("LookupSRV(ldap, tcp, google.com): %v (mode=%v)", err, mode)
 	} else {
 		if !hasSuffixFold(cname, ".google.com.") {
-			t.Errorf("LookupSRV(xmpp-server, tcp, google.com) returned cname=%v, want name ending in .google.com. with trailing dot (mode=%v)", cname, mode)
+			t.Errorf("LookupSRV(ldap, tcp, google.com) returned cname=%v, want name ending in .google.com. with trailing dot (mode=%v)", cname, mode)
 		}
 		for _, srv := range srvs {
 			if !hasSuffixFold(srv.Target, ".google.com.") {
-				t.Errorf("LookupSRV(xmpp-server, tcp, google.com) returned addrs=%v, want names ending in .google.com. with trailing dot (mode=%v)", srvString(srvs), mode)
+				t.Errorf("LookupSRV(ldap, tcp, google.com) returned addrs=%v, want names ending in .google.com. with trailing dot (mode=%v)", srvString(srvs), mode)
 				break
 			}
 		}
