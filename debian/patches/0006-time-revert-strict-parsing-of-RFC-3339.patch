@@ -1,0 +1,113 @@
+From: Joe Tsai <joetsai@digital-static.net>
+Date: Wed, 18 Jan 2023 13:22:54 -0500
+Subject: time: revert strict parsing of RFC 3339
+
+CL 444277 fixed Time.UnmarshalText and Time.UnmarshalJSON to properly
+unmarshal timestamps according to RFC 3339 instead of according
+to Go's bespoke time syntax that is a superset of RFC 3339.
+
+However, this change seems to have broken an AWS S3 unit test
+that relies on parsing timestamps with single digit hours.
+It is unclear whether S3 emits these timestamps in production or
+whether this is simply a testing artifact that has been cargo culted
+across many code bases. Either way, disable strict parsing for now
+and re-enable later with better GODEBUG support.
+
+Updates #54580
+
+Change-Id: Icced2c7f9a6b2fc06bbd9c7e90f90edce24c2306
+Reviewed-on: https://go-review.googlesource.com/c/go/+/462286
+Reviewed-by: Bryan Mills <bcmills@google.com>
+Run-TryBot: Joseph Tsai <joetsai@digital-static.net>
+TryBot-Result: Gopher Robot <gobot@golang.org>
+Auto-Submit: Russ Cox <rsc@golang.org>
+Reviewed-by: Russ Cox <rsc@golang.org>
+Reviewed-by: Ian Lance Taylor <iant@golang.org>
+Reviewed-on: https://go-review.googlesource.com/c/go/+/462675
+Reviewed-by: Joseph Tsai <joetsai@digital-static.net>
+Run-TryBot: Ian Lance Taylor <iant@google.com>
+Auto-Submit: Ian Lance Taylor <iant@google.com>
+Run-TryBot: Russ Cox <rsc@golang.org>
+Reviewed-by: Ian Lance Taylor <iant@google.com>
+---
+ doc/go1.20.html            |  5 ++---
+ src/time/format_rfc3339.go |  7 ++++++-
+ src/time/time_test.go      | 12 ++++++------
+ 3 files changed, 14 insertions(+), 10 deletions(-)
+
+diff --git a/doc/go1.20.html b/doc/go1.20.html
+index 23fa82c..8e79a63 100644
+--- a/doc/go1.20.html
++++ b/doc/go1.20.html
+@@ -1194,9 +1194,8 @@ proxyHandler := &httputil.ReverseProxy{
+     </p>
+ 
+     <p><!-- CL 444277 -->
+-      The <a href="/pkg/time/#Time.MarshalJSON"><code>Time.MarshalJSON</code></a> and
+-      <a href="/pkg/time/#Time.UnmarshalJSON"><code>Time.UnmarshalJSON</code></a> methods
+-      are now more strict about adherence to RFC 3339.
++      The <a href="/pkg/time/#Time.MarshalJSON"><code>Time.MarshalJSON</code></a> method
++      is now more strict about adherence to RFC 3339.
+     </p>
+   </dd>
+ </dl><!-- time -->
+diff --git a/src/time/format_rfc3339.go b/src/time/format_rfc3339.go
+index a9c295d..1151666 100644
+--- a/src/time/format_rfc3339.go
++++ b/src/time/format_rfc3339.go
+@@ -155,7 +155,8 @@ func parseRFC3339[bytes []byte | string](s bytes, local *Location) (Time, bool)
+ func parseStrictRFC3339(b []byte) (Time, error) {
+ 	t, ok := parseRFC3339(b, Local)
+ 	if !ok {
+-		if _, err := Parse(RFC3339, string(b)); err != nil {
++		t, err := Parse(RFC3339, string(b))
++		if err != nil {
+ 			return Time{}, err
+ 		}
+ 
+@@ -164,6 +165,10 @@ func parseStrictRFC3339(b []byte) (Time, error) {
+ 		// See https://go.dev/issue/54580.
+ 		num2 := func(b []byte) byte { return 10*(b[0]-'0') + (b[1] - '0') }
+ 		switch {
++		// TODO(https://go.dev/issue/54580): Strict parsing is disabled for now.
++		// Enable this again with a GODEBUG opt-out.
++		case true:
++			return t, nil
+ 		case b[len("2006-01-02T")+1] == ':': // hour must be two digits
+ 			return Time{}, &ParseError{RFC3339, string(b), "15", string(b[len("2006-01-02T"):][:1]), ""}
+ 		case b[len("2006-01-02T15:04:05")] == ',': // sub-second separator must be a period
+diff --git a/src/time/time_test.go b/src/time/time_test.go
+index ddf77cc..4221efe 100644
+--- a/src/time/time_test.go
++++ b/src/time/time_test.go
+@@ -830,10 +830,10 @@ func TestUnmarshalInvalidTimes(t *testing.T) {
+ 	}{
+ 		{`{}`, "Time.UnmarshalJSON: input is not a JSON string"},
+ 		{`[]`, "Time.UnmarshalJSON: input is not a JSON string"},
+-		{`"2000-01-01T1:12:34Z"`, `parsing time "2000-01-01T1:12:34Z" as "2006-01-02T15:04:05Z07:00": cannot parse "1" as "15"`},
+-		{`"2000-01-01T00:00:00,000Z"`, `parsing time "2000-01-01T00:00:00,000Z" as "2006-01-02T15:04:05Z07:00": cannot parse "," as "."`},
+-		{`"2000-01-01T00:00:00+24:00"`, `parsing time "2000-01-01T00:00:00+24:00": timezone hour out of range`},
+-		{`"2000-01-01T00:00:00+00:60"`, `parsing time "2000-01-01T00:00:00+00:60": timezone minute out of range`},
++		{`"2000-01-01T1:12:34Z"`, `<nil>`},
++		{`"2000-01-01T00:00:00,000Z"`, `<nil>`},
++		{`"2000-01-01T00:00:00+24:00"`, `<nil>`},
++		{`"2000-01-01T00:00:00+00:60"`, `<nil>`},
+ 		{`"2000-01-01T00:00:00+123:45"`, `parsing time "2000-01-01T00:00:00+123:45" as "2006-01-02T15:04:05Z07:00": cannot parse "+123:45" as "Z07:00"`},
+ 	}
+ 
+@@ -842,13 +842,13 @@ func TestUnmarshalInvalidTimes(t *testing.T) {
+ 
+ 		want := tt.want
+ 		err := json.Unmarshal([]byte(tt.in), &ts)
+-		if err == nil || err.Error() != want {
++		if fmt.Sprint(err) != want {
+ 			t.Errorf("Time.UnmarshalJSON(%s) = %v, want %v", tt.in, err, want)
+ 		}
+ 
+ 		if strings.HasPrefix(tt.in, `"`) && strings.HasSuffix(tt.in, `"`) {
+ 			err = ts.UnmarshalText([]byte(strings.Trim(tt.in, `"`)))
+-			if err == nil || err.Error() != want {
++			if fmt.Sprint(err) != want {
+ 				t.Errorf("Time.UnmarshalText(%s) = %v, want %v", tt.in, err, want)
+ 			}
+ 		}
