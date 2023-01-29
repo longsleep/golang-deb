@@ -1,3 +1,9 @@
+golang-1.19 (1.19.5-1~bpo11+1) bullseye-backports; urgency=medium
+
+  * Rebuild for bullseye-backports.
+
+ -- Anthony Fok <foka@debian.org>  Sun, 29 Jan 2023 16:04:43 -0700
+
 golang-1.19 (1.19.5-1) unstable; urgency=medium
 
   * Team upload
