@@ -1,3 +1,10 @@
+golang-1.20 (1.20-1) UNRELEASED; urgency=medium
+
+  * Team upload
+  * New upstream release 1.20
+
+ -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 02 Feb 2023 13:13:53 +1300
+
 golang-1.20 (1.20~rc3-2) unstable; urgency=medium
 
   * Team upload
