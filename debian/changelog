@@ -1,4 +1,4 @@
-golang-1.20 (1.20-1) UNRELEASED; urgency=medium
+golang-1.20 (1.20-1) unstable; urgency=medium
 
   * Team upload
   * New upstream release 1.20
@@ -6,7 +6,7 @@ golang-1.20 (1.20-1) UNRELEASED; urgency=medium
     - d/patches/0005-Revert-internal-fsys-follow-root-symlink-in-fsys.Wal.patch
     - d/patches/0006-time-revert-strict-parsing-of-RFC-3339.patch
 
- -- Michael Hudson-Doyle <michael.hudson@ubuntu.com>  Thu, 02 Feb 2023 13:13:53 +1300
+ -- Michael Hudson-Doyle <mwhudson@debian.org>  Thu, 02 Feb 2023 13:54:15 +1300
 
 golang-1.20 (1.20~rc3-2) unstable; urgency=medium
 
