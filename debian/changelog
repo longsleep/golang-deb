@@ -1,3 +1,71 @@
+golang-1.15 (1.15.15-1~deb11u4) bullseye; urgency=medium
+
+  * Backport patch for CVE-2022-24921:
+    regexp: stack exhaustion compiling deeply nested expressions
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 04 Mar 2022 21:48:18 +0800
+
+golang-1.15 (1.15.15-1~deb11u3) bullseye; urgency=medium
+
+  * Backport patches for CVE-2022-23806 CVE-2022-23772 CVE-2022-23773
+    + CVE-2022-23806: crypto/elliptic: fix IsOnCurve for big.Int values
+      that are not valid coordinates
+    + CVE-2022-23772: math/big: prevent large memory consumption in
+      Rat.SetString
+    + CVE-2022-23773: cmd/go: prevent branches from materializing into versions
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 11 Feb 2022 23:45:44 +0800
+
+golang-1.15 (1.15.15-1~deb11u2) bullseye; urgency=medium
+
+  * Backport patch for CVE-2021-38297
+    When invoking functions from WASM modules, built using GOARCH=wasm GOOS=js,
+    passing very large arguments can cause portions of the module to be
+    overwritten with data from the arguments.
+  * Backport patch for CVE-2021-41771
+    debug/macho: invalid dynamic symbol table command can cause panic
+  * Backport patch for CVE-2021-44716
+    net/http: limit growth of header canonicalization cache
+  * Backport patch for CVE-2021-44717
+    syscall: don’t close fd 0 on ForkExec error
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 04 Dec 2021 17:37:57 +0800
+
+golang-1.15 (1.15.15-1~deb11u1) bullseye; urgency=medium
+
+  [ Anthony Fok ]
+  * Fix Lintian warning tab-in-license-text
+    debian/copyright (starting at line 381)
+
+  [ Shengjing Zhu ]
+  * Rebuild 1.15.15 for bullseye
+    + Include fix for CVE-2021-36221 (Closes: #991961)
+      net/http: panic due to racy read of persistConn after handler panic
+  * Backport patch for CVE-2021-39293
+    archive/zip: overflow in preallocation check can cause OOM panic
+
+ -- Shengjing Zhu <zhsj@debian.org>  Sat, 11 Sep 2021 15:54:07 +0800
+
+golang-1.15 (1.15.15-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.15.15
+  * Remove security patches which were previously backported
+    for 1.15.9 but are already in 1.15.15
+  * Update Standards-Version to 4.5.1, no changes needed
+  * Change Section from devel to golang
+
+ -- Anthony Fok <foka@debian.org>  Sun, 15 Aug 2021 16:44:15 -0600
+
+golang-1.15 (1.15.9-6) unstable; urgency=medium
+
+  * Team upload.
+  * Backport patche for CVE-2021-34558
+    crypto/tls: clients can panic when provided a certificate of the wrong type
+    for the negotiated parameters
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 13 Jul 2021 13:55:42 +0800
+
 golang-1.15 (1.15.9-5~bpo10+1) buster-backports; urgency=medium
 
   * Team upload.
