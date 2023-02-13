@@ -1,3 +1,9 @@
+golang-1.15 (1.15.15-1~deb11u4~bpo10+1) buster-backports; urgency=medium
+
+  * Rebuild for buster-backports.
+
+ -- Shengjing Zhu <zhsj@debian.org>  Mon, 13 Feb 2023 18:31:14 +0800
+
 golang-1.15 (1.15.15-1~deb11u4) bullseye; urgency=medium
 
   * Backport patch for CVE-2022-24921:
