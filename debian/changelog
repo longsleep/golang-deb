@@ -1,3 +1,16 @@
+golang-1.20 (1.20.1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.20.1
+    + CVE-2022-41722: path/filepath: path traversal in filepath.Clean on
+      Windows
+    + CVE-2022-41725: net/http, mime/multipart: denial of service from
+      excessive resource consumption
+    + CVE-2022-41724: crypto/tls: large handshake records may cause panics
+    + CVE-2022-41723: net/http: avoid quadratic complexity in HPACK decoding
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 15 Feb 2023 09:53:55 +0800
+
 golang-1.20 (1.20-1) unstable; urgency=medium
 
   * Team upload
