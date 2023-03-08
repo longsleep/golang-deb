@@ -1,3 +1,12 @@
+golang-1.19 (1.19.7-1) experimental; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.7
+    + CVE-2023-24532: crypto/elliptic: incorrect P-256 ScalarMult and
+      ScalarBaseMult results
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 08 Mar 2023 13:54:08 +0800
+
 golang-1.19 (1.19.6-2) unstable; urgency=medium
 
   * Team upload
