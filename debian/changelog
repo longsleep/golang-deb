@@ -1,3 +1,16 @@
+golang-1.19 (1.19.8-1) experimental; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.8
+    + CVE-2023-24537: go/parser: infinite loop in parsing
+    + CVE-2023-24538: html/template: backticks not treated as string delimiters
+    + CVE-2023-24534: net/http, net/textproto: denial of service from excessive
+      memory allocation
+    + CVE-2023-24536: net/http, net/textproto, mime/multipart: denial of
+      service from excessive resource consumption
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 05 Apr 2023 02:15:56 +0800
+
 golang-1.19 (1.19.7-1) experimental; urgency=medium
 
   * Team upload
