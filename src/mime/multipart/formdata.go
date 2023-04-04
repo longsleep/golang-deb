@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/textproto"
 	"os"
+	"strconv"
 )
 
 // ErrMessageTooLarge is returned by ReadForm if the message form
@@ -41,6 +42,15 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 	numDiskFiles := 0
 	multipartFiles := godebug.Get("multipartfiles")
 	combineFiles := multipartFiles != "distinct"
+	maxParts := 1000
+	multipartMaxParts := godebug.Get("multipartmaxparts")
+	if multipartMaxParts != "" {
+		if v, err := strconv.Atoi(multipartMaxParts); err == nil && v >= 0 {
+			maxParts = v
+		}
+	}
+	maxHeaders := maxMIMEHeaders()
+
 	defer func() {
 		if file != nil {
 			if cerr := file.Close(); err == nil {
@@ -84,14 +94,19 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 			maxMemoryBytes = math.MaxInt64
 		}
 	}
+	var copyBuf []byte
 	for {
-		p, err := r.nextPart(false, maxMemoryBytes)
+		p, err := r.nextPart(false, maxMemoryBytes, maxHeaders)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
+		if maxParts <= 0 {
+			return nil, ErrMessageTooLarge
+		}
+		maxParts--
 
 		name := p.FormName()
 		if name == "" {
@@ -102,8 +117,9 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 		// Multiple values for the same key (one map entry, longer slice) are cheaper
 		// than the same number of values for different keys (many map entries), but
 		// using a consistent per-value cost for overhead is simpler.
+		const mapEntryOverhead = 200
 		maxMemoryBytes -= int64(len(name))
-		maxMemoryBytes -= 100 // map overhead
+		maxMemoryBytes -= mapEntryOverhead
 		if maxMemoryBytes < 0 {
 			// We can't actually take this path, since nextPart would already have
 			// rejected the MIME headers for being too large. Check anyway.
@@ -127,9 +143,15 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 		}
 
 		// file, store in memory or on disk
+		const fileHeaderSize = 100
 		maxMemoryBytes -= mimeHeaderSize(p.Header)
+		maxMemoryBytes -= mapEntryOverhead
+		maxMemoryBytes -= fileHeaderSize
 		if maxMemoryBytes < 0 {
 			return nil, ErrMessageTooLarge
+		}
+		for _, v := range p.Header {
+			maxHeaders -= int64(len(v))
 		}
 		fh := &FileHeader{
 			Filename: filename,
@@ -147,14 +169,22 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 				}
 			}
 			numDiskFiles++
-			size, err := io.Copy(file, io.MultiReader(&b, p))
+			if _, err := file.Write(b.Bytes()); err != nil {
+				return nil, err
+			}
+			if copyBuf == nil {
+				copyBuf = make([]byte, 32*1024) // same buffer size as io.Copy uses
+			}
+			// os.File.ReadFrom will allocate its own copy buffer if we let io.Copy use it.
+			type writerOnly struct{ io.Writer }
+			remainingSize, err := io.CopyBuffer(writerOnly{file}, p, copyBuf)
 			if err != nil {
 				return nil, err
 			}
 			fh.tmpfile = file.Name()
-			fh.Size = size
+			fh.Size = int64(b.Len()) + remainingSize
 			fh.tmpoff = fileOff
-			fileOff += size
+			fileOff += fh.Size
 			if !combineFiles {
 				if err := file.Close(); err != nil {
 					return nil, err
@@ -174,9 +204,10 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 }
 
 func mimeHeaderSize(h textproto.MIMEHeader) (size int64) {
+	size = 400
 	for k, vs := range h {
 		size += int64(len(k))
-		size += 100 // map entry overhead
+		size += 200 // map entry overhead
 		for _, v := range vs {
 			size += int64(len(v))
 		}
