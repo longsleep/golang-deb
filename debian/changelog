@@ -1,3 +1,32 @@
+golang-1.19 (1.19.8-2) unstable; urgency=medium
+
+  * Team upload
+  * Upload to unstable
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 07 Apr 2023 15:12:06 +0800
+
+golang-1.19 (1.19.8-1) experimental; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.8
+    + CVE-2023-24537: go/parser: infinite loop in parsing
+    + CVE-2023-24538: html/template: backticks not treated as string delimiters
+    + CVE-2023-24534: net/http, net/textproto: denial of service from excessive
+      memory allocation
+    + CVE-2023-24536: net/http, net/textproto, mime/multipart: denial of
+      service from excessive resource consumption
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 05 Apr 2023 02:15:56 +0800
+
+golang-1.19 (1.19.7-1) experimental; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.7
+    + CVE-2023-24532: crypto/elliptic: incorrect P-256 ScalarMult and
+      ScalarBaseMult results
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 08 Mar 2023 13:54:08 +0800
+
 golang-1.19 (1.19.6-2~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.
