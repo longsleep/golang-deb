@@ -1,6 +1,7 @@
 VERSION /usr/lib/go-X.Y/
 bin/go /usr/lib/go-X.Y/bin/
 bin/gofmt /usr/lib/go-X.Y/bin/
+go.env /usr/lib/go-X.Y/
 pkg/include /usr/share/go-X.Y/pkg/
 pkg/tool /usr/lib/go-X.Y/pkg/
 src/cmd/cgo/zdefaultcc.go /usr/share/go-X.Y/src/cmd/cgo/
