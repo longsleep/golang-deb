@@ -1,9 +1,23 @@
-golang-1.20 (1.21~rc1-1) UNRELEASED; urgency=medium
+golang-1.21 (1.21~rc1-1) unstable; urgency=medium
 
   * Team upload
   * New upstream version 1.21rc1
+  * Install go.env in GOROOT
+  * Drop patches
+    + 0001-Disable-test-for-UserHomeDir.patch.
+      Now the test doesn't fail if HOME dir doesn't exist
+      See https://github.com/golang/go/commit/bb4ea80b
+    + 0002-Fix-Lintian-warnings-about-wrong-interpreter-path.patch.
+      We don't run these scripts, just leave them as is.
+    + 0003-cmd-dist-increase-default-timeout-scale-for-arm.patch.
+      Upstream has removed arch-specific timeout scale heuristics.
+      See https://github.com/golang/go/issues/57117
+      We can move the setting to dh-golang.
+    + 0004-skip-userns-test-in-schroot-as-well.patch.
+      Now the tests doesn't hardcode chroot types.
+      See https://github.com/golang/go/commit/09267142
 
- -- Shengjing Zhu <zhsj@debian.org>  Tue, 20 Jun 2023 16:05:46 +0800
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 20 Jun 2023 17:39:49 +0800
 
 golang-1.20 (1.20.5-1) unstable; urgency=medium
 
