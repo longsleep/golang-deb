@@ -14,11 +14,6 @@
 
 #define CLOCK_REALTIME		0
 #define CLOCK_MONOTONIC		4
-#define FD_CLOEXEC		1
-#define F_SETFD			2
-#define F_GETFL			3
-#define F_SETFL			4
-#define O_NONBLOCK		4
 
 #define SYS_exit		1
 #define SYS_read		3
@@ -296,14 +291,9 @@ TEXT runtime·sigtramp(SB),NOSPLIT|TOPFRAME,$176
 	BEQ	2(PC)
 	BL	runtime·load_g(SB)
 
-#ifdef GOEXPERIMENT_regabiargs
 	// Restore signum to R0.
 	MOVW	8(RSP), R0
 	// R1 and R2 already contain info and ctx, respectively.
-#else
-	MOVD	R1, 16(RSP)
-	MOVD	R2, 24(RSP)
-#endif
 	MOVD	$runtime·sigtrampgo<ABIInternal>(SB), R3
 	BL	(R3)
 
@@ -460,15 +450,6 @@ TEXT runtime·fcntl(SB),NOSPLIT,$0
 noerr:
 	MOVW	R0, ret+16(FP)
 	MOVW	$0, errno+20(FP)
-	RET
-
-// func closeonexec(fd int32)
-TEXT runtime·closeonexec(SB),NOSPLIT|NOFRAME,$0
-	MOVW	fd+0(FP), R0
-	MOVD	$F_SETFD, R1
-	MOVD	$FD_CLOEXEC, R2
-	MOVD	$SYS_fcntl, R8
-	SVC
 	RET
 
 // func getCntxct(physical bool) uint32

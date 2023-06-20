@@ -243,7 +243,7 @@ func Faccessat(dirfd int, path string, mode uint32, flags int) (err error) {
 //sys	fchmodat(dirfd int, path string, mode uint32) (err error)
 
 func Fchmodat(dirfd int, path string, mode uint32, flags int) (err error) {
-	// Linux fchmodat doesn't support the flags parameter. Mimick glibc's behavior
+	// Linux fchmodat doesn't support the flags parameter. Mimic glibc's behavior
 	// and check the flags. Otherwise the mode would be applied to the symlink
 	// destination which is not what the user expects.
 	if flags&^_AT_SYMLINK_NOFOLLOW != 0 {
@@ -646,8 +646,7 @@ func anyToSockaddr(rsa *RawSockaddrAny) (Sockaddr, error) {
 		for n < len(pp.Path) && pp.Path[n] != 0 {
 			n++
 		}
-		bytes := (*[len(pp.Path)]byte)(unsafe.Pointer(&pp.Path[0]))[0:n]
-		sa.Name = string(bytes)
+		sa.Name = string(unsafe.Slice((*byte)(unsafe.Pointer(&pp.Path[0])), n))
 		return sa, nil
 
 	case AF_INET:
@@ -828,6 +827,7 @@ func BindToDevice(fd int, device string) (err error) {
 }
 
 //sys	ptrace(request int, pid int, addr uintptr, data uintptr) (err error)
+//sys	ptracePtr(request int, pid int, addr uintptr, data unsafe.Pointer) (err error) = SYS_PTRACE
 
 func ptracePeek(req int, pid int, addr uintptr, out []byte) (count int, err error) {
 	// The peek requests are machine-size oriented, so we wrap it
@@ -845,7 +845,7 @@ func ptracePeek(req int, pid int, addr uintptr, out []byte) (count int, err erro
 	// boundary.
 	n := 0
 	if addr%sizeofPtr != 0 {
-		err = ptrace(req, pid, addr-addr%sizeofPtr, uintptr(unsafe.Pointer(&buf[0])))
+		err = ptracePtr(req, pid, addr-addr%sizeofPtr, unsafe.Pointer(&buf[0]))
 		if err != nil {
 			return 0, err
 		}
@@ -857,7 +857,7 @@ func ptracePeek(req int, pid int, addr uintptr, out []byte) (count int, err erro
 	for len(out) > 0 {
 		// We use an internal buffer to guarantee alignment.
 		// It's not documented if this is necessary, but we're paranoid.
-		err = ptrace(req, pid, addr+uintptr(n), uintptr(unsafe.Pointer(&buf[0])))
+		err = ptracePtr(req, pid, addr+uintptr(n), unsafe.Pointer(&buf[0]))
 		if err != nil {
 			return n, err
 		}
@@ -885,7 +885,7 @@ func ptracePoke(pokeReq int, peekReq int, pid int, addr uintptr, data []byte) (c
 	n := 0
 	if addr%sizeofPtr != 0 {
 		var buf [sizeofPtr]byte
-		err = ptrace(peekReq, pid, addr-addr%sizeofPtr, uintptr(unsafe.Pointer(&buf[0])))
+		err = ptracePtr(peekReq, pid, addr-addr%sizeofPtr, unsafe.Pointer(&buf[0]))
 		if err != nil {
 			return 0, err
 		}
@@ -912,7 +912,7 @@ func ptracePoke(pokeReq int, peekReq int, pid int, addr uintptr, data []byte) (c
 	// Trailing edge.
 	if len(data) > 0 {
 		var buf [sizeofPtr]byte
-		err = ptrace(peekReq, pid, addr+uintptr(n), uintptr(unsafe.Pointer(&buf[0])))
+		err = ptracePtr(peekReq, pid, addr+uintptr(n), unsafe.Pointer(&buf[0]))
 		if err != nil {
 			return n, err
 		}
@@ -936,12 +936,22 @@ func PtracePokeData(pid int, addr uintptr, data []byte) (count int, err error) {
 	return ptracePoke(PTRACE_POKEDATA, PTRACE_PEEKDATA, pid, addr, data)
 }
 
+const (
+	_NT_PRSTATUS = 1
+)
+
 func PtraceGetRegs(pid int, regsout *PtraceRegs) (err error) {
-	return ptrace(PTRACE_GETREGS, pid, 0, uintptr(unsafe.Pointer(regsout)))
+	var iov Iovec
+	iov.Base = (*byte)(unsafe.Pointer(regsout))
+	iov.SetLen(int(unsafe.Sizeof(*regsout)))
+	return ptracePtr(PTRACE_GETREGSET, pid, uintptr(_NT_PRSTATUS), unsafe.Pointer(&iov))
 }
 
 func PtraceSetRegs(pid int, regs *PtraceRegs) (err error) {
-	return ptrace(PTRACE_SETREGS, pid, 0, uintptr(unsafe.Pointer(regs)))
+	var iov Iovec
+	iov.Base = (*byte)(unsafe.Pointer(regs))
+	iov.SetLen(int(unsafe.Sizeof(*regs)))
+	return ptracePtr(PTRACE_SETREGSET, pid, uintptr(_NT_PRSTATUS), unsafe.Pointer(&iov))
 }
 
 func PtraceSetOptions(pid int, options int) (err error) {
@@ -950,7 +960,7 @@ func PtraceSetOptions(pid int, options int) (err error) {
 
 func PtraceGetEventMsg(pid int) (msg uint, err error) {
 	var data _C_long
-	err = ptrace(PTRACE_GETEVENTMSG, pid, 0, uintptr(unsafe.Pointer(&data)))
+	err = ptracePtr(PTRACE_GETEVENTMSG, pid, 0, unsafe.Pointer(&data))
 	msg = uint(data)
 	return
 }

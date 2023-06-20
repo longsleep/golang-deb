@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -570,6 +571,10 @@ func (d *statDirEntry) IsDir() bool                { return d.info.IsDir() }
 func (d *statDirEntry) Type() fs.FileMode          { return d.info.Mode().Type() }
 func (d *statDirEntry) Info() (fs.FileInfo, error) { return d.info, nil }
 
+func (d *statDirEntry) String() string {
+	return fs.FormatDirEntry(d)
+}
+
 func TestWalkDir(t *testing.T) {
 	testWalk(t, filepath.WalkDir, 2)
 }
@@ -612,8 +617,9 @@ func testWalk(t *testing.T, walk func(string, fs.WalkDirFunc) error, errVisit in
 		// Test permission errors. Only possible if we're not root
 		// and only on some file systems (AFS, FAT).  To avoid errors during
 		// all.bash on those file systems, skip during go test -short.
-		if runtime.GOOS == "windows" {
-			t.Skip("skipping on Windows")
+		// Chmod is not supported on wasip1.
+		if runtime.GOOS == "windows" || runtime.GOOS == "wasip1" {
+			t.Skip("skipping on " + runtime.GOOS)
 		}
 		if os.Getuid() == 0 {
 			t.Skip("skipping as root")
@@ -823,6 +829,107 @@ func TestWalkFileError(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Walked %#v; want %#v", got, want)
+	}
+}
+
+func TestWalkSymlinkRoot(t *testing.T) {
+	testenv.MustHaveSymlink(t)
+
+	td := t.TempDir()
+	dir := filepath.Join(td, "dir")
+	if err := os.MkdirAll(filepath.Join(td, "dir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, filepath.Join(dir, "foo"))
+
+	link := filepath.Join(td, "link")
+	if err := os.Symlink("dir", link); err != nil {
+		t.Fatal(err)
+	}
+
+	abslink := filepath.Join(td, "abslink")
+	if err := os.Symlink(dir, abslink); err != nil {
+		t.Fatal(err)
+	}
+
+	linklink := filepath.Join(td, "linklink")
+	if err := os.Symlink("link", linklink); err != nil {
+		t.Fatal(err)
+	}
+
+	// Per https://pubs.opengroup.org/onlinepubs/9699919799.2013edition/basedefs/V1_chap04.html#tag_04_12:
+	// “A pathname that contains at least one non- <slash> character and that ends
+	// with one or more trailing <slash> characters shall not be resolved
+	// successfully unless the last pathname component before the trailing <slash>
+	// characters names an existing directory [...].”
+	//
+	// Since Walk does not traverse symlinks itself, its behavior should depend on
+	// whether the path passed to Walk ends in a slash: if it does not end in a slash,
+	// Walk should report the symlink itself (since it is the last pathname component);
+	// but if it does end in a slash, Walk should walk the directory to which the symlink
+	// refers (since it must be fully resolved before walking).
+	for _, tt := range []struct {
+		desc      string
+		root      string
+		want      []string
+		buggyGOOS []string
+	}{
+		{
+			desc: "no slash",
+			root: link,
+			want: []string{link},
+		},
+		{
+			desc: "slash",
+			root: link + string(filepath.Separator),
+			want: []string{link, filepath.Join(link, "foo")},
+		},
+		{
+			desc: "abs no slash",
+			root: abslink,
+			want: []string{abslink},
+		},
+		{
+			desc: "abs with slash",
+			root: abslink + string(filepath.Separator),
+			want: []string{abslink, filepath.Join(abslink, "foo")},
+		},
+		{
+			desc: "double link no slash",
+			root: linklink,
+			want: []string{linklink},
+		},
+		{
+			desc:      "double link with slash",
+			root:      linklink + string(filepath.Separator),
+			want:      []string{linklink, filepath.Join(linklink, "foo")},
+			buggyGOOS: []string{"darwin", "ios"}, // https://go.dev/issue/59586
+		},
+	} {
+		tt := tt
+		t.Run(tt.desc, func(t *testing.T) {
+			var walked []string
+			err := filepath.Walk(tt.root, func(path string, info fs.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				t.Logf("%#q: %v", path, info.Mode())
+				walked = append(walked, filepath.Clean(path))
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(walked, tt.want) {
+				t.Logf("Walk(%#q) visited %#q; want %#q", tt.root, walked, tt.want)
+				if slices.Contains(tt.buggyGOOS, runtime.GOOS) {
+					t.Logf("(ignoring known bug on %v)", runtime.GOOS)
+				} else {
+					t.Fail()
+				}
+			}
+		})
 	}
 }
 
@@ -1199,6 +1306,37 @@ func TestIssue13582(t *testing.T) {
 			t.Errorf("test#%d: EvalSymlinks(%q) returns %q, want %q", i, test.path, have, test.want)
 		}
 	}
+}
+
+// Issue 57905.
+func TestRelativeSymlinkToAbsolute(t *testing.T) {
+	testenv.MustHaveSymlink(t)
+	// Not parallel: uses os.Chdir.
+
+	tmpDir := t.TempDir()
+	chdir(t, tmpDir)
+
+	// Create "link" in the current working directory as a symlink to an arbitrary
+	// absolute path. On macOS, this path is likely to begin with a symlink
+	// itself: generally either in /var (symlinked to "private/var") or /tmp
+	// (symlinked to "private/tmp").
+	if err := os.Symlink(tmpDir, "link"); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf(`os.Symlink(%q, "link")`, tmpDir)
+
+	p, err := filepath.EvalSymlinks("link")
+	if err != nil {
+		t.Fatalf(`EvalSymlinks("link"): %v`, err)
+	}
+	want, err := filepath.EvalSymlinks(tmpDir)
+	if err != nil {
+		t.Fatalf(`EvalSymlinks(%q): %v`, tmpDir, err)
+	}
+	if p != want {
+		t.Errorf(`EvalSymlinks("link") = %q; want %q`, p, want)
+	}
+	t.Logf(`EvalSymlinks("link") = %q`, p)
 }
 
 // Test directories relative to temporary directory.

@@ -355,6 +355,7 @@ var multipartMaxHeaders = godebug.New("multipartmaxheaders")
 func maxMIMEHeaders() int64 {
 	if s := multipartMaxHeaders.Value(); s != "" {
 		if v, err := strconv.ParseInt(s, 10, 64); err == nil && v >= 0 {
+			multipartMaxHeaders.IncNonDefault()
 			return v
 		}
 	}

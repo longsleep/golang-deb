@@ -573,7 +573,7 @@ type x int // comment
 var parseDepthTests = []struct {
 	name   string
 	format string
-	// multipler is used when a single statement may result in more than one
+	// multiplier is used when a single statement may result in more than one
 	// change in the depth level, for instance "1+(..." produces a BinaryExpr
 	// followed by a UnaryExpr, which increments the depth twice. The test
 	// case comment explains which nodes are triggering the multiple depth
@@ -777,6 +777,26 @@ func TestIssue59180(t *testing.T) {
 		_, err := ParseFile(token.NewFileSet(), "", src, ParseComments)
 		if err == nil {
 			t.Errorf("ParseFile(%s) succeeded unexpectedly", src)
+		}
+	}
+}
+
+func TestGoVersion(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgs, err := ParseDir(fset, "./testdata/goversion", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range pkgs {
+		want := strings.ReplaceAll(p.Name, "_", ".")
+		if want == "none" {
+			want = ""
+		}
+		for _, f := range p.Files {
+			if f.GoVersion != want {
+				t.Errorf("%s: GoVersion = %q, want %q", fset.Position(f.Pos()), f.GoVersion, want)
+			}
 		}
 	}
 }
