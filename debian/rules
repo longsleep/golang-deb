@@ -22,14 +22,17 @@ export GOCACHE := $(GOPATH)/gocache
 # source files generated during building.
 # especially zbootstrap.go has different defaultGOARM values on armhf and armel,
 # since the value is set from debian/helpers/goenv.sh
+#
+# see also: src/cmd/distpack/pack.go
 GENERATED_FILES := \
-	src/cmd/cgo/zdefaultcc.go \
 	src/cmd/go/internal/cfg/zdefaultcc.go \
-	src/cmd/go/internal/cfg/zosarch.go \
-	src/cmd/internal/objabi/zbootstrap.go \
 	src/go/build/zcgo.go \
-	src/internal/buildcfg/zbootstrap.go \
-	src/runtime/internal/sys/zversion.go
+	src/internal/platform/zosarch.go \
+	src/runtime/internal/sys/zversion.go \
+	src/time/tzdata/zzipdata.go \
+	src/cmd/cgo/zdefaultcc.go \
+	src/cmd/internal/objabi/zbootstrap.go \
+	src/internal/buildcfg/zbootstrap.go
 
 %:
 	+dh $@ $(opt_no_act)
@@ -89,6 +92,9 @@ override_dh_compress-indep:
 
 execute_before_dh_install-arch:
 	rm -rf $(GOCACHE)
+
+execute_after_dh_install-arch:
+	cp --parent -v $(GENERATED_FILES) debian/golang-$(GOVER)-go/usr/share/go-$(GOVER)/
 
 execute_after_dh_install-indep:
 	# Remove generated source files, they are installed in golang-$(GOVER)-go.
