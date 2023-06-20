@@ -70,25 +70,6 @@ execute_after_dh_prep:
 		sed -e 's/X.Y/$(GOVER)/g' $$x > golang-$(GOVER)-$${x##golang-X.Y-}; \
 	done
 
-
-override_dh_auto_test-arch:
-	set -ex; \
-		cd src; \
-		export PATH="$(GOROOT)/bin:$$PATH"; \
-		export GO_TEST_TIMEOUT_SCALE=10; \
-		eval "$$(go tool dist env)"; \
-		bash run.bash -k -no-rebuild;
-	# -k           keep going even when error occurred
-	# -no-rebuild  don't rebuild std and cmd packages
-
-	# On linux/amd64 run.bash installs some race enabled standard library
-	# packages. Delete them again to avoid accidentally including them in
-	# the package.
-	set -ex; \
-		export PATH="$(GOROOT)/bin:$$PATH"; \
-		eval "$$(go tool dist env)"; \
-		rm -rf "$(GOROOT)/pkg/$${GOOS}_$${GOARCH}_race/"
-
 override_dh_compress-indep:
 	dh_compress -Xusr/share/doc/golang-$(GOVER)-doc/html
 
@@ -128,6 +109,24 @@ override_dh_auto_build-arch:
 
 	# rm bootstrap dir
 	rm -rf $(CURDIR)/bootstrap
+
+override_dh_auto_test-arch:
+	set -ex; \
+		cd src; \
+		export PATH="$(GOROOT)/bin:$$PATH"; \
+		export GO_TEST_TIMEOUT_SCALE=10; \
+		eval "$$(go tool dist env)"; \
+		bash run.bash -k -no-rebuild;
+	# -k           keep going even when error occurred
+	# -no-rebuild  don't rebuild std and cmd packages
+
+	# On linux/amd64 run.bash installs some race enabled standard library
+	# packages. Delete them again to avoid accidentally including them in
+	# the package.
+	set -ex; \
+		export PATH="$(GOROOT)/bin:$$PATH"; \
+		eval "$$(go tool dist env)"; \
+		rm -rf "$(GOROOT)/pkg/$${GOOS}_$${GOARCH}_race/"
 
 opt_no_act :=
 ifneq (,$(findstring n,$(MAKEFLAGS)))
