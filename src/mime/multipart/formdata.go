@@ -34,7 +34,7 @@ func (r *Reader) ReadForm(maxMemory int64) (*Form, error) {
 }
 
 var (
-	multipartFiles    = godebug.New("multipartfiles")
+	multipartFiles    = godebug.New("#multipartfiles") // TODO: document and remove #
 	multipartMaxParts = godebug.New("multipartmaxparts")
 )
 
@@ -48,11 +48,13 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 	combineFiles := true
 	if multipartFiles.Value() == "distinct" {
 		combineFiles = false
+		// multipartFiles.IncNonDefault() // TODO: uncomment after documenting
 	}
 	maxParts := 1000
 	if s := multipartMaxParts.Value(); s != "" {
 		if v, err := strconv.Atoi(s); err == nil && v >= 0 {
 			maxParts = v
+			multipartMaxParts.IncNonDefault()
 		}
 	}
 	maxHeaders := maxMIMEHeaders()
@@ -84,7 +86,7 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 	// since metadata is always stored in memory, not disk.
 	//
 	// maxMemoryBytes is the maximum bytes we will store in memory, including file content,
-	// non-file part values, metdata, and map entry overhead.
+	// non-file part values, metadata, and map entry overhead.
 	//
 	// We reserve an additional 10 MB in maxMemoryBytes for non-file data.
 	//
@@ -92,6 +94,9 @@ func (r *Reader) readForm(maxMemory int64) (_ *Form, err error) {
 	// unconfigurable 10 MB added on to maxMemory, is unfortunate but difficult to change
 	// within the constraints of the API as documented.
 	maxFileMemoryBytes := maxMemory
+	if maxFileMemoryBytes == math.MaxInt64 {
+		maxFileMemoryBytes--
+	}
 	maxMemoryBytes := maxMemory + int64(10<<20)
 	if maxMemoryBytes <= 0 {
 		if maxMemory < 0 {

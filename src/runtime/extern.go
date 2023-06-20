@@ -51,9 +51,19 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	cgocheck: setting cgocheck=0 disables all checks for packages
 	using cgo to incorrectly pass Go pointers to non-Go code.
 	Setting cgocheck=1 (the default) enables relatively cheap
-	checks that may miss some errors.  Setting cgocheck=2 enables
-	expensive checks that should not miss any errors, but will
-	cause your program to run slower.
+	checks that may miss some errors. A more complete, but slow,
+	cgocheck mode can be enabled using GOEXPERIMENT (which
+	requires a rebuild), see https://pkg.go.dev/internal/goexperiment for details.
+
+	dontfreezetheworld: by default, the start of a fatal panic or throw
+	"freezes the world", preempting all threads to stop all running
+	goroutines, which makes it possible to traceback all goroutines, and
+	keeps their state close to the point of panic. Setting
+	dontfreezetheworld=1 disables this preemption, allowing goroutines to
+	continue executing during panic processing. Note that goroutines that
+	naturally enter the scheduler will still stop. This can be useful when
+	debugging the runtime scheduler, as freezetheworld perturbs scheduler
+	state and thus may hide problems.
 
 	efence: setting efence=1 causes the allocator to run in a mode
 	where each object is allocated on a unique page and addresses are
@@ -149,11 +159,13 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	scavenger as well as the total amount of memory returned to the operating system
 	and an estimate of physical memory utilization. The format of this line is subject
 	to change, but currently it is:
-		scav # KiB work, # KiB total, #% util
+		scav # KiB work (bg), # KiB work (eager), # KiB total, #% util
 	where the fields are as follows:
-		# KiB work   the amount of memory returned to the OS since the last line
-		# KiB total  the total amount of memory returned to the OS
-		#% util      the fraction of all unscavenged memory which is in-use
+		# KiB work (bg)    the amount of memory returned to the OS in the background since
+		                   the last line
+		# KiB work (eager) the amount of memory returned to the OS eagerly since the last line
+		# KiB now          the amount of address space currently returned to the OS
+		#% util            the fraction of all unscavenged heap memory which is in-use
 	If the line ends with "(forced)", then scavenging was forced by a
 	debug.FreeOSMemory() call.
 
@@ -169,6 +181,11 @@ It is a comma-separated list of name=val pairs setting these named variables:
 	report. This also extends the information returned by runtime.Stack. Ancestor's goroutine
 	IDs will refer to the ID of the goroutine at the time of creation; it's possible for this
 	ID to be reused for another goroutine. Setting N to 0 will report no ancestry information.
+
+	tracefpunwindoff: setting tracefpunwindoff=1 forces the execution tracer to
+	use the runtime's default stack unwinder instead of frame pointer unwinding.
+	This increases tracer overhead, but could be helpful as a workaround or for
+	debugging unexpected regressions caused by frame pointer unwinding.
 
 	asyncpreemptoff: asyncpreemptoff=1 disables signal-based
 	asynchronous goroutine preemption. This makes some loops
@@ -203,6 +220,7 @@ and shows goroutines created internally by the run-time.
 GOTRACEBACK=crash is like “system” but crashes in an operating system-specific
 manner instead of exiting. For example, on Unix systems, the crash raises
 SIGABRT to trigger a core dump.
+GOTRACEBACK=wer is like “crash” but doesn't disable Windows Error Reporting (WER).
 For historical reasons, the GOTRACEBACK settings 0, 1, and 2 are synonyms for
 none, all, and system, respectively.
 The runtime/debug package's SetTraceback function allows increasing the

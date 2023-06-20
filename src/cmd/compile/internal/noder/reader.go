@@ -9,6 +9,7 @@ import (
 	"go/constant"
 	"internal/buildcfg"
 	"internal/pkgbits"
+	"path/filepath"
 	"strings"
 
 	"cmd/compile/internal/base"
@@ -278,13 +279,14 @@ func (pr *pkgReader) posBaseIdx(idx pkgbits.Index) *src.PosBase {
 	// "$GOROOT" to buildcfg.GOROOT is a close-enough approximation to
 	// satisfy this.
 	//
-	// TODO(mdempsky): De-duplicate this logic with similar logic in
-	// cmd/link/internal/ld's expandGoroot. However, this will probably
-	// require being more consistent about when we use native vs UNIX
-	// file paths.
+	// The export data format only ever uses slash paths
+	// (for cross-operating-system reproducible builds),
+	// but error messages need to use native paths (backslash on Windows)
+	// as if they had been specified on the command line.
+	// (The go command always passes native paths to the compiler.)
 	const dollarGOROOT = "$GOROOT"
 	if buildcfg.GOROOT != "" && strings.HasPrefix(filename, dollarGOROOT) {
-		filename = buildcfg.GOROOT + filename[len(dollarGOROOT):]
+		filename = filepath.FromSlash(buildcfg.GOROOT + filename[len(dollarGOROOT):])
 	}
 
 	if r.Bool() {
@@ -514,7 +516,7 @@ func (r *reader) doTyp() *types.Type {
 	case pkgbits.TypePointer:
 		return types.NewPtr(r.typ())
 	case pkgbits.TypeSignature:
-		return r.signature(types.LocalPkg, nil)
+		return r.signature(nil)
 	case pkgbits.TypeSlice:
 		return types.NewSlice(r.typ())
 	case pkgbits.TypeStruct:
@@ -538,27 +540,30 @@ func (r *reader) unionType() *types.Type {
 	//
 	// To avoid needing to represent type unions in types1 (since we
 	// don't have any uses for that today anyway), we simply fold them
-	// to "any". As a consistency check, we still read the union terms
-	// to make sure this substitution is safe.
+	// to "any".
 
-	pure := false
-	for i, n := 0, r.Len(); i < n; i++ {
-		_ = r.Bool() // tilde
-		term := r.typ()
-		if term.IsEmptyInterface() {
-			pure = true
+	// TODO(mdempsky): Restore consistency check to make sure folding to
+	// "any" is safe. This is unfortunately tricky, because a pure
+	// interface can reference impure interfaces too, including
+	// cyclically (#60117).
+	if false {
+		pure := false
+		for i, n := 0, r.Len(); i < n; i++ {
+			_ = r.Bool() // tilde
+			term := r.typ()
+			if term.IsEmptyInterface() {
+				pure = true
+			}
 		}
-	}
-	if !pure {
-		base.Fatalf("impure type set used in value type")
+		if !pure {
+			base.Fatalf("impure type set used in value type")
+		}
 	}
 
 	return types.Types[types.TINTER]
 }
 
 func (r *reader) interfaceType() *types.Type {
-	tpkg := types.LocalPkg // TODO(mdempsky): Remove after iexport is gone.
-
 	nmethods, nembeddeds := r.Len(), r.Len()
 	implicit := nmethods == 0 && nembeddeds == 1 && r.Bool()
 	assert(!implicit) // implicit interfaces only appear in constraints
@@ -568,9 +573,8 @@ func (r *reader) interfaceType() *types.Type {
 
 	for i := range methods {
 		pos := r.pos()
-		pkg, sym := r.selector()
-		tpkg = pkg
-		mtyp := r.signature(pkg, types.FakeRecv())
+		_, sym := r.selector()
+		mtyp := r.signature(types.FakeRecv())
 		methods[i] = types.NewField(pos, sym, mtyp)
 	}
 	for i := range embeddeds {
@@ -580,16 +584,14 @@ func (r *reader) interfaceType() *types.Type {
 	if len(fields) == 0 {
 		return types.Types[types.TINTER] // empty interface
 	}
-	return types.NewInterface(tpkg, fields, false)
+	return types.NewInterface(fields)
 }
 
 func (r *reader) structType() *types.Type {
-	tpkg := types.LocalPkg // TODO(mdempsky): Remove after iexport is gone.
 	fields := make([]*types.Field, r.Len())
 	for i := range fields {
 		pos := r.pos()
-		pkg, sym := r.selector()
-		tpkg = pkg
+		_, sym := r.selector()
 		ftyp := r.typ()
 		tag := r.String()
 		embedded := r.Bool()
@@ -601,26 +603,26 @@ func (r *reader) structType() *types.Type {
 		}
 		fields[i] = f
 	}
-	return types.NewStruct(tpkg, fields)
+	return types.NewStruct(fields)
 }
 
-func (r *reader) signature(tpkg *types.Pkg, recv *types.Field) *types.Type {
+func (r *reader) signature(recv *types.Field) *types.Type {
 	r.Sync(pkgbits.SyncSignature)
 
-	params := r.params(&tpkg)
-	results := r.params(&tpkg)
+	params := r.params()
+	results := r.params()
 	if r.Bool() { // variadic
 		params[len(params)-1].SetIsDDD(true)
 	}
 
-	return types.NewSignature(tpkg, recv, nil, params, results)
+	return types.NewSignature(recv, params, results)
 }
 
-func (r *reader) params(tpkg **types.Pkg) []*types.Field {
+func (r *reader) params() []*types.Field {
 	r.Sync(pkgbits.SyncParams)
 	fields := make([]*types.Field, r.Len())
 	for i := range fields {
-		*tpkg, fields[i] = r.param()
+		_, fields[i] = r.param()
 	}
 	return fields
 }
@@ -750,7 +752,7 @@ func (pr *pkgReader) objIdx(idx pkgbits.Index, implicits, explicits []*types.Typ
 			sym = Renameinit()
 		}
 		name := do(ir.ONAME, true)
-		setType(name, r.signature(sym.Pkg, nil))
+		setType(name, r.signature(nil))
 
 		name.Func = ir.NewFunc(r.pos())
 		name.Func.Nname = name
@@ -989,10 +991,10 @@ func (r *reader) typeParamNames() {
 func (r *reader) method(rext *reader) *types.Field {
 	r.Sync(pkgbits.SyncMethod)
 	pos := r.pos()
-	pkg, sym := r.selector()
+	_, sym := r.selector()
 	r.typeParamNames()
 	_, recv := r.param()
-	typ := r.signature(pkg, recv)
+	typ := r.signature(recv)
 
 	name := ir.NewNameAt(pos, ir.MethodSym(recv.Type, sym))
 	setType(name, typ)
@@ -1083,6 +1085,18 @@ func (r *reader) funcExt(name *ir.Name, method *types.Sym) {
 
 	fn.Pragma = r.pragmaFlag()
 	r.linkname(name)
+
+	if buildcfg.GOARCH == "wasm" {
+		xmod := r.String()
+		xname := r.String()
+
+		if xmod != "" && xname != "" {
+			fn.WasmImport = &ir.WasmImport{
+				Module: xmod,
+				Name:   xname,
+			}
+		}
+	}
 
 	typecheck.Func(fn)
 
@@ -1569,13 +1583,6 @@ func (r *reader) addLocal(name *ir.Name, ctxt ir.Class) {
 			name.SetInlFormal(true)
 			ctxt = ir.PAUTO
 		}
-
-		// TODO(mdempsky): Rethink this hack.
-		if strings.HasPrefix(name.Sym().Name, "~") || base.Flag.GenDwarfInl == 0 {
-			name.SetPos(r.inlCall.Pos())
-			name.SetInlFormal(false)
-			name.SetInlLocal(false)
-		}
 	}
 
 	name.Class = ctxt
@@ -1855,7 +1862,7 @@ func (r *reader) forStmt(label *types.Sym) ir.Node {
 
 	if r.Bool() {
 		pos := r.pos()
-		rang := ir.NewRangeStmt(pos, nil, nil, nil, nil)
+		rang := ir.NewRangeStmt(pos, nil, nil, nil, nil, false)
 		rang.Label = label
 
 		names, lhs := r.assignList()
@@ -1879,6 +1886,7 @@ func (r *reader) forStmt(label *types.Sym) ir.Node {
 		}
 
 		rang.Body = r.blockStmt()
+		rang.DistinctVars = r.Bool()
 		r.closeAnotherScope()
 
 		return rang
@@ -1889,9 +1897,10 @@ func (r *reader) forStmt(label *types.Sym) ir.Node {
 	cond := r.optExpr()
 	post := r.stmt()
 	body := r.blockStmt()
+	dv := r.Bool()
 	r.closeAnotherScope()
 
-	stmt := ir.NewForStmt(pos, init, cond, post, body)
+	stmt := ir.NewForStmt(pos, init, cond, post, body, dv)
 	stmt.Label = label
 	return stmt
 }
@@ -2364,7 +2373,7 @@ func (r *reader) expr() (res ir.Node) {
 				if recv.Type().IsInterface() {
 					// N.B., this happens currently for typeparam/issue51521.go
 					// and typeparam/typeswitch3.go.
-					if base.Flag.LowerM > 0 {
+					if base.Flag.LowerM != 0 {
 						base.WarnfAt(method.Pos(), "imprecise interface call")
 					}
 				}
@@ -2600,7 +2609,7 @@ func (r *reader) curry(origPos src.XPos, ifaceHack bool, fun ir.Node, arg0, arg1
 
 	params, results := syntheticSig(fun.Type())
 	params = params[len(captured)-1:] // skip curried parameters
-	typ := types.NewSignature(types.NoPkg, nil, nil, params, results)
+	typ := types.NewSignature(nil, params, results)
 
 	addBody := func(pos src.XPos, r *reader, captured []ir.Node) {
 		recvs, params := r.syntheticArgs(pos)
@@ -2638,7 +2647,7 @@ func (r *reader) methodExprWrap(origPos src.XPos, recv *types.Type, implicits []
 		params = append(params[:1], params[2:]...)
 	}
 
-	typ := types.NewSignature(types.NoPkg, nil, nil, params, results)
+	typ := types.NewSignature(nil, params, results)
 
 	addBody := func(pos src.XPos, r *reader, captured []ir.Node) {
 		recvs, args := r.syntheticArgs(pos)
@@ -3099,7 +3108,7 @@ func (r *reader) funcLit() ir.Node {
 	// allocation of the closure is credited (#49171).
 	r.suppressInlPos++
 	pos := r.pos()
-	xtype2 := r.signature(types.LocalPkg, nil)
+	xtype2 := r.signature(nil)
 	r.suppressInlPos--
 
 	fn := ir.NewClosureFunc(pos, r.curfn != nil)
@@ -3563,15 +3572,9 @@ func unifiedInlineCall(call *ir.CallExpr, fn *ir.Func, inlIndex int) *ir.Inlined
 			name.Curfn = callerfn
 			callerfn.Dcl = append(callerfn.Dcl, name)
 
-			// Quirkish. TODO(mdempsky): Document why.
 			if name.AutoTemp() {
 				name.SetEsc(ir.EscUnknown)
-
-				if base.Flag.GenDwarfInl != 0 {
-					name.SetInlLocal(true)
-				} else {
-					name.SetPos(r.inlCall.Pos())
-				}
+				name.SetInlLocal(true)
 			}
 		}
 	}
@@ -3734,11 +3737,6 @@ func (r *reader) importedDef() bool {
 }
 
 func MakeWrappers(target *ir.Package) {
-	// Only unified IR emits its own wrappers.
-	if base.Debug.Unified == 0 {
-		return
-	}
-
 	// always generate a wrapper for error.Error (#29304)
 	needWrapperTypes = append(needWrapperTypes, types.ErrorType)
 
@@ -3957,7 +3955,7 @@ func newWrapperType(recvType *types.Type, method *types.Field) *types.Type {
 	params := clone(sig.Params().FieldSlice())
 	results := clone(sig.Results().FieldSlice())
 
-	return types.NewSignature(types.NoPkg, recv, nil, params, results)
+	return types.NewSignature(recv, params, results)
 }
 
 func addTailCall(pos src.XPos, fn *ir.Func, recv ir.Node, method *types.Field) {
@@ -3995,7 +3993,7 @@ func setBasePos(pos src.XPos) {
 //
 // N.B., this variable name is known to Delve:
 // https://github.com/go-delve/delve/blob/cb91509630529e6055be845688fd21eb89ae8714/pkg/proc/eval.go#L28
-const dictParamName = ".dict"
+const dictParamName = typecheck.LocalDictName
 
 // shapeSig returns a copy of fn's signature, except adding a
 // dictionary parameter and promoting the receiver parameter (if any)
@@ -4025,5 +4023,5 @@ func shapeSig(fn *ir.Func, dict *readerDict) *types.Type {
 		results[i] = types.NewField(result.Pos, result.Sym, result.Type)
 	}
 
-	return types.NewSignature(types.LocalPkg, recv, nil, params, results)
+	return types.NewSignature(recv, params, results)
 }

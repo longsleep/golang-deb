@@ -259,10 +259,6 @@ func exitThread(wait *atomic.Uint32) {
 }
 
 //go:nosplit
-func closeonexec(fd int32) {
-	fcntl(fd, _F_SETFD, _FD_CLOEXEC)
-}
-
 //go:cgo_unsafe_args
 func issetugid() (ret int32) {
 	libcCall(unsafe.Pointer(abi.FuncPCABI0(issetugid_trampoline)), unsafe.Pointer(&ret))
