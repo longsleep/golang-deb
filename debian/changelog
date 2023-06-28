@@ -1,3 +1,10 @@
+golang-1.21 (1.21~rc2-2) unstable; urgency=medium
+
+  * Team upload
+  * Add autopkgtest
+
+ -- Shengjing Zhu <zhsj@debian.org>  Thu, 29 Jun 2023 16:33:35 +0800
+
 golang-1.21 (1.21~rc2-1) unstable; urgency=medium
 
   * Team upload
