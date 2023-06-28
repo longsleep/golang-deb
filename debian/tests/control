@@ -1,0 +1,7 @@
+Tests: hello-world
+Depends: @, @recommends@
+Restrictions: allow-stderr, superficial
+
+Tests: regression-test
+Depends: @, @recommends@
+Restrictions: allow-stderr

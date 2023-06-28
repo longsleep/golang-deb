@@ -1,0 +1,7 @@
+#!/bin/sh
+
+set -ex
+
+GO="/usr/lib/go-$(dpkg-parsechangelog -SSource | sed 's/golang-//')/bin/go"
+
+$GO test -v cmd/internal/testdir
