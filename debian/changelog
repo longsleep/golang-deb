@@ -1,3 +1,12 @@
+golang-1.19 (1.19.11-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.11
+    + CVE-2023-29406: net/http: insufficient sanitization of Host header
+  * Add autopkgtest
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 12 Jul 2023 13:53:19 +0800
+
 golang-1.19 (1.19.10-2) unstable; urgency=medium
 
   * Team upload
