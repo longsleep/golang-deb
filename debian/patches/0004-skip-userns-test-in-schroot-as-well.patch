@@ -3,14 +3,15 @@ Date: Fri, 5 Feb 2021 21:21:45 +0800
 Subject: skip userns test in schroot as well
 
 When schroot is using overlayfs, it fails to detect it as chroot.
-
 ---
  src/syscall/exec_linux_test.go | 7 +++++++
  1 file changed, 7 insertions(+)
 
+diff --git a/src/syscall/exec_linux_test.go b/src/syscall/exec_linux_test.go
+index 0ec9c4d..cabaaf9 100644
 --- a/src/syscall/exec_linux_test.go
 +++ b/src/syscall/exec_linux_test.go
-@@ -33,6 +33,10 @@
+@@ -32,6 +32,10 @@ func isLXC() bool {
  	return os.Getenv("container") == "lxc"
  }
  
@@ -21,7 +22,7 @@ When schroot is using overlayfs, it fails to detect it as chroot.
  func skipInContainer(t *testing.T) {
  	// TODO: the callers of this func are using this func to skip
  	// tests when running as some sort of "fake root" that's uid 0
-@@ -48,6 +52,9 @@
+@@ -47,6 +51,9 @@ func skipInContainer(t *testing.T) {
  	if isLXC() {
  		t.Skip("skip this test in LXC container")
  	}
