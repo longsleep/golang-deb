@@ -12,7 +12,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Anthony Fok <foka@debian.org>
 Section: golang
 Priority: optional
-Build-Depends: debhelper-compat (= 13),
+Build-Depends: debhelper (>= 11),
                golang-any (>= 2:1.17~) | golang-go (>= 2:1.17~) | gccgo (>= 4:12~),
                netbase
 Standards-Version: 4.6.2
@@ -50,8 +50,6 @@ Package: golang-1.21-src
 Architecture: all
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
-Breaks: golang-1.21-go (<< 1.21~rc3)
-Replaces: golang-1.21-go (<< 1.21~rc3)
 Description: Go programming language - source files
  The Go programming language is an open source project to make programmers more
  productive. Go is expressive, concise, clean, and efficient. Its concurrency
