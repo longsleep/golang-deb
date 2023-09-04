@@ -1,3 +1,55 @@
+golang-1.19 (1.19.12-2) unstable; urgency=medium
+
+  * Team upload
+  * Backport patch to fix link tests on riscv64
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 04 Aug 2023 12:45:43 +0800
+
+golang-1.19 (1.19.12-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.12
+    + CVE-2023-29409: crypto/tls: restrict RSA keys in certificates
+      to <= 8192 bits
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 02 Aug 2023 11:34:17 +0800
+
+golang-1.19 (1.19.11-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.11
+    + CVE-2023-29406: net/http: insufficient sanitization of Host header
+  * Add autopkgtest
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 12 Jul 2023 13:53:19 +0800
+
+golang-1.19 (1.19.10-2) unstable; urgency=medium
+
+  * Team upload
+  * Upload to unstable
+
+ -- Shengjing Zhu <zhsj@debian.org>  Thu, 15 Jun 2023 17:47:17 +0800
+
+golang-1.19 (1.19.10-1) experimental; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.10
+    + CVE-2023-29402: cmd/go: cgo code injection
+    + CVE-2023-29403: runtime: unexpected behavior of setuid/setgid binaries
+    + CVE-2023-29404/CVE-2023-29405: cmd/go: improper sanitization of LDFLAGS
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 07 Jun 2023 12:28:33 +0800
+
+golang-1.19 (1.19.9-1) experimental; urgency=medium
+
+  * Team upload
+  * New upstream version 1.19.9
+    + CVE-2023-24539: html/template: improper sanitization of CSS values
+    + CVE-2023-24540: html/template: improper handling of JavaScript whitespace
+    + CVE-2023-29400: html/template: improper handling of empty HTML attributes
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 03 May 2023 15:08:50 +0800
+
 golang-1.19 (1.19.8-2~bpo11+1) bullseye-backports; urgency=medium
 
   * Rebuild for bullseye-backports.

@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -ex
+
+VER="$(dpkg-parsechangelog -SSource | sed 's/golang-//')"
+
+cd "/usr/lib/go-$VER/test"
+"/usr/lib/go-$VER/bin/go" run run.go -v

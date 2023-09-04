@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -ex
+
+GO="/usr/lib/go-$(dpkg-parsechangelog -SSource | sed 's/golang-//')/bin/go"
+
+WORKDIR=$(mktemp -d)
+trap "rm -rf $WORKDIR" 0 INT QUIT ABRT PIPE TERM
+cd $WORKDIR
+cat <<EOF > hello.go
+package main
+import "fmt"
+func main() {
+    fmt.Println("hello world")
+}
+EOF
+
+$GO run hello.go
+$GO build hello.go
+./hello

@@ -149,9 +149,15 @@ func (b *Builder) Do(ctx context.Context, root *Action) {
 		defer b.exec.Unlock()
 
 		if err != nil {
-			if err == errPrintedOutput {
-				base.SetExitStatus(2)
+			if b.AllowErrors && a.Package != nil {
+				if a.Package.Error == nil {
+					a.Package.Error = &load.PackageError{Err: err}
+				}
 			} else {
+				var ipe load.ImportPathError
+				if a.Package != nil && (!errors.As(err, &ipe) || ipe.ImportPath() != a.Package.ImportPath) {
+					err = fmt.Errorf("%s: %v", a.Package.ImportPath, err)
+				}
 				base.Errorf("%s", err)
 			}
 			a.Failed = true
@@ -508,9 +514,6 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 	}
 
 	defer func() {
-		if err != nil && err != errPrintedOutput {
-			err = fmt.Errorf("go build %s: %v", a.Package.ImportPath, err)
-		}
 		if err != nil && b.IsCmdList && b.NeedError && p.Error == nil {
 			p.Error = &load.PackageError{Err: err}
 		}
@@ -526,6 +529,12 @@ func (b *Builder) build(ctx context.Context, a *Action) (err error) {
 
 	if cfg.BuildV {
 		b.Print(a.Package.ImportPath + "\n")
+	}
+
+	if p.Error != nil {
+		// Don't try to build anything for packages with errors. There may be a
+		// problem with the inputs that makes the package unsafe to build.
+		return p.Error
 	}
 
 	if a.Package.BinaryOnly {
@@ -815,9 +824,11 @@ OverlayLoop:
 		if p.Module != nil && !allowedVersion(p.Module.GoVersion) {
 			output += "note: module requires Go " + p.Module.GoVersion + "\n"
 		}
-		b.showOutput(a, a.Package.Dir, a.Package.Desc(), output)
+
 		if err != nil {
-			return errPrintedOutput
+			return formatOutput(b.WorkDir, p.Dir, p.ImportPath, p.Desc(), output)
+		} else {
+			b.showOutput(a, p.Dir, p.Desc(), output)
 		}
 	}
 	if err != nil {
@@ -1496,9 +1507,8 @@ func (b *Builder) getPkgConfigFlags(p *load.Package) (cflags, ldflags []string, 
 		var out []byte
 		out, err = b.runOut(nil, p.Dir, nil, b.PkgconfigCmd(), "--cflags", pcflags, "--", pkgs)
 		if err != nil {
-			b.showOutput(nil, p.Dir, b.PkgconfigCmd()+" --cflags "+strings.Join(pcflags, " ")+" -- "+strings.Join(pkgs, " "), string(out))
-			b.Print(err.Error() + "\n")
-			return nil, nil, errPrintedOutput
+			err = formatOutput(b.WorkDir, p.Dir, p.ImportPath, b.PkgconfigCmd()+" --cflags "+strings.Join(pcflags, " ")+" -- "+strings.Join(pkgs, " "), string(out)+err.Error())
+			return nil, nil, err
 		}
 		if len(out) > 0 {
 			cflags, err = splitPkgConfigOutput(out)
@@ -1511,9 +1521,8 @@ func (b *Builder) getPkgConfigFlags(p *load.Package) (cflags, ldflags []string, 
 		}
 		out, err = b.runOut(nil, p.Dir, nil, b.PkgconfigCmd(), "--libs", pcflags, "--", pkgs)
 		if err != nil {
-			b.showOutput(nil, p.Dir, b.PkgconfigCmd()+" --libs "+strings.Join(pcflags, " ")+" -- "+strings.Join(pkgs, " "), string(out))
-			b.Print(err.Error() + "\n")
-			return nil, nil, errPrintedOutput
+			err = formatOutput(b.WorkDir, p.Dir, p.ImportPath, b.PkgconfigCmd()+" --libs "+strings.Join(pcflags, " ")+" -- "+strings.Join(pkgs, " "), string(out)+err.Error())
+			return nil, nil, err
 		}
 		if len(out) > 0 {
 			// NOTE: we don't attempt to parse quotes and unescapes here. pkg-config
@@ -1605,7 +1614,7 @@ func (b *Builder) linkShared(ctx context.Context, a *Action) (err error) {
 // BuildInstallFunc is the action for installing a single package or executable.
 func BuildInstallFunc(b *Builder, ctx context.Context, a *Action) (err error) {
 	defer func() {
-		if err != nil && err != errPrintedOutput {
+		if err != nil {
 			// a.Package == nil is possible for the go install -buildmode=shared
 			// action that installs libmangledname.so, which corresponds to
 			// a list of packages, not just one.
@@ -2009,6 +2018,63 @@ func (b *Builder) Showcmd(dir string, format string, args ...any) {
 // If a is not nil and a.output is not nil, showOutput appends to that slice instead of
 // printing to b.Print.
 func (b *Builder) showOutput(a *Action, dir, desc, out string) {
+	importPath := ""
+	if a != nil && a.Package != nil {
+		importPath = a.Package.ImportPath
+	}
+	psErr := formatOutput(b.WorkDir, dir, importPath, desc, out)
+	if a != nil && a.output != nil {
+		a.output = append(a.output, psErr.prefix...)
+		a.output = append(a.output, psErr.suffix...)
+		return
+	}
+
+	b.output.Lock()
+	defer b.output.Unlock()
+	b.Print(psErr.prefix, psErr.suffix)
+}
+
+// A prefixSuffixError is an error formatted by formatOutput.
+type prefixSuffixError struct {
+	importPath     string
+	prefix, suffix string
+}
+
+func (e *prefixSuffixError) Error() string {
+	if e.importPath != "" && !strings.HasPrefix(strings.TrimPrefix(e.prefix, "# "), e.importPath) {
+		return fmt.Sprintf("go build %s:\n%s%s", e.importPath, e.prefix, e.suffix)
+	}
+	return e.prefix + e.suffix
+}
+
+func (e *prefixSuffixError) ImportPath() string {
+	return e.importPath
+}
+
+// formatOutput prints "# desc" followed by the given output.
+// The output is expected to contain references to 'dir', usually
+// the source directory for the package that has failed to build.
+// formatOutput rewrites mentions of dir with a relative path to dir
+// when the relative path is shorter. This is usually more pleasant.
+// For example, if fmt doesn't compile and we are in src/html,
+// the output is
+//
+//	$ go build
+//	# fmt
+//	../fmt/print.go:1090: undefined: asdf
+//	$
+//
+// instead of
+//
+//	$ go build
+//	# fmt
+//	/usr/gopher/go/src/fmt/print.go:1090: undefined: asdf
+//	$
+//
+// formatOutput also replaces references to the work directory with $WORK.
+// formatOutput returns the output in a prefix with the description and a
+// suffix with the actual output.
+func formatOutput(workDir, dir, importPath, desc, out string) *prefixSuffixError {
 	prefix := "# " + desc
 	suffix := "\n" + out
 	if reldir := base.ShortPath(dir); reldir != dir {
@@ -2016,25 +2082,10 @@ func (b *Builder) showOutput(a *Action, dir, desc, out string) {
 		suffix = strings.ReplaceAll(suffix, "\n"+dir, "\n"+reldir)
 		suffix = strings.ReplaceAll(suffix, "\n\t"+dir, "\n\t"+reldir)
 	}
-	suffix = strings.ReplaceAll(suffix, " "+b.WorkDir, " $WORK")
+	suffix = strings.ReplaceAll(suffix, " "+workDir, " $WORK")
 
-	if a != nil && a.output != nil {
-		a.output = append(a.output, prefix...)
-		a.output = append(a.output, suffix...)
-		return
-	}
-
-	b.output.Lock()
-	defer b.output.Unlock()
-	b.Print(prefix, suffix)
+	return &prefixSuffixError{importPath: importPath, prefix: prefix, suffix: suffix}
 }
-
-// errPrintedOutput is a special error indicating that a command failed
-// but that it generated output as well, and that output has already
-// been printed, so there's no point showing 'exit status 1' or whatever
-// the wait status was. The main executor, builder.do, knows not to
-// print this error.
-var errPrintedOutput = errors.New("already printed output - no need to show error")
 
 var cgoLine = lazyregexp.New(`\[[^\[\]]+\.(cgo1|cover)\.go:[0-9]+(:[0-9]+)?\]`)
 var cgoTypeSigRe = lazyregexp.New(`\b_C2?(type|func|var|macro)_\B`)
@@ -2048,9 +2099,10 @@ func (b *Builder) run(a *Action, dir string, desc string, env []string, cmdargs 
 		if desc == "" {
 			desc = b.fmtcmd(dir, "%s", strings.Join(str.StringList(cmdargs...), " "))
 		}
-		b.showOutput(a, dir, desc, b.processOutput(out))
 		if err != nil {
-			err = errPrintedOutput
+			err = formatOutput(b.WorkDir, dir, a.Package.ImportPath, desc, b.processOutput(out))
+		} else {
+			b.showOutput(a, dir, desc, b.processOutput(out))
 		}
 	}
 	return err
@@ -2334,7 +2386,6 @@ func (b *Builder) gfortran(a *Action, p *load.Package, workdir, out string, flag
 // ccompile runs the given C or C++ compiler and creates an object from a single source file.
 func (b *Builder) ccompile(a *Action, p *load.Package, outfile string, flags []string, file string, compiler []string) error {
 	file = mkAbs(p.Dir, file)
-	desc := p.ImportPath
 	outfile = mkAbs(p.Dir, outfile)
 
 	// Elide source directory paths if -trimpath or GOROOT_FINAL is set.
@@ -2394,11 +2445,10 @@ func (b *Builder) ccompile(a *Action, p *load.Package, outfile string, flags []s
 			}
 		}
 
-		b.showOutput(a, p.Dir, desc, b.processOutput(output))
-		if err != nil {
-			err = errPrintedOutput
-		} else if os.Getenv("GO_BUILDER_NAME") != "" {
-			return errors.New("C compiler warning promoted to error on Go builders")
+		if err != nil || os.Getenv("GO_BUILDER_NAME") != "" {
+			err = formatOutput(b.WorkDir, p.Dir, p.ImportPath, p.Desc(), b.processOutput(output))
+		} else {
+			b.showOutput(a, p.Dir, p.Desc(), b.processOutput(output))
 		}
 	}
 	return err
@@ -2861,8 +2911,6 @@ func (b *Builder) cgo(a *Action, cgoExe, objdir string, pcCFLAGS, pcLDFLAGS, cgo
 		cgoflags = append(cgoflags, "-exportheader="+objdir+"_cgo_install.h")
 	}
 
-	execdir := p.Dir
-
 	// Rewrite overlaid paths in cgo files.
 	// cgo adds //line and #line pragmas in generated files with these paths.
 	var trimpath []string
@@ -2877,7 +2925,7 @@ func (b *Builder) cgo(a *Action, cgoExe, objdir string, pcCFLAGS, pcLDFLAGS, cgo
 		cgoflags = append(cgoflags, "-trimpath", strings.Join(trimpath, ";"))
 	}
 
-	if err := b.run(a, execdir, p.ImportPath, cgoenv, cfg.BuildToolexec, cgoExe, "-objdir", objdir, "-importpath", p.ImportPath, cgoflags, "--", cgoCPPFLAGS, cgoCFLAGS, cgofiles); err != nil {
+	if err := b.run(a, p.Dir, p.ImportPath, cgoenv, cfg.BuildToolexec, cgoExe, "-objdir", objdir, "-importpath", p.ImportPath, cgoflags, "--", cgoCPPFLAGS, cgoCFLAGS, cgofiles); err != nil {
 		return nil, nil, err
 	}
 	outGo = append(outGo, gofiles...)
@@ -3352,8 +3400,8 @@ func (b *Builder) swigOne(a *Action, p *load.Package, file, objdir string, pcCFL
 			if bytes.Contains(out, []byte("-intgosize")) || bytes.Contains(out, []byte("-cgo")) {
 				return "", "", errors.New("must have SWIG version >= 3.0.6")
 			}
-			b.showOutput(a, p.Dir, p.Desc(), b.processOutput(out)) // swig error
-			return "", "", errPrintedOutput
+			// swig error
+			err = formatOutput(b.WorkDir, p.Dir, p.ImportPath, p.Desc(), b.processOutput(out))
 		}
 		return "", "", err
 	}

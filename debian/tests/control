@@ -1,0 +1,7 @@
+Tests: hello-world
+Depends: @, build-essential
+Restrictions: allow-stderr, superficial
+
+Tests: regression-test
+Depends: @, build-essential
+Restrictions: allow-stderr
