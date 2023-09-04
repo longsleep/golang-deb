@@ -1,3 +1,9 @@
+golang-1.19 (1.19.12-2~bpo12+1) bookworm-backports; urgency=medium
+
+  * Rebuild for bookworm-backports.
+
+ -- Anthony Fok <foka@debian.org>  Mon, 04 Sep 2023 07:22:43 -0600
+
 golang-1.19 (1.19.12-2) unstable; urgency=medium
 
   * Team upload
