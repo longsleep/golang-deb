@@ -1,3 +1,9 @@
+golang-1.19 (1.19.12-2~bpo11+1) bullseye-backports-sloppy; urgency=medium
+
+  * Rebuild for bullseye-backports-sloppy.
+
+ -- Anthony Fok <foka@debian.org>  Mon, 04 Sep 2023 09:06:24 -0600
+
 golang-1.19 (1.19.12-2) unstable; urgency=medium
 
   * Team upload
