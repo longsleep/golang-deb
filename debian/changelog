@@ -1,3 +1,10 @@
+golang-1.21 (1.21.1-1longsleep1+focal) focal; urgency=medium
+
+  [ Simon Eisenmann ]
+  * New upstream version 1.21.1
+
+ -- Simon Eisenmann <simon@longsleep.org>  Thu, 07 Sep 2023 14:49:48 +0200
+
 golang-1.21 (1.21.0-1longsleep1+focal) focal; urgency=medium
 
   * Change packaging for Ubuntu backports
