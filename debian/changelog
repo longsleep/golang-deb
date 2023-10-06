@@ -1,3 +1,12 @@
+golang-1.20 (1.20.9-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.20.9
+    + CVE-2023-39323: cmd/go: line directives allows arbitrary execution during
+      build
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 06 Oct 2023 19:40:40 +0800
+
 golang-1.20 (1.20.8-1) unstable; urgency=medium
 
   * Team upload.
