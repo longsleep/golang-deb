@@ -1,3 +1,12 @@
+golang-1.21 (1.21.3-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.21.3
+    + CVE-2023-44487/CVE-2023-39325: net/http: rapid stream resets can cause
+      excessive work
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 11 Oct 2023 14:53:53 +0800
+
 golang-1.21 (1.21.2-1) unstable; urgency=medium
 
   * Team upload
