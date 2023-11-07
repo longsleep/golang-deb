@@ -1,3 +1,14 @@
+golang-1.21 (1.21.4-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.21.4
+    + CVE-2023-45283: path/filepath: recognize \??\ as a Root Local Device
+      path prefix.
+    + CVE-2023-45284: path/filepath: recognize device names with trailing
+      spaces and superscripts.
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 08 Nov 2023 03:40:30 +0800
+
 golang-1.21 (1.21.3-1) unstable; urgency=medium
 
   * Team upload
