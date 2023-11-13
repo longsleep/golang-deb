@@ -992,6 +992,11 @@ func typeSymbolMangle(name string) string {
 	if strings.HasPrefix(name, "type:runtime.") {
 		return name
 	}
+	if strings.HasPrefix(name, "go:string.") {
+		// String symbols will be grouped to a single go:string.* symbol.
+		// No need to mangle individual symbol names.
+		return name
+	}
 	if len(name) <= 14 && !strings.Contains(name, "@") { // Issue 19529
 		return name
 	}
@@ -1006,7 +1011,7 @@ func typeSymbolMangle(name string) string {
 	// instantiated symbol, replace type name in []
 	i := strings.IndexByte(name, '[')
 	j := strings.LastIndexByte(name, ']')
-	if j == -1 {
+	if j == -1 || j <= i {
 		j = len(name)
 	}
 	hash := notsha256.Sum256([]byte(name[i+1 : j]))
@@ -1413,6 +1418,10 @@ func (ctxt *Link) hostlink() {
 			// resolving a lazy binding. See issue 38824.
 			// Force eager resolution to work around.
 			argv = append(argv, "-Wl,-flat_namespace", "-Wl,-bind_at_load")
+			if linkerFlagSupported(ctxt.Arch, argv[0], "", "-Wl,-ld_classic") {
+				// Force old linker to work around a bug in Apple's new linker.
+				argv = append(argv, "-Wl,-ld_classic")
+			}
 		}
 		if !combineDwarf {
 			argv = append(argv, "-Wl,-S") // suppress STAB (symbolic debugging) symbols
@@ -1891,6 +1900,16 @@ func (ctxt *Link) hostlink() {
 			if i := bytes.Index(out, []byte(noPieWarning)); i >= 0 {
 				// swallow -no_pie deprecation warning, issue 54482
 				out = append(out[:i], out[i+len(noPieWarning):]...)
+			}
+		}
+		if ctxt.IsDarwin() {
+			const bindAtLoadWarning = "ld: warning: -bind_at_load is deprecated on macOS\n"
+			if i := bytes.Index(out, []byte(bindAtLoadWarning)); i >= 0 {
+				// -bind_at_load is deprecated with ld-prime, but needed for
+				// correctness with older versions of ld64. Swallow the warning.
+				// TODO: maybe pass -bind_at_load conditionally based on C
+				// linker version.
+				out = append(out[:i], out[i+len(bindAtLoadWarning):]...)
 			}
 		}
 		ctxt.Logf("%s", out)
