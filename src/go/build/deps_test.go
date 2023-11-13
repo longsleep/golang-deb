@@ -153,7 +153,7 @@ var depsRules = `
 
 	unicode, fmt !< net, os, os/signal;
 
-	os/signal, STR
+	os/signal, internal/safefilepath, STR
 	< path/filepath
 	< io/ioutil;
 
@@ -236,14 +236,14 @@ var depsRules = `
 	< text/template
 	< internal/lazytemplate;
 
-	encoding/json, html, text/template
-	< html/template;
-
 	# regexp
 	FMT
 	< regexp/syntax
 	< regexp
 	< internal/lazyregexp;
+
+	encoding/json, html, text/template, regexp
+	< html/template;
 
 	# suffix array
 	encoding/binary, regexp
