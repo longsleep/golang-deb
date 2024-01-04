@@ -6,4 +6,4 @@ version=4
 opts=\
 uversionmangle=s/(\d)[_\.\-\+]?((RC|rc|pre|dev|beta|alpha)\d*)$/$1~$2/,\
 pgpmode=auto \
-  https://go.dev/dl/ .*/go(1.21\S*)\.src\.tar\.gz
+  https://go.dev/dl/ .*/go(1.22\S*)\.src\.tar\.gz
