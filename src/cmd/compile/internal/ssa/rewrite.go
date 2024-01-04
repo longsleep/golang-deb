@@ -1290,6 +1290,10 @@ func zeroUpper32Bits(x *Value, depth int) bool {
 		OpAMD64SHRL, OpAMD64SHRLconst, OpAMD64SARL, OpAMD64SARLconst,
 		OpAMD64SHLL, OpAMD64SHLLconst:
 		return true
+	case OpARM64REV16W, OpARM64REVW, OpARM64RBITW, OpARM64CLZW, OpARM64EXTRWconst,
+		OpARM64MULW, OpARM64MNEGW, OpARM64UDIVW, OpARM64DIVW, OpARM64UMODW,
+		OpARM64MADDW, OpARM64MSUBW, OpARM64RORW, OpARM64RORWconst:
+		return true
 	case OpArg:
 		return x.Type.Size() == 4
 	case OpPhi, OpSelect0, OpSelect1:
@@ -1483,7 +1487,7 @@ func encodePPC64RotateMask(rotate, mask, nbits int64) int64 {
 
 	// Determine boundaries and then decode them
 	if mask == 0 || ^mask == 0 || rotate >= nbits {
-		panic("Invalid PPC64 rotate mask")
+		panic(fmt.Sprintf("invalid PPC64 rotate mask: %x %d %d", uint64(mask), rotate, nbits))
 	} else if nbits == 32 {
 		mb = bits.LeadingZeros32(uint32(mask))
 		me = 32 - bits.TrailingZeros32(uint32(mask))
@@ -1502,6 +1506,25 @@ func encodePPC64RotateMask(rotate, mask, nbits int64) int64 {
 	}
 
 	return int64(me) | int64(mb<<8) | int64(rotate<<16) | int64(nbits<<24)
+}
+
+// Merge (RLDICL [encoded] (SRDconst [s] x)) into (RLDICL [new_encoded] x)
+// SRDconst on PPC64 is an extended mnemonic of RLDICL. If the input to an
+// RLDICL is an SRDconst, and the RLDICL does not rotate its value, the two
+// operations can be combined. This functions assumes the two opcodes can
+// be merged, and returns an encoded rotate+mask value of the combined RLDICL.
+func mergePPC64RLDICLandSRDconst(encoded, s int64) int64 {
+	mb := s
+	r := 64 - s
+	// A larger mb is a smaller mask.
+	if (encoded>>8)&0xFF < mb {
+		encoded = (encoded &^ 0xFF00) | mb<<8
+	}
+	// The rotate is expected to be 0.
+	if (encoded & 0xFF0000) != 0 {
+		panic("non-zero rotate")
+	}
+	return encoded | r<<16
 }
 
 // DecodePPC64RotateMask is the inverse operation of encodePPC64RotateMask.  The values returned as
@@ -1605,6 +1628,52 @@ func mergePPC64SldiSrw(sld, srw int64) int64 {
 	mask_l := uint32(0xFFFFFFFF) >> uint(sld)
 	mask := (mask_r & mask_l) << uint(sld)
 	return encodePPC64RotateMask((32-srw+sld)&31, int64(mask), 32)
+}
+
+// Convert a PPC64 opcode from the Op to OpCC form. This converts (op x y)
+// to (Select0 (opCC x y)) without having to explicitly fixup every user
+// of op.
+//
+// E.g consider the case:
+// a = (ADD x y)
+// b = (CMPconst [0] a)
+// c = (OR a z)
+//
+// A rule like (CMPconst [0] (ADD x y)) => (CMPconst [0] (Select0 (ADDCC x y)))
+// would produce:
+// a  = (ADD x y)
+// a' = (ADDCC x y)
+// a” = (Select0 a')
+// b  = (CMPconst [0] a”)
+// c  = (OR a z)
+//
+// which makes it impossible to rewrite the second user. Instead the result
+// of this conversion is:
+// a' = (ADDCC x y)
+// a  = (Select0 a')
+// b  = (CMPconst [0] a)
+// c  = (OR a z)
+//
+// Which makes it trivial to rewrite b using a lowering rule.
+func convertPPC64OpToOpCC(op *Value) *Value {
+	ccOpMap := map[Op]Op{
+		OpPPC64ADD:      OpPPC64ADDCC,
+		OpPPC64ADDconst: OpPPC64ADDCCconst,
+		OpPPC64AND:      OpPPC64ANDCC,
+		OpPPC64ANDN:     OpPPC64ANDNCC,
+		OpPPC64CNTLZD:   OpPPC64CNTLZDCC,
+		OpPPC64OR:       OpPPC64ORCC,
+		OpPPC64SUB:      OpPPC64SUBCC,
+		OpPPC64NEG:      OpPPC64NEGCC,
+		OpPPC64NOR:      OpPPC64NORCC,
+		OpPPC64XOR:      OpPPC64XORCC,
+	}
+	b := op.Block
+	opCC := b.NewValue0I(op.Pos, ccOpMap[op.Op], types.NewTuple(op.Type, types.TypeFlags), op.AuxInt)
+	opCC.AddArgs(op.Args...)
+	op.reset(OpSelect0)
+	op.AddArgs(opCC)
+	return op
 }
 
 // Convenience function to rotate a 32 bit constant value by another constant.
@@ -2131,4 +2200,12 @@ func isARM64addcon(v int64) bool {
 		v >>= 12
 	}
 	return v <= 0xFFF
+}
+
+// setPos sets the position of v to pos, then returns true.
+// Useful for setting the result of a rewrite's position to
+// something other than the default.
+func setPos(v *Value, pos src.XPos) bool {
+	v.Pos = pos
+	return true
 }

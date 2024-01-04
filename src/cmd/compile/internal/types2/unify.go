@@ -291,6 +291,9 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 		u.depth--
 	}()
 
+	x = Unalias(x)
+	y = Unalias(y)
+
 	// nothing to do if x == y
 	if x == y {
 		return true
@@ -311,7 +314,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	// Ensure that if we have at least one
 	// - defined type, make sure one is in y
 	// - type parameter recorded with u, make sure one is in x
-	if _, ok := x.(*Named); ok || u.asTypeParam(y) != nil {
+	if asNamed(x) != nil || u.asTypeParam(y) != nil {
 		if traceInference {
 			u.tracef("%s ≡ %s\t// swap", y, x)
 		}
@@ -335,7 +338,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	// we will fail at function instantiation or argument assignment time.
 	//
 	// If we have at least one defined type, there is one in y.
-	if ny, _ := y.(*Named); mode&exact == 0 && ny != nil && isTypeLit(x) && !(u.enableInterfaceInference && IsInterface(x)) {
+	if ny := asNamed(y); mode&exact == 0 && ny != nil && isTypeLit(x) && !(u.enableInterfaceInference && IsInterface(x)) {
 		if traceInference {
 			u.tracef("%s ≡ under %s", x, ny)
 		}
@@ -372,8 +375,8 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 				// We have a match, possibly through underlying types.
 				xi := asInterface(x)
 				yi := asInterface(y)
-				_, xn := x.(*Named)
-				_, yn := y.(*Named)
+				xn := asNamed(x) != nil
+				yn := asNamed(y) != nil
 				// If we have two interfaces, what to do depends on
 				// whether they are named and their method sets.
 				if xi != nil && yi != nil {
@@ -447,13 +450,6 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 
 	// x != y if we get here
 	assert(x != y)
-
-	// Type elements (array, slice, etc. elements) use emode for unification.
-	// Element types must match exactly if the types are used in an assignment.
-	emode := mode
-	if mode&assign != 0 {
-		emode |= exact
-	}
 
 	// If u.EnableInterfaceInference is set and we don't require exact unification,
 	// if both types are interfaces, one interface must have a subset of the
@@ -568,6 +564,13 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 			u.tracef("%s ≡ %s\t// swap", y, x)
 		}
 		x, y = y, x
+	}
+
+	// Type elements (array, slice, etc. elements) use emode for unification.
+	// Element types must match exactly if the types are used in an assignment.
+	emode := mode
+	if mode&assign != 0 {
+		emode |= exact
 	}
 
 	switch x := x.(type) {
@@ -728,7 +731,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	case *Named:
 		// Two named types unify if their type names originate in the same type declaration.
 		// If they are instantiated, their type argument lists must unify.
-		if y, ok := y.(*Named); ok {
+		if y := asNamed(y); y != nil {
 			// Check type arguments before origins so they unify
 			// even if the origins don't match; for better error
 			// messages (see go.dev/issue/53692).
@@ -742,7 +745,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 					return false
 				}
 			}
-			return indenticalOrigin(x, y)
+			return identicalOrigin(x, y)
 		}
 
 	case *TypeParam:

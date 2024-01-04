@@ -6,6 +6,7 @@ package net
 
 import (
 	"context"
+	"internal/bytealg"
 	"internal/godebug"
 	"internal/nettrace"
 	"syscall"
@@ -226,7 +227,7 @@ func (d *Dialer) fallbackDelay() time.Duration {
 }
 
 func parseNetwork(ctx context.Context, network string, needsProto bool) (afnet string, proto int, err error) {
-	i := last(network, ':')
+	i := bytealg.LastIndexByteString(network, ':')
 	if i < 0 { // no colon
 		switch network {
 		case "tcp", "tcp4", "tcp6":
@@ -457,6 +458,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (Conn
 	}
 	deadline := d.deadline(ctx, time.Now())
 	if !deadline.IsZero() {
+		testHookStepTime()
 		if d, ok := ctx.Deadline(); !ok || deadline.Before(d) {
 			subCtx, cancel := context.WithDeadline(ctx, deadline)
 			defer cancel()

@@ -87,81 +87,12 @@ func NewFile(fd uintptr, name string) *File {
 	return newFile(h, name, "file")
 }
 
-// Auxiliary information if the File describes a directory
-type dirInfo struct {
-	h       syscall.Handle // search handle created with FindFirstFile
-	data    syscall.Win32finddata
-	path    string
-	isempty bool // set if FindFirstFile returns ERROR_FILE_NOT_FOUND
-}
-
-func (d *dirInfo) close() error {
-	return syscall.FindClose(d.h)
-}
-
 func epipecheck(file *File, e error) {
 }
 
 // DevNull is the name of the operating system's “null device.”
 // On Unix-like systems, it is "/dev/null"; on Windows, "NUL".
 const DevNull = "NUL"
-
-func openDir(name string) (d *dirInfo, e error) {
-	var mask string
-
-	path := fixLongPath(name)
-
-	if len(path) == 2 && path[1] == ':' { // it is a drive letter, like C:
-		mask = path + `*`
-	} else if len(path) > 0 {
-		lc := path[len(path)-1]
-		if lc == '/' || lc == '\\' {
-			mask = path + `*`
-		} else {
-			mask = path + `\*`
-		}
-	} else {
-		mask = `\*`
-	}
-	maskp, e := syscall.UTF16PtrFromString(mask)
-	if e != nil {
-		return nil, e
-	}
-	d = new(dirInfo)
-	d.h, e = syscall.FindFirstFile(maskp, &d.data)
-	if e != nil {
-		// FindFirstFile returns ERROR_FILE_NOT_FOUND when
-		// no matching files can be found. Then, if directory
-		// exists, we should proceed.
-		// If FindFirstFile failed because name does not point
-		// to a directory, we should return ENOTDIR.
-		var fa syscall.Win32FileAttributeData
-		pathp, e1 := syscall.UTF16PtrFromString(path)
-		if e1 != nil {
-			return nil, e
-		}
-		e1 = syscall.GetFileAttributesEx(pathp, syscall.GetFileExInfoStandard, (*byte)(unsafe.Pointer(&fa)))
-		if e1 != nil {
-			return nil, e
-		}
-		if fa.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY == 0 {
-			return nil, syscall.ENOTDIR
-		}
-		if e != syscall.ERROR_FILE_NOT_FOUND {
-			return nil, e
-		}
-		d.isempty = true
-	}
-	d.path = path
-	if !isAbs(d.path) {
-		d.path, e = syscall.FullPath(d.path)
-		if e != nil {
-			d.close()
-			return nil, e
-		}
-	}
-	return d, nil
-}
 
 // openFileNolog is the Windows implementation of OpenFile.
 func openFileNolog(name string, flag int, perm FileMode) (*File, error) {
@@ -446,12 +377,6 @@ func normaliseLinkPath(path string) (string, error) {
 
 	// handle paths, like \??\Volume{abc}\...
 
-	err := windows.LoadGetFinalPathNameByHandle()
-	if err != nil {
-		// we must be using old version of Windows
-		return "", err
-	}
-
 	h, err := openSymlink(path)
 	if err != nil {
 		return "", err
@@ -481,7 +406,7 @@ func normaliseLinkPath(path string) (string, error) {
 	return "", errors.New("GetFinalPathNameByHandle returned unexpected path: " + s)
 }
 
-func readlink(path string) (string, error) {
+func readReparseLink(path string) (string, error) {
 	h, err := openSymlink(path)
 	if err != nil {
 		return "", err
@@ -513,10 +438,8 @@ func readlink(path string) (string, error) {
 	}
 }
 
-// Readlink returns the destination of the named symbolic link.
-// If there is an error, it will be of type *PathError.
-func Readlink(name string) (string, error) {
-	s, err := readlink(fixLongPath(name))
+func readlink(name string) (string, error) {
+	s, err := readReparseLink(fixLongPath(name))
 	if err != nil {
 		return "", &PathError{Op: "readlink", Path: name, Err: err}
 	}
