@@ -37,7 +37,10 @@ if [ -z "$GOHOSTOS" -o -z "$GOOS" -o -z "$GOHOSTARCH" -o -z "$GOARCH" ]; then
 fi
 
 [ -e "$GOROOT_BOOTSTRAP/bin/go" ] || exit 1
+
+export GO111MODULE=off # Avoid "go version" trying to download a newer toolchain
 GOVERSION_BOOTSTRAP=$("$GOROOT_BOOTSTRAP/bin/go" version|sed -E -n 's|.*go([0-9]\.[0-9]+).*|\1|p')
+unset GO111MODULE
 export GOVERSION_BOOTSTRAP
 
 # Always not use sse2. This is important to ensure that the binaries we build
