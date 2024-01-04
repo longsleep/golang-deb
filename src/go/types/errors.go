@@ -228,7 +228,7 @@ func (check *Checker) report(errp *error_) {
 		panic("no error code provided")
 	}
 
-	// If we have an URL for error codes, add a link to the first line.
+	// If we have a URL for error codes, add a link to the first line.
 	if errp.code != 0 && check.conf._ErrorURL != "" {
 		u := fmt.Sprintf(check.conf._ErrorURL, errp.code)
 		if i := strings.Index(msg, "\n"); i >= 0 {
@@ -316,7 +316,7 @@ func (check *Checker) softErrorf(at positioner, code Code, format string, args .
 	check.report(err)
 }
 
-func (check *Checker) versionErrorf(at positioner, v version, format string, args ...interface{}) {
+func (check *Checker) versionErrorf(at positioner, v goVersion, format string, args ...interface{}) {
 	msg := check.sprintf(format, args...)
 	var err *error_
 	err = newErrorf(at, UnsupportedFeature, "%s requires %s or later", msg, v)

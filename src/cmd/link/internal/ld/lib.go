@@ -44,6 +44,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -877,7 +878,17 @@ func (ctxt *Link) linksetup() {
 			sb := ctxt.loader.MakeSymbolUpdater(goarm)
 			sb.SetType(sym.SDATA)
 			sb.SetSize(0)
-			sb.AddUint8(uint8(buildcfg.GOARM))
+			sb.AddUint8(uint8(buildcfg.GOARM.Version))
+
+			goarmsoftfp := ctxt.loader.LookupOrCreateSym("runtime.goarmsoftfp", 0)
+			sb2 := ctxt.loader.MakeSymbolUpdater(goarmsoftfp)
+			sb2.SetType(sym.SDATA)
+			sb2.SetSize(0)
+			if buildcfg.GOARM.SoftFloat {
+				sb2.AddUint8(1)
+			} else {
+				sb2.AddUint8(0)
+			}
 		}
 
 		// Set runtime.disableMemoryProfiling bool if
@@ -1394,7 +1405,7 @@ func (ctxt *Link) hostlink() {
 		if ctxt.HeadType == objabi.Hdarwin {
 			// Recent versions of macOS print
 			//	ld: warning: option -s is obsolete and being ignored
-			// so do not pass any arguments.
+			// so do not pass any arguments (but we strip symbols below).
 		} else {
 			argv = append(argv, "-s")
 		}
@@ -1402,7 +1413,7 @@ func (ctxt *Link) hostlink() {
 
 	// On darwin, whether to combine DWARF into executable.
 	// Only macOS supports unmapped segments such as our __DWARF segment.
-	combineDwarf := ctxt.IsDarwin() && !*FlagS && !*FlagW && !debug_s && machoPlatform == PLATFORM_MACOS
+	combineDwarf := ctxt.IsDarwin() && !*FlagW && machoPlatform == PLATFORM_MACOS
 
 	switch ctxt.HeadType {
 	case objabi.Hdarwin:
@@ -1418,13 +1429,15 @@ func (ctxt *Link) hostlink() {
 			// resolving a lazy binding. See issue 38824.
 			// Force eager resolution to work around.
 			argv = append(argv, "-Wl,-flat_namespace", "-Wl,-bind_at_load")
-			if linkerFlagSupported(ctxt.Arch, argv[0], "", "-Wl,-ld_classic") {
-				// Force old linker to work around a bug in Apple's new linker.
-				argv = append(argv, "-Wl,-ld_classic")
-			}
 		}
 		if !combineDwarf {
 			argv = append(argv, "-Wl,-S") // suppress STAB (symbolic debugging) symbols
+			if debug_s {
+				// We are generating a binary with symbol table suppressed.
+				// Suppress local symbols. We need to keep dynamically exported
+				// and referenced symbols so the dynamic linker can resolve them.
+				argv = append(argv, "-Wl,-x")
+			}
 		}
 	case objabi.Hopenbsd:
 		argv = append(argv, "-Wl,-nopie")
@@ -1679,9 +1692,12 @@ func (ctxt *Link) hostlink() {
 		if ctxt.DynlinkingGo() || ctxt.BuildMode == BuildModeCShared || !linkerFlagSupported(ctxt.Arch, argv[0], altLinker, "-Wl,--export-dynamic-symbol=main") {
 			argv = append(argv, "-rdynamic")
 		} else {
+			var exports []string
 			ctxt.loader.ForAllCgoExportDynamic(func(s loader.Sym) {
-				argv = append(argv, "-Wl,--export-dynamic-symbol="+ctxt.loader.SymExtname(s))
+				exports = append(exports, "-Wl,--export-dynamic-symbol="+ctxt.loader.SymExtname(s))
 			})
+			sort.Strings(exports)
+			argv = append(argv, exports...)
 		}
 	}
 	if ctxt.HeadType == objabi.Haix {
@@ -1939,12 +1955,34 @@ func (ctxt *Link) hostlink() {
 		// dsymutil may not clean up its temp directory at exit.
 		// Set DSYMUTIL_REPRODUCER_PATH to work around. see issue 59026.
 		cmd.Env = append(os.Environ(), "DSYMUTIL_REPRODUCER_PATH="+*flagTmpdir)
+		if ctxt.Debugvlog != 0 {
+			ctxt.Logf("host link dsymutil:")
+			for _, v := range cmd.Args {
+				ctxt.Logf(" %q", v)
+			}
+			ctxt.Logf("\n")
+		}
 		if out, err := cmd.CombinedOutput(); err != nil {
 			Exitf("%s: running dsymutil failed: %v\n%s", os.Args[0], err, out)
 		}
 		// Remove STAB (symbolic debugging) symbols after we are done with them (by dsymutil).
 		// They contain temporary file paths and make the build not reproducible.
-		if out, err := exec.Command(stripCmd, "-S", *flagOutfile).CombinedOutput(); err != nil {
+		var stripArgs = []string{"-S"}
+		if debug_s {
+			// We are generating a binary with symbol table suppressed.
+			// Suppress local symbols. We need to keep dynamically exported
+			// and referenced symbols so the dynamic linker can resolve them.
+			stripArgs = append(stripArgs, "-x")
+		}
+		stripArgs = append(stripArgs, *flagOutfile)
+		if ctxt.Debugvlog != 0 {
+			ctxt.Logf("host link strip: %q", stripCmd)
+			for _, v := range stripArgs {
+				ctxt.Logf(" %q", v)
+			}
+			ctxt.Logf("\n")
+		}
+		if out, err := exec.Command(stripCmd, stripArgs...).CombinedOutput(); err != nil {
 			Exitf("%s: running strip failed: %v\n%s", os.Args[0], err, out)
 		}
 		// Skip combining if `dsymutil` didn't generate a file. See #11994.
@@ -2192,15 +2230,21 @@ func ldobj(ctxt *Link, f *bio.Reader, lib *sym.Library, length int64, pn string,
 		0xc401, // arm
 		0x64aa: // arm64
 		ldpe := func(ctxt *Link, f *bio.Reader, pkg string, length int64, pn string) {
-			textp, rsrc, err := loadpe.Load(ctxt.loader, ctxt.Arch, ctxt.IncVersion(), f, pkg, length, pn)
+			ls, err := loadpe.Load(ctxt.loader, ctxt.Arch, ctxt.IncVersion(), f, pkg, length, pn)
 			if err != nil {
 				Errorf(nil, "%v", err)
 				return
 			}
-			if len(rsrc) != 0 {
-				setpersrc(ctxt, rsrc)
+			if len(ls.Resources) != 0 {
+				setpersrc(ctxt, ls.Resources)
 			}
-			ctxt.Textp = append(ctxt.Textp, textp...)
+			if ls.PData != 0 {
+				sehp.pdata = append(sehp.pdata, ls.PData)
+			}
+			if ls.XData != 0 {
+				sehp.xdata = append(sehp.xdata, ls.XData)
+			}
+			ctxt.Textp = append(ctxt.Textp, ls.Textp...)
 		}
 		return ldhostobj(ldpe, ctxt.HeadType, f, pkg, length, pn, file)
 	}

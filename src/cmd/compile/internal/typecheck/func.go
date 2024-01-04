@@ -17,18 +17,15 @@ import (
 
 // MakeDotArgs package all the arguments that match a ... T parameter into a []T.
 func MakeDotArgs(pos src.XPos, typ *types.Type, args []ir.Node) ir.Node {
-	var n ir.Node
 	if len(args) == 0 {
-		n = ir.NewNilExpr(pos)
-		n.SetType(typ)
-	} else {
-		args = append([]ir.Node(nil), args...)
-		lit := ir.NewCompLitExpr(pos, ir.OCOMPLIT, typ, args)
-		lit.SetImplicit(true)
-		n = lit
+		return ir.NewNilExpr(pos, typ)
 	}
 
-	n = Expr(n)
+	args = append([]ir.Node(nil), args...)
+	lit := ir.NewCompLitExpr(pos, ir.OCOMPLIT, typ, args)
+	lit.SetImplicit(true)
+
+	n := Expr(lit)
 	if n.Type() == nil {
 		base.FatalfAt(pos, "mkdotargslice: typecheck failed")
 	}
@@ -38,13 +35,13 @@ func MakeDotArgs(pos src.XPos, typ *types.Type, args []ir.Node) ir.Node {
 // FixVariadicCall rewrites calls to variadic functions to use an
 // explicit ... argument if one is not already present.
 func FixVariadicCall(call *ir.CallExpr) {
-	fntype := call.X.Type()
+	fntype := call.Fun.Type()
 	if !fntype.IsVariadic() || call.IsDDD {
 		return
 	}
 
 	vi := fntype.NumParams() - 1
-	vt := fntype.Params().Field(vi).Type
+	vt := fntype.Param(vi).Type
 
 	args := call.Args
 	extra := args[vi:]
@@ -59,25 +56,25 @@ func FixVariadicCall(call *ir.CallExpr) {
 
 // FixMethodCall rewrites a method call t.M(...) into a function call T.M(t, ...).
 func FixMethodCall(call *ir.CallExpr) {
-	if call.X.Op() != ir.ODOTMETH {
+	if call.Fun.Op() != ir.ODOTMETH {
 		return
 	}
 
-	dot := call.X.(*ir.SelectorExpr)
+	dot := call.Fun.(*ir.SelectorExpr)
 
-	fn := Expr(ir.NewSelectorExpr(dot.Pos(), ir.OXDOT, ir.TypeNode(dot.X.Type()), dot.Selection.Sym))
+	fn := NewMethodExpr(dot.Pos(), dot.X.Type(), dot.Selection.Sym)
 
 	args := make([]ir.Node, 1+len(call.Args))
 	args[0] = dot.X
 	copy(args[1:], call.Args)
 
 	call.SetOp(ir.OCALLFUNC)
-	call.X = fn
+	call.Fun = fn
 	call.Args = args
 }
 
 func AssertFixedCall(call *ir.CallExpr) {
-	if call.X.Type().IsVariadic() && !call.IsDDD {
+	if call.Fun.Type().IsVariadic() && !call.IsDDD {
 		base.FatalfAt(call.Pos(), "missed FixVariadicCall")
 	}
 	if call.Op() == ir.OCALLMETH {
@@ -130,82 +127,6 @@ func MethodValueType(n *ir.SelectorExpr) *types.Type {
 	return t
 }
 
-// Get the function's package. For ordinary functions it's on the ->sym, but for imported methods
-// the ->sym can be re-used in the local package, so peel it off the receiver's type.
-func fnpkg(fn *ir.Name) *types.Pkg {
-	if ir.IsMethod(fn) {
-		// method
-		rcvr := fn.Type().Recv().Type
-
-		if rcvr.IsPtr() {
-			rcvr = rcvr.Elem()
-		}
-		if rcvr.Sym() == nil {
-			base.Fatalf("receiver with no sym: [%v] %L  (%v)", fn.Sym(), fn, rcvr)
-		}
-		return rcvr.Sym().Pkg
-	}
-
-	// non-method
-	return fn.Sym().Pkg
-}
-
-// tcClosure typechecks an OCLOSURE node. It also creates the named
-// function associated with the closure.
-// TODO: This creation of the named function should probably really be done in a
-// separate pass from type-checking.
-func tcClosure(clo *ir.ClosureExpr, top int) ir.Node {
-	fn := clo.Func
-
-	// We used to allow IR builders to typecheck the underlying Func
-	// themselves, but that led to too much variety and inconsistency
-	// around who's responsible for naming the function, typechecking
-	// it, or adding it to Target.Decls.
-	//
-	// It's now all or nothing. Callers are still allowed to do these
-	// themselves, but then they assume responsibility for all of them.
-	if fn.Typecheck() == 1 {
-		base.FatalfAt(fn.Pos(), "underlying closure func already typechecked: %v", fn)
-	}
-
-	ir.NameClosure(clo, ir.CurFunc)
-	Func(fn)
-
-	// Type check the body now, but only if we're inside a function.
-	// At top level (in a variable initialization: curfn==nil) we're not
-	// ready to type check code yet; we'll check it later, because the
-	// underlying closure function we create is added to Target.Decls.
-	if ir.CurFunc != nil {
-		oldfn := ir.CurFunc
-		ir.CurFunc = fn
-		Stmts(fn.Body)
-		ir.CurFunc = oldfn
-	}
-
-	out := 0
-	for _, v := range fn.ClosureVars {
-		if v.Type() == nil {
-			// If v.Type is nil, it means v looked like it was going to be
-			// used in the closure, but isn't. This happens in struct
-			// literals like s{f: x} where we can't distinguish whether f is
-			// a field identifier or expression until resolving s.
-			continue
-		}
-
-		// type check closed variables outside the closure, so that the
-		// outer frame also captures them.
-		Expr(v.Outer)
-
-		fn.ClosureVars[out] = v
-		out++
-	}
-	fn.ClosureVars = fn.ClosureVars[:out]
-
-	clo.SetType(fn.Type())
-
-	return ir.UseClosure(clo, Target)
-}
-
 // type check function definition
 // To be called by typecheck, not directly.
 // (Call typecheck.Func instead.)
@@ -223,9 +144,9 @@ func tcFunc(n *ir.Func) {
 // tcCall typechecks an OCALL node.
 func tcCall(n *ir.CallExpr, top int) ir.Node {
 	Stmts(n.Init()) // imported rewritten f(g()) calls (#30907)
-	n.X = typecheck(n.X, ctxExpr|ctxType|ctxCallee)
+	n.Fun = typecheck(n.Fun, ctxExpr|ctxType|ctxCallee)
 
-	l := n.X
+	l := n.Fun
 
 	if l.Op() == ir.ONAME && l.(*ir.Name).BuiltinOp != 0 {
 		l := l.(*ir.Name)
@@ -238,16 +159,16 @@ func tcCall(n *ir.CallExpr, top int) ir.Node {
 		default:
 			base.Fatalf("unknown builtin %v", l)
 
-		case ir.OAPPEND, ir.ODELETE, ir.OMAKE, ir.OMAX, ir.OMIN, ir.OPRINT, ir.OPRINTN, ir.ORECOVER:
+		case ir.OAPPEND, ir.ODELETE, ir.OMAKE, ir.OMAX, ir.OMIN, ir.OPRINT, ir.OPRINTLN, ir.ORECOVER:
 			n.SetOp(l.BuiltinOp)
-			n.X = nil
+			n.Fun = nil
 			n.SetTypecheck(0) // re-typechecking new op is OK, not a loop
 			return typecheck(n, top)
 
 		case ir.OCAP, ir.OCLEAR, ir.OCLOSE, ir.OIMAG, ir.OLEN, ir.OPANIC, ir.OREAL, ir.OUNSAFESTRINGDATA, ir.OUNSAFESLICEDATA:
 			typecheckargs(n)
 			fallthrough
-		case ir.ONEW, ir.OALIGNOF, ir.OOFFSETOF, ir.OSIZEOF:
+		case ir.ONEW:
 			arg, ok := needOneArg(n, "%v", n.Op())
 			if !ok {
 				n.SetType(nil)
@@ -269,8 +190,8 @@ func tcCall(n *ir.CallExpr, top int) ir.Node {
 		panic("unreachable")
 	}
 
-	n.X = DefaultLit(n.X, nil)
-	l = n.X
+	n.Fun = DefaultLit(n.Fun, nil)
+	l = n.Fun
 	if l.Op() == ir.OTYPE {
 		if n.IsDDD {
 			base.Fatalf("invalid use of ... in type conversion to %v", l.Type())
@@ -318,7 +239,7 @@ func tcCall(n *ir.CallExpr, top int) ir.Node {
 	default:
 		n.SetOp(ir.OCALLFUNC)
 		if t.Kind() != types.TFUNC {
-			if o := ir.Orig(l); o.Name() != nil && types.BuiltinPkg.Lookup(o.Sym().Name).Def != nil {
+			if o := l; o.Name() != nil && types.BuiltinPkg.Lookup(o.Sym().Name).Def != nil {
 				// be more specific when the non-function
 				// name matches a predeclared function
 				base.Errorf("cannot call non-function %L, declared at %s",
@@ -331,17 +252,17 @@ func tcCall(n *ir.CallExpr, top int) ir.Node {
 		}
 	}
 
-	typecheckaste(ir.OCALL, n.X, n.IsDDD, t.Params(), n.Args, func() string { return fmt.Sprintf("argument to %v", n.X) })
+	typecheckaste(ir.OCALL, n.Fun, n.IsDDD, t.Params(), n.Args, func() string { return fmt.Sprintf("argument to %v", n.Fun) })
 	FixVariadicCall(n)
 	FixMethodCall(n)
 	if t.NumResults() == 0 {
 		return n
 	}
 	if t.NumResults() == 1 {
-		n.SetType(l.Type().Results().Field(0).Type)
+		n.SetType(l.Type().Result(0).Type)
 
-		if n.Op() == ir.OCALLFUNC && n.X.Op() == ir.ONAME {
-			if sym := n.X.(*ir.Name).Sym(); types.IsRuntimePkg(sym.Pkg) && sym.Name == "getg" {
+		if n.Op() == ir.OCALLFUNC && n.Fun.Op() == ir.ONAME {
+			if sym := n.Fun.(*ir.Name).Sym(); types.RuntimeSymName(sym) == "getg" {
 				// Emit code for runtime.getg() directly instead of calling function.
 				// Most such rewrites (for example the similar one for math.Sqrt) should be done in walk,
 				// so that the ordering pass can make sure to preserve the semantics of the original code
@@ -360,7 +281,7 @@ func tcCall(n *ir.CallExpr, top int) ir.Node {
 		return n
 	}
 
-	n.SetType(l.Type().Results())
+	n.SetType(l.Type().ResultsTuple())
 	return n
 }
 
@@ -834,22 +755,17 @@ func tcRecover(n *ir.CallExpr) ir.Node {
 		return n
 	}
 
-	n.SetType(types.Types[types.TINTER])
-	return n
-}
-
-// tcRecoverFP typechecks an ORECOVERFP node.
-func tcRecoverFP(n *ir.CallExpr) ir.Node {
-	if len(n.Args) != 1 {
-		base.FatalfAt(n.Pos(), "wrong number of arguments: %v", n)
+	// FP is equal to caller's SP plus FixedFrameSize.
+	var fp ir.Node = ir.NewCallExpr(n.Pos(), ir.OGETCALLERSP, nil, nil)
+	if off := base.Ctxt.Arch.FixedFrameSize; off != 0 {
+		fp = ir.NewBinaryExpr(n.Pos(), ir.OADD, fp, ir.NewInt(base.Pos, off))
 	}
+	// TODO(mdempsky): Replace *int32 with unsafe.Pointer, without upsetting checkptr.
+	fp = ir.NewConvExpr(n.Pos(), ir.OCONVNOP, types.NewPtr(types.Types[types.TINT32]), fp)
 
-	n.Args[0] = Expr(n.Args[0])
-	if !n.Args[0].Type().IsPtrShaped() {
-		base.FatalfAt(n.Pos(), "%L is not pointer shaped", n.Args[0])
-	}
-
+	n.SetOp(ir.ORECOVERFP)
 	n.SetType(types.Types[types.TINTER])
+	n.Args = []ir.Node{Expr(fp)}
 	return n
 }
 

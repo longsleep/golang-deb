@@ -112,9 +112,6 @@ type unwinder struct {
 	// flags are the flags to this unwind. Some of these are updated as we
 	// unwind (see the flags documentation).
 	flags unwindFlags
-
-	// cache is used to cache pcvalue lookups.
-	cache pcvalueCache
 }
 
 // init initializes u to start unwinding gp's stack and positions the
@@ -180,7 +177,7 @@ func (u *unwinder) initAt(pc0, sp0, lr0 uintptr, gp *g, flags unwindFlags) {
 			frame.pc = *(*uintptr)(unsafe.Pointer(frame.sp))
 			frame.lr = 0
 		} else {
-			frame.pc = uintptr(*(*uintptr)(unsafe.Pointer(frame.sp)))
+			frame.pc = *(*uintptr)(unsafe.Pointer(frame.sp))
 			frame.sp += goarch.PtrSize
 		}
 	}
@@ -202,7 +199,7 @@ func (u *unwinder) initAt(pc0, sp0, lr0 uintptr, gp *g, flags unwindFlags) {
 	f := findfunc(frame.pc)
 	if !f.valid() {
 		if flags&unwindSilentErrors == 0 {
-			print("runtime: g ", gp.goid, ": unknown pc ", hex(frame.pc), "\n")
+			print("runtime: g ", gp.goid, " gp=", gp, ": unknown pc ", hex(frame.pc), "\n")
 			tracebackHexdump(gp.stack, &frame, 0)
 		}
 		if flags&(unwindPrintErrors|unwindSilentErrors) == 0 {
@@ -307,7 +304,7 @@ func (u *unwinder) resolveInternal(innermost, isSyscall bool) {
 			case abi.FuncID_systemstack:
 				// systemstack returns normally, so just follow the
 				// stack transition.
-				if usesLR && funcspdelta(f, frame.pc, &u.cache) == 0 {
+				if usesLR && funcspdelta(f, frame.pc) == 0 {
 					// We're at the function prologue and the stack
 					// switch hasn't happened, or epilogue where we're
 					// about to return. Just unwind normally.
@@ -325,7 +322,7 @@ func (u *unwinder) resolveInternal(innermost, isSyscall bool) {
 				flag &^= abi.FuncFlagSPWrite
 			}
 		}
-		frame.fp = frame.sp + uintptr(funcspdelta(f, frame.pc, &u.cache))
+		frame.fp = frame.sp + uintptr(funcspdelta(f, frame.pc))
 		if !usesLR {
 			// On x86, call instruction pushes return PC before entering new function.
 			frame.fp += goarch.PtrSize
@@ -359,15 +356,12 @@ func (u *unwinder) resolveInternal(innermost, isSyscall bool) {
 		//
 		// uSE uPE inn | action
 		//  T   _   _  | frame.lr = 0
-		//  F   T   F  | frame.lr = 0; print
-		//  F   T   T  | frame.lr = 0
+		//  F   T   _  | frame.lr = 0
 		//  F   F   F  | print; panic
 		//  F   F   T  | ignore SPWrite
-		if u.flags&unwindSilentErrors == 0 && !innermost {
+		if u.flags&(unwindPrintErrors|unwindSilentErrors) == 0 && !innermost {
 			println("traceback: unexpected SPWRITE function", funcname(f))
-			if u.flags&unwindPrintErrors == 0 {
-				throw("traceback")
-			}
+			throw("traceback")
 		}
 		frame.lr = 0
 	} else {
@@ -510,7 +504,7 @@ func (u *unwinder) next() {
 		frame.fn = f
 		if !f.valid() {
 			frame.pc = x
-		} else if funcspdelta(f, frame.pc, &u.cache) == 0 {
+		} else if funcspdelta(f, frame.pc) == 0 {
 			frame.lr = x
 		}
 	}
@@ -630,7 +624,7 @@ func tracebackPCs(u *unwinder, skip int, pcBuf []uintptr) int {
 		cgoN := u.cgoCallers(cgoBuf[:])
 
 		// TODO: Why does &u.cache cause u to escape? (Same in traceback2)
-		for iu, uf := newInlineUnwinder(f, u.symPC(), noEscapePtr(&u.cache)); n < len(pcBuf) && uf.valid(); uf = iu.next(uf) {
+		for iu, uf := newInlineUnwinder(f, u.symPC()); n < len(pcBuf) && uf.valid(); uf = iu.next(uf) {
 			sf := iu.srcFunc(uf)
 			if sf.funcID == abi.FuncIDWrapper && elideWrapperCalling(u.calleeFuncID) {
 				// ignore wrappers
@@ -680,7 +674,7 @@ func printArgs(f funcInfo, argp unsafe.Pointer, pc uintptr) {
 	}
 
 	liveInfo := funcdata(f, abi.FUNCDATA_ArgLiveInfo)
-	liveIdx := pcdatavalue(f, abi.PCDATA_ArgLiveIndex, pc, nil)
+	liveIdx := pcdatavalue(f, abi.PCDATA_ArgLiveIndex, pc)
 	startOffset := uint8(0xff) // smallest offset that needs liveness info (slots with a lower offset is always live)
 	if liveInfo != nil {
 		startOffset = *(*uint8)(liveInfo)
@@ -987,7 +981,7 @@ func traceback2(u *unwinder, showRuntime bool, skip, max int) (n, lastN int) {
 	for ; u.valid(); u.next() {
 		lastN = 0
 		f := u.frame.fn
-		for iu, uf := newInlineUnwinder(f, u.symPC(), noEscapePtr(&u.cache)); uf.valid(); uf = iu.next(uf) {
+		for iu, uf := newInlineUnwinder(f, u.symPC()); uf.valid(); uf = iu.next(uf) {
 			sf := iu.srcFunc(uf)
 			callee := u.calleeFuncID
 			u.calleeFuncID = sf.funcID
@@ -1088,7 +1082,7 @@ func printAncestorTraceback(ancestor ancestorInfo) {
 // due to only have access to the pcs at the time of the caller
 // goroutine being created.
 func printAncestorTracebackFuncInfo(f funcInfo, pc uintptr) {
-	u, uf := newInlineUnwinder(f, pc, nil)
+	u, uf := newInlineUnwinder(f, pc)
 	file, line := u.fileLine(uf)
 	printFuncName(u.srcFunc(uf).name())
 	print("(...)\n")
@@ -1183,6 +1177,8 @@ var gStatusStrings = [...]string{
 }
 
 func goroutineheader(gp *g) {
+	level, _, _ := gotraceback()
+
 	gpstatus := readgstatus(gp)
 
 	isScan := gpstatus&_Gscan != 0
@@ -1206,7 +1202,16 @@ func goroutineheader(gp *g) {
 	if (gpstatus == _Gwaiting || gpstatus == _Gsyscall) && gp.waitsince != 0 {
 		waitfor = (nanotime() - gp.waitsince) / 60e9
 	}
-	print("goroutine ", gp.goid, " [", status)
+	print("goroutine ", gp.goid)
+	if gp.m != nil && gp.m.throwing >= throwTypeRuntime && gp == gp.m.curg || level >= 2 {
+		print(" gp=", gp)
+		if gp.m != nil {
+			print(" m=", gp.m.id, " mp=", gp.m)
+		} else {
+			print(" m=nil")
+		}
+	}
+	print(" [", status)
 	if isScan {
 		print(" (scan)")
 	}
@@ -1317,7 +1322,7 @@ func isSystemGoroutine(gp *g, fixed bool) bool {
 	if !f.valid() {
 		return false
 	}
-	if f.funcID == abi.FuncID_runtime_main || f.funcID == abi.FuncID_handleAsyncEvent {
+	if f.funcID == abi.FuncID_runtime_main || f.funcID == abi.FuncID_corostart || f.funcID == abi.FuncID_handleAsyncEvent {
 		return false
 	}
 	if f.funcID == abi.FuncID_runfinq {

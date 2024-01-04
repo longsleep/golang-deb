@@ -1,6 +1,6 @@
 <!--{
 	"Title": "The Go Programming Language Specification",
-	"Subtitle": "Version of Aug 2, 2023",
+	"Subtitle": "Version of Nov 1, 2023",
 	"Path": "/ref/spec"
 }-->
 
@@ -10,7 +10,7 @@
 This is the reference manual for the Go programming language.
 The pre-Go1.18 version, without generics, can be found
 <a href="/doc/go1.17_spec.html">here</a>.
-For more information and other documents, see <a href="/">golang.org</a>.
+For more information and other documents, see <a href="/">go.dev</a>.
 </p>
 
 <p>
@@ -884,7 +884,7 @@ are required when different numeric types are mixed in an expression
 or assignment. For instance, <code>int32</code> and <code>int</code>
 are not the same type even though they may have the same size on a
 particular architecture.
-
+</p>
 
 <h3 id="String_types">String types</h3>
 
@@ -3910,7 +3910,7 @@ For <code>a</code> of <a href="#Type_parameter_declarations">type parameter type
 	    that <code>P</code> is instantiated with, and the type of <code>a[x]</code> is
 	    the type of the (identical) element types.</li>
 	<li><code>a[x]</code> may not be assigned to if <code>P</code>'s type set
-	    includes string types.
+	    includes string types.</li>
 </ul>
 
 <p>
@@ -4491,7 +4491,7 @@ the type parameters of the functions that need to be instantiated
 and for which no explicit type arguments is provided.
 These type parameters are called <i>bound</i> type parameters.
 For instance, in the <code>dedup</code> example above, the type parameters
-<code>P</code> and <code>E</code> are bound to <code>dedup</code>.
+<code>S</code> and <code>E</code> are bound to <code>dedup</code>.
 An argument to a generic function call may be a generic function itself.
 The type parameters of that function are included in the set of bound
 type parameters.
@@ -4639,7 +4639,7 @@ Type inference succeeds if no unification step fails and the map has
 an entry for each type parameter.
 </p>
 
-</pre>
+<p>
 For example, given the type equation with the bound type parameter
 <code>P</code>
 </p>
@@ -4803,6 +4803,7 @@ As the  <code>++</code> and <code>--</code> operators form
 statements, not expressions, they fall
 outside the operator hierarchy.
 As a consequence, statement <code>*p++</code> is the same as <code>(*p)++</code>.
+</p>
 <p>
 There are five precedence levels for binary operators.
 Multiplication operators bind strongest, followed by addition
@@ -4825,12 +4826,13 @@ For instance, <code>x / y * z</code> is the same as <code>(x / y) * z</code>.
 </p>
 
 <pre>
-+x
-23 + 3*x[i]
-x &lt;= f()
-^a &gt;&gt; b
-f() || g()
-x == y+1 &amp;&amp; &lt;-chanInt &gt; 0
++x                         // x
+42 + a - b                 // (42 + a) - b
+23 + 3*x[i]                // 23 + (3 * x[i])
+x &lt;= f()                   // x &lt;= f()
+^a &gt;&gt; b                    // (^a) >> b
+f() || g()                 // f() || g()
+x == y+1 &amp;&amp; &lt;-chanInt &gt; 0  // (x == (y+1)) && ((<-chanInt) > 0)
 </pre>
 
 
@@ -5207,7 +5209,7 @@ Specifically:
 <p>
 Logical operators apply to <a href="#Boolean_types">boolean</a> values
 and yield a result of the same type as the operands.
-The right operand is evaluated conditionally.
+The left operand is evaluated, and then the right if the condition requires it.
 </p>
 
 <pre class="grammar">
@@ -5569,7 +5571,7 @@ myString([]myRune{0x1f30e})              // "\U0001f30e" == "🌎"
 
 <li>
 Converting a value of a string type to a slice of bytes type
-yields a slice whose successive elements are the bytes of the string.
+yields a non-nil slice whose successive elements are the bytes of the string.
 
 <pre>
 []byte("hellø")             // []byte{'h', 'e', 'l', 'l', '\xc3', '\xb8'}
@@ -5785,24 +5787,28 @@ determine the evaluation order of individual initialization expressions in
 Otherwise, when evaluating the <a href="#Operands">operands</a> of an
 expression, assignment, or
 <a href="#Return_statements">return statement</a>,
-all function calls, method calls, and
-communication operations are evaluated in lexical left-to-right
-order.
+all function calls, method calls,
+<a href="#Receive operator">receive operations</a>,
+and <a href="#Logical_operators">binary logical operations</a>
+are evaluated in lexical left-to-right order.
 </p>
 
 <p>
 For example, in the (function-local) assignment
 </p>
 <pre>
-y[f()], ok = g(h(), i()+x[j()], &lt;-c), k()
+y[f()], ok = g(z || h(), i()+x[j()], &lt;-c), k()
 </pre>
 <p>
 the function calls and communication happen in the order
-<code>f()</code>, <code>h()</code>, <code>i()</code>, <code>j()</code>,
+<code>f()</code>, <code>h()</code> (if <code>z</code>
+evaluates to false), <code>i()</code>, <code>j()</code>,
 <code>&lt;-c</code>, <code>g()</code>, and <code>k()</code>.
 However, the order of those events compared to the evaluation
 and indexing of <code>x</code> and the evaluation
-of <code>y</code> is not specified.
+of <code>y</code> and <code>z</code> is not specified,
+except as required lexically. For instance, <code>g</code>
+cannot be called before its arguments are evaluated.
 </p>
 
 <pre>
@@ -6546,8 +6552,9 @@ for      { S() }    is the same as    for true     { S() }
 
 <p>
 A "for" statement with a "range" clause
-iterates through all entries of an array, slice, string or map,
-or values received on a channel. For each entry it assigns <i>iteration values</i>
+iterates through all entries of an array, slice, string or map, values received on
+a channel, or integer values from zero to an upper limit.
+For each entry it assigns <i>iteration values</i>
 to corresponding <i>iteration variables</i> if present and then executes the block.
 </p>
 
@@ -6558,12 +6565,12 @@ RangeClause = [ ExpressionList "=" | IdentifierList ":=" ] "range" Expression .
 <p>
 The expression on the right in the "range" clause is called the <i>range expression</i>,
 its <a href="#Core_types">core type</a> must be
-an array, pointer to an array, slice, string, map, or channel permitting
-<a href="#Receive_operator">receive operations</a>.
+an array, pointer to an array, slice, string, map, channel permitting
+<a href="#Receive_operator">receive operations</a>, or an integer.
 As with an assignment, if present the operands on the left must be
 <a href="#Address_operators">addressable</a> or map index expressions; they
-denote the iteration variables. If the range expression is a channel, at most
-one iteration variable is permitted, otherwise there may be up to two.
+denote the iteration variables. If the range expression is a channel or integer,
+at most one iteration variable is permitted, otherwise there may be up to two.
 If the last iteration variable is the <a href="#Blank_identifier">blank identifier</a>,
 the range clause is equivalent to the same clause without that identifier.
 </p>
@@ -6588,6 +6595,7 @@ array or slice  a  [n]E, *[n]E, or []E    index    i  int    a[i]       E
 string          s  string type            index    i  int    see below  rune
 map             m  map[K]V                key      k  K      m[k]       V
 channel         c  chan E, &lt;-chan E       element  e  E
+integer         n  integer type I         value    i  I
 </pre>
 
 <ol>
@@ -6625,6 +6633,12 @@ If the map is <code>nil</code>, the number of iterations is 0.
 For channels, the iteration values produced are the successive values sent on
 the channel until the channel is <a href="#Close">closed</a>. If the channel
 is <code>nil</code>, the range expression blocks forever.
+</li>
+
+<li>
+For an integer value <code>n</code>, the iteration values 0 through <code>n-1</code>
+are produced in increasing order, with the same type as <code>n</code>.
+If <code>n</code> &lt= 0, the loop does not run any iterations.
 </li>
 </ol>
 
@@ -6678,6 +6692,12 @@ for w := range ch {
 
 // empty a channel
 for range ch {}
+
+// call f(0), f(1), ... f(9)
+for i := range 10 {
+	// type of i is int (default type for untyped constant 10)
+	f(i)
+}
 </pre>
 
 
@@ -8487,7 +8507,7 @@ Finally, two types that are not bound type parameters unify loosely
 	identical <a href="#Interface_types">type terms</a>,
 	both or neither embed the predeclared type
 	<a href="#Predeclared_identifiers">comparable</a>,
-	corresponding method types unify per the element matching mode,
+	corresponding method types unify exactly,
 	and the method set of one of the interfaces is a subset of
 	the method set of the other interface.
 </li>

@@ -94,6 +94,10 @@ start:
 
 	SUB	X6, X5, X7				// b3836240
 	SUB	X5, X6					// 33035340
+	SUB	$-2047, X5, X6				// 1383f27f
+	SUB	$2048, X5, X6				// 13830280
+	SUB	$-2047, X5				// 9382f27f
+	SUB	$2048, X5				// 93820280
 
 	SRA	X6, X5, X7				// b3d36240
 	SRA	X5, X6					// 33535340
@@ -157,6 +161,7 @@ start:
 	ADDW	$1, X6					// 1b031300
 	SLLW	$1, X6					// 1b131300
 	SRLW	$1, X6					// 1b531300
+	SUBW	$1, X6					// 1b03f3ff
 	SRAW	$1, X6					// 1b531340
 
 	// 5.3: Load and Store Instructions (RV64I)
@@ -354,6 +359,14 @@ start:
 	MOVD	F0, 4(X5)				// 27b20200
 	MOVD	F0, F1					// d3000022
 
+	// TLS load with local-exec (LUI + ADDIW + ADD of TP + load)
+	MOV	tls(SB), X5				// b70f00009b8f0f00b38f4f0083b20f00
+	MOVB	tls(SB), X5				// b70f00009b8f0f00b38f4f0083820f00
+
+	// TLS store with local-exec (LUI + ADDIW + ADD of TP + store)
+	MOV	X5, tls(SB)				// b70f00009b8f0f00b38f4f0023b05f00
+	MOVB	X5, tls(SB)				// b70f00009b8f0f00b38f4f0023805f00
+
 	// NOT pseudo-instruction
 	NOT	X5					// 93c2f2ff
 	NOT	X5, X6					// 13c3f2ff
@@ -373,7 +386,7 @@ start:
 	JMP	4(X5)					// 67804200
 
 	// CALL and JMP to symbol are encoded as JAL (using LR or ZERO
-	// respectively), with a R_RISCV_CALL relocation. The linker resolves
+	// respectively), with a R_RISCV_JAL relocation. The linker resolves
 	// the real address and updates the immediate, using a trampoline in
 	// the case where the address is not directly reachable.
 	CALL	asmtest(SB)				// ef000000
@@ -407,3 +420,5 @@ start:
 	FLTD	F0, F1, X5				// d39200a2
 	FLED	F0, F1, X5				// d38200a2
 	FEQD	F0, F1, X5				// d3a200a2
+
+GLOBL tls(SB), TLSBSS, $8

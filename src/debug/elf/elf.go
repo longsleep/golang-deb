@@ -2216,6 +2216,8 @@ const (
 	R_MIPS_TLS_TPREL64     R_MIPS = 48 /* TP-relative offset, 64 bit */
 	R_MIPS_TLS_TPREL_HI16  R_MIPS = 49 /* TP-relative offset, high 16 bits */
 	R_MIPS_TLS_TPREL_LO16  R_MIPS = 50 /* TP-relative offset, low 16 bits */
+
+	R_MIPS_PC32 R_MIPS = 248 /* 32 bit PC relative reference */
 )
 
 var rmipsStrings = []intName{
@@ -2267,6 +2269,7 @@ var rmipsStrings = []intName{
 	{48, "R_MIPS_TLS_TPREL64"},
 	{49, "R_MIPS_TLS_TPREL_HI16"},
 	{50, "R_MIPS_TLS_TPREL_LO16"},
+	{248, "R_MIPS_PC32"},
 }
 
 func (i R_MIPS) String() string   { return stringName(uint32(i), rmipsStrings, false) }
@@ -2365,6 +2368,15 @@ const (
 	R_LARCH_TLS_GD_HI20                R_LARCH = 98
 	R_LARCH_32_PCREL                   R_LARCH = 99
 	R_LARCH_RELAX                      R_LARCH = 100
+	R_LARCH_DELETE                     R_LARCH = 101
+	R_LARCH_ALIGN                      R_LARCH = 102
+	R_LARCH_PCREL20_S2                 R_LARCH = 103
+	R_LARCH_CFA                        R_LARCH = 104
+	R_LARCH_ADD6                       R_LARCH = 105
+	R_LARCH_SUB6                       R_LARCH = 106
+	R_LARCH_ADD_ULEB128                R_LARCH = 107
+	R_LARCH_SUB_ULEB128                R_LARCH = 108
+	R_LARCH_64_PCREL                   R_LARCH = 109
 )
 
 var rlarchStrings = []intName{
@@ -2457,6 +2469,15 @@ var rlarchStrings = []intName{
 	{98, "R_LARCH_TLS_GD_HI20"},
 	{99, "R_LARCH_32_PCREL"},
 	{100, "R_LARCH_RELAX"},
+	{101, "R_LARCH_DELETE"},
+	{102, "R_LARCH_ALIGN"},
+	{103, "R_LARCH_PCREL20_S2"},
+	{104, "R_LARCH_CFA"},
+	{105, "R_LARCH_ADD6"},
+	{106, "R_LARCH_SUB6"},
+	{107, "R_LARCH_ADD_ULEB128"},
+	{108, "R_LARCH_SUB_ULEB128"},
+	{109, "R_LARCH_64_PCREL"},
 }
 
 func (i R_LARCH) String() string   { return stringName(uint32(i), rlarchStrings, false) }
