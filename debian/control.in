@@ -18,7 +18,7 @@ Homepage: https://go.dev/
 Rules-Requires-Root: no
 
 Package: golang-X.Y-go
-Architecture: amd64 arm64 armel armhf i386 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
+Architecture: amd64 arm64 armel armhf i386 loong64 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
 Depends: golang-X.Y-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
