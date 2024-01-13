@@ -1,3 +1,15 @@
+golang-1.22 (1.22~rc1-2~bpo12+1) bookworm-backports; urgency=medium
+
+  [ Shengjing Zhu ]
+  * Bump bootstrap Go to 1.20.
+    See https://github.com/golang/go/issues/54265
+    gccgo only implements Go 1.18 and can't bootstrap Go 1.22 now.
+
+  [ Anthony Fok ]
+  * Rebuild for bookworm-backports.
+
+ -- Anthony Fok <foka@debian.org>  Fri, 12 Jan 2024 19:48:11 -0700
+
 golang-1.22 (1.22~rc1-2) unstable; urgency=medium
 
   * Skip TestUser{Cache,Config}Dir when HOME is not writable
