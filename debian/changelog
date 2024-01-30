@@ -1,3 +1,16 @@
+golang-1.22 (1.22~rc2-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.22~rc2
+  * Bump bootstrap Go to 1.20.
+    See https://github.com/golang/go/issues/54265
+    gccgo only implements Go 1.18 and can't bootstrap Go 1.22 now.
+  * Revert "Skip TestUser{Cache,Config}Dir when HOME is not writable"
+    This reverts commit 5e8f93837a5d73a391fbbc278a34e5a89f84ca9b.
+    Fixed by upstream https://github.com/golang/go/issues/64990
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 30 Jan 2024 17:15:39 +0800
+
 golang-1.22 (1.22~rc1-2) unstable; urgency=medium
 
   * Skip TestUser{Cache,Config}Dir when HOME is not writable
