@@ -1,3 +1,10 @@
+golang-1.22 (1.22.0-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.22.0
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 21 Feb 2024 16:57:04 +0800
+
 golang-1.22 (1.22~rc2-1) unstable; urgency=medium
 
   * Team upload
