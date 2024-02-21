@@ -1,3 +1,10 @@
+golang-1.21 (1.21.7-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.21.7
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 21 Feb 2024 16:35:15 +0800
+
 golang-1.21 (1.21.6-1) unstable; urgency=medium
 
   * Team upload
