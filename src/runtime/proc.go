@@ -759,8 +759,8 @@ func schedinit() {
 	lockInit(&reflectOffs.lock, lockRankReflectOffs)
 	lockInit(&finlock, lockRankFin)
 	lockInit(&cpuprof.lock, lockRankCpuprof)
-	allocmLock.init(lockRankAllocmR, lockRankAllocmW)
-	execLock.init(lockRankExecR, lockRankExecW)
+	allocmLock.init(lockRankAllocmR, lockRankAllocmRInternal, lockRankAllocmW)
+	execLock.init(lockRankExecR, lockRankExecRInternal, lockRankExecW)
 	traceLockInit()
 	// Enforce that this lock is always a leaf lock.
 	// All of this lock's critical sections should be
@@ -4404,8 +4404,8 @@ func entersyscall_gcwait() {
 	pp := gp.m.oldp.ptr()
 
 	lock(&sched.lock)
+	trace := traceAcquire()
 	if sched.stopwait > 0 && atomic.Cas(&pp.status, _Psyscall, _Pgcstop) {
-		trace := traceAcquire()
 		if trace.ok() {
 			if goexperiment.ExecTracer2 {
 				// This is a steal in the new tracer. While it's very likely
@@ -4428,6 +4428,8 @@ func entersyscall_gcwait() {
 		if sched.stopwait--; sched.stopwait == 0 {
 			notewakeup(&sched.stopnote)
 		}
+	} else if trace.ok() {
+		traceRelease(trace)
 	}
 	unlock(&sched.lock)
 }
@@ -4605,11 +4607,18 @@ func exitsyscallfast(oldp *p) bool {
 	}
 
 	// Try to re-acquire the last P.
+	trace := traceAcquire()
 	if oldp != nil && oldp.status == _Psyscall && atomic.Cas(&oldp.status, _Psyscall, _Pidle) {
 		// There's a cpu for us, so we can run.
 		wirep(oldp)
-		exitsyscallfast_reacquired()
+		exitsyscallfast_reacquired(trace)
+		if trace.ok() {
+			traceRelease(trace)
+		}
 		return true
+	}
+	if trace.ok() {
+		traceRelease(trace)
 	}
 
 	// Try to get any other idle P.
@@ -4646,10 +4655,9 @@ func exitsyscallfast(oldp *p) bool {
 // syscall.
 //
 //go:nosplit
-func exitsyscallfast_reacquired() {
+func exitsyscallfast_reacquired(trace traceLocker) {
 	gp := getg()
 	if gp.m.syscalltick != gp.m.p.ptr().syscalltick {
-		trace := traceAcquire()
 		if trace.ok() {
 			// The p was retaken and then enter into syscall again (since gp.m.syscalltick has changed).
 			// traceGoSysBlock for this syscall was already emitted,
@@ -4666,7 +4674,6 @@ func exitsyscallfast_reacquired() {
 					// Denote completion of the current syscall.
 					trace.GoSysExit(true)
 				}
-				traceRelease(trace)
 			})
 		}
 		gp.m.p.ptr().syscalltick++
@@ -5166,7 +5173,7 @@ func dolockOSThread() {
 // The calling goroutine will always execute in that thread,
 // and no other goroutine will execute in it,
 // until the calling goroutine has made as many calls to
-// UnlockOSThread as to LockOSThread.
+// [UnlockOSThread] as to LockOSThread.
 // If the calling goroutine exits without unlocking the thread,
 // the thread will be terminated.
 //
@@ -6146,8 +6153,8 @@ func retake(now int64) uint32 {
 			// Otherwise the M from which we retake can exit the syscall,
 			// increment nmidle and report deadlock.
 			incidlelocked(-1)
+			trace := traceAcquire()
 			if atomic.Cas(&pp.status, s, _Pidle) {
-				trace := traceAcquire()
 				if trace.ok() {
 					trace.GoSysBlock(pp)
 					trace.ProcSteal(pp, false)
@@ -6156,6 +6163,8 @@ func retake(now int64) uint32 {
 				n++
 				pp.syscalltick++
 				handoffp(pp)
+			} else if trace.ok() {
+				traceRelease(trace)
 			}
 			incidlelocked(1)
 			lock(&allpLock)
