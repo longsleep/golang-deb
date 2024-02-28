@@ -1,3 +1,10 @@
+golang-1.22 (1.22.0-2) unstable; urgency=medium
+
+  * Team upload
+  * Skip flaky TestCrashDumpsAllThreads on mips64le
+
+ -- Shengjing Zhu <zhsj@debian.org>  Mon, 26 Feb 2024 17:08:17 +0800
+
 golang-1.22 (1.22.0-1~bpo12+1) bookworm-backports; urgency=medium
 
   * Rebuild for bookworm-backports.

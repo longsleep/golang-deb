@@ -1,0 +1,24 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Mon, 26 Feb 2024 17:03:06 +0800
+Subject: Skip flaky TestCrashDumpsAllThreads on mips64le
+
+crash_unix_test.go:145: found 3 instances of main.crashDumpsAllThreadsLoop; expected 4
+---
+ src/runtime/crash_unix_test.go | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/runtime/crash_unix_test.go b/src/runtime/crash_unix_test.go
+index 123a462..20a7ca6 100644
+--- a/src/runtime/crash_unix_test.go
++++ b/src/runtime/crash_unix_test.go
+@@ -59,6 +59,10 @@ func TestCrashDumpsAllThreads(t *testing.T) {
+ 		t.Skip("-quick")
+ 	}
+ 
++	if runtime.GOARCH == "mips64le" {
++		t.Skipf("skipping; flaky on %s", runtime.GOARCH)
++	}
++
+ 	switch runtime.GOOS {
+ 	case "darwin", "dragonfly", "freebsd", "linux", "netbsd", "openbsd", "illumos", "solaris":
+ 	default:
