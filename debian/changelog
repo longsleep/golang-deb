@@ -1,3 +1,10 @@
+golang-1.22 (1.22.1-1longsleep1+focal) focal; urgency=medium
+
+  * Update upstream signing key
+  * New upstream version 1.22.1
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 05 Mar 2024 22:29:46 +0100
+
 golang-1.22 (1.22.0-2longsleep1+focal) focal; urgency=medium
 
   * Change packaging for Ubuntu backports
