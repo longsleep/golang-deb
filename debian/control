@@ -12,7 +12,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Anthony Fok <foka@debian.org>
 Section: golang
 Priority: optional
-Build-Depends: debhelper-compat (= 13),
+Build-Depends: debhelper (>= 11),
                golang-go (>= 2:1.20~),
                netbase
 Standards-Version: 4.6.2
