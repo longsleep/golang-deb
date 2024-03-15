@@ -1,3 +1,21 @@
+golang-1.22 (1.22.1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.22.1
+    + CVE-2024-24783: crypto/x509: Verify panics on certificates with an
+      unknown public key algorithm
+    + CVE-2023-45290: net/http: memory exhaustion in Request.ParseMultipartForm
+    + CVE-2023-45289: net/http, net/http/cookiejar: incorrect forwarding of
+      sensitive headers and cookies on HTTP redirect
+    + CVE-2024-24785: html/template: errors returned from MarshalJSON methods
+      may break template escaping
+    + CVE-2024-24784: net/mail: comments in display names are incorrectly
+      handled
+  * Update upstream signing key
+  * Backport patch to fix external link on riscv64 (Closes: #1065368)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 06 Mar 2024 15:09:10 +0800
+
 golang-1.22 (1.22.0-2~bpo12+1) bookworm-backports; urgency=medium
 
   * Rebuild for bookworm-backports.
