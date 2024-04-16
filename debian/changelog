@@ -1,3 +1,11 @@
+golang-1.22 (1.22.2-2) unstable; urgency=medium
+
+  * Team upload
+  * Skip flaky TestCrashDumpsAllThreads on s390x (LP: #2061742)
+    https://github.com/golang/go/issues/64650
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 16 Apr 2024 16:13:31 +0800
+
 golang-1.22 (1.22.2-1) unstable; urgency=medium
 
   * Team upload
