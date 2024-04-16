@@ -1,0 +1,24 @@
+From: Shengjing Zhu <zhsj@debian.org>
+Date: Tue, 16 Apr 2024 16:04:03 +0800
+Subject: Skip flaky TestCrashDumpsAllThreads on s390x
+
+Bug: https://github.com/golang/go/issues/64650
+---
+ src/runtime/crash_unix_test.go | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/runtime/crash_unix_test.go b/src/runtime/crash_unix_test.go
+index 20a7ca6..23cc273 100644
+--- a/src/runtime/crash_unix_test.go
++++ b/src/runtime/crash_unix_test.go
+@@ -63,6 +63,10 @@ func TestCrashDumpsAllThreads(t *testing.T) {
+ 		t.Skipf("skipping; flaky on %s", runtime.GOARCH)
+ 	}
+ 
++	if runtime.GOARCH == "s390x" {
++		t.Skipf("skipping; flaky on %s", runtime.GOARCH)
++	}
++
+ 	switch runtime.GOOS {
+ 	case "darwin", "dragonfly", "freebsd", "linux", "netbsd", "openbsd", "illumos", "solaris":
+ 	default:
