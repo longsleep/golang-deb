@@ -1,3 +1,11 @@
+golang-1.22 (1.22.3-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.22.3
+    + CVE-2024-24788: net: malformed DNS message can cause infinite loop
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 08 May 2024 17:11:30 +0800
+
 golang-1.22 (1.22.2-2) unstable; urgency=medium
 
   * Team upload
