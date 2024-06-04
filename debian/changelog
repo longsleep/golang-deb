@@ -1,3 +1,14 @@
+golang-1.21 (1.21.11-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.21.11
+    + CVE-2024-24789: archive/zip: mishandling of corrupt central directory
+      record
+    + CVE-2024-24790: net/netip: unexpected behavior from Is methods for
+      IPv4-mapped IPv6 addresses
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 05 Jun 2024 07:29:58 +0800
+
 golang-1.21 (1.21.10-1) unstable; urgency=medium
 
   * Team upload
