@@ -1,4 +1,4 @@
-golang-1.22 (1.22.4-2) UNRELEASED; urgency=medium
+golang-1.23 (1.23~rc1-1) UNRELEASED; urgency=medium
 
   * Team upload.
   * Remove myself from Uploaders
