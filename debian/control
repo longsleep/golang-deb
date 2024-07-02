@@ -26,7 +26,7 @@ Depends: golang-1.23-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
-Recommends: g++, gcc, libc6-dev, pkg-config
+Recommends: g++, gcc, libc6-dev, pkgconf
 Breaks: dh-golang (<< 1.43~)
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
