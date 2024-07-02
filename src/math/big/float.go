@@ -48,10 +48,10 @@ const debugFloat = false // enable for debugging
 //
 // By setting the desired precision to 24 or 53 and using matching rounding
 // mode (typically [ToNearestEven]), Float operations produce the same results
-// as the corresponding float32 or float64 IEEE-754 arithmetic for operands
+// as the corresponding float32 or float64 IEEE 754 arithmetic for operands
 // that correspond to normal (i.e., not denormal) float32 or float64 numbers.
 // Exponent underflow and overflow lead to a 0 or an Infinity for different
-// values than IEEE-754 because Float exponents have a much larger range.
+// values than IEEE 754 because Float exponents have a much larger range.
 //
 // The zero (uninitialized) value for a Float is ready to use and represents
 // the number +0.0 exactly, with precision 0 and rounding mode [ToNearestEven].
@@ -73,7 +73,7 @@ type Float struct {
 }
 
 // An ErrNaN panic is raised by a [Float] operation that would lead to
-// a NaN under IEEE-754 rules. An ErrNaN implements the error interface.
+// a NaN under IEEE 754 rules. An ErrNaN implements the error interface.
 type ErrNaN struct {
 	msg string
 }
@@ -672,9 +672,8 @@ func (z *Float) Set(x *Float) *Float {
 	return z
 }
 
-// Copy sets z to x, with the same precision, rounding mode, and
-// accuracy as x, and returns z. x is not changed even if z and
-// x are the same.
+// Copy sets z to x, with the same precision, rounding mode, and accuracy as x.
+// Copy returns z. If x and z are identical, Copy is a no-op.
 func (z *Float) Copy(x *Float) *Float {
 	if debugFloat {
 		x.validate()

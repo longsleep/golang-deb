@@ -10,6 +10,7 @@ import (
 	"internal/bytealg"
 	"unicode"
 	"unicode/utf8"
+	_ "unsafe" // for linkname
 )
 
 // Equal reports whether a and b
@@ -525,7 +526,7 @@ func Join(s [][]byte, sep []byte) []byte {
 		n += len(v)
 	}
 
-	b := bytealg.MakeNoZero(n)
+	b := bytealg.MakeNoZero(n)[:n:n]
 	bp := copy(b, s[0])
 	for _, v := range s[1:] {
 		bp += copy(b[bp:], sep)
@@ -568,6 +569,18 @@ func Map(mapping func(r rune) rune, s []byte) []byte {
 	return b
 }
 
+// Despite being an exported symbol,
+// Repeat is linknamed by widely used packages.
+// Notable members of the hall of shame include:
+//   - gitee.com/quant1x/num
+//
+// Do not remove or change the type signature.
+// See go.dev/issue/67401.
+//
+// Note that this comment is not part of the doc comment.
+//
+//go:linkname Repeat
+
 // Repeat returns a new byte slice consisting of count copies of b.
 //
 // It panics if count is negative or if the result of (len(b) * count)
@@ -583,7 +596,7 @@ func Repeat(b []byte, count int) []byte {
 	if count < 0 {
 		panic("bytes: negative Repeat count")
 	}
-	if len(b) >= maxInt/count {
+	if len(b) > maxInt/count {
 		panic("bytes: Repeat output length overflow")
 	}
 	n := len(b) * count
@@ -610,7 +623,7 @@ func Repeat(b []byte, count int) []byte {
 			chunkMax = len(b)
 		}
 	}
-	nb := bytealg.MakeNoZero(n)
+	nb := bytealg.MakeNoZero(n)[:n:n]
 	bp := copy(nb, b)
 	for bp < n {
 		chunk := bp
@@ -640,7 +653,7 @@ func ToUpper(s []byte) []byte {
 			// Just return a copy.
 			return append([]byte(""), s...)
 		}
-		b := bytealg.MakeNoZero(len(s))
+		b := bytealg.MakeNoZero(len(s))[:len(s):len(s)]
 		for i := 0; i < len(s); i++ {
 			c := s[i]
 			if 'a' <= c && c <= 'z' {
@@ -670,7 +683,7 @@ func ToLower(s []byte) []byte {
 		if !hasUpper {
 			return append([]byte(""), s...)
 		}
-		b := bytealg.MakeNoZero(len(s))
+		b := bytealg.MakeNoZero(len(s))[:len(s):len(s)]
 		for i := 0; i < len(s); i++ {
 			c := s[i]
 			if 'A' <= c && c <= 'Z' {
