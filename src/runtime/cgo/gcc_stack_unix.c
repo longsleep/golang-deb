@@ -31,11 +31,17 @@ x_cgo_getstackbound(uintptr bounds[2])
 	pthread_attr_get_np(pthread_self(), &attr);
 	pthread_attr_getstack(&attr, &addr, &size); // low address
 #else
+	// We don't know how to get the current stacks, so assume they are the
+	// same as the default stack bounds.
 	pthread_attr_getstacksize(&attr, &size);
 	addr = __builtin_frame_address(0) + 4096 - size;
 #endif
 	pthread_attr_destroy(&attr);
 
+	// bounds points into the Go stack. TSAN can't see the synchronization
+	// in Go around stack reuse.
+	_cgo_tsan_acquire();
 	bounds[0] = (uintptr)addr;
 	bounds[1] = (uintptr)addr + size;
+	_cgo_tsan_release();
 }

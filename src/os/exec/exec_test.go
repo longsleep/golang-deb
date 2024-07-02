@@ -304,7 +304,7 @@ func cmdExit(args ...string) {
 }
 
 func cmdDescribeFiles(args ...string) {
-	f := os.NewFile(3, fmt.Sprintf("fd3"))
+	f := os.NewFile(3, "fd3")
 	ln, err := net.FileListener(f)
 	if err == nil {
 		fmt.Printf("fd3: listener %s\n", ln.Addr())
@@ -1366,7 +1366,7 @@ func TestWaitInterrupt(t *testing.T) {
 	})
 
 	// With a very long WaitDelay and no Cancel function, we should wait for the
-	// process to exit even if the command's Context is cancelled.
+	// process to exit even if the command's Context is canceled.
 	t.Run("WaitDelay", func(t *testing.T) {
 		if runtime.GOOS == "windows" {
 			t.Skipf("skipping: os.Interrupt is not implemented on Windows")
@@ -1404,7 +1404,7 @@ func TestWaitInterrupt(t *testing.T) {
 		}
 	})
 
-	// If the context is cancelled and the Cancel function sends os.Kill,
+	// If the context is canceled and the Cancel function sends os.Kill,
 	// the process should be terminated immediately, and its output
 	// pipes should be closed (causing Wait to return) after WaitDelay
 	// even if a child process is still writing to them.
@@ -1659,8 +1659,8 @@ func TestCancelErrors(t *testing.T) {
 		// This test should kill the child process after 1ms,
 		// To maximize compatibility with existing uses of exec.CommandContext, the
 		// resulting error should be an exec.ExitError without additional wrapping.
-		if ee, ok := err.(*exec.ExitError); !ok {
-			t.Errorf("Wait error = %v; want %T", err, *ee)
+		if _, ok := err.(*exec.ExitError); !ok {
+			t.Errorf("Wait error = %v; want *exec.ExitError", err)
 		}
 	})
 
@@ -1834,4 +1834,33 @@ func TestPathRace(t *testing.T) {
 
 	t.Logf("running in background: %v", cmd)
 	<-done
+}
+
+func TestAbsPathExec(t *testing.T) {
+	testenv.MustHaveExec(t)
+	testenv.MustHaveGoBuild(t) // must have GOROOT/bin/gofmt, but close enough
+
+	// A simple exec of a full path should work.
+	// Go 1.22 broke this on Windows, requiring ".exe"; see #66586.
+	exe := filepath.Join(testenv.GOROOT(t), "bin/gofmt")
+	cmd := exec.Command(exe)
+	if cmd.Path != exe {
+		t.Errorf("exec.Command(%#q) set Path=%#q", exe, cmd.Path)
+	}
+	err := cmd.Run()
+	if err != nil {
+		t.Errorf("using exec.Command(%#q): %v", exe, err)
+	}
+
+	cmd = &exec.Cmd{Path: exe}
+	err = cmd.Run()
+	if err != nil {
+		t.Errorf("using exec.Cmd{Path: %#q}: %v", cmd.Path, err)
+	}
+
+	cmd = &exec.Cmd{Path: "gofmt", Dir: "/"}
+	err = cmd.Run()
+	if err == nil {
+		t.Errorf("using exec.Cmd{Path: %#q}: unexpected success", cmd.Path)
+	}
 }
