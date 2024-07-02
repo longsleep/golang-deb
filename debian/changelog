@@ -1,9 +1,15 @@
-golang-1.23 (1.23~rc1-1) UNRELEASED; urgency=medium
+golang-1.23 (1.23~rc1-1) unstable; urgency=medium
 
   * Team upload.
+
+  [ Dr. Tobias Quathamer ]
   * Remove myself from Uploaders
 
- -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 26 Jun 2024 14:29:03 +0200
+  [ Shengjing Zhu ]
+  * New upstream version 1.23~rc1
+  * Replace pkg-config with pkgconf
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 02 Jul 2024 16:20:00 +0800
 
 golang-1.22 (1.22.4-1) unstable; urgency=medium
 
