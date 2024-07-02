@@ -41,6 +41,7 @@ unstripped-binary-or-object [usr/share/go-X.Y/src/debug/elf/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/race/*.syso]
 unstripped-static-library (_go_.o) [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
+package-contains-eslint-config-file [usr/share/go-1.23/src/cmd/vendor/golang.org/x/telemetry/.eslintrc.json]
 
 # old syntax for ftp-master
 arch-dependent-file-in-usr-share usr/share/go-X.Y/src/cmd/objdump/testdata/*

@@ -23,8 +23,8 @@ source-is-missing [src/debug/elf/testdata/*]
 # Source is in src/runtime/pprof/testdata/README
 source-is-missing [src/runtime/pprof/testdata/*]
 
-source-is-missing [src/cmd/trace/static/trace_viewer_full.html]
-source-is-missing [src/cmd/trace/static/webcomponents.min.js]
+source-is-missing [src/internal/trace/traceviewer/static/trace_viewer_full.html]
+source-is-missing [src/internal/trace/traceviewer/static/webcomponents.min.js]
 source-is-missing [src/crypto/internal/boring/syso/goboringcrypto_linux_amd64.syso]
 source-is-missing [src/crypto/internal/boring/syso/goboringcrypto_linux_arm64.syso]
 source-is-missing [src/runtime/race/internal/amd64v1/race_freebsd.syso]
