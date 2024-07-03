@@ -1,3 +1,12 @@
+golang-1.21 (1.21.12-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.21.12
+    + CVE-2024-24791: net/http: denial of service due to improper 100-continue
+      handling
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 03 Jul 2024 16:04:00 +0800
+
 golang-1.21 (1.21.11-1) unstable; urgency=medium
 
   * Team upload
