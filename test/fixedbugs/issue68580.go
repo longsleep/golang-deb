@@ -1,4 +1,4 @@
-// run -gcflags=all=-d=checkptr
+// compile -goexperiment aliastypeparams
 
 // Copyright 2024 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -6,14 +6,10 @@
 
 package main
 
-import (
-	"regexp"
-	"unique"
-)
+type A[P any] = struct{ _ P }
 
-var dataFileRegexp = regexp.MustCompile(`^data\.\d+\.bin$`)
+type N[P any] A[P]
 
-func main() {
-	_ = dataFileRegexp
-	unique.Make("")
-}
+func f[P any](N[P]) {}
+
+var _ = f[int]
