@@ -1376,8 +1376,7 @@ func TestChtimes(t *testing.T) {
 	t.Parallel()
 
 	f := newFile(t)
-
-	f.Write([]byte("hello, world\n"))
+	// This should be an empty file (see #68687, #68663).
 	f.Close()
 
 	testChtimes(t, f.Name())
@@ -1395,12 +1394,9 @@ func TestChtimesOmit(t *testing.T) {
 func testChtimesOmit(t *testing.T, omitAt, omitMt bool) {
 	t.Logf("omit atime: %v, mtime: %v", omitAt, omitMt)
 	file := newFile(t)
-	_, err := file.Write([]byte("hello, world\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// This should be an empty file (see #68687, #68663).
 	name := file.Name()
-	err = file.Close()
+	err := file.Close()
 	if err != nil {
 		t.Error(err)
 	}
@@ -3358,6 +3354,14 @@ func TestCopyFS(t *testing.T) {
 		t.Fatal("comparing two directories:", err)
 	}
 
+	// Test whether CopyFS disallows copying for disk filesystem when there is any
+	// existing file in the destination directory.
+	if err := CopyFS(tmpDir, fsys); !errors.Is(err, fs.ErrExist) {
+		t.Errorf("CopyFS should have failed and returned error when there is"+
+			"any existing file in the destination directory (in disk filesystem), "+
+			"got: %v, expected any error that indicates <file exists>", err)
+	}
+
 	// Test with memory filesystem.
 	fsys = fstest.MapFS{
 		"william":    {Data: []byte("Shakespeare\n")},
@@ -3394,6 +3398,14 @@ func TestCopyFS(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal("comparing two directories:", err)
+	}
+
+	// Test whether CopyFS disallows copying for memory filesystem when there is any
+	// existing file in the destination directory.
+	if err := CopyFS(tmpDir, fsys); !errors.Is(err, fs.ErrExist) {
+		t.Errorf("CopyFS should have failed and returned error when there is"+
+			"any existing file in the destination directory (in memory filesystem), "+
+			"got: %v, expected any error that indicates <file exists>", err)
 	}
 }
 
