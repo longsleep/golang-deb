@@ -1,3 +1,13 @@
+golang-1.23 (1.23.1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.23.1
+    + CVE-2024-34155: go/parser: stack exhaustion in all Parse* functions
+    + CVE-2022-30635: encoding/gob: stack exhaustion in Decoder.Decode
+    + CVE-2024-34158: go/build/constraint: stack exhaustion in Parse
+
+ -- Shengjing Zhu <zhsj@debian.org>  Mon, 09 Sep 2024 16:26:12 +0800
+
 golang-1.23 (1.23.0-1) unstable; urgency=medium
 
   * Team upload
