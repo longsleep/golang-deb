@@ -6,4 +6,4 @@ export GO_TEST_TIMEOUT_SCALE=10
 
 GO="/usr/lib/go-$(dpkg-parsechangelog -SSource | sed 's/golang-//')/bin/go"
 
-$GO test -v -test.parallel=1 cmd/internal/testdir -l 1
+$GO test -v --parallel=1 -timeout=1h cmd/internal/testdir
