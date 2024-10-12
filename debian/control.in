@@ -8,7 +8,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
 Section: golang
 Priority: optional
 Build-Depends: debhelper-compat (= 13),
-               golang-go (>= 2:1.20~),
+               golang-1.23-go | golang-1.22-go | golang-1.21-go | golang-1.20-go,
                netbase
 Standards-Version: 4.6.2
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-X.Y
@@ -22,7 +22,7 @@ Depends: golang-X.Y-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
-Recommends: g++, gcc, libc6-dev, pkg-config
+Recommends: g++, gcc, libc6-dev, pkgconf
 Breaks: dh-golang (<< 1.43~)
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
