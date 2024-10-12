@@ -14,7 +14,7 @@ export GOVER := $(shell echo $(DEB_VERSION_UPSTREAM) | grep -oP '^([0-9]+\.[0-9]
 
 export GOROOT := $(CURDIR)
 export GOROOT_FINAL := /usr/lib/go-$(GOVER)
-export GOROOT_BOOTSTRAP := $(shell env -i GOPATH=$(GOPATH) go env GOROOT)
+export GOROOT_BOOTSTRAP := $(shell ls -d -1 /usr/lib/go-1.* | sort -n | tail -n1)
 
 export GOPATH := $(CURDIR)/gopath/
 # Go 1.12 needs a build cache, otherwise the build fails.
