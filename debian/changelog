@@ -1,3 +1,12 @@
+golang-1.23 (1.23.3-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.23.3
+  * Switch to versioned golang-1.XX-go packages for building.
+    Break circular loop with golang-defaults metapackage (Closes: #1081647)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Thu, 07 Nov 2024 15:32:48 +0800
+
 golang-1.23 (1.23.2-1) unstable; urgency=medium
 
   * Team upload
