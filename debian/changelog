@@ -1,3 +1,10 @@
+golang-1.23 (1.23.3-2) unstable; urgency=medium
+
+  * Team upload
+  * Running regression autopkgtest with root
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 12 Nov 2024 17:15:48 +0800
+
 golang-1.23 (1.23.3-1) unstable; urgency=medium
 
   * Team upload
