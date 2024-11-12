@@ -1,3 +1,11 @@
+golang-1.22 (1.22.9-2) unstable; urgency=medium
+
+  * Team upload
+  * Running regression autopkgtest with root
+  * Increase timeout in regression autopkgtest
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 12 Nov 2024 17:18:05 +0800
+
 golang-1.22 (1.22.9-1) unstable; urgency=medium
 
   * Team upload
