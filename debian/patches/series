@@ -1,2 +1,3 @@
 0001-Skip-flaky-TestCrashDumpsAllThreads-on-mips64le.patch
 0002-Skip-flaky-TestCrashDumpsAllThreads-on-s390x.patch
+0003-disable-tests-using-expired-certificates.patch

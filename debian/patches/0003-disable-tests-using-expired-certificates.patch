@@ -1,0 +1,32 @@
+From: Santiago Vila <sanvila@debian.org>
+Subject: Disable tests using soon-to-be-expired certificates.
+Bug-Debian: https://bugs.debian.org/1091497
+
+--- a/src/crypto/tls/handshake_client_test.go
++++ b/src/crypto/tls/handshake_client_test.go
+@@ -1556,6 +1556,7 @@
+ }
+ 
+ func TestVerifyConnection(t *testing.T) {
++	t.Skip("Skipping due to soon-to-be-expired test certificates.")
+ 	t.Run("TLSv12", func(t *testing.T) { testVerifyConnection(t, VersionTLS12) })
+ 	t.Run("TLSv13", func(t *testing.T) { testVerifyConnection(t, VersionTLS13) })
+ }
+@@ -2523,6 +2524,7 @@
+ }
+ 
+ func TestResumptionKeepsOCSPAndSCT(t *testing.T) {
++	t.Skip("Skipping due to soon-to-be-expired test certificates.")
+ 	t.Run("TLSv12", func(t *testing.T) { testResumptionKeepsOCSPAndSCT(t, VersionTLS12) })
+ 	t.Run("TLSv13", func(t *testing.T) { testResumptionKeepsOCSPAndSCT(t, VersionTLS13) })
+ }
+--- a/src/crypto/tls/handshake_server_test.go
++++ b/src/crypto/tls/handshake_server_test.go
+@@ -493,6 +493,7 @@
+ }
+ 
+ func TestCrossVersionResume(t *testing.T) {
++	t.Skip("Skipping due to soon-to-be-expired test certificates.")
+ 	t.Run("TLSv12", func(t *testing.T) { testCrossVersionResume(t, VersionTLS12) })
+ 	t.Run("TLSv13", func(t *testing.T) { testCrossVersionResume(t, VersionTLS13) })
+ }
