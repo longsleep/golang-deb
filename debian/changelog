@@ -1,3 +1,10 @@
+golang-1.23 (1.23.4-2) unstable; urgency=high
+
+  * Team upload.
+  * Disable tests using soon-to-be-expired certificates. Closes: #1091497.
+
+ -- Santiago Vila <sanvila@debian.org>  Sun, 29 Dec 2024 18:35:00 +0100
+
 golang-1.23 (1.23.4-1) unstable; urgency=medium
 
   * Team upload
