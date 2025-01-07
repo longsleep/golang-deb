@@ -47,6 +47,7 @@ var goodCompilerFlags = [][]string{
 	{"-fstack-xxx"},
 	{"-fno-stack-xxx"},
 	{"-fsanitize=hands"},
+	{"-ftls-model=local-dynamic"},
 	{"-g"},
 	{"-ggdb"},
 	{"-march=souza"},
@@ -177,6 +178,10 @@ var goodLinkerFlags = [][]string{
 	{"-Wl,-z,noexecstack"},
 	{"libcgotbdtest.tbd"},
 	{"./libcgotbdtest.tbd"},
+	{"-Wl,--push-state"},
+	{"-Wl,--pop-state"},
+	{"-Wl,--push-state,--as-needed"},
+	{"-Wl,--push-state,--no-as-needed,-Bstatic"},
 }
 
 var badLinkerFlags = [][]string{
@@ -243,6 +248,10 @@ var badLinkerFlags = [][]string{
 	{"-Wl,-e="},
 	{"-Wl,-e,"},
 	{"-Wl,-R,-flag"},
+	{"-Wl,--push-state,"},
+	{"-Wl,--push-state,@foo"},
+	{"-fplugin=./-Wl,--push-state,-R.so"},
+	{"./-Wl,--push-state,-R.c"},
 }
 
 func TestCheckLinkerFlags(t *testing.T) {

@@ -71,6 +71,12 @@ func concatstring4(*[32]byte, string, string, string, string) string
 func concatstring5(*[32]byte, string, string, string, string, string) string
 func concatstrings(*[32]byte, []string) string
 
+func concatbyte2(string, string) []byte
+func concatbyte3(string, string, string) []byte
+func concatbyte4(string, string, string, string) []byte
+func concatbyte5(string, string, string, string, string) []byte
+func concatbytes([]string) []byte
+
 func cmpstring(string, string) int
 func intstring(*[4]byte, int64) string
 func slicebytetostring(buf *[32]byte, ptr *byte, n int) string
@@ -123,6 +129,7 @@ func panicrangestate(state int)
 // defer in range over func
 func deferrangefunc() interface{}
 
+func rand() uint64
 func rand32() uint32
 
 // *byte is really *runtime.Type
@@ -243,9 +250,6 @@ func uint32tofloat64(uint32) float64
 
 func complex128div(num complex128, den complex128) (quo complex128)
 
-func getcallerpc() uintptr
-func getcallersp() uintptr
-
 // race detection
 func racefuncenter(uintptr)
 func racefuncexit()
@@ -285,5 +289,8 @@ var x86HasSSE41 bool
 var x86HasFMA bool
 var armHasVFPv4 bool
 var arm64HasATOMICS bool
+var loong64HasLAMCAS bool
+var loong64HasLAM_BH bool
+var loong64HasLSX bool
 
 func asanregisterglobals(unsafe.Pointer, uintptr)

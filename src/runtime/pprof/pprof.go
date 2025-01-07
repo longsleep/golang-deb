@@ -44,7 +44,10 @@
 //	        }
 //	        defer f.Close() // error handling omitted for example
 //	        runtime.GC() // get up-to-date statistics
-//	        if err := pprof.WriteHeapProfile(f); err != nil {
+//	        // Lookup("allocs") creates a profile similar to go test -memprofile.
+//	        // Alternatively, use Lookup("heap") for a profile
+//	        // that has inuse_space as the default index.
+//	        if err := pprof.Lookup("allocs").WriteTo(f, 0); err != nil {
 //	            log.Fatal("could not write memory profile: ", err)
 //	        }
 //	    }
@@ -513,8 +516,8 @@ func printCountProfile(w io.Writer, debug int, name string, p countProfile) erro
 		var labels func()
 		if p.Label(idx) != nil {
 			labels = func() {
-				for k, v := range *p.Label(idx) {
-					b.pbLabel(tagSample_Label, k, v, 0)
+				for _, lbl := range p.Label(idx).list {
+					b.pbLabel(tagSample_Label, lbl.key, lbl.value, 0)
 				}
 			}
 		}
