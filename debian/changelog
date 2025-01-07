@@ -1,3 +1,9 @@
+golang-1.24 (1.24~rc1-1) UNRELEASED; urgency=medium
+
+  * 
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 07 Jan 2025 14:23:15 +0800
+
 golang-1.23 (1.23.4-1) unstable; urgency=medium
 
   * Team upload
