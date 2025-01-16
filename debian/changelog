@@ -1,3 +1,15 @@
+golang-1.22 (1.22.11-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.22.11
+    + CVE-2024-45341: crypto/x509: usage of IPv6 zone IDs can bypass URI name
+      constraints
+    + CVE-2024-45336: net/http: sensitive headers incorrectly sent after
+      cross-domain redirect
+    + Fix tests using expired certificates (Closes: #1078616)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 17 Jan 2025 07:25:16 +0800
+
 golang-1.22 (1.22.10-1) unstable; urgency=medium
 
   * Team upload
