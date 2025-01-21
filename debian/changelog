@@ -1,3 +1,9 @@
+golang-1.23 (1.23.5-1~bpo12+1) bookworm-backports; urgency=medium
+
+  * Rebuild for bookworm-backports.
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 21 Jan 2025 12:33:10 +0800
+
 golang-1.23 (1.23.5-1) unstable; urgency=medium
 
   * Team upload.
