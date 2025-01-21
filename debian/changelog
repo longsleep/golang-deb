@@ -1,3 +1,30 @@
+golang-1.23 (1.23.5-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.23.5
+    + CVE-2024-45341: crypto/x509: usage of IPv6 zone IDs can bypass URI name
+      constraints
+    + CVE-2024-45336: net/http: sensitive headers incorrectly sent after
+      cross-domain redirect
+    + Fix tests using expired certificates (Closes: #1091497)
+  * Revert "Disable tests using soon-to-be-expired certificates." (Fixed)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Fri, 17 Jan 2025 07:29:29 +0800
+
+golang-1.23 (1.23.4-2) unstable; urgency=high
+
+  * Team upload.
+  * Disable tests using soon-to-be-expired certificates. Closes: #1091497.
+
+ -- Santiago Vila <sanvila@debian.org>  Sun, 29 Dec 2024 18:35:00 +0100
+
+golang-1.23 (1.23.4-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.23.4
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 04 Dec 2024 08:34:52 +0800
+
 golang-1.23 (1.23.3-2~bpo12+1) bookworm-backports; urgency=medium
 
   * Rebuild for bookworm-backports.
