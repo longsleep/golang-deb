@@ -1,3 +1,10 @@
+golang-1.22 (1.22.12-2) unstable; urgency=medium
+
+  * Team upload
+  * Add binutils-gold to Build-Depends.
+
+ -- Shengjing Zhu <zhsj@debian.org>  Mon, 10 Feb 2025 18:33:04 +0800
+
 golang-1.22 (1.22.12-1) unstable; urgency=medium
 
   * Team upload
