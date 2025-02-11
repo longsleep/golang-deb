@@ -8,6 +8,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
 Section: golang
 Priority: optional
 Build-Depends: debhelper-compat (= 13),
+               binutils-gold [arm64],
                golang-1.23-go | golang-1.22-go,
                netbase
 Standards-Version: 4.6.2
@@ -18,7 +19,8 @@ Rules-Requires-Root: no
 
 Package: golang-X.Y-go
 Architecture: amd64 arm64 armel armhf i386 loong64 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
-Depends: golang-X.Y-src (>= ${source:Version}),
+Depends: binutils-gold [arm64],
+         golang-X.Y-src (>= ${source:Version}),
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
