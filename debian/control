@@ -11,9 +11,8 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Anthony Fok <foka@debian.org>
 Section: golang
 Priority: optional
-Build-Depends: debhelper-compat (= 13),
-               binutils-gold [arm64],
-               golang-1.23-go | golang-1.22-go,
+Build-Depends: debhelper (>= 11),
+               golang-go (>= 2:1.22~),
                netbase
 Standards-Version: 4.6.2
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.24
