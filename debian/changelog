@@ -1,3 +1,10 @@
+golang-1.24 (1.24.0-1longsleep1+focal) focal; urgency=medium
+
+  * Change packaging for Ubuntu backports
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Wed, 12 Feb 2025 22:12:23 +0100
+
 golang-1.24 (1.24.0-1) unstable; urgency=medium
 
   * Team upload
