@@ -30,7 +30,7 @@ Recommends:
  g++,
  gcc,
  libc6-dev,
- pkgconf,
+ pkg-config | pkgconf,
 Suggests:
  bzr | brz,
  ca-certificates,
