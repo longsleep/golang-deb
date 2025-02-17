@@ -1,3 +1,10 @@
+golang-1.24 (1.24.0-1longsleep2+focal) focal; urgency=medium
+
+  * Switch backport to recommend pkg-config as well
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Mon, 17 Feb 2025 11:55:41 +0100
+
 golang-1.24 (1.24.0-1longsleep1+focal) focal; urgency=medium
 
   * Change packaging for Ubuntu backports
