@@ -1,3 +1,10 @@
+golang-1.24 (1.24.0-2) unstable; urgency=medium
+
+  * Team upload
+  * Add golang-1.24-go to Build-Depends
+
+ -- Shengjing Zhu <zhsj@debian.org>  Tue, 25 Feb 2025 18:09:52 +0800
+
 golang-1.24 (1.24.0-1) unstable; urgency=medium
 
   * Team upload
