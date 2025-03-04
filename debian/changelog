@@ -1,3 +1,15 @@
+golang-1.24 (1.24.1-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.24.1
+    + CVE-2025-22870: net/http, x/net/proxy, x/net/http/httpproxy: proxy bypass
+      using IPv6 zone IDs
+  * Install lib directory to golang-X.Y-src package.
+    This includes lib/wasm directory which is moved from misc/wasm
+    in Go 1.24. (Closes: #1096251)
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 05 Mar 2025 07:58:41 +0800
+
 golang-1.24 (1.24.0-2) unstable; urgency=medium
 
   * Team upload
