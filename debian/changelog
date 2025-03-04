@@ -1,3 +1,12 @@
+golang-1.23 (1.23.7-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.23.7
+    + CVE-2025-22870: net/http, x/net/proxy, x/net/http/httpproxy: proxy bypass
+      using IPv6 zone IDs
+
+ -- Shengjing Zhu <zhsj@debian.org>  Wed, 05 Mar 2025 07:27:14 +0800
+
 golang-1.23 (1.23.6-4) unstable; urgency=medium
 
   * Team upload
