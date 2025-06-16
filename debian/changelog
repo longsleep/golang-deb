@@ -1,3 +1,13 @@
+golang-1.23 (1.23.10-1) unstable; urgency=medium
+
+  * Team upload
+  * New upstream version 1.23.10
+    + CVE-2025-4673: net/http: sensitive headers not cleared on cross-origin redirect (Closes: #1107390)
+    + CVE-2025-0913: os: inconsistent handling of O_CREATE|O_EXCL on Unix and Windows
+    + CVE-2025-22873: os: Root permits access to parent directory (Closes: #1104816)
+
+ -- Anshul Singh <anshul.singh@canonical.com>  Mon, 16 Jun 2025 13:10:51 +0200
+
 golang-1.23 (1.23.8-1) unstable; urgency=medium
 
   * Team upload
