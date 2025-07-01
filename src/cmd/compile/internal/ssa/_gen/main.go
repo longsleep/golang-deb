@@ -69,6 +69,7 @@ type opData struct {
 	hasSideEffects    bool   // for "reasons", not to be eliminated.  E.g., atomic store, #19182.
 	zeroWidth         bool   // op never translates into any machine code. example: copy, which may sometimes translate to machine code, is not zero-width.
 	unsafePoint       bool   // this op is an unsafe point, i.e. not safe for async preemption
+	fixedReg          bool   // this op will be assigned a fixed register
 	symEffect         string // effect this op has on symbol in aux
 	scale             uint8  // amd64/386 indexed load scale
 }
@@ -338,6 +339,9 @@ func genOp() {
 			if v.zeroWidth {
 				fmt.Fprintln(w, "zeroWidth: true,")
 			}
+			if v.fixedReg {
+				fmt.Fprintln(w, "fixedReg: true,")
+			}
 			if v.unsafePoint {
 				fmt.Fprintln(w, "unsafePoint: true,")
 			}
@@ -346,7 +350,7 @@ func genOp() {
 				if !needEffect {
 					log.Fatalf("symEffect with aux %s not allowed", v.aux)
 				}
-				fmt.Fprintf(w, "symEffect: Sym%s,\n", strings.Replace(v.symEffect, ",", "|Sym", -1))
+				fmt.Fprintf(w, "symEffect: Sym%s,\n", strings.ReplaceAll(v.symEffect, ",", "|Sym"))
 			} else if needEffect {
 				log.Fatalf("symEffect needed for aux %s", v.aux)
 			}
@@ -426,7 +430,6 @@ func genOp() {
 			continue
 		}
 		fmt.Fprintf(w, "var registers%s = [...]Register {\n", a.name)
-		var gcRegN int
 		num := map[string]int8{}
 		for i, r := range a.regnames {
 			num[r] = int8(i)
@@ -440,17 +443,12 @@ func genOp() {
 				objname = pkg + ".REGSP"
 			case "g":
 				objname = pkg + ".REGG"
+			case "ZERO":
+				objname = pkg + ".REGZERO"
 			default:
 				objname = pkg + ".REG_" + r
 			}
-			// Assign a GC register map index to registers
-			// that may contain pointers.
-			gcRegIdx := -1
-			if a.gpregmask&(1<<uint(i)) != 0 {
-				gcRegIdx = gcRegN
-				gcRegN++
-			}
-			fmt.Fprintf(w, "  {%d, %s, %d, \"%s\"},\n", i, objname, gcRegIdx, r)
+			fmt.Fprintf(w, "  {%d, %s, \"%s\"},\n", i, objname, r)
 		}
 		parameterRegisterList := func(paramNamesString string) []int8 {
 			paramNamesString = strings.TrimSpace(paramNamesString)
@@ -477,10 +475,6 @@ func genOp() {
 		paramIntRegs := parameterRegisterList(a.ParamIntRegNames)
 		paramFloatRegs := parameterRegisterList(a.ParamFloatRegNames)
 
-		if gcRegN > 32 {
-			// Won't fit in a uint32 mask.
-			log.Fatalf("too many GC registers (%d > 32) on %s", gcRegN, a.name)
-		}
 		fmt.Fprintln(w, "}")
 		fmt.Fprintf(w, "var paramIntReg%s = %#v\n", a.name, paramIntRegs)
 		fmt.Fprintf(w, "var paramFloatReg%s = %#v\n", a.name, paramFloatRegs)

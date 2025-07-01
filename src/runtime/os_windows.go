@@ -6,7 +6,6 @@ package runtime
 
 import (
 	"internal/abi"
-	"internal/goarch"
 	"internal/runtime/atomic"
 	"internal/runtime/sys"
 	"unsafe"
@@ -323,7 +322,7 @@ func monitorSuspendResume() {
 		uintptr(unsafe.Pointer(&params)), uintptr(unsafe.Pointer(&handle)))
 }
 
-func getproccount() int32 {
+func getCPUCount() int32 {
 	var mask, sysmask uintptr
 	ret := stdcall3(_GetProcessAffinityMask, currentProcess, uintptr(unsafe.Pointer(&mask)), uintptr(unsafe.Pointer(&sysmask)))
 	if ret != 0 {
@@ -487,7 +486,7 @@ func osinit() {
 	initSysDirectory()
 	initLongPathSupport()
 
-	ncpu = getproccount()
+	numCPUStartup = getCPUCount()
 
 	physPageSize = getPageSize()
 
@@ -1304,44 +1303,10 @@ func preemptM(mp *m) {
 	// Does it want a preemption and is it safe to preempt?
 	gp := gFromSP(mp, c.sp())
 	if gp != nil && wantAsyncPreempt(gp) {
-		if ok, newpc := isAsyncSafePoint(gp, c.ip(), c.sp(), c.lr()); ok {
+		if ok, resumePC := isAsyncSafePoint(gp, c.ip(), c.sp(), c.lr()); ok {
 			// Inject call to asyncPreempt
 			targetPC := abi.FuncPCABI0(asyncPreempt)
-			switch GOARCH {
-			default:
-				throw("unsupported architecture")
-			case "386", "amd64":
-				// Make it look like the thread called targetPC.
-				sp := c.sp()
-				sp -= goarch.PtrSize
-				*(*uintptr)(unsafe.Pointer(sp)) = newpc
-				c.set_sp(sp)
-				c.set_ip(targetPC)
-
-			case "arm":
-				// Push LR. The injected call is responsible
-				// for restoring LR. gentraceback is aware of
-				// this extra slot. See sigctxt.pushCall in
-				// signal_arm.go, which is similar except we
-				// subtract 1 from IP here.
-				sp := c.sp()
-				sp -= goarch.PtrSize
-				c.set_sp(sp)
-				*(*uint32)(unsafe.Pointer(sp)) = uint32(c.lr())
-				c.set_lr(newpc - 1)
-				c.set_ip(targetPC)
-
-			case "arm64":
-				// Push LR. The injected call is responsible
-				// for restoring LR. gentraceback is aware of
-				// this extra slot. See sigctxt.pushCall in
-				// signal_arm64.go.
-				sp := c.sp() - 16 // SP needs 16-byte alignment
-				c.set_sp(sp)
-				*(*uint64)(unsafe.Pointer(sp)) = uint64(c.lr())
-				c.set_lr(newpc)
-				c.set_ip(targetPC)
-			}
+			c.pushCall(targetPC, resumePC)
 			stdcall2(_SetThreadContext, thread, uintptr(unsafe.Pointer(c)))
 		}
 	}

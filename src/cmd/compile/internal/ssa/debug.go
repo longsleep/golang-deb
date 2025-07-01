@@ -102,9 +102,7 @@ type stateAtPC struct {
 // reset fills state with the live variables from live.
 func (state *stateAtPC) reset(live abt.T) {
 	slots, registers := state.slots, state.registers
-	for i := range slots {
-		slots[i] = VarLoc{}
-	}
+	clear(slots)
 	for i := range registers {
 		registers[i] = registers[i][:0]
 	}
@@ -242,12 +240,7 @@ func (state *debugState) initializeCache(f *Func, numVars, numSlots int) {
 	if cap(state.blockDebug) < f.NumBlocks() {
 		state.blockDebug = make([]BlockDebug, f.NumBlocks())
 	} else {
-		// This local variable, and the ones like it below, enable compiler
-		// optimizations. Don't inline them.
-		b := state.blockDebug[:f.NumBlocks()]
-		for i := range b {
-			b[i] = BlockDebug{}
-		}
+		clear(state.blockDebug[:f.NumBlocks()])
 	}
 
 	// A list of slots per Value. Reuse the previous child slices.
@@ -285,10 +278,7 @@ func (state *debugState) initializeCache(f *Func, numVars, numSlots int) {
 	if cap(state.pendingSlotLocs) < numPieces {
 		state.pendingSlotLocs = make([]VarLoc, numPieces)
 	} else {
-		psl := state.pendingSlotLocs[:numPieces]
-		for i := range psl {
-			psl[i] = VarLoc{}
-		}
+		clear(state.pendingSlotLocs[:numPieces])
 	}
 	if cap(state.pendingEntries) < numVars {
 		state.pendingEntries = make([]pendingEntry, numVars)
@@ -307,9 +297,7 @@ func (state *debugState) initializeCache(f *Func, numVars, numSlots int) {
 		state.lists = make([][]byte, numVars)
 	} else {
 		state.lists = state.lists[:numVars]
-		for i := range state.lists {
-			state.lists[i] = nil
-		}
+		clear(state.lists)
 	}
 }
 
@@ -557,7 +545,7 @@ func PopulateABIInRegArgOps(f *Func) {
 	f.Entry.Values = append(newValues, f.Entry.Values...)
 }
 
-// BuildFuncDebug debug information for f, placing the results
+// BuildFuncDebug builds debug information for f, placing the results
 // in "rval". f must be fully processed, so that each Value is where it
 // will be when machine code is emitted.
 func BuildFuncDebug(ctxt *obj.Link, f *Func, loggingLevel int, stackOffset func(LocalSlot) int32, rval *FuncDebug) {
@@ -1191,9 +1179,7 @@ func (e *pendingEntry) clear() {
 	e.present = false
 	e.startBlock = 0
 	e.startValue = 0
-	for i := range e.pieces {
-		e.pieces[i] = VarLoc{}
-	}
+	clear(e.pieces)
 }
 
 // canMerge reports whether a new location description is a superset
@@ -1486,8 +1472,67 @@ func (state *debugState) writePendingEntry(varID VarID, endBlock, endValue ID) {
 	state.lists[varID] = list
 }
 
-// PutLocationList adds list (a location list in its intermediate representation) to listSym.
+// PutLocationList adds list (a location list in its intermediate
+// representation) to listSym.
 func (debugInfo *FuncDebug) PutLocationList(list []byte, ctxt *obj.Link, listSym, startPC *obj.LSym) {
+	if buildcfg.Experiment.Dwarf5 {
+		debugInfo.PutLocationListDwarf5(list, ctxt, listSym, startPC)
+	} else {
+		debugInfo.PutLocationListDwarf4(list, ctxt, listSym, startPC)
+	}
+}
+
+// PutLocationListDwarf5 adds list (a location list in its intermediate
+// representation) to listSym in DWARF 5 format. NB: this is a somewhat
+// hacky implementation in that it actually reads a DWARF4 encoded
+// info from list (with all its DWARF4-specific quirks) then re-encodes
+// it in DWARF5. It would probably be better at some point to have
+// ssa/debug encode the list in a version-independent form and then
+// have this func (and PutLocationListDwarf4) intoduce the quirks.
+func (debugInfo *FuncDebug) PutLocationListDwarf5(list []byte, ctxt *obj.Link, listSym, startPC *obj.LSym) {
+	getPC := debugInfo.GetPC
+
+	// base address entry
+	listSym.WriteInt(ctxt, listSym.Size, 1, dwarf.DW_LLE_base_addressx)
+	listSym.WriteDwTxtAddrx(ctxt, listSym.Size, startPC, ctxt.DwTextCount*2)
+
+	var stbuf, enbuf [10]byte
+	stb, enb := stbuf[:], enbuf[:]
+	// Re-read list, translating its address from block/value ID to PC.
+	for i := 0; i < len(list); {
+		begin := getPC(decodeValue(ctxt, readPtr(ctxt, list[i:])))
+		end := getPC(decodeValue(ctxt, readPtr(ctxt, list[i+ctxt.Arch.PtrSize:])))
+
+		// Write LLE_offset_pair tag followed by payload (ULEB for start
+		// and then end).
+		listSym.WriteInt(ctxt, listSym.Size, 1, dwarf.DW_LLE_offset_pair)
+		stb, enb = stb[:0], enb[:0]
+		stb = dwarf.AppendUleb128(stb, uint64(begin))
+		enb = dwarf.AppendUleb128(enb, uint64(end))
+		listSym.WriteBytes(ctxt, listSym.Size, stb)
+		listSym.WriteBytes(ctxt, listSym.Size, enb)
+
+		// The encoded data in "list" is in DWARF4 format, which uses
+		// a 2-byte length; DWARF5 uses an LEB-encoded value for this
+		// length. Read the length and then re-encode it.
+		i += 2 * ctxt.Arch.PtrSize
+		datalen := int(ctxt.Arch.ByteOrder.Uint16(list[i:]))
+		i += 2
+		stb = stb[:0]
+		stb = dwarf.AppendUleb128(stb, uint64(datalen))
+		listSym.WriteBytes(ctxt, listSym.Size, stb)               // copy length
+		listSym.WriteBytes(ctxt, listSym.Size, list[i:i+datalen]) // loc desc
+
+		i += datalen
+	}
+
+	// Terminator
+	listSym.WriteInt(ctxt, listSym.Size, 1, dwarf.DW_LLE_end_of_list)
+}
+
+// PutLocationListDwarf4 adds list (a location list in its intermediate
+// representation) to listSym in DWARF 4 format.
+func (debugInfo *FuncDebug) PutLocationListDwarf4(list []byte, ctxt *obj.Link, listSym, startPC *obj.LSym) {
 	getPC := debugInfo.GetPC
 
 	if ctxt.UseBASEntries {
