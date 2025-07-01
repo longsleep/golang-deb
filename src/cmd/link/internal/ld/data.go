@@ -55,31 +55,8 @@ import (
 )
 
 // isRuntimeDepPkg reports whether pkg is the runtime package or its dependency.
-// TODO: just compute from the runtime package, and remove this hardcoded list.
 func isRuntimeDepPkg(pkg string) bool {
-	switch pkg {
-	case "runtime",
-		"sync/atomic",  // runtime may call to sync/atomic, due to go:linkname // TODO: this is not true?
-		"internal/abi", // used by reflectcall (and maybe more)
-		"internal/asan",
-		"internal/bytealg", // for IndexByte
-		"internal/byteorder",
-		"internal/chacha8rand", // for rand
-		"internal/coverage/rtcov",
-		"internal/cpu", // for cpu features
-		"internal/goarch",
-		"internal/godebugs",
-		"internal/goexperiment",
-		"internal/goos",
-		"internal/msan",
-		"internal/profilerecord",
-		"internal/race",
-		"internal/stringslite",
-		"unsafe":
-		return true
-	}
-	return (strings.HasPrefix(pkg, "runtime/internal/") || strings.HasPrefix(pkg, "internal/runtime/")) &&
-		!strings.HasSuffix(pkg, "_test")
+	return objabi.LookupPkgSpecial(pkg).Runtime
 }
 
 // Estimate the max size needed to hold any new trampolines created for this function. This
@@ -448,6 +425,25 @@ func (st *relocSymState) relocsym(s loader.Sym, P []byte) {
 				st.err.Errorf(s, "non-pc-relative relocation address for %s is too big: %#x (%#x + %#x)", ldr.SymName(rs), uint64(o), ldr.SymValue(rs), r.Add())
 				errorexit()
 			}
+		case objabi.R_DWTXTADDR_U1, objabi.R_DWTXTADDR_U2, objabi.R_DWTXTADDR_U3, objabi.R_DWTXTADDR_U4:
+			unit := ldr.SymUnit(rs)
+			if idx, ok := unit.Addrs[sym.LoaderSym(rs)]; ok {
+				o = int64(idx)
+			} else {
+				st.err.Errorf(s, "missing .debug_addr index relocation target %s", ldr.SymName(rs))
+			}
+
+			// For these relocations we write a ULEB128, but using a
+			// cooked/hacked recipe that ensures the result has a
+			// fixed length. That is, if we're writing a value of 1
+			// with length requirement 3, we'll actually emit three
+			// bytes, 0x81 0x80 0x0.
+			_, leb128len := rt.DwTxtAddrRelocParams()
+			if err := writeUleb128FixedLength(P[off:], uint64(o), leb128len); err != nil {
+				st.err.Errorf(s, "internal error: %v applying %s to DWARF sym with reloc target %s", err, rt.String(), ldr.SymName(rs))
+			}
+			continue
+
 		case objabi.R_DWARFSECREF:
 			if ldr.SymSect(rs) == nil {
 				st.err.Errorf(s, "missing DWARF section for relocation target %s", ldr.SymName(rs))
@@ -590,10 +586,6 @@ func (st *relocSymState) relocsym(s loader.Sym, P []byte) {
 			nExtReloc++
 			continue
 
-		case objabi.R_DWARFFILEREF:
-			// We don't renumber files in dwarf.go:writelines anymore.
-			continue
-
 		case objabi.R_CONST:
 			o = r.Add()
 
@@ -734,7 +726,9 @@ func extreloc(ctxt *Link, ldr *loader.Loader, s loader.Sym, r loader.Reloc) (loa
 
 	// These reloc types don't need external relocations.
 	case objabi.R_ADDROFF, objabi.R_METHODOFF, objabi.R_ADDRCUOFF,
-		objabi.R_SIZE, objabi.R_CONST, objabi.R_GOTOFF:
+		objabi.R_SIZE, objabi.R_CONST, objabi.R_GOTOFF,
+		objabi.R_DWTXTADDR_U1, objabi.R_DWTXTADDR_U2,
+		objabi.R_DWTXTADDR_U3, objabi.R_DWTXTADDR_U4:
 		return rr, false
 	}
 	return rr, true
@@ -900,10 +894,15 @@ func windynrelocsym(ctxt *Link, rel *loader.SymbolBuilder, s loader.Sym) error {
 				rel.AddUint8(0x90)
 				rel.AddUint8(0x90)
 			case sys.AMD64:
+				// The relocation symbol might be at an absolute offset
+				// higher than 32 bits, but the jump instruction can't
+				// encode more than 32 bit offsets. We use a jump
+				// relative to the instruction pointer to get around this
+				// limitation.
 				rel.AddUint8(0xff)
-				rel.AddUint8(0x24)
 				rel.AddUint8(0x25)
-				rel.AddAddrPlus4(ctxt.Arch, targ, 0)
+				rel.AddPCRelPlus(ctxt.Arch, targ, 0)
+				rel.AddUint8(0x90)
 				rel.AddUint8(0x90)
 			}
 		} else if tplt >= 0 {
@@ -1064,7 +1063,8 @@ func writeBlocks(ctxt *Link, out *OutBuf, sem chan int, ldr *loader.Loader, syms
 		}
 
 		// Start the block output operator.
-		if o, err := out.View(uint64(out.Offset() + written)); err == nil {
+		if ctxt.Out.isMmapped() {
+			o := out.View(uint64(out.Offset() + written))
 			sem <- 1
 			wg.Add(1)
 			go func(o *OutBuf, ldr *loader.Loader, syms []loader.Sym, addr, size int64, pad []byte) {
@@ -1143,15 +1143,16 @@ type writeFn func(*Link, *OutBuf, int64, int64)
 
 // writeParallel handles scheduling parallel execution of data write functions.
 func writeParallel(wg *sync.WaitGroup, fn writeFn, ctxt *Link, seek, vaddr, length uint64) {
-	if out, err := ctxt.Out.View(seek); err != nil {
-		ctxt.Out.SeekSet(int64(seek))
-		fn(ctxt, ctxt.Out, int64(vaddr), int64(length))
-	} else {
+	if ctxt.Out.isMmapped() {
+		out := ctxt.Out.View(seek)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			fn(ctxt, out, int64(vaddr), int64(length))
 		}()
+	} else {
+		ctxt.Out.SeekSet(int64(seek))
+		fn(ctxt, ctxt.Out, int64(vaddr), int64(length))
 	}
 }
 
@@ -1903,7 +1904,6 @@ func (state *dodataState) allocateDataSections(ctxt *Link) {
 		sym.SFIPSINFO,
 		sym.SELFSECT,
 		sym.SMACHO,
-		sym.SMACHOGOT,
 		sym.SWINDOWS,
 	}
 	for _, symn := range writable {
@@ -1914,6 +1914,9 @@ func (state *dodataState) allocateDataSections(ctxt *Link) {
 	// writable .got (note that for PIE binaries .got goes in relro)
 	if len(state.data[sym.SELFGOT]) > 0 {
 		state.allocateNamedSectionAndAssignSyms(&Segdata, ".got", sym.SELFGOT, sym.SDATA, 06)
+	}
+	if len(state.data[sym.SMACHOGOT]) > 0 {
+		state.allocateNamedSectionAndAssignSyms(&Segdata, ".got", sym.SMACHOGOT, sym.SDATA, 06)
 	}
 
 	/* pointer-free data */
@@ -2186,6 +2189,7 @@ func (state *dodataState) allocateDataSections(ctxt *Link) {
 		sect.Length = uint64(state.datsize) - sect.Vaddr
 
 		state.allocateSingleSymSections(segrelro, sym.SELFRELROSECT, sym.SRODATA, relroSecPerm)
+		state.allocateSingleSymSections(segrelro, sym.SMACHORELROSECT, sym.SRODATA, relroSecPerm)
 	}
 
 	/* typelink */
@@ -2661,9 +2665,7 @@ func assignAddress(ctxt *Link, sect *sym.Section, n int, s loader.Sym, va uint64
 	}
 
 	align := ldr.SymAlign(s)
-	if align == 0 {
-		align = int32(Funcalign)
-	}
+	align = max(align, int32(Funcalign))
 	va = uint64(Rnd(int64(va), int64(align)))
 	if sect.Align < align {
 		sect.Align = align
@@ -3232,4 +3234,27 @@ func compressSyms(ctxt *Link, syms []loader.Sym) []byte {
 		return nil
 	}
 	return buf.Bytes()
+}
+
+// writeUleb128FixedLength writes out value v in LEB128 encoded
+// format, ensuring that the space written takes up length bytes. When
+// extra space is needed, we write initial bytes with just the
+// continuation bit set. For example, if val is 1 and length is 3,
+// we'll write 0x80 0x80 0x1 (first two bytes with zero val but
+// continuation bit set). NB: this function adapted from a similar
+// function in cmd/link/internal/wasm, they could be commoned up if
+// needed.
+func writeUleb128FixedLength(b []byte, v uint64, length int) error {
+	for i := 0; i < length; i++ {
+		c := uint8(v & 0x7f)
+		v >>= 7
+		if i < length-1 {
+			c |= 0x80
+		}
+		b[i] = c
+	}
+	if v != 0 {
+		return fmt.Errorf("writeUleb128FixedLength: length too small")
+	}
+	return nil
 }

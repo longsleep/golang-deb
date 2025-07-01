@@ -12,6 +12,7 @@ import (
 	"internal/testenv"
 	"internal/trace"
 	"internal/trace/testtrace"
+	"internal/trace/version"
 	"io"
 	"os"
 	"path/filepath"
@@ -573,6 +574,11 @@ func testTraceProg(t *testing.T, progName string, extra func(t *testing.T, trace
 	onBuilder := testenv.Builder() != ""
 	onOldBuilder := !strings.Contains(testenv.Builder(), "gotip") && !strings.Contains(testenv.Builder(), "go1")
 
+	if progName == "cgo-callback.go" && onBuilder && !onOldBuilder &&
+		runtime.GOOS == "freebsd" && runtime.GOARCH == "amd64" && race.Enabled {
+		t.Skip("test fails on freebsd-amd64-race in LUCI; see go.dev/issue/71556")
+	}
+
 	testPath := filepath.Join("./testdata/testprog", progName)
 	testName := progName
 	runTest := func(t *testing.T, stress bool, extraGODEBUG string) {
@@ -594,6 +600,10 @@ func testTraceProg(t *testing.T, progName string, extra func(t *testing.T, trace
 			godebug += "," + extraGODEBUG
 		}
 		cmd.Env = append(cmd.Env, "GODEBUG="+godebug)
+		if _, ok := os.LookupEnv("GOTRACEBACK"); !ok {
+			// Unless overriden, set GOTRACEBACK=crash.
+			cmd.Env = append(cmd.Env, "GOTRACEBACK=crash")
+		}
 
 		// Capture stdout and stderr.
 		//
@@ -612,7 +622,16 @@ func testTraceProg(t *testing.T, progName string, extra func(t *testing.T, trace
 		tb := traceBuf.Bytes()
 
 		// Test the trace and the parser.
-		testReader(t, bytes.NewReader(tb), testtrace.ExpectSuccess())
+		v := testtrace.NewValidator()
+		v.GoVersion = version.Current
+		if runtime.GOOS == "windows" && stress {
+			// Under stress mode we're constantly advancing trace generations.
+			// Windows' clock granularity is too coarse to guarantee monotonic
+			// timestamps for monotonic and wall clock time in this case, so
+			// skip the checks.
+			v.SkipClockSnapshotChecks()
+		}
+		testReader(t, bytes.NewReader(tb), v, testtrace.ExpectSuccess())
 
 		// Run some extra validation.
 		if !t.Failed() && extra != nil {

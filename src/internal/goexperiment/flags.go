@@ -83,10 +83,6 @@ type Flags struct {
 	// by default.
 	HeapMinimum512KiB bool
 
-	// CoverageRedesign enables the new compiler-based code coverage
-	// tooling.
-	CoverageRedesign bool
-
 	// Arenas causes the "arena" standard library package to be visible
 	// to the outside world.
 	Arenas bool
@@ -119,13 +115,18 @@ type Flags struct {
 	// SwissMap enables the SwissTable-based map implementation.
 	SwissMap bool
 
-	// SpinbitMutex enables the new "spinbit" mutex implementation on supported
-	// platforms. See https://go.dev/issue/68578.
-	SpinbitMutex bool
-
 	// SyncHashTrieMap enables the HashTrieMap sync.Map implementation.
 	SyncHashTrieMap bool
 
 	// Synctest enables the testing/synctest package.
 	Synctest bool
+
+	// Dwarf5 enables DWARF version 5 debug info generation.
+	Dwarf5 bool
+
+	// JSONv2 enables the json/v2 package.
+	JSONv2 bool
+
+	// GreenTeaGC enables the Green Tea GC implementation.
+	GreenTeaGC bool
 }

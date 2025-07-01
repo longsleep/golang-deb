@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !goexperiment.jsonv2
+
 // Package json implements encoding and decoding of JSON as defined in
 // RFC 7159. The mapping between JSON and Go values is described
 // in the documentation for the Marshal and Unmarshal functions.
@@ -357,25 +359,22 @@ func typeEncoder(t reflect.Type) encoderFunc {
 	}
 
 	// To deal with recursive types, populate the map with an
-	// indirect func before we build it. This type waits on the
-	// real func (f) to be ready and then calls it. This indirect
-	// func is only used for recursive types.
-	var (
-		wg sync.WaitGroup
-		f  encoderFunc
-	)
-	wg.Add(1)
+	// indirect func before we build it. If the type is recursive,
+	// the second lookup for the type will return the indirect func.
+	//
+	// This indirect func is only used for recursive types,
+	// and briefly during racing calls to typeEncoder.
+	indirect := sync.OnceValue(func() encoderFunc {
+		return newTypeEncoder(t, true)
+	})
 	fi, loaded := encoderCache.LoadOrStore(t, encoderFunc(func(e *encodeState, v reflect.Value, opts encOpts) {
-		wg.Wait()
-		f(e, v, opts)
+		indirect()(e, v, opts)
 	}))
 	if loaded {
 		return fi.(encoderFunc)
 	}
 
-	// Compute the real encoder and replace the indirect func with it.
-	f = newTypeEncoder(t, true)
-	wg.Done()
+	f := indirect()
 	encoderCache.Store(t, f)
 	return f
 }
@@ -1015,10 +1014,7 @@ func appendString[Bytes []byte | string](dst []byte, src Bytes, escapeHTML bool)
 		// For now, cast only a small portion of byte slices to a string
 		// so that it can be stack allocated. This slows down []byte slightly
 		// due to the extra copy, but keeps string performance roughly the same.
-		n := len(src) - i
-		if n > utf8.UTFMax {
-			n = utf8.UTFMax
-		}
+		n := min(len(src)-i, utf8.UTFMax)
 		c, size := utf8.DecodeRuneInString(string(src[i : i+n]))
 		if c == utf8.RuneError && size == 1 {
 			dst = append(dst, src[start:i]...)
