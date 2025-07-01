@@ -169,13 +169,16 @@ func (a *activeSweep) end(sl sweepLocker) {
 			throw("mismatched begin/end of activeSweep")
 		}
 		if a.state.CompareAndSwap(state, state-1) {
-			if state != sweepDrainedMask {
+			if state-1 != sweepDrainedMask {
 				return
 			}
+			// We're the last sweeper, and there's nothing left to sweep.
 			if debug.gcpacertrace > 0 {
 				live := gcController.heapLive.Load()
 				print("pacer: sweep done at heap size ", live>>20, "MB; allocated ", (live-mheap_.sweepHeapLiveBasis)>>20, "MB during sweep; swept ", mheap_.pagesSwept.Load(), " pages at ", mheap_.sweepPagesPerByte, " pages/byte\n")
 			}
+			// Now that sweeping is completely done, flush remaining cleanups.
+			gcCleanups.flush()
 			return
 		}
 	}
@@ -310,6 +313,10 @@ func bgsweep(c chan int) {
 			// gosweepone returning ^0 above
 			// and the lock being acquired.
 			unlock(&sweep.lock)
+			// This goroutine must preempt when we have no work to do
+			// but isSweepDone returns false because of another existing sweeper.
+			// See issue #73499.
+			goschedIfBusy()
 			continue
 		}
 		sweep.parked = true
@@ -517,7 +524,7 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 
 	trace := traceAcquire()
 	if trace.ok() {
-		trace.GCSweepSpan(s.npages * _PageSize)
+		trace.GCSweepSpan(s.npages * pageSize)
 		traceRelease(trace)
 	}
 
@@ -634,10 +641,18 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 				if asanenabled && !s.isUserArenaChunk {
 					asanpoison(unsafe.Pointer(x), size)
 				}
+				if valgrindenabled && !s.isUserArenaChunk {
+					valgrindFree(unsafe.Pointer(x))
+				}
 			}
 			mbits.advance()
 			abits.advance()
 		}
+	}
+
+	// Copy over the inline mark bits if necessary.
+	if gcUsesSpanInlineMarkBits(s.elemsize) {
+		s.mergeInlineMarks(s.gcmarkBits)
 	}
 
 	// Check for zombie objects.
@@ -688,6 +703,11 @@ func (sl *sweepLocked) sweep(preserve bool) bool {
 
 	// Initialize alloc bits cache.
 	s.refillAllocCache(0)
+
+	// Reset the object queue, if we have one.
+	if gcUsesSpanInlineMarkBits(s.elemsize) {
+		s.initInlineMarkBits()
+	}
 
 	// The span must be in our exclusive ownership until we update sweepgen,
 	// check for potential races.
@@ -981,9 +1001,9 @@ func gcPaceSweeper(trigger uint64) {
 		// concurrent sweep are less likely to leave pages
 		// unswept when GC starts.
 		heapDistance -= 1024 * 1024
-		if heapDistance < _PageSize {
+		if heapDistance < pageSize {
 			// Avoid setting the sweep ratio extremely high
-			heapDistance = _PageSize
+			heapDistance = pageSize
 		}
 		pagesSwept := mheap_.pagesSwept.Load()
 		pagesInUse := mheap_.pagesInUse.Load()

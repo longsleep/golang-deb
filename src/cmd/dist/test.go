@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -177,7 +178,7 @@ func (t *tester) run() {
 			// otherwise relevant to the actual set of packages under test.
 			goInstall(toolenv(), gorootBinGo, toolchain...)
 			goInstall(toolenv(), gorootBinGo, toolchain...)
-			goInstall(toolenv(), gorootBinGo, "cmd")
+			goInstall(toolenv(), gorootBinGo, toolsToInstall...)
 		}
 	}
 
@@ -280,12 +281,7 @@ func (t *tester) shouldRunTest(name string) bool {
 	if len(t.runNames) == 0 {
 		return true
 	}
-	for _, runName := range t.runNames {
-		if runName == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(t.runNames, name)
 }
 
 func (t *tester) maybeLogMetadata() error {
@@ -716,9 +712,9 @@ func (t *tester) registerTests() {
 	// Check that all crypto packages compile (and test correctly, in longmode) with fips.
 	if t.fipsSupported() {
 		// Test standard crypto packages with fips140=on.
-		t.registerTest("GODEBUG=fips140=on go test crypto/...", &goTest{
+		t.registerTest("GOFIPS140=latest go test crypto/...", &goTest{
 			variant: "gofips140",
-			env:     []string{"GODEBUG=fips140=on"},
+			env:     []string{"GOFIPS140=latest"},
 			pkg:     "crypto/...",
 		})
 
@@ -752,8 +748,8 @@ func (t *tester) registerTests() {
 			})
 	}
 
-	// GODEBUG=gcstoptheworld=2 tests. We only run these in long-test
-	// mode (with GO_TEST_SHORT=0) because this is just testing a
+	// GC debug mode tests. We only run these in long-test mode
+	// (with GO_TEST_SHORT=0) because this is just testing a
 	// non-critical debug setting.
 	if !t.compileOnly && !t.short {
 		t.registerTest("GODEBUG=gcstoptheworld=2 archive/zip",
@@ -763,6 +759,14 @@ func (t *tester) registerTests() {
 				short:   true,
 				env:     []string{"GODEBUG=gcstoptheworld=2"},
 				pkg:     "archive/zip",
+			})
+		t.registerTest("GODEBUG=gccheckmark=1 runtime",
+			&goTest{
+				variant: "runtime:gccheckmark",
+				timeout: 300 * time.Second,
+				short:   true,
+				env:     []string{"GODEBUG=gccheckmark=1"},
+				pkg:     "runtime",
 			})
 	}
 
@@ -922,7 +926,7 @@ func (t *tester) registerTests() {
 		t.registerTest("wasip1 host tests",
 			&goTest{
 				variant:   "host",
-				pkg:       "runtime/internal/wasitest",
+				pkg:       "internal/runtime/wasitest",
 				timeout:   1 * time.Minute,
 				runOnHost: true,
 			})
@@ -948,6 +952,7 @@ func (t *tester) registerTests() {
 					variant:   "cpu" + strconv.Itoa(i),
 					timeout:   300 * time.Second,
 					cpu:       strconv.Itoa(i),
+					gcflags:   gogcflags,
 					short:     true,
 					testFlags: []string{"-quick"},
 					// We set GOMAXPROCS=2 in addition to -cpu=1,2,4 in order to test runtime bootstrap code,
@@ -1094,7 +1099,7 @@ func (t *tester) dirCmd(dir string, cmdline ...interface{}) *exec.Cmd {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if vflag > 1 {
-		errprintf("%s\n", strings.Join(cmd.Args, " "))
+		errprintf("%#q\n", cmd)
 	}
 	return cmd
 }
@@ -1164,7 +1169,7 @@ func (t *tester) internalLink() bool {
 	// Internally linking cgo is incomplete on some architectures.
 	// https://golang.org/issue/10373
 	// https://golang.org/issue/14449
-	if goarch == "loong64" || goarch == "mips64" || goarch == "mips64le" || goarch == "mips" || goarch == "mipsle" || goarch == "riscv64" {
+	if goarch == "mips64" || goarch == "mips64le" || goarch == "mips" || goarch == "mipsle" || goarch == "riscv64" {
 		return false
 	}
 	if goos == "aix" {
@@ -1185,7 +1190,7 @@ func (t *tester) internalLinkPIE() bool {
 	}
 	switch goos + "-" + goarch {
 	case "darwin-amd64", "darwin-arm64",
-		"linux-amd64", "linux-arm64", "linux-ppc64le",
+		"linux-amd64", "linux-arm64", "linux-loong64", "linux-ppc64le",
 		"android-arm64",
 		"windows-amd64", "windows-386", "windows-arm":
 		return true
@@ -1446,7 +1451,7 @@ func (t *tester) runPending(nextTest *distTest) {
 			}
 		}
 		if vflag > 1 {
-			errprintf("%s\n", strings.Join(w.cmd.Args, " "))
+			errprintf("%#q\n", w.cmd)
 		}
 		ended++
 		<-w.end
@@ -1674,7 +1679,7 @@ func (t *tester) makeGOROOTUnwritable() (undo func()) {
 func raceDetectorSupported(goos, goarch string) bool {
 	switch goos {
 	case "linux":
-		return goarch == "amd64" || goarch == "ppc64le" || goarch == "arm64" || goarch == "s390x"
+		return goarch == "amd64" || goarch == "ppc64le" || goarch == "arm64" || goarch == "s390x" || goarch == "loong64"
 	case "darwin":
 		return goarch == "amd64" || goarch == "arm64"
 	case "freebsd", "netbsd", "windows":
@@ -1763,7 +1768,7 @@ func buildModeSupported(compiler, buildmode, goos, goarch string) bool {
 
 	case "plugin":
 		switch platform {
-		case "linux/amd64", "linux/arm", "linux/arm64", "linux/386", "linux/loong64", "linux/s390x", "linux/ppc64le",
+		case "linux/amd64", "linux/arm", "linux/arm64", "linux/386", "linux/loong64", "linux/riscv64", "linux/s390x", "linux/ppc64le",
 			"android/amd64", "android/386",
 			"darwin/amd64", "darwin/arm64",
 			"freebsd/amd64":

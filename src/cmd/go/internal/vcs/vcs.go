@@ -498,6 +498,7 @@ var vcsSvn = &Cmd{
 	Scheme:     []string{"https", "http", "svn", "svn+ssh"},
 	PingCmd:    "info -- {scheme}://{repo}",
 	RemoteRepo: svnRemoteRepo,
+	Status:     svnStatus,
 }
 
 func svnRemoteRepo(vcsSvn *Cmd, rootDir string) (remoteRepo string, err error) {
@@ -528,6 +529,35 @@ func svnRemoteRepo(vcsSvn *Cmd, rootDir string) (remoteRepo string, err error) {
 	}
 	out = out[:i]
 	return strings.TrimSpace(out), nil
+}
+
+func svnStatus(vcsSvn *Cmd, rootDir string) (Status, error) {
+	out, err := vcsSvn.runOutputVerboseOnly(rootDir, "info --show-item last-changed-revision")
+	if err != nil {
+		return Status{}, err
+	}
+	rev := strings.TrimSpace(string(out))
+
+	out, err = vcsSvn.runOutputVerboseOnly(rootDir, "info --show-item last-changed-date")
+	if err != nil {
+		return Status{}, err
+	}
+	commitTime, err := time.Parse(time.RFC3339, strings.TrimSpace(string(out)))
+	if err != nil {
+		return Status{}, fmt.Errorf("unable to parse output of svn info: %v", err)
+	}
+
+	out, err = vcsSvn.runOutputVerboseOnly(rootDir, "status")
+	if err != nil {
+		return Status{}, err
+	}
+	uncommitted := len(out) > 0
+
+	return Status{
+		Revision:    rev,
+		CommitTime:  commitTime,
+		Uncommitted: uncommitted,
+	}, nil
 }
 
 // fossilRepoName is the name go get associates with a fossil repository. In the
@@ -1056,7 +1086,8 @@ func checkGOVCS(vcs *Cmd, root string) error {
 // RepoRoot describes the repository root for a tree of source code.
 type RepoRoot struct {
 	Repo     string // repository URL, including scheme
-	Root     string // import path corresponding to root of repo
+	Root     string // import path corresponding to the SubDir
+	SubDir   string // subdirectory within the repo (empty for root)
 	IsCustom bool   // defined by served <meta> tags (as opposed to hard-coded pattern)
 	VCS      *Cmd
 }
@@ -1368,6 +1399,7 @@ func repoRootForImportDynamic(importPath string, mod ModuleMode, security web.Se
 	rr := &RepoRoot{
 		Repo:     repoURL,
 		Root:     mmi.Prefix,
+		SubDir:   mmi.SubDir,
 		IsCustom: true,
 		VCS:      vcs,
 	}
@@ -1457,9 +1489,9 @@ type fetchResult struct {
 }
 
 // metaImport represents the parsed <meta name="go-import"
-// content="prefix vcs reporoot" /> tags from HTML files.
+// content="prefix vcs reporoot subdir" /> tags from HTML files.
 type metaImport struct {
-	Prefix, VCS, RepoRoot string
+	Prefix, VCS, RepoRoot, SubDir string
 }
 
 // An ImportMismatchError is returned where metaImport/s are present

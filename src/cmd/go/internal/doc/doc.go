@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !cmd_go_bootstrap
+
 // Package doc implements the “go doc” command.
 package doc
 
 import (
 	"cmd/go/internal/base"
-	"cmd/go/internal/cfg"
+	"cmd/internal/doc"
 	"context"
 )
 
@@ -130,5 +132,5 @@ Flags:
 }
 
 func runDoc(ctx context.Context, cmd *base.Command, args []string) {
-	base.Run(cfg.BuildToolexec, base.Tool("doc"), args)
+	doc.Main(args)
 }
