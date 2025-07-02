@@ -27,7 +27,6 @@ export GOCACHE := $(GOPATH)/gocache
 # see also: src/cmd/distpack/pack.go
 GENERATED_FILES := \
 	src/cmd/go/internal/cfg/zdefaultcc.go \
-	src/go/build/zcgo.go \
 	src/internal/runtime/sys/zversion.go \
 	src/time/tzdata/zzipdata.go \
 	src/cmd/cgo/zdefaultcc.go \
