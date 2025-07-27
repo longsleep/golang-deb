@@ -13,7 +13,7 @@ Section: golang
 Priority: optional
 Build-Depends: debhelper-compat (= 13),
                binutils-gold [arm64],
-               golang-1.24-go | golang-1.23-go | golang-1.22-go,
+               golang-1.24-go:native | golang-1.23-go:native | golang-1.22-go:native,
                netbase
 Standards-Version: 4.6.2
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.24
