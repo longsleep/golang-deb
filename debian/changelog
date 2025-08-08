@@ -1,8 +1,8 @@
-golang-1.25 (1.25~rc1-1) UNRELEASED; urgency=medium
+golang-1.25 (1.25~rc1-1ubuntu1) UNRELEASED; urgency=medium
 
-  * 
+  * Team upload
 
- -- Anshul Singh <anshul.singh@canonical.com>  Wed, 02 Jul 2025 10:26:14 +0530
+ -- Anshul Singh <anshul.singh@canonical.com>  Fri, 08 Aug 2025 05:13:23 +0000
 
 golang-1.24 (1.24.4-1) unstable; urgency=medium
 
