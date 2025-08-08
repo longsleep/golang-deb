@@ -17,7 +17,7 @@
 //
 // Note that the examples in this package assume a Unix system.
 // They may not run on Windows, and they do not run in the Go Playground
-// used by golang.org and godoc.org.
+// used by go.dev and pkg.go.dev.
 //
 // # Executables in the current directory
 //
@@ -1328,3 +1328,13 @@ func addCriticalEnv(env []string) []string {
 // Code should use errors.Is(err, ErrDot), not err == ErrDot,
 // to test whether a returned error err is due to this condition.
 var ErrDot = errors.New("cannot run executable found relative to current directory")
+
+// validateLookPath excludes paths that can't be valid
+// executable names. See issue #74466 and CVE-2025-47906.
+func validateLookPath(s string) error {
+	switch s {
+	case "", ".", "..":
+		return ErrNotFound
+	}
+	return nil
+}
