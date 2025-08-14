@@ -1,3 +1,15 @@
+golang-1.24 (1.24.6-1longsleep2+focal) focal; urgency=medium
+
+  [ Shengjing Zhu ]
+  * Install lib directory to golang-X.Y-src package (Closes: #1096251)
+  * Backport patch to fix SIGSEGV in vgetrandom on Linux 6.11+
+    (Closes: #1103345)
+
+  [ Anshul Singh ]
+  * Remove patch 0003 as it's already applied upstream
+
+ -- Simon Eisenmann <simon@longsleep.org>  Thu, 14 Aug 2025 09:19:54 +0200
+
 golang-1.24 (1.24.6-1longsleep1+focal) focal; urgency=medium
 
   * New upstream version 1.24.6
