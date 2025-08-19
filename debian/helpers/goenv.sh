@@ -70,4 +70,45 @@ if [ "$GOARCH" = 'arm' ]; then
 fi
 export GOARM
 
-eval "$@"
+# set CC_FOR_os_arch variables appropriately for supported architectures so that cross-compile even with cgo "just works" in more cases (also consistently across architectures for better reproducibility)
+linuxArchList="$(dpkg-architecture --list-known --match-wildcard 'gnu-linux-any')"
+for dpkgArch in $linuxArchList; do
+	archCpu="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_ARCH_CPU 2>/dev/null)"
+	if goArch="$(__goarch__deb_arch_cpu "$archCpu" 2>/dev/null)"; then
+		gnuType="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_GNU_TYPE 2>/dev/null)"
+		export  "CC_FOR_linux_${goArch}=${gnuType}-gcc"
+		export "CXX_FOR_linux_${goArch}=${gnuType}-g++"
+		unset gnuType
+	fi
+	unset archCpu goArch
+done
+unset linuxArchList dpkgArch
+
+unset CGO_ENABLED
+if [ "$GOOS" = 'linux' ] && [ "$GOARCH" != "$GOHOSTARCH" ] && eval 'test -n "${CC_FOR_'"${GOHOSTOS}_${GOHOSTARCH}"':-}" && "${CC_FOR_'"${GOHOSTOS}_${GOHOSTARCH}"'}" --version > /dev/null'; then
+	# if we're cross-compiling, let's check whether we can safely explicitly enable CGO (and whether we should)
+	# https://github.com/golang/go/blob/go1.24.5/src/cmd/dist/build.go#L1779-L1792 ("cgoEnabled" map)
+	# minus https://github.com/golang/go/blob/go1.24.5/src/cmd/dist/build.go#L1822-L1830 ("broken" map)
+	# (we could use "--dist-tool" to pre-compile the "dist" tool to then use "dist list -json" to get "CgoSupported" instead of hard-coding this list, but then we need something that can parse JSON too, and all that just feels like way too much just to get this list of platforms which should enable CGO by default -Tianon)
+	# $ go tool dist list -json | jq -r 'map(select(.CgoSupported and .GOOS == "linux") | .GOOS + "/" + .GOARCH) | (map(length) | max) as $max | map(. + (" " * ($max - length))) | join(" |\\\n") + " )"'
+	case "$GOOS/$GOARCH" in
+		linux/386      |\
+		linux/amd64    |\
+		linux/arm      |\
+		linux/arm64    |\
+		linux/loong64  |\
+		linux/mips     |\
+		linux/mips64   |\
+		linux/mips64le |\
+		linux/mipsle   |\
+		linux/ppc64le  |\
+		linux/riscv64  |\
+		linux/s390x    )
+			if eval 'test -n "${CC_FOR_'"${GOOS}_${GOARCH}"':-}" && "${CC_FOR_'"${GOOS}_${GOARCH}"'}" --version > /dev/null'; then
+				export CGO_ENABLED=1
+			fi
+			;;
+	esac
+fi
+
+exec "$@"
