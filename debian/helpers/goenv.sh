@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 __goos__deb_arch_os() {
 	case "$1" in
@@ -26,56 +26,61 @@ __goarch__deb_arch_cpu() {
 #       host machine
 #           The machine the package is built for.
 
-export GOHOSTOS="$(__goos__deb_arch_os "$(dpkg-architecture -qDEB_BUILD_ARCH_OS 2>/dev/null)")"
-export GOOS="$(__goos__deb_arch_os "$(dpkg-architecture -qDEB_HOST_ARCH_OS 2>/dev/null)")"
+DEB_HOST_ARCH="$(dpkg-architecture --query DEB_HOST_ARCH 2>/dev/null)"
+# set _OS and _CPU explicitly via --force so they are never autodetected via CC (this makes it easier to test this script for various target architectures via a simple "DEB_HOST_ARCH=xxx ./debian/helpers/goenv.sh env")
+DEB_HOST_ARCH_OS="$(dpkg-architecture --force --host-arch "$DEB_HOST_ARCH" --query DEB_HOST_ARCH_OS)"
+DEB_HOST_ARCH_CPU="$(dpkg-architecture --force --host-arch "$DEB_HOST_ARCH" --query DEB_HOST_ARCH_CPU)"
+export DEB_HOST_ARCH DEB_HOST_ARCH_OS DEB_HOST_ARCH_CPU
 
-export GOHOSTARCH="$(__goarch__deb_arch_cpu "$(dpkg-architecture -qDEB_BUILD_ARCH_CPU 2>/dev/null)")"
-export GOARCH="$(__goarch__deb_arch_cpu "$(dpkg-architecture -qDEB_HOST_ARCH_CPU 2>/dev/null)")"
+DEB_BUILD_ARCH_OS="$(dpkg-architecture --query DEB_BUILD_ARCH_OS)"
+GOHOSTOS="$(__goos__deb_arch_os "$DEB_BUILD_ARCH_OS")"
+GOOS="$(__goos__deb_arch_os "$DEB_HOST_ARCH_OS")"
+export GOHOSTOS GOOS
+
+DEB_BUILD_ARCH_CPU="$(dpkg-architecture --query DEB_BUILD_ARCH_CPU)"
+GOHOSTARCH="$(__goarch__deb_arch_cpu "$DEB_BUILD_ARCH_CPU")"
+GOARCH="$(__goarch__deb_arch_cpu "$DEB_HOST_ARCH_CPU")"
+export GOHOSTARCH GOARCH
 
 if [ -z "$GOHOSTOS" -o -z "$GOOS" -o -z "$GOHOSTARCH" -o -z "$GOARCH" ]; then
 	exit 1
 fi
 
-[ -e "$GOROOT_BOOTSTRAP/bin/go" ] || exit 1
-
-export GO111MODULE=off # Avoid "go version" trying to download a newer toolchain
-GOVERSION_BOOTSTRAP=$("$GOROOT_BOOTSTRAP/bin/go" version|sed -E -n 's|.*go([0-9]\.[0-9]+).*|\1|p')
-unset GO111MODULE
-export GOVERSION_BOOTSTRAP
+# Avoid all "go" invocations downloading different toolchains during build.
+export GOTOOLCHAIN=local
 
 # Always not use sse2. This is important to ensure that the binaries we build
 # (both when compiling golang on the buildds and when users cross-compile for
 # 386) can actually run on older CPUs (where old means e.g. an AMD Athlon XP
 # 2400+). See http://bugs.debian.org/753160 and
 # https://code.google.com/p/go/issues/detail?id=8152
-
-# Staring from go1.16, GO386=387 is not supported, only GO386=softfloat.
-unset GO386
-if dpkg --compare-versions "$GOVERSION_BOOTSTRAP" ge "1.16"; then
-	# Only go1.16 recognizes GO386=softfloat. Using GO386=387 to build go1.16
-	# also fails.
-	# https://github.com/golang/go/issues/44500
-	# Need to build with GO386="" first, then rebuild go1.16+ with go1.16 and
-	# GO386=softfloat
-	export GO386=softfloat
-fi
+export GO386=softfloat
 
 unset GOARM
 if [ "$GOARCH" = 'arm' ]; then
 	# start with GOARM=5 for maximum compatibility (see note about GO386 above)
 	GOARM=5
-	case "$(dpkg-architecture -qDEB_HOST_ARCH 2>/dev/null)" in
-		armhf) GOARM=6 ;;
+	case "$DEB_HOST_ARCH" in
+		armhf) GOARM=6 ;; # TODO detect Debian vs Raspbian and upgrade this to 7 by default?
 	esac
+	export GOARM
 fi
-export GOARM
 
 # set CC_FOR_os_arch variables appropriately for supported architectures so that cross-compile even with cgo "just works" in more cases (also consistently across architectures for better reproducibility)
 linuxArchList="$(dpkg-architecture --list-known --match-wildcard 'gnu-linux-any')"
+# hotly contested/overlapping architectures: let's arbitrarily choose "armhf" as the cross-compile target for "GOARCH=arm" unless we're explicitly building the "armel" package
+# this matches upstream's behavior for GOARM: https://github.com/golang/go/blob/go1.25.0/src/cmd/dist/util.go#L397-L405 (set to "7" if unspecified and cross-compiling)
+armArchForCC='armhf'
+if [ "$GOARCH" = 'arm' ]; then
+	armArchForCC="$DEB_HOST_ARCH"
+fi
 for dpkgArch in $linuxArchList; do
-	archCpu="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_ARCH_CPU 2>/dev/null)"
+	archCpu="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_ARCH_CPU)"
 	if goArch="$(__goarch__deb_arch_cpu "$archCpu" 2>/dev/null)"; then
-		gnuType="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_GNU_TYPE 2>/dev/null)"
+		if [ "$goArch" = 'arm' ] && [ "$dpkgArch" != "$armArchForCC" ]; then
+			continue
+		fi
+		gnuType="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_GNU_TYPE)"
 		export  "CC_FOR_linux_${goArch}=${gnuType}-gcc"
 		export "CXX_FOR_linux_${goArch}=${gnuType}-g++"
 		unset gnuType
