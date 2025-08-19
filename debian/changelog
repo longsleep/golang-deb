@@ -1,9 +1,9 @@
-golang-1.24 (1.24.4-3) UNRELEASED; urgency=medium
+golang-1.24 (1.24.4-3) unstable; urgency=medium
 
   * Set better CC defaults around arm* (native for arm*, armhf for others)
   * Clean up debian/helpers/goenv.sh (notably no more go1.16 support)
 
- -- Tianon Gravi <tianon@debian.org>  Mon, 18 Aug 2025 22:11:06 -0700
+ -- Tianon Gravi <tianon@debian.org>  Mon, 18 Aug 2025 22:22:03 -0700
 
 golang-1.24 (1.24.4-2) unstable; urgency=medium
 
