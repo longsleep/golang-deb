@@ -1,6 +1,7 @@
 golang-1.24 (1.24.4-2) UNRELEASED; urgency=medium
 
   * Add support for cross-building natively (Closes: #1100436)
+    - https://salsa.debian.org/go-team/compiler/golang/-/merge_requests/21
 
  -- Tianon Gravi <tianon@debian.org>  Thu, 07 Aug 2025 19:33:53 -0700
 
