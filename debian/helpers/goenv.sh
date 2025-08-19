@@ -75,12 +75,12 @@ if [ "$GOARCH" = 'arm' ]; then
 	armArchForCC="$DEB_HOST_ARCH"
 fi
 for dpkgArch in $linuxArchList; do
-	archCpu="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_ARCH_CPU)"
+	archCpu="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_ARCH_CPU 2>/dev/null)"
 	if goArch="$(__goarch__deb_arch_cpu "$archCpu" 2>/dev/null)"; then
 		if [ "$goArch" = 'arm' ] && [ "$dpkgArch" != "$armArchForCC" ]; then
 			continue
 		fi
-		gnuType="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_GNU_TYPE)"
+		gnuType="$(dpkg-architecture --force --host-arch "$dpkgArch" --query DEB_HOST_GNU_TYPE 2>/dev/null)"
 		export  "CC_FOR_linux_${goArch}=${gnuType}-gcc"
 		export "CXX_FOR_linux_${goArch}=${gnuType}-g++"
 		unset gnuType
