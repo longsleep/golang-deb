@@ -11,7 +11,7 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Anthony Fok <foka@debian.org>
 Section: golang
 Priority: optional
-Build-Depends: debhelper-compat (= 13),
+Build-Depends: debhelper (>= 11),
                binutils-gold [arm64],
                golang-1.24-go:native | golang-1.23-go:native | golang-1.22-go:native,
                netbase
@@ -28,7 +28,7 @@ Depends: binutils-gold [arm64],
          ${misc:Depends},
          ${perl:Depends},
          ${shlibs:Depends}
-Recommends: g++, gcc, libc6-dev, pkgconf
+Recommends: g++, gcc, libc6-dev, pkg-config | pkgconf
 Breaks: dh-golang (<< 1.43~)
 Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
 Description: Go programming language compiler, linker, compiled stdlib
