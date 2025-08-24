@@ -1,10 +1,16 @@
-golang-1.25 (1.25.0-2) UNRELEASED; urgency=medium
+golang-1.25 (1.25.0-1longsleep1+focal) focal; urgency=medium
 
+  [ Tianon Gravi ]
   * Add support for cross-building natively (Closes: #1100436)
     - https://salsa.debian.org/go-team/compiler/golang/-/merge_requests/21
   * Clean up debian/helpers/goenv.sh (notably no more go1.16 support)
 
- -- Tianon Gravi <tianon@debian.org>  Mon, 18 Aug 2025 19:32:53 -0700
+  [ Simon Eisenmann ]
+  * Change packaging for Ubuntu backports
+  * Switch backport to recommend pkg-config as well
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Sun, 24 Aug 2025 11:27:38 +0200
 
 golang-1.25 (1.25.0-1) unstable; urgency=medium
 
