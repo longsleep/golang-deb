@@ -1,8 +1,12 @@
 golang-1.25 (1.25.0-2) UNRELEASED; urgency=medium
 
+  [ Tianon Gravi ]
   * Add support for cross-building natively (Closes: #1100436)
     - https://salsa.debian.org/go-team/compiler/golang/-/merge_requests/21
   * Clean up debian/helpers/goenv.sh (notably no more go1.16 support)
+
+  [ Bo YU ]
+  * Skip failing TSAN tests on riscv64 (Closes: #1115478)
 
  -- Tianon Gravi <tianon@debian.org>  Mon, 18 Aug 2025 19:32:53 -0700
 

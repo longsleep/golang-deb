@@ -1,0 +1,35 @@
+Description: skip tsan tests on riscv64
+ Race detector on riscv64 is not support yet, this is usually no problem on Debian
+ building because it will be skipped automatically. But others package updated
+ recently lead to the test failed.
+Author: Bo YU <vimer@debian.org>
+Bug: https://github.com/golang/go/issues/75553
+Bug-Debian: https://bugs.debian.org/1115478
+Last-Update: 2025-09-19
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/src/cmd/cgo/internal/testsanitizers/tsan_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
+@@ -29,6 +29,10 @@
+ 	if !compilerRequiredTsanVersion(goos, goarch) {
+ 		t.Skipf("skipping on %s/%s; compiler version for -tsan option is too old.", goos, goarch)
+ 	}
++	if goarch == "riscv64" {
++		t.Skipf("skipping TestTSAN test on %s (see https://github.com/golang/go/issues/75553)", goarch)
++	}
++
+ 
+ 	t.Parallel()
+ 	requireOvercommit(t)
+--- a/src/cmd/cgo/internal/testsanitizers/cshared_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
+@@ -65,6 +65,9 @@
+ 			t.Logf("skipping %s test on %s/%s; compiler version too old for -tsan.", name, GOOS, GOARCH)
+ 			continue
+ 		}
++		if GOARCH == "riscv64" {
++			t.Skipf("skipping %s test on %s (see https://github.com/golang/go/issues/75553)", name, GOARCH)
++		}
+ 
+ 		t.Run(name, func(t *testing.T) {
+ 			t.Parallel()
