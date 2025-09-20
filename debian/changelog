@@ -1,9 +1,9 @@
-golang-1.24 (1.24.4-4) UNRELEASED; urgency=medium
+golang-1.24 (1.24.4-4) unstable; urgency=medium
 
   * Skip failing TSAN tests on riscv64 (Closes: #1112166)
   * Fix cgo on riscv64 internal linker issue (Closes: #1114841)
 
- -- Bo YU <vimer@debian.org>  Wed, 10 Sep 2025 16:13:48 +0800
+ -- Bo YU <vimer@debian.org>  Fri, 19 Sep 2025 21:09:50 -0700
 
 golang-1.24 (1.24.4-3) unstable; urgency=medium
 
