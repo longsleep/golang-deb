@@ -1,3 +1,20 @@
+golang-1.24 (1.24.7-1) UNRELEASED; urgency=medium
+
+  * Update to 1.24.7 upstream release
+    - 1.24.5
+      - cmd/go: unexpected command execution in untrusted VCS repositories
+        (CVE-2025-4674; https://go.dev/issue/74380; Closes: #1109109)
+    - 1.24.6
+      - os/exec: LookPath may return unexpected paths
+        (CVE-2025-47906; https://go.dev/issue/74466; Closes: #1110947)
+      - database/sql: incorrect results returned from Rows.Scan
+        (CVE-2025-47907; https://go.dev/issue/74831; Closes: #1110949)
+    - 1.24.7
+      - net/http: CrossOriginProtection bypass patterns are over-broad
+        (CVE-2025-47910; https://go.dev/issue/75054)
+
+ -- Tianon Gravi <tianon@debian.org>  Sat, 27 Sep 2025 21:33:33 -0700
+
 golang-1.24 (1.24.4-4) unstable; urgency=medium
 
   * Skip failing TSAN tests on riscv64 (Closes: #1112166)
