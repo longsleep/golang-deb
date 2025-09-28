@@ -1,4 +1,4 @@
-golang-1.24 (1.24.7-1) UNRELEASED; urgency=medium
+golang-1.24 (1.24.7-1) unstable; urgency=medium
 
   * Update to 1.24.7 upstream release
     - 1.24.5
@@ -13,7 +13,7 @@ golang-1.24 (1.24.7-1) UNRELEASED; urgency=medium
       - net/http: CrossOriginProtection bypass patterns are over-broad
         (CVE-2025-47910; https://go.dev/issue/75054)
 
- -- Tianon Gravi <tianon@debian.org>  Sat, 27 Sep 2025 21:33:33 -0700
+ -- Tianon Gravi <tianon@debian.org>  Sat, 27 Sep 2025 22:07:23 -0700
 
 golang-1.24 (1.24.4-4) unstable; urgency=medium
 
