@@ -1,3 +1,11 @@
+golang-1.25 (1.25.1-1) UNRELEASED; urgency=medium
+
+  * Update to 1.25.1 upstream release
+    - net/http: CrossOriginProtection bypass patterns are over-broad
+      (CVE-2025-47910; https://go.dev/issue/75054; Closes: #1116341)
+
+ -- Tianon Gravi <tianon@debian.org>  Sat, 27 Sep 2025 19:51:57 -0700
+
 golang-1.25 (1.25.0-2) unstable; urgency=medium
 
   [ Tianon Gravi ]
