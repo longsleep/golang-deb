@@ -13,6 +13,7 @@ golang-1.24 (1.24.8-1) UNRELEASED; urgency=medium
     - CVE-2025-58188: crypto/x509: panic when validating certificates with DSA public keys
     - CVE-2025-58183: archive/tar: unbounded allocation when parsing GNU sparse map
     - CVE-2025-61724: net/textproto: excessive CPU consumption in Reader.ReadResponse
+  * Remove patch that's now applied in 1.24.8
 
  -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 19:53:25 -0700
 
