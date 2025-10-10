@@ -1,8 +1,20 @@
-golang-1.24 (1.24.7-2) UNRELEASED; urgency=medium
+golang-1.24 (1.24.8-1) UNRELEASED; urgency=medium
 
   * Update upstream signing key
+  * Update to 1.24.8 upstream release
+    https://groups.google.com/g/golang-announce/c/4Emdl2iQ_bI/m/qZN5nc-mBgAJ
+    - CVE-2025-61725: net/mail: excessive CPU consumption in ParseAddress
+    - CVE-2025-58187: crypto/x509: quadratic complexity when checking name constraints
+    - CVE-2025-58189: crypto/tls: ALPN negotiation errors can contain arbitrary text
+    - CVE-2025-61723: encoding/pem: quadratic complexity when parsing some invalid inputs
+    - CVE-2025-47912: net/url: insufficient validation of bracketed IPv6 hostnames
+    - CVE-2025-58185: encoding/asn1: pre-allocating memory when parsing DER payload can cause memory exhaustion
+    - CVE-2025-58186: net/http: lack of limit when parsing cookies can cause memory exhaustion
+    - CVE-2025-58188: crypto/x509: panic when validating certificates with DSA public keys
+    - CVE-2025-58183: archive/tar: unbounded allocation when parsing GNU sparse map
+    - CVE-2025-61724: net/textproto: excessive CPU consumption in Reader.ReadResponse
 
- -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 19:51:34 -0700
+ -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 19:53:25 -0700
 
 golang-1.24 (1.24.7-1) unstable; urgency=medium
 
