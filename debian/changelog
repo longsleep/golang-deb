@@ -3,6 +3,7 @@ golang-1.25 (1.25.2-1) UNRELEASED; urgency=medium
   * Add Go 1.25 to acceptable bootstrap versions (Build-Depends)
   * Update upstream signing key
   * Update to 1.25.2 upstream release
+    https://groups.google.com/g/golang-announce/c/4Emdl2iQ_bI/m/qZN5nc-mBgAJ
     - CVE-2025-61725: net/mail: excessive CPU consumption in ParseAddress
     - CVE-2025-58187: crypto/x509: quadratic complexity when checking name constraints
     - CVE-2025-58189: crypto/tls: ALPN negotiation errors can contain arbitrary text
