@@ -1,4 +1,4 @@
-golang-1.24 (1.24.8-1) UNRELEASED; urgency=medium
+golang-1.24 (1.24.8-1) unstable; urgency=medium
 
   * Update upstream signing key
   * Update to 1.24.8 upstream release
@@ -15,7 +15,7 @@ golang-1.24 (1.24.8-1) UNRELEASED; urgency=medium
     - CVE-2025-61724: net/textproto: excessive CPU consumption in Reader.ReadResponse
   * Remove patch that's now applied in 1.24.8
 
- -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 19:53:25 -0700
+ -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 20:14:26 -0700
 
 golang-1.24 (1.24.7-1) unstable; urgency=medium
 
