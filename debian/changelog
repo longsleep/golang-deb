@@ -1,4 +1,4 @@
-golang-1.25 (1.25.2-1) UNRELEASED; urgency=medium
+golang-1.25 (1.25.2-1) unstable; urgency=medium
 
   * Add Go 1.25 to acceptable bootstrap versions (Build-Depends)
   * Update upstream signing key
@@ -15,7 +15,7 @@ golang-1.25 (1.25.2-1) UNRELEASED; urgency=medium
     - CVE-2025-58183: archive/tar: unbounded allocation when parsing GNU sparse map
     - CVE-2025-61724: net/textproto: excessive CPU consumption in Reader.ReadResponse
 
- -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 19:39:07 -0700
+ -- Tianon Gravi <tianon@debian.org>  Thu, 09 Oct 2025 20:14:29 -0700
 
 golang-1.25 (1.25.1-1) unstable; urgency=medium
 
