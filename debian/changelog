@@ -1,3 +1,11 @@
+golang-1.25 (1.25.3-1) UNRELEASED; urgency=medium
+
+  * Update to 1.25.3 upstream release
+    https://go.dev/doc/devel/release#go1.25.3
+    - fixes to the crypto/x509 package (https://go.dev/issue/75828)
+
+ -- Tianon Gravi <tianon@debian.org>  Mon, 13 Oct 2025 15:57:49 -0700
+
 golang-1.25 (1.25.2-1) unstable; urgency=medium
 
   * Add Go 1.25 to acceptable bootstrap versions (Build-Depends)
