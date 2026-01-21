@@ -1,3 +1,12 @@
+golang-1.25 (1.25.5-1) unstable; urgency=medium
+
+  * Update to 1.25.5 upstream release
+    https://go.dev/doc/devel/release#go1.25.5
+    - crypto/x509: excessive resource consumption in printing error string for host certificate validation
+    - crypto/x509: excluded subdomain constraint does not restrict wildcard SANs 
+
+ -- Anshul Singh <anshul.singh@canonical.com>  Sat, 10 Jan 2026 09:15:17 +0000
+
 golang-1.25 (1.25.3-1) unstable; urgency=medium
 
   * Update to 1.25.3 upstream release
