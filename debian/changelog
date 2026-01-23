@@ -34,6 +34,8 @@ golang-1.25 (1.25.6-1) UNRELEASED; urgency=medium
       crypto/tls: handshake messages may be processed at the incorrect
       encryption level
 
+    - os: allow direntries to have zero inodes on Linux (Closes: #1115301)
+
     1.25.5: (Closes: #1121847)
     - https://groups.google.com/g/golang-announce/c/8FJoBkPddm4/m/kYpVlPw1CQAJ
 
