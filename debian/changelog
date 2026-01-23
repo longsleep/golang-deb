@@ -1,11 +1,54 @@
-golang-1.25 (1.25.5-1) UNRELEASED; urgency=medium
+golang-1.25 (1.25.6-1) UNRELEASED; urgency=medium
 
+  [ Anshul Singh ]
   * Update to 1.25.5 upstream release
     https://go.dev/doc/devel/release#go1.25.5
     - crypto/x509: excessive resource consumption in printing error string for host certificate validation
-    - crypto/x509: excluded subdomain constraint does not restrict wildcard SANs 
+    - crypto/x509: excluded subdomain constraint does not restrict wildcard SANs
 
- -- Anshul Singh <anshul.singh@canonical.com>  Sat, 10 Jan 2026 09:15:17 +0000
+  [ Tianon Gravi ]
+  * Update to 1.25.6 upstream release
+
+    1.25.6: (Closes: #1125916)
+    - https://groups.google.com/g/golang-announce/c/Vd2tYVM8eUc/m/pQP7Bk0aCQAJ
+
+    - CVE-2025-61728: https://go.dev/issue/77102
+      archive/zip: denial of service when parsing arbitrary ZIP archives
+
+    - CVE-2025-61726: https://go.dev/issue/77101
+      net/http: memory exhaustion in Request.ParseForm
+
+    - CVE-2025-68121: https://go.dev/issue/77113
+      crypto/tls: Config.Clone copies automatically generated session ticket
+      keys, session resumption does not account for the expiration of full
+      certificate chain
+
+    - CVE-2025-61731: https://go.dev/issue/77100
+      cmd/go: bypass of flag sanitization can lead to arbitrary code
+      execution
+
+    - CVE-2025-68119: https://go.dev/issue/77099
+      cmd/go: unexpected code execution when invoking toolchain
+
+    - CVE-2025-61730: https://go.dev/issue/76443
+      crypto/tls: handshake messages may be processed at the incorrect
+      encryption level
+
+    1.25.5: (Closes: #1121847)
+    - https://groups.google.com/g/golang-announce/c/8FJoBkPddm4/m/kYpVlPw1CQAJ
+
+    - CVE-2025-61729: https://go.dev/issue/76445
+      crypto/x509: excessive resource consumption in printing error string for
+      host certificate validation
+
+    - CVE-2025-61727: https://go.dev/issue/76442
+      crypto/x509: excluded subdomain constraint does not restrict wildcard
+      SANs
+
+    1.25.4:
+    - https://groups.google.com/g/golang-announce/c/tVVHm9gnwl8/m/-oTvYIjCAQAJ
+
+ -- Tianon Gravi <tianon@debian.org>  Thu, 22 Jan 2026 22:48:21 -0800
 
 golang-1.25 (1.25.3-1) unstable; urgency=medium
 
