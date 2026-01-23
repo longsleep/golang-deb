@@ -1,4 +1,4 @@
-golang-1.25 (1.25.6-1) UNRELEASED; urgency=medium
+golang-1.25 (1.25.6-1) unstable; urgency=medium
 
   [ Anshul Singh ]
   * Update to 1.25.5 upstream release
@@ -53,7 +53,7 @@ golang-1.25 (1.25.6-1) UNRELEASED; urgency=medium
   * Fix build with DEB_BUILD_OPTIONS=terse (Closes: #1125464)
     (solution borrowed from xz-utils debian/rules)
 
- -- Tianon Gravi <tianon@debian.org>  Thu, 22 Jan 2026 22:48:21 -0800
+ -- Tianon Gravi <tianon@debian.org>  Thu, 22 Jan 2026 23:07:54 -0800
 
 golang-1.25 (1.25.3-1) unstable; urgency=medium
 
