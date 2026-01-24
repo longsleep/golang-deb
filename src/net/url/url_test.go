@@ -726,7 +726,7 @@ var parseRequestURLTests = []struct {
 	{"https://[2001:db8::1]/path", true},            // compressed IPv6 address with path
 	{"https://[fe80::1%25eth0]/path?query=1", true}, // link-local with zone, path, and query
 
-	{"https://[::ffff:192.0.2.1]", false},
+	{"https://[::ffff:192.0.2.1]", true},
 	{"https://[:1] ", false},
 	{"https://[1:2:3:4:5:6:7:8:9]", false},
 	{"https://[1::1::1]", false},
@@ -1496,6 +1496,54 @@ func TestParseQuery(t *testing.T) {
 	}
 }
 
+func TestParseQueryLimits(t *testing.T) {
+	for _, test := range []struct {
+		params  int
+		godebug string
+		wantErr bool
+	}{{
+		params:  10,
+		wantErr: false,
+	}, {
+		params:  defaultMaxParams,
+		wantErr: false,
+	}, {
+		params:  defaultMaxParams + 1,
+		wantErr: true,
+	}, {
+		params:  10,
+		godebug: "urlmaxqueryparams=9",
+		wantErr: true,
+	}, {
+		params:  defaultMaxParams + 1,
+		godebug: "urlmaxqueryparams=0",
+		wantErr: false,
+	}} {
+		t.Setenv("GODEBUG", test.godebug)
+		want := Values{}
+		var b strings.Builder
+		for i := range test.params {
+			if i > 0 {
+				b.WriteString("&")
+			}
+			p := fmt.Sprintf("p%v", i)
+			b.WriteString(p)
+			want[p] = []string{""}
+		}
+		query := b.String()
+		got, err := ParseQuery(query)
+		if gotErr, wantErr := err != nil, test.wantErr; gotErr != wantErr {
+			t.Errorf("GODEBUG=%v ParseQuery(%v params) = %v, want error: %v", test.godebug, test.params, err, wantErr)
+		}
+		if err != nil {
+			continue
+		}
+		if got, want := len(got), test.params; got != want {
+			t.Errorf("GODEBUG=%v ParseQuery(%v params): got %v params, want %v", test.godebug, test.params, got, want)
+		}
+	}
+}
+
 type RequestURITest struct {
 	url *URL
 	out string
@@ -1672,16 +1720,17 @@ func TestParseErrors(t *testing.T) {
 		{"cache_object:foo/bar", true},
 		{"cache_object/:foo/bar", false},
 
-		{"http://[192.168.0.1]/", true},             // IPv4 in brackets
-		{"http://[192.168.0.1]:8080/", true},        // IPv4 in brackets with port
-		{"http://[::ffff:192.168.0.1]/", true},      // IPv4-mapped IPv6 in brackets
-		{"http://[::ffff:192.168.0.1]:8080/", true}, // IPv4-mapped IPv6 in brackets with port
-		{"http://[::ffff:c0a8:1]/", true},           // IPv4-mapped IPv6 in brackets (hex)
-		{"http://[not-an-ip]/", true},               // invalid IP string in brackets
-		{"http://[fe80::1%foo]/", true},             // invalid zone format in brackets
-		{"http://[fe80::1", true},                   // missing closing bracket
-		{"http://fe80::1]/", true},                  // missing opening bracket
-		{"http://[test.com]/", true},                // domain name in brackets
+		{"http://[192.168.0.1]/", true},              // IPv4 in brackets
+		{"http://[192.168.0.1]:8080/", true},         // IPv4 in brackets with port
+		{"http://[::ffff:192.168.0.1]/", false},      // IPv4-mapped IPv6 in brackets
+		{"http://[::ffff:192.168.0.1000]/", true},    // Out of range IPv4-mapped IPv6 in brackets
+		{"http://[::ffff:192.168.0.1]:8080/", false}, // IPv4-mapped IPv6 in brackets with port
+		{"http://[::ffff:c0a8:1]/", false},           // IPv4-mapped IPv6 in brackets (hex)
+		{"http://[not-an-ip]/", true},                // invalid IP string in brackets
+		{"http://[fe80::1%foo]/", true},              // invalid zone format in brackets
+		{"http://[fe80::1", true},                    // missing closing bracket
+		{"http://fe80::1]/", true},                   // missing opening bracket
+		{"http://[test.com]/", true},                 // domain name in brackets
 	}
 	for _, tt := range tests {
 		u, err := Parse(tt.in)

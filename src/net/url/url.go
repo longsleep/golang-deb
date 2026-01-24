@@ -13,6 +13,7 @@ package url
 import (
 	"errors"
 	"fmt"
+	"internal/godebug"
 	"maps"
 	"net/netip"
 	"path"
@@ -670,13 +671,13 @@ func parseHost(host string) (string, error) {
 
 		// Per RFC 3986, only a host identified by a valid
 		// IPv6 address can be enclosed by square brackets.
-		// This excludes any IPv4 or IPv4-mapped addresses.
+		// This excludes any IPv4, but notably not IPv4-mapped addresses.
 		addr, err := netip.ParseAddr(unescapedHostname)
 		if err != nil {
 			return "", fmt.Errorf("invalid host: %w", err)
 		}
-		if addr.Is4() || addr.Is4In6() {
-			return "", errors.New("invalid IPv6 host")
+		if addr.Is4() {
+			return "", errors.New("invalid IP-literal")
 		}
 		return "[" + unescapedHostname + "]" + unescapedColonPort, nil
 	} else if i := strings.LastIndex(host, ":"); i != -1 {
@@ -989,7 +990,30 @@ func ParseQuery(query string) (Values, error) {
 	return m, err
 }
 
+var urlmaxqueryparams = godebug.New("urlmaxqueryparams")
+
+const defaultMaxParams = 10000
+
+func urlParamsWithinMax(params int) bool {
+	withinDefaultMax := params <= defaultMaxParams
+	if urlmaxqueryparams.Value() == "" {
+		return withinDefaultMax
+	}
+	customMax, err := strconv.Atoi(urlmaxqueryparams.Value())
+	if err != nil {
+		return withinDefaultMax
+	}
+	withinCustomMax := customMax == 0 || params < customMax
+	if withinDefaultMax != withinCustomMax {
+		urlmaxqueryparams.IncNonDefault()
+	}
+	return withinCustomMax
+}
+
 func parseQuery(m Values, query string) (err error) {
+	if !urlParamsWithinMax(strings.Count(query, "&") + 1) {
+		return errors.New("number of URL query parameters exceeded limit")
+	}
 	for query != "" {
 		var key string
 		key, query, _ = strings.Cut(query, "&")
