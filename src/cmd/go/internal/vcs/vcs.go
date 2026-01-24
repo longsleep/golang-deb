@@ -99,7 +99,7 @@ func (v *Cmd) isSecureScheme(scheme string) bool {
 		// colon-separated list of schemes that are allowed to be used with git
 		// fetch/clone. Any scheme not mentioned will be considered insecure.
 		if allow := os.Getenv("GIT_ALLOW_PROTOCOL"); allow != "" {
-			for _, s := range strings.Split(allow, ":") {
+			for s := range strings.SplitSeq(allow, ":") {
 				if s == scheme {
 					return true
 				}
@@ -202,7 +202,7 @@ func parseRevTime(out []byte) (string, time.Time, error) {
 	}
 	rev := buf[:i]
 
-	secs, err := strconv.ParseInt(string(buf[i+1:]), 10, 64)
+	secs, err := strconv.ParseInt(buf[i+1:], 10, 64)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("unrecognized VCS tool output: %v", err)
 	}
@@ -286,7 +286,7 @@ func bzrStatus(vcsBzr *Cmd, rootDir string) (Status, error) {
 	var rev string
 	var commitTime time.Time
 
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		i := strings.IndexByte(line, ':')
 		if i < 0 {
 			continue
@@ -677,7 +677,7 @@ func parseGOVCS(s string) (govcsConfig, error) {
 	}
 	var cfg govcsConfig
 	have := make(map[string]string)
-	for _, item := range strings.Split(s, ",") {
+	for item := range strings.SplitSeq(s, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			return nil, fmt.Errorf("empty entry in GOVCS")

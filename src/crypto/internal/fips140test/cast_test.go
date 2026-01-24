@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	// Import packages that define CASTs to test them.
+	"crypto/internal/cryptotest"
 	_ "crypto/internal/fips140/aes"
 	_ "crypto/internal/fips140/aes/gcm"
 	_ "crypto/internal/fips140/drbg"
@@ -48,8 +49,10 @@ var allCASTs = []string{
 	"HKDF-SHA2-256",
 	"HMAC-SHA2-256",
 	"KAS-ECC-SSC P-256",
-	"ML-KEM PCT",
-	"ML-KEM PCT",
+	"ML-DSA sign and verify PCT",
+	"ML-DSA-44",
+	"ML-KEM PCT", // -768
+	"ML-KEM PCT", // -1024
 	"ML-KEM-768",
 	"PBKDF2",
 	"RSA sign and verify PCT",
@@ -61,13 +64,21 @@ var allCASTs = []string{
 	"cSHAKE128",
 }
 
+func init() {
+	if fips140.Version() == "v1.0.0" {
+		allCASTs = slices.DeleteFunc(allCASTs, func(s string) bool {
+			return strings.HasPrefix(s, "ML-DSA")
+		})
+	}
+}
+
 func TestAllCASTs(t *testing.T) {
 	testenv.MustHaveSource(t)
 
 	// Ask "go list" for the location of the crypto/internal/fips140 tree, as it
 	// might be the unpacked frozen tree selected with GOFIPS140.
 	cmd := testenv.Command(t, testenv.GoToolPath(t), "list", "-f", `{{.Dir}}`, "crypto/internal/fips140")
-	out, err := cmd.CombinedOutput()
+	out, err := testenv.CleanCmdEnv(cmd).CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}
@@ -104,29 +115,45 @@ func TestAllCASTs(t *testing.T) {
 
 // TestConditionals causes the conditional CASTs and PCTs to be invoked.
 func TestConditionals(t *testing.T) {
-	mlkem.GenerateKey768()
+	fips140v126Conditionals()
+	// ML-KEM PCT
+	kMLKEM, err := mlkem.GenerateKey768()
+	if err != nil {
+		t.Error(err)
+	} else {
+		// ML-KEM-768
+		kMLKEM.EncapsulationKey().Encapsulate()
+	}
+	// ECDH PCT
 	kDH, err := ecdh.GenerateKey(ecdh.P256(), rand.Reader)
 	if err != nil {
 		t.Error(err)
 	} else {
+		// KAS-ECC-SSC P-256
 		ecdh.ECDH(ecdh.P256(), kDH, kDH.PublicKey())
 	}
+	// ECDSA PCT
 	kDSA, err := ecdsa.GenerateKey(ecdsa.P256(), rand.Reader)
 	if err != nil {
 		t.Error(err)
 	} else {
+		// ECDSA P-256 SHA2-512 sign and verify
 		ecdsa.SignDeterministic(ecdsa.P256(), sha256.New, kDSA, make([]byte, 32))
 	}
+	// Ed25519 sign and verify PCT
 	k25519, err := ed25519.GenerateKey()
 	if err != nil {
 		t.Error(err)
 	} else {
+		// Ed25519 sign and verify
 		ed25519.Sign(k25519, make([]byte, 32))
 	}
+	// RSA sign and verify PCT
 	kRSA, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Error(err)
 	} else {
+		// RSASSA-PKCS-v1.5 2048-bit sign and verify
 		rsa.SignPKCS1v15(kRSA, crypto.SHA256.String(), make([]byte, 32))
 	}
 	t.Log("completed successfully")
@@ -134,15 +161,12 @@ func TestConditionals(t *testing.T) {
 
 func TestCASTPasses(t *testing.T) {
 	moduleStatus(t)
-	testenv.MustHaveExec(t)
-	if err := fips140.Supported(); err != nil {
-		t.Skipf("test requires FIPS 140 mode: %v", err)
-	}
+	cryptotest.MustSupportFIPS140(t)
 
 	cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestConditionals$", "-test.v")
-	cmd.Env = append(cmd.Env, "GODEBUG=fips140=debug")
+	cmd.Env = append(cmd.Environ(), "GODEBUG=fips140=debug")
 	out, err := cmd.CombinedOutput()
-	t.Logf("%s", out)
+	t.Logf("running with GODEBUG=fips140=debug:\n%s", out)
 	if err != nil || !strings.Contains(string(out), "completed successfully") {
 		t.Errorf("TestConditionals did not complete successfully")
 	}
@@ -160,10 +184,7 @@ func TestCASTPasses(t *testing.T) {
 
 func TestCASTFailures(t *testing.T) {
 	moduleStatus(t)
-	testenv.MustHaveExec(t)
-	if err := fips140.Supported(); err != nil {
-		t.Skipf("test requires FIPS 140 mode: %v", err)
-	}
+	cryptotest.MustSupportFIPS140(t)
 
 	for _, name := range allCASTs {
 		t.Run(name, func(t *testing.T) {
@@ -174,11 +195,12 @@ func TestCASTFailures(t *testing.T) {
 			}
 			t.Logf("Testing CAST/PCT failure...")
 			cmd := testenv.Command(t, testenv.Executable(t), "-test.run=^TestConditionals$", "-test.v")
-			cmd.Env = append(cmd.Env, fmt.Sprintf("GODEBUG=failfipscast=%s,fips140=on", name))
+			GODEBUG := fmt.Sprintf("GODEBUG=failfipscast=%s,fips140=on", name)
+			cmd.Env = append(cmd.Environ(), GODEBUG)
 			out, err := cmd.CombinedOutput()
-			t.Logf("%s", out)
+			t.Logf("running with %s:\n%s", GODEBUG, out)
 			if err == nil {
-				t.Fatal("Test did not fail as expected")
+				t.Fatal("test did not fail as expected")
 			}
 			if strings.Contains(string(out), "completed successfully") {
 				t.Errorf("CAST/PCT %s failure did not stop the program", name)

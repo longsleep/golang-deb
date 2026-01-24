@@ -2431,8 +2431,17 @@ func (r *reader) expr() (res ir.Node) {
 
 	case exprNew:
 		pos := r.pos()
-		typ := r.exprType()
-		return typecheck.Expr(ir.NewUnaryExpr(pos, ir.ONEW, typ))
+		if r.Bool() {
+			// new(expr) -> tmp := expr; &tmp
+			x := r.expr()
+			x = typecheck.DefaultLit(x, nil) // See TODO in exprConvert case.
+			var init ir.Nodes
+			addr := ir.NewAddrExpr(pos, r.tempCopy(pos, x, &init))
+			addr.SetInit(init)
+			return typecheck.Expr(addr)
+		}
+		// new(T)
+		return typecheck.Expr(ir.NewUnaryExpr(pos, ir.ONEW, r.exprType()))
 
 	case exprSizeof:
 		return ir.NewUintptr(r.pos(), r.typ().Size())
@@ -2952,6 +2961,7 @@ func (r *reader) multiExpr() []ir.Node {
 		as.Def = true
 		for i := range results {
 			tmp := r.temp(pos, r.typ())
+			tmp.Defn = as
 			as.PtrInit().Append(ir.NewDecl(pos, ir.ODCL, tmp))
 			as.Lhs.Append(tmp)
 
@@ -3239,6 +3249,7 @@ func (r *reader) exprType() ir.Node {
 	var rtype, itab ir.Node
 
 	if r.Bool() {
+		// non-empty interface
 		typ, rtype, _, _, itab = r.itab(pos)
 		if !typ.IsInterface() {
 			rtype = nil // TODO(mdempsky): Leave set?
@@ -3566,7 +3577,7 @@ func unifiedInlineCall(callerfn *ir.Func, call *ir.CallExpr, fn *ir.Func, inlInd
 		edit(r.curfn)
 	})
 
-	body := ir.Nodes(r.curfn.Body)
+	body := r.curfn.Body
 
 	// Reparent any declarations into the caller function.
 	for _, name := range r.curfn.Dcl {
@@ -3659,17 +3670,6 @@ func expandInline(fn *ir.Func, pri pkgReaderIndex) {
 	// typecheck.Target.Decls. Remove them again so we don't risk trying
 	// to compile them multiple times.
 	typecheck.Target.Funcs = typecheck.Target.Funcs[:topdcls]
-}
-
-// usedLocals returns a set of local variables that are used within body.
-func usedLocals(body []ir.Node) ir.NameSet {
-	var used ir.NameSet
-	ir.VisitList(body, func(n ir.Node) {
-		if n, ok := n.(*ir.Name); ok && n.Op() == ir.ONAME && n.Class == ir.PAUTO {
-			used.Add(n)
-		}
-	})
-	return used
 }
 
 // @@@ Method wrappers

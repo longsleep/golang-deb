@@ -107,12 +107,17 @@ func (e *Encoder) Reset(w io.Writer, opts ...Options) {
 	case e.s.Flags.Get(jsonflags.WithinArshalCall):
 		panic("jsontext: cannot reset Encoder passed to json.MarshalerTo")
 	}
-	e.s.reset(nil, w, opts...)
+	// Reuse the buffer if it does not alias a previous [bytes.Buffer].
+	b := e.s.Buf[:0]
+	if _, ok := e.s.wr.(*bytes.Buffer); ok {
+		b = nil
+	}
+	e.s.reset(b, w, opts...)
 }
 
 func (e *encoderState) reset(b []byte, w io.Writer, opts ...Options) {
 	e.state.reset()
-	e.encodeBuffer = encodeBuffer{Buf: b, wr: w, bufStats: e.bufStats}
+	e.encodeBuffer = encodeBuffer{Buf: b, wr: w, availBuffer: e.availBuffer, bufStats: e.bufStats}
 	if bb, ok := w.(*bytes.Buffer); ok && bb != nil {
 		e.Buf = bb.AvailableBuffer() // alias the unused buffer of bb
 	}
@@ -941,9 +946,9 @@ func (e *Encoder) StackDepth() int {
 // It must be a number between 0 and [Encoder.StackDepth], inclusive.
 // For each level, it reports the kind:
 //
-//   - 0 for a level of zero,
-//   - '{' for a level representing a JSON object, and
-//   - '[' for a level representing a JSON array.
+//   - [KindInvalid] for a level of zero,
+//   - [KindBeginObject] for a level representing a JSON object, and
+//   - [KindBeginArray] for a level representing a JSON array.
 //
 // It also reports the length of that JSON object or array.
 // Each name and value in a JSON object is counted separately,

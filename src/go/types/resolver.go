@@ -247,7 +247,7 @@ func (check *Checker) collectObjects() {
 		// Be conservative and use the *ast.File extent if we don't have a *token.File.
 		pos, end := file.Pos(), file.End()
 		if f := check.fset.File(file.Pos()); f != nil {
-			pos, end = token.Pos(f.Base()), token.Pos(f.Base()+f.Size())
+			pos, end = token.Pos(f.Base()), f.End()
 		}
 		fileScope := NewScope(pkg.scope, pos, end, check.filename(fileNo))
 		fileScopes[fileNo] = fileScope
@@ -499,6 +499,19 @@ func (check *Checker) collectObjects() {
 	}
 }
 
+// sortObjects sorts package-level objects by source-order for reproducible processing
+func (check *Checker) sortObjects() {
+	check.objList = make([]Object, len(check.objMap))
+	i := 0
+	for obj := range check.objMap {
+		check.objList[i] = obj
+		i++
+	}
+	slices.SortFunc(check.objList, func(a, b Object) int {
+		return cmp.Compare(a.order(), b.order())
+	})
+}
+
 // unpackRecv unpacks a receiver type expression and returns its components: ptr indicates
 // whether rtyp is a pointer receiver, base is the receiver base type expression stripped
 // of its type parameters (if any), and tparams are its type parameter names, if any. The
@@ -621,19 +634,8 @@ func (check *Checker) resolveBaseTypeName(ptr bool, name *ast.Ident) (ptr_ bool,
 
 // packageObjects typechecks all package objects, but not function bodies.
 func (check *Checker) packageObjects() {
-	// process package objects in source order for reproducible results
-	objList := make([]Object, len(check.objMap))
-	i := 0
-	for obj := range check.objMap {
-		objList[i] = obj
-		i++
-	}
-	slices.SortFunc(objList, func(a, b Object) int {
-		return cmp.Compare(a.order(), b.order())
-	})
-
 	// add new methods to already type-checked types (from a prior Checker.Files call)
-	for _, obj := range objList {
+	for _, obj := range check.objList {
 		if obj, _ := obj.(*TypeName); obj != nil && obj.typ != nil {
 			check.collectMethods(obj)
 		}
@@ -656,8 +658,8 @@ func (check *Checker) packageObjects() {
 		// its Type is Invalid.
 		//
 		// Investigate and reenable this branch.
-		for _, obj := range objList {
-			check.objDecl(obj, nil)
+		for _, obj := range check.objList {
+			check.objDecl(obj)
 		}
 	} else {
 		// Without Alias nodes, we process non-alias type declarations first, followed by
@@ -668,12 +670,12 @@ func (check *Checker) packageObjects() {
 		var aliasList []*TypeName
 		var othersList []Object // everything that's not a type
 		// phase 1: non-alias type declarations
-		for _, obj := range objList {
+		for _, obj := range check.objList {
 			if tname, _ := obj.(*TypeName); tname != nil {
 				if check.objMap[tname].tdecl.Assign.IsValid() {
 					aliasList = append(aliasList, tname)
 				} else {
-					check.objDecl(obj, nil)
+					check.objDecl(obj)
 				}
 			} else {
 				othersList = append(othersList, obj)
@@ -681,11 +683,11 @@ func (check *Checker) packageObjects() {
 		}
 		// phase 2: alias type declarations
 		for _, obj := range aliasList {
-			check.objDecl(obj, nil)
+			check.objDecl(obj)
 		}
 		// phase 3: all other declarations
 		for _, obj := range othersList {
-			check.objDecl(obj, nil)
+			check.objDecl(obj)
 		}
 	}
 

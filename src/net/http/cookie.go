@@ -443,7 +443,8 @@ func isCookieDomainName(s string) bool {
 	}
 
 	if s[0] == '.' {
-		// A cookie a domain attribute may start with a leading dot.
+		// A cookie domain attribute may start with a leading dot.
+		// Per RFC 6265 section 5.2.3, a leading dot is ignored.
 		s = s[1:]
 	}
 	last := byte('.')
@@ -508,9 +509,6 @@ func sanitizeCookieName(n string) string {
 // See https://golang.org/issue/7243 for the discussion.
 func sanitizeCookieValue(v string, quoted bool) string {
 	v = sanitizeOrWarn("Cookie.Value", validCookieValueByte, v)
-	if len(v) == 0 {
-		return v
-	}
 	if strings.ContainsAny(v, " ,") || quoted {
 		return `"` + v + `"`
 	}

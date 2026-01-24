@@ -218,7 +218,7 @@ func createDwarfVars(fnsym *obj.LSym, complexOK bool, fn *ir.Func, apDecls []*ir
 				continue
 			}
 			if n.Class != ir.PPARAMOUT || !n.IsOutputParamInRegisters() {
-				panic("invalid ir.Name on debugInfo.RegOutputParams list")
+				base.Fatalf("invalid ir.Name on debugInfo.RegOutputParams list")
 			}
 			dcl = append(dcl, n)
 		}
@@ -598,7 +598,7 @@ func createHeapDerefLocationList(n *ir.Name, entryID ssa.ID) []byte {
 // in the DWARF info.
 func RecordFlags(flags ...string) {
 	if base.Ctxt.Pkgpath == "" {
-		panic("missing pkgpath")
+		base.Fatalf("missing pkgpath")
 	}
 
 	type BoolFlag interface {

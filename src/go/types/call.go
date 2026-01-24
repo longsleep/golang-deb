@@ -58,7 +58,7 @@ func (check *Checker) funcInst(T *target, pos token.Pos, x *operand, ix *indexed
 
 	// Check the number of type arguments (got) vs number of type parameters (want).
 	// Note that x is a function value, not a type expression, so we don't need to
-	// call under below.
+	// call Underlying below.
 	sig := x.typ.(*Signature)
 	got, want := len(targs), sig.TypeParams().Len()
 	if got > want {
@@ -211,7 +211,7 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 					check.errorf(call.Args[0], BadDotDotDotSyntax, "invalid use of ... in conversion to %s", T)
 					break
 				}
-				if t, _ := under(T).(*Interface); t != nil && !isTypeParam(T) {
+				if t, _ := T.Underlying().(*Interface); t != nil && !isTypeParam(T) {
 					if !t.IsMethodSet() {
 						check.errorf(call, MisplacedConstraintIface, "cannot use interface %s in conversion (contains specific type constraints or is comparable)", T)
 						break
@@ -671,7 +671,7 @@ var cgoPrefixes = [...]string{
 	"_Cmacro_", // function to evaluate the expanded expression
 }
 
-func (check *Checker) selector(x *operand, e *ast.SelectorExpr, def *TypeName, wantType bool) {
+func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 	// these must be declared before the "goto Error" statements
 	var (
 		obj      Object
@@ -717,7 +717,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, def *TypeName, w
 					}
 					goto Error
 				}
-				check.objDecl(exp, nil)
+				check.objDecl(exp)
 			} else {
 				exp = pkg.scope.Lookup(sel)
 				if exp == nil {
@@ -779,12 +779,6 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, def *TypeName, w
 
 	check.exprOrType(x, e.X, false)
 	switch x.mode {
-	case typexpr:
-		// don't crash for "type T T.x" (was go.dev/issue/51509)
-		if def != nil && def.typ == x.typ {
-			check.cycleError([]Object{def}, 0)
-			goto Error
-		}
 	case builtin:
 		// types2 uses the position of '.' for the error
 		check.errorf(e.Sel, UncalledBuiltin, "invalid use of %s in selector expression", x)
@@ -815,7 +809,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, def *TypeName, w
 	obj, index, indirect = lookupFieldOrMethod(x.typ, x.mode == variable, check.pkg, sel, false)
 	if obj == nil {
 		// Don't report another error if the underlying type was invalid (go.dev/issue/49541).
-		if !isValid(under(x.typ)) {
+		if !isValid(x.typ.Underlying()) {
 			goto Error
 		}
 
@@ -847,7 +841,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, def *TypeName, w
 
 	// methods may not have a fully set up signature yet
 	if m, _ := obj.(*Func); m != nil {
-		check.objDecl(m, nil)
+		check.objDecl(m)
 	}
 
 	if x.mode == typexpr {
@@ -979,6 +973,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, def *TypeName, w
 
 Error:
 	x.mode = invalid
+	x.typ = Typ[Invalid]
 	x.expr = e
 }
 
