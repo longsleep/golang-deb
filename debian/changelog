@@ -1,4 +1,4 @@
-golang-1.24 (1.24.12-1) UNRELEASED; urgency=medium
+golang-1.24 (1.24.12-1) unstable; urgency=medium
 
   * Update to 1.24.12 upstream release
 
@@ -46,7 +46,7 @@ golang-1.24 (1.24.12-1) UNRELEASED; urgency=medium
   * Fix build with DEB_BUILD_OPTIONS=terse (Closes: #1125464)
     (solution borrowed from xz-utils debian/rules)
 
- -- Tianon Gravi <tianon@debian.org>  Fri, 23 Jan 2026 23:33:37 -0800
+ -- Tianon Gravi <tianon@debian.org>  Fri, 23 Jan 2026 23:52:11 -0800
 
 golang-1.24 (1.24.9-1) unstable; urgency=medium
 
