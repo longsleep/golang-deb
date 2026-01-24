@@ -1,8 +1,8 @@
-golang-1.26 (1.26~rc2-1) UNRELEASED; urgency=medium
+golang-1.26 (1.26~rc2-1) unstable; urgency=medium
 
   * Initial upload of Go 1.26 (rc2)
 
- -- Tianon Gravi <tianon@debian.org>  Sat, 24 Jan 2026 00:02:22 -0800
+ -- Tianon Gravi <tianon@debian.org>  Sat, 24 Jan 2026 00:13:51 -0800
 
 golang-1.25 (1.25.6-1) unstable; urgency=medium
 
