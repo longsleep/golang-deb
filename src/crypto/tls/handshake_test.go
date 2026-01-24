@@ -47,7 +47,9 @@ var (
 	keyFile      = flag.String("keylog", "", "destination file for KeyLogWriter")
 	bogoMode     = flag.Bool("bogo-mode", false, "Enabled bogo shim mode, ignore everything else")
 	bogoFilter   = flag.String("bogo-filter", "", "BoGo test filter")
-	bogoLocalDir = flag.String("bogo-local-dir", "", "Local BoGo to use, instead of fetching from source")
+	bogoLocalDir = flag.String("bogo-local-dir", "",
+		"If not-present, checkout BoGo into this dir, or otherwise use it as a pre-existing checkout")
+	bogoReport = flag.String("bogo-html-report", "", "File path to render an HTML report with BoGo results")
 )
 
 func runTestAndUpdateIfNeeded(t *testing.T, name string, run func(t *testing.T, update bool), wait bool) {
@@ -446,6 +448,10 @@ func runMain(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "Error: %v", err)
 		os.Exit(1)
 	}
+
+	// TODO(filippo): deprecate Config.Rand, and regenerate handshake recordings
+	// to use cryptotest.SetGlobalRandom instead.
+	os.Setenv("GODEBUG", "cryptocustomrand=1,"+os.Getenv("GODEBUG"))
 
 	testConfig = &Config{
 		Time:               func() time.Time { return time.Unix(0, 0) },

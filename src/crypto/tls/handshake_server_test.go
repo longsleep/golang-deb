@@ -404,8 +404,7 @@ func TestAlertForwarding(t *testing.T) {
 
 	err := Server(s, testConfig).Handshake()
 	s.Close()
-	var opErr *net.OpError
-	if !errors.As(err, &opErr) || opErr.Err != error(alertUnknownCA) {
+	if opErr, ok := errors.AsType[*net.OpError](err); !ok || opErr.Err != error(alertUnknownCA) {
 		t.Errorf("Got error: %s; expected: %s", err, error(alertUnknownCA))
 	}
 }
@@ -907,13 +906,29 @@ func TestHandshakeServerHelloRetryRequest(t *testing.T) {
 	config := testConfig.Clone()
 	config.CurvePreferences = []CurveID{CurveP256}
 
+	var clientHelloInfoHRR bool
+	var getCertificateCalled bool
+	eeCert := config.Certificates[0]
+	config.Certificates = nil
+	config.GetCertificate = func(clientHello *ClientHelloInfo) (*Certificate, error) {
+		getCertificateCalled = true
+		clientHelloInfoHRR = clientHello.HelloRetryRequest
+		return &eeCert, nil
+	}
+
 	test := &serverTest{
 		name:    "HelloRetryRequest",
 		command: []string{"openssl", "s_client", "-no_ticket", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256", "-curves", "X25519:P-256"},
 		config:  config,
 		validate: func(cs ConnectionState) error {
-			if !cs.testingOnlyDidHRR {
+			if !cs.HelloRetryRequest {
 				return errors.New("expected HelloRetryRequest")
+			}
+			if !getCertificateCalled {
+				return errors.New("expected GetCertificate to be called")
+			}
+			if !clientHelloInfoHRR {
+				return errors.New("expected ClientHelloInfo.HelloRetryRequest to be true")
 			}
 			return nil
 		},
@@ -922,18 +937,37 @@ func TestHandshakeServerHelloRetryRequest(t *testing.T) {
 }
 
 // TestHandshakeServerKeySharePreference checks that we prefer a key share even
-// if it's later in the CurvePreferences order.
+// if it's later in the CurvePreferences order, and that the client hello HRR
+// field is correctly represented.
 func TestHandshakeServerKeySharePreference(t *testing.T) {
 	config := testConfig.Clone()
 	config.CurvePreferences = []CurveID{X25519, CurveP256}
+
+	// We also use this test as a convenient place to assert the ClientHelloInfo
+	// HelloRetryRequest field is _not_ set for a non-HRR hello.
+	var clientHelloInfoHRR bool
+	var getCertificateCalled bool
+	eeCert := config.Certificates[0]
+	config.Certificates = nil
+	config.GetCertificate = func(clientHello *ClientHelloInfo) (*Certificate, error) {
+		getCertificateCalled = true
+		clientHelloInfoHRR = clientHello.HelloRetryRequest
+		return &eeCert, nil
+	}
 
 	test := &serverTest{
 		name:    "KeySharePreference",
 		command: []string{"openssl", "s_client", "-no_ticket", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256", "-curves", "P-256:X25519"},
 		config:  config,
 		validate: func(cs ConnectionState) error {
-			if cs.testingOnlyDidHRR {
+			if cs.HelloRetryRequest {
 				return errors.New("unexpected HelloRetryRequest")
+			}
+			if !getCertificateCalled {
+				return errors.New("expected GetCertificate to be called")
+			}
+			if clientHelloInfoHRR {
+				return errors.New("expected ClientHelloInfo.HelloRetryRequest to be false")
 			}
 			return nil
 		},
@@ -1380,31 +1414,31 @@ func BenchmarkHandshakeServer(b *testing.B) {
 	})
 	b.Run("ECDHE-P256-RSA", func(b *testing.B) {
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testRSACertificate, testRSAPrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testRSACertificate, testRSAPrivateKey)
 		})
 	})
 	b.Run("ECDHE-P256-ECDSA-P256", func(b *testing.B) {
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testP256Certificate, testP256PrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP256, testP256Certificate, testP256PrivateKey)
 		})
 	})
 	b.Run("ECDHE-X25519-ECDSA-P256", func(b *testing.B) {
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				X25519, testP256Certificate, testP256PrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				X25519, testP256Certificate, testP256PrivateKey)
 		})
 	})
@@ -1413,11 +1447,11 @@ func BenchmarkHandshakeServer(b *testing.B) {
 			b.Fatal("test ECDSA key doesn't use curve P-521")
 		}
 		b.Run("TLSv13", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS13, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP521, testECDSACertificate, testECDSAPrivateKey)
 		})
 		b.Run("TLSv12", func(b *testing.B) {
-			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			benchmarkHandshakeServer(b, VersionTLS12, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
 				CurveP521, testECDSACertificate, testECDSAPrivateKey)
 		})
 	})
@@ -1591,9 +1625,7 @@ var getConfigForClientTests = []struct {
 		},
 		func(clientHello *ClientHelloInfo) (*Config, error) {
 			config := testConfig.Clone()
-			for i := range config.SessionTicketKey {
-				config.SessionTicketKey[i] = 0
-			}
+			clear(config.SessionTicketKey[:])
 			config.sessionTicketKeys = nil
 			return config, nil
 		},
@@ -1793,28 +1825,28 @@ func TestAESCipherReordering(t *testing.T) {
 		{
 			name: "server has hardware AES, client doesn't (pick ChaCha)",
 			clientCiphers: []uint16{
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client prefers AES-GCM, server doesn't have hardware AES (pick ChaCha)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: false,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client prefers AES-GCM, server has hardware AES (pick AES-GCM)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
@@ -1825,7 +1857,7 @@ func TestAESCipherReordering(t *testing.T) {
 			clientCiphers: []uint16{
 				0x0A0A, // GREASE value
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
@@ -1846,27 +1878,27 @@ func TestAESCipherReordering(t *testing.T) {
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 			},
 			serverHasAESGCM: false,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client prefers AES-GCM over ChaCha and sends GREASE, server doesn't have hardware AES (pick ChaCha)",
 			clientCiphers: []uint16{
 				0x0A0A, // GREASE value
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: false,
-			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher:  TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 		{
 			name: "client supports multiple AES-GCM, server doesn't have hardware AES and doesn't support ChaCha (AES-GCM)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			},
 			serverHasAESGCM: false,
@@ -1880,14 +1912,14 @@ func TestAESCipherReordering(t *testing.T) {
 			name: "client prefers AES-GCM, server has hardware but doesn't support AES (pick ChaCha)",
 			clientCiphers: []uint16{
 				TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 				TLS_RSA_WITH_AES_128_CBC_SHA,
 			},
 			serverHasAESGCM: true,
 			serverCiphers: []uint16{
-				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 			},
-			expectedCipher: TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			expectedCipher: TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		},
 	}
 

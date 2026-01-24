@@ -131,6 +131,14 @@ func walkExpr1(n ir.Node, init *ir.Nodes) ir.Node {
 		n := n.(*ir.BinaryExpr)
 		n.X = walkExpr(n.X, init)
 		n.Y = walkExpr(n.Y, init)
+		if n.Op() == ir.OUNSAFEADD && ir.ShouldCheckPtr(ir.CurFunc, 1) {
+			// For unsafe.Add(p, n), just walk "unsafe.Pointer(uintptr(p)+uintptr(n))"
+			// for the side effects of validating unsafe.Pointer rules.
+			x := typecheck.ConvNop(n.X, types.Types[types.TUINTPTR])
+			y := typecheck.Conv(n.Y, types.Types[types.TUINTPTR])
+			conv := typecheck.ConvNop(ir.NewBinaryExpr(n.Pos(), ir.OADD, x, y), types.Types[types.TUNSAFEPTR])
+			walkExpr(conv, init)
+		}
 		return n
 
 	case ir.OUNSAFESLICE:
@@ -182,8 +190,8 @@ func walkExpr1(n ir.Node, init *ir.Nodes) ir.Node {
 		n := n.(*ir.UnaryExpr)
 		return mkcall("gopanic", nil, init, n.X)
 
-	case ir.ORECOVERFP:
-		return walkRecoverFP(n.(*ir.CallExpr), init)
+	case ir.ORECOVER:
+		return walkRecover(n.(*ir.CallExpr), init)
 
 	case ir.OCFUNC:
 		return n
@@ -343,6 +351,11 @@ func walkExpr1(n ir.Node, init *ir.Nodes) ir.Node {
 
 	case ir.OMETHVALUE:
 		return walkMethodValue(n.(*ir.SelectorExpr), init)
+
+	case ir.OMOVE2HEAP:
+		n := n.(*ir.MoveToHeapExpr)
+		n.Slice = walkExpr(n.Slice, init)
+		return n
 	}
 
 	// No return! Each case must return (or panic),
@@ -696,27 +709,21 @@ func walkDivMod(n *ir.BinaryExpr, init *ir.Nodes) ir.Node {
 	// runtime calls late in SSA processing.
 	if types.RegSize < 8 && (et == types.TINT64 || et == types.TUINT64) {
 		if n.Y.Op() == ir.OLITERAL {
-			// Leave div/mod by constant powers of 2 or small 16-bit constants.
+			// Leave div/mod by non-zero uint64 constants.
 			// The SSA backend will handle those.
+			// (Zero constants should have been rejected already, but we check just in case.)
 			switch et {
 			case types.TINT64:
-				c := ir.Int64Val(n.Y)
-				if c < 0 {
-					c = -c
-				}
-				if c != 0 && c&(c-1) == 0 {
+				if ir.Int64Val(n.Y) != 0 {
 					return n
 				}
 			case types.TUINT64:
-				c := ir.Uint64Val(n.Y)
-				if c < 1<<16 {
-					return n
-				}
-				if c != 0 && c&(c-1) == 0 {
+				if ir.Uint64Val(n.Y) != 0 {
 					return n
 				}
 			}
 		}
+		// Build call to uint64div, uint64mod, int64div, or int64mod.
 		var fn string
 		if et == types.TINT64 {
 			fn = "int64"

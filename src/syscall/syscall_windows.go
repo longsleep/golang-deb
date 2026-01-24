@@ -10,11 +10,10 @@ import (
 	errorspkg "errors"
 	"internal/asan"
 	"internal/bytealg"
-	"internal/itoa"
 	"internal/msan"
 	"internal/oserror"
 	"internal/race"
-	"runtime"
+	"internal/strconv"
 	"sync"
 	"unsafe"
 )
@@ -171,7 +170,7 @@ func (e Errno) error() string {
 	if err != nil {
 		n, err = formatMessage(flags, 0, uint32(e), 0, b, nil)
 		if err != nil {
-			return "winapi error #" + itoa.Itoa(int(e))
+			return "winapi error #" + strconv.Itoa(int(e))
 		}
 	}
 	// trim terminating \r and \n
@@ -402,6 +401,16 @@ func Open(name string, flag int, perm uint32) (fd Handle, err error) {
 	if perm&S_IWRITE == 0 {
 		attrs = FILE_ATTRIBUTE_READONLY
 	}
+	// fileFlags contains the high 12 bits of flag.
+	// This bit range can be used by the caller to specify the file flags
+	// passed to CreateFile. It is an error to use if the bits can't be
+	// mapped to the supported FILE_FLAG_* constants.
+	if fileFlags := uint32(flag) & fileFlagsMask; fileFlags&^validFileFlagsMask == 0 {
+		attrs |= fileFlags
+	} else {
+		return InvalidHandle, oserror.ErrInvalid
+	}
+
 	switch accessFlags {
 	case O_WRONLY, O_RDWR:
 		// Unix doesn't allow opening a directory with O_WRONLY
@@ -415,7 +424,6 @@ func Open(name string, flag int, perm uint32) (fd Handle, err error) {
 		attrs |= FILE_FLAG_BACKUP_SEMANTICS
 	}
 	if flag&O_SYNC != 0 {
-		const _FILE_FLAG_WRITE_THROUGH = 0x80000000
 		attrs |= _FILE_FLAG_WRITE_THROUGH
 	}
 	// We don't use CREATE_ALWAYS, because when opening a file with
@@ -444,10 +452,30 @@ func Open(name string, flag int, perm uint32) (fd Handle, err error) {
 		}
 		return h, err
 	}
+	if flag&o_DIRECTORY != 0 {
+		// Check if the file is a directory, else return ENOTDIR.
+		var fi ByHandleFileInformation
+		if err := GetFileInformationByHandle(h, &fi); err != nil {
+			CloseHandle(h)
+			return InvalidHandle, err
+		}
+		if fi.FileAttributes&FILE_ATTRIBUTE_DIRECTORY == 0 {
+			CloseHandle(h)
+			return InvalidHandle, ENOTDIR
+		}
+	}
 	// Ignore O_TRUNC if the file has just been created.
 	if flag&O_TRUNC == O_TRUNC &&
 		(createmode == OPEN_EXISTING || (createmode == OPEN_ALWAYS && err == ERROR_ALREADY_EXISTS)) {
 		err = Ftruncate(h, 0)
+		if err == _ERROR_INVALID_PARAMETER {
+			// ERROR_INVALID_PARAMETER means truncation is not supported on this file handle.
+			// Unix's O_TRUNC specification says to ignore O_TRUNC on named pipes and terminal devices.
+			// We do the same here.
+			if t, err1 := GetFileType(h); err1 == nil && (t == FILE_TYPE_PIPE || t == FILE_TYPE_CHAR) {
+				err = nil
+			}
+		}
 		if err != nil {
 			CloseHandle(h)
 			return InvalidHandle, err
@@ -525,18 +553,8 @@ func setFilePointerEx(handle Handle, distToMove int64, newFilePointer *int64, wh
 	if unsafe.Sizeof(uintptr(0)) == 8 {
 		_, _, e1 = Syscall6(procSetFilePointerEx.Addr(), 4, uintptr(handle), uintptr(distToMove), uintptr(unsafe.Pointer(newFilePointer)), uintptr(whence), 0, 0)
 	} else {
-		// Different 32-bit systems disgaree about whether distToMove starts 8-byte aligned.
-		switch runtime.GOARCH {
-		default:
-			panic("unsupported 32-bit architecture")
-		case "386":
-			// distToMove is a LARGE_INTEGER, which is 64 bits.
-			_, _, e1 = Syscall6(procSetFilePointerEx.Addr(), 5, uintptr(handle), uintptr(distToMove), uintptr(distToMove>>32), uintptr(unsafe.Pointer(newFilePointer)), uintptr(whence), 0)
-		case "arm":
-			// distToMove must be 8-byte aligned per ARM calling convention
-			// https://docs.microsoft.com/en-us/cpp/build/overview-of-arm-abi-conventions#stage-c-assignment-of-arguments-to-registers-and-stack
-			_, _, e1 = Syscall6(procSetFilePointerEx.Addr(), 6, uintptr(handle), 0, uintptr(distToMove), uintptr(distToMove>>32), uintptr(unsafe.Pointer(newFilePointer)), uintptr(whence))
-		}
+		// distToMove is a LARGE_INTEGER, which is 64 bits.
+		_, _, e1 = Syscall6(procSetFilePointerEx.Addr(), 5, uintptr(handle), uintptr(distToMove), uintptr(distToMove>>32), uintptr(unsafe.Pointer(newFilePointer)), uintptr(whence), 0)
 	}
 	if e1 != 0 {
 		return errnoErr(e1)
@@ -1348,7 +1366,7 @@ func (s Signal) String() string {
 			return str
 		}
 	}
-	return "signal " + itoa.Itoa(int(s))
+	return "signal " + strconv.Itoa(int(s))
 }
 
 func LoadCreateSymbolicLink() error {

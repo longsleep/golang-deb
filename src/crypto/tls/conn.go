@@ -220,9 +220,7 @@ func (hc *halfConn) changeCipherSpec() error {
 	hc.mac = hc.nextMac
 	hc.nextCipher = nil
 	hc.nextMac = nil
-	for i := range hc.seq {
-		hc.seq[i] = 0
-	}
+	clear(hc.seq[:])
 	return nil
 }
 
@@ -234,9 +232,7 @@ func (hc *halfConn) setTrafficSecret(suite *cipherSuiteTLS13, level QUICEncrypti
 	hc.level = level
 	key, iv := suite.trafficKey(secret)
 	hc.cipher = suite.aead(key, iv)
-	for i := range hc.seq {
-		hc.seq[i] = 0
-	}
+	clear(hc.seq[:])
 }
 
 // incSeq increments the sequence number.
@@ -1529,7 +1525,7 @@ func (c *Conn) handshakeContext(ctx context.Context) (ret error) {
 	}
 
 	handshakeCtx, cancel := context.WithCancel(ctx)
-	// Note: defer this before starting the "interrupter" goroutine
+	// Note: defer this before calling context.AfterFunc
 	// so that we can tell the difference between the input being canceled and
 	// this cancellation. In the former case, we need to close the connection.
 	defer cancel()
@@ -1538,28 +1534,14 @@ func (c *Conn) handshakeContext(ctx context.Context) (ret error) {
 		c.quic.cancelc = handshakeCtx.Done()
 		c.quic.cancel = cancel
 	} else if ctx.Done() != nil {
-		// Start the "interrupter" goroutine, if this context might be canceled.
-		// (The background context cannot).
-		//
-		// The interrupter goroutine waits for the input context to be done and
-		// closes the connection if this happens before the function returns.
-		done := make(chan struct{})
-		interruptRes := make(chan error, 1)
+		// Close the connection if ctx is canceled before the function returns.
+		stop := context.AfterFunc(ctx, func() {
+			_ = c.conn.Close()
+		})
 		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil {
+			if !stop() {
 				// Return context error to user.
-				ret = ctxErr
-			}
-		}()
-		go func() {
-			select {
-			case <-handshakeCtx.Done():
-				// Close the connection, discarding the error
-				_ = c.conn.Close()
-				interruptRes <- handshakeCtx.Err()
-			case <-done:
-				interruptRes <- nil
+				ret = ctx.Err()
 			}
 		}()
 	}
@@ -1603,9 +1585,9 @@ func (c *Conn) handshakeContext(ctx context.Context) (ret error) {
 				return err
 			}
 		} else {
-			var a alert
 			c.out.Lock()
-			if !errors.As(c.out.err, &a) {
+			a, ok := errors.AsType[alert](c.out.err)
+			if !ok {
 				a = alertInternalError
 			}
 			c.out.Unlock()
@@ -1637,7 +1619,7 @@ func (c *Conn) connectionStateLocked() ConnectionState {
 	state.Version = c.vers
 	state.NegotiatedProtocol = c.clientProtocol
 	state.DidResume = c.didResume
-	state.testingOnlyDidHRR = c.didHRR
+	state.HelloRetryRequest = c.didHRR
 	state.testingOnlyPeerSignatureAlgorithm = c.peerSigAlg
 	state.CurveID = c.curveID
 	state.NegotiatedProtocolIsMutual = true

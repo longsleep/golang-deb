@@ -16,6 +16,9 @@ import (
 
 var updateIntrinsics = flag.Bool("update", false, "Print an updated intrinsics table")
 
+// TODO turn on after SIMD is stable.  The time burned keeping this test happy during SIMD development has already well exceeded any plausible benefit.
+var simd = flag.Bool("simd", false, "Also check SIMD intrinsics; for now, it is noisy and not helpful")
+
 type testIntrinsicKey struct {
 	archName string
 	pkg      string
@@ -33,6 +36,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"386", "internal/runtime/sys", "TrailingZeros64"}:                 struct{}{},
 	{"386", "internal/runtime/sys", "TrailingZeros8"}:                  struct{}{},
 	{"386", "math", "sqrt"}:                                            struct{}{},
+	{"386", "math/bits", "Mul64"}:                                      struct{}{},
 	{"386", "math/bits", "ReverseBytes32"}:                             struct{}{},
 	{"386", "math/bits", "ReverseBytes64"}:                             struct{}{},
 	{"386", "math/bits", "TrailingZeros16"}:                            struct{}{},
@@ -41,6 +45,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"386", "math/bits", "TrailingZeros8"}:                             struct{}{},
 	{"386", "runtime", "KeepAlive"}:                                    struct{}{},
 	{"386", "runtime", "slicebytetostringtmp"}:                         struct{}{},
+	{"386", "crypto/internal/constanttime", "boolToUint8"}:             struct{}{},
 	{"amd64", "internal/runtime/atomic", "And"}:                        struct{}{},
 	{"amd64", "internal/runtime/atomic", "And32"}:                      struct{}{},
 	{"amd64", "internal/runtime/atomic", "And64"}:                      struct{}{},
@@ -187,6 +192,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"amd64", "sync/atomic", "SwapUint32"}:                             struct{}{},
 	{"amd64", "sync/atomic", "SwapUint64"}:                             struct{}{},
 	{"amd64", "sync/atomic", "SwapUintptr"}:                            struct{}{},
+	{"amd64", "crypto/internal/constanttime", "Select"}:                struct{}{},
+	{"amd64", "crypto/internal/constanttime", "boolToUint8"}:           struct{}{},
 	{"arm", "internal/runtime/sys", "Bswap32"}:                         struct{}{},
 	{"arm", "internal/runtime/sys", "Bswap64"}:                         struct{}{},
 	{"arm", "internal/runtime/sys", "GetCallerPC"}:                     struct{}{},
@@ -205,6 +212,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"arm", "math/bits", "Len32"}:                                      struct{}{},
 	{"arm", "math/bits", "Len64"}:                                      struct{}{},
 	{"arm", "math/bits", "Len8"}:                                       struct{}{},
+	{"arm", "math/bits", "Mul64"}:                                      struct{}{},
 	{"arm", "math/bits", "ReverseBytes32"}:                             struct{}{},
 	{"arm", "math/bits", "ReverseBytes64"}:                             struct{}{},
 	{"arm", "math/bits", "RotateLeft32"}:                               struct{}{},
@@ -214,6 +222,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"arm", "math/bits", "TrailingZeros8"}:                             struct{}{},
 	{"arm", "runtime", "KeepAlive"}:                                    struct{}{},
 	{"arm", "runtime", "slicebytetostringtmp"}:                         struct{}{},
+	{"arm", "crypto/internal/constanttime", "boolToUint8"}:             struct{}{},
 	{"arm64", "internal/runtime/atomic", "And"}:                        struct{}{},
 	{"arm64", "internal/runtime/atomic", "And32"}:                      struct{}{},
 	{"arm64", "internal/runtime/atomic", "And64"}:                      struct{}{},
@@ -318,6 +327,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"arm64", "math/bits", "TrailingZeros64"}:                          struct{}{},
 	{"arm64", "math/bits", "TrailingZeros8"}:                           struct{}{},
 	{"arm64", "runtime", "KeepAlive"}:                                  struct{}{},
+	{"arm64", "runtime", "memequal"}:                                   struct{}{},
 	{"arm64", "runtime", "publicationBarrier"}:                         struct{}{},
 	{"arm64", "runtime", "slicebytetostringtmp"}:                       struct{}{},
 	{"arm64", "sync", "runtime_LoadAcquintptr"}:                        struct{}{},
@@ -358,6 +368,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"arm64", "sync/atomic", "SwapUint32"}:                             struct{}{},
 	{"arm64", "sync/atomic", "SwapUint64"}:                             struct{}{},
 	{"arm64", "sync/atomic", "SwapUintptr"}:                            struct{}{},
+	{"arm64", "crypto/internal/constanttime", "Select"}:                struct{}{},
+	{"arm64", "crypto/internal/constanttime", "boolToUint8"}:           struct{}{},
 	{"loong64", "internal/runtime/atomic", "And"}:                      struct{}{},
 	{"loong64", "internal/runtime/atomic", "And32"}:                    struct{}{},
 	{"loong64", "internal/runtime/atomic", "And64"}:                    struct{}{},
@@ -504,6 +516,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"loong64", "sync/atomic", "SwapUint32"}:                           struct{}{},
 	{"loong64", "sync/atomic", "SwapUint64"}:                           struct{}{},
 	{"loong64", "sync/atomic", "SwapUintptr"}:                          struct{}{},
+	{"loong64", "crypto/internal/constanttime", "Select"}:              struct{}{},
+	{"loong64", "crypto/internal/constanttime", "boolToUint8"}:         struct{}{},
 	{"mips", "internal/runtime/atomic", "And"}:                         struct{}{},
 	{"mips", "internal/runtime/atomic", "And8"}:                        struct{}{},
 	{"mips", "internal/runtime/atomic", "Cas"}:                         struct{}{},
@@ -549,6 +563,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"mips", "math/bits", "Len32"}:                                     struct{}{},
 	{"mips", "math/bits", "Len64"}:                                     struct{}{},
 	{"mips", "math/bits", "Len8"}:                                      struct{}{},
+	{"mips", "math/bits", "Mul64"}:                                     struct{}{},
 	{"mips", "math/bits", "TrailingZeros16"}:                           struct{}{},
 	{"mips", "math/bits", "TrailingZeros32"}:                           struct{}{},
 	{"mips", "math/bits", "TrailingZeros64"}:                           struct{}{},
@@ -574,6 +589,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"mips", "sync/atomic", "SwapInt32"}:                               struct{}{},
 	{"mips", "sync/atomic", "SwapUint32"}:                              struct{}{},
 	{"mips", "sync/atomic", "SwapUintptr"}:                             struct{}{},
+	{"mips", "crypto/internal/constanttime", "boolToUint8"}:            struct{}{},
 	{"mips64", "internal/runtime/atomic", "And"}:                       struct{}{},
 	{"mips64", "internal/runtime/atomic", "And8"}:                      struct{}{},
 	{"mips64", "internal/runtime/atomic", "Cas"}:                       struct{}{},
@@ -662,6 +678,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"mips64", "sync/atomic", "SwapUint32"}:                            struct{}{},
 	{"mips64", "sync/atomic", "SwapUint64"}:                            struct{}{},
 	{"mips64", "sync/atomic", "SwapUintptr"}:                           struct{}{},
+	{"mips64", "crypto/internal/constanttime", "boolToUint8"}:          struct{}{},
 	{"mips64le", "internal/runtime/atomic", "And"}:                     struct{}{},
 	{"mips64le", "internal/runtime/atomic", "And8"}:                    struct{}{},
 	{"mips64le", "internal/runtime/atomic", "Cas"}:                     struct{}{},
@@ -750,6 +767,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"mips64le", "sync/atomic", "SwapUint32"}:                          struct{}{},
 	{"mips64le", "sync/atomic", "SwapUint64"}:                          struct{}{},
 	{"mips64le", "sync/atomic", "SwapUintptr"}:                         struct{}{},
+	{"mips64le", "crypto/internal/constanttime", "boolToUint8"}:        struct{}{},
 	{"mipsle", "internal/runtime/atomic", "And"}:                       struct{}{},
 	{"mipsle", "internal/runtime/atomic", "And8"}:                      struct{}{},
 	{"mipsle", "internal/runtime/atomic", "Cas"}:                       struct{}{},
@@ -795,6 +813,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"mipsle", "math/bits", "Len32"}:                                   struct{}{},
 	{"mipsle", "math/bits", "Len64"}:                                   struct{}{},
 	{"mipsle", "math/bits", "Len8"}:                                    struct{}{},
+	{"mipsle", "math/bits", "Mul64"}:                                   struct{}{},
 	{"mipsle", "math/bits", "TrailingZeros16"}:                         struct{}{},
 	{"mipsle", "math/bits", "TrailingZeros32"}:                         struct{}{},
 	{"mipsle", "math/bits", "TrailingZeros64"}:                         struct{}{},
@@ -820,6 +839,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"mipsle", "sync/atomic", "SwapInt32"}:                             struct{}{},
 	{"mipsle", "sync/atomic", "SwapUint32"}:                            struct{}{},
 	{"mipsle", "sync/atomic", "SwapUintptr"}:                           struct{}{},
+	{"mipsle", "crypto/internal/constanttime", "boolToUint8"}:          struct{}{},
 	{"ppc64", "internal/runtime/atomic", "And"}:                        struct{}{},
 	{"ppc64", "internal/runtime/atomic", "And8"}:                       struct{}{},
 	{"ppc64", "internal/runtime/atomic", "Cas"}:                        struct{}{},
@@ -944,6 +964,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"ppc64", "sync/atomic", "SwapUint32"}:                             struct{}{},
 	{"ppc64", "sync/atomic", "SwapUint64"}:                             struct{}{},
 	{"ppc64", "sync/atomic", "SwapUintptr"}:                            struct{}{},
+	{"ppc64", "crypto/internal/constanttime", "Select"}:                struct{}{},
+	{"ppc64", "crypto/internal/constanttime", "boolToUint8"}:           struct{}{},
 	{"ppc64le", "internal/runtime/atomic", "And"}:                      struct{}{},
 	{"ppc64le", "internal/runtime/atomic", "And8"}:                     struct{}{},
 	{"ppc64le", "internal/runtime/atomic", "Cas"}:                      struct{}{},
@@ -1068,6 +1090,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"ppc64le", "sync/atomic", "SwapUint32"}:                           struct{}{},
 	{"ppc64le", "sync/atomic", "SwapUint64"}:                           struct{}{},
 	{"ppc64le", "sync/atomic", "SwapUintptr"}:                          struct{}{},
+	{"ppc64le", "crypto/internal/constanttime", "Select"}:              struct{}{},
+	{"ppc64le", "crypto/internal/constanttime", "boolToUint8"}:         struct{}{},
 	{"riscv64", "internal/runtime/atomic", "And"}:                      struct{}{},
 	{"riscv64", "internal/runtime/atomic", "And8"}:                     struct{}{},
 	{"riscv64", "internal/runtime/atomic", "Cas"}:                      struct{}{},
@@ -1188,6 +1212,7 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"riscv64", "sync/atomic", "SwapUint32"}:                           struct{}{},
 	{"riscv64", "sync/atomic", "SwapUint64"}:                           struct{}{},
 	{"riscv64", "sync/atomic", "SwapUintptr"}:                          struct{}{},
+	{"riscv64", "crypto/internal/constanttime", "boolToUint8"}:         struct{}{},
 	{"s390x", "internal/runtime/atomic", "And"}:                        struct{}{},
 	{"s390x", "internal/runtime/atomic", "And8"}:                       struct{}{},
 	{"s390x", "internal/runtime/atomic", "Cas"}:                        struct{}{},
@@ -1306,6 +1331,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"s390x", "sync/atomic", "SwapUint32"}:                             struct{}{},
 	{"s390x", "sync/atomic", "SwapUint64"}:                             struct{}{},
 	{"s390x", "sync/atomic", "SwapUintptr"}:                            struct{}{},
+	{"s390x", "crypto/internal/constanttime", "boolToUint8"}:           struct{}{},
+	{"wasm", "internal/runtime/math", "Mul64"}:                         struct{}{},
 	{"wasm", "internal/runtime/sys", "GetCallerPC"}:                    struct{}{},
 	{"wasm", "internal/runtime/sys", "GetCallerSP"}:                    struct{}{},
 	{"wasm", "internal/runtime/sys", "GetClosurePtr"}:                  struct{}{},
@@ -1322,11 +1349,14 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"wasm", "math", "RoundToEven"}:                                    struct{}{},
 	{"wasm", "math", "Trunc"}:                                          struct{}{},
 	{"wasm", "math", "sqrt"}:                                           struct{}{},
+	{"wasm", "math/big", "mulWW"}:                                      struct{}{},
 	{"wasm", "math/bits", "Len"}:                                       struct{}{},
 	{"wasm", "math/bits", "Len16"}:                                     struct{}{},
 	{"wasm", "math/bits", "Len32"}:                                     struct{}{},
 	{"wasm", "math/bits", "Len64"}:                                     struct{}{},
 	{"wasm", "math/bits", "Len8"}:                                      struct{}{},
+	{"wasm", "math/bits", "Mul"}:                                       struct{}{},
+	{"wasm", "math/bits", "Mul64"}:                                     struct{}{},
 	{"wasm", "math/bits", "OnesCount"}:                                 struct{}{},
 	{"wasm", "math/bits", "OnesCount16"}:                               struct{}{},
 	{"wasm", "math/bits", "OnesCount32"}:                               struct{}{},
@@ -1341,6 +1371,8 @@ var wantIntrinsics = map[testIntrinsicKey]struct{}{
 	{"wasm", "math/bits", "TrailingZeros8"}:                            struct{}{},
 	{"wasm", "runtime", "KeepAlive"}:                                   struct{}{},
 	{"wasm", "runtime", "slicebytetostringtmp"}:                        struct{}{},
+	{"wasm", "crypto/internal/constanttime", "Select"}:                 struct{}{},
+	{"wasm", "crypto/internal/constanttime", "boolToUint8"}:            struct{}{},
 }
 
 func TestIntrinsics(t *testing.T) {
@@ -1375,13 +1407,13 @@ func TestIntrinsics(t *testing.T) {
 		gotIntrinsics[testIntrinsicKey{ik.arch.Name, ik.pkg, ik.fn}] = struct{}{}
 	}
 	for ik, _ := range gotIntrinsics {
-		if _, found := wantIntrinsics[ik]; !found {
+		if _, found := wantIntrinsics[ik]; !found && (ik.pkg != "simd/archsimd" || *simd) {
 			t.Errorf("Got unwanted intrinsic %v %v.%v", ik.archName, ik.pkg, ik.fn)
 		}
 	}
 
 	for ik, _ := range wantIntrinsics {
-		if _, found := gotIntrinsics[ik]; !found {
+		if _, found := gotIntrinsics[ik]; !found && (ik.pkg != "simd/archsimd" || *simd) {
 			t.Errorf("Want missing intrinsic %v %v.%v", ik.archName, ik.pkg, ik.fn)
 		}
 	}

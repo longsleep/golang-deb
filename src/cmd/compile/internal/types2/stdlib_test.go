@@ -332,6 +332,8 @@ func TestStdFixed(t *testing.T) {
 		"issue49814.go",  // go/types does not have constraints on array size
 		"issue56103.go",  // anonymous interface cycles; will be a type checker error in 1.22
 		"issue52697.go",  // types2 does not have constraints on stack size
+		"issue68054.go",  // this test requires GODEBUG=gotypesalias=1
+		"issue68580.go",  // this test requires GODEBUG=gotypesalias=1
 		"issue73309.go",  // this test requires GODEBUG=gotypesalias=1
 		"issue73309b.go", // this test requires GODEBUG=gotypesalias=1
 
@@ -358,6 +360,9 @@ func TestStdKen(t *testing.T) {
 var excluded = map[string]bool{
 	"builtin":                       true,
 	"cmd/compile/internal/ssa/_gen": true,
+	"runtime/_mkmalloc":             true,
+	"simd/archsimd/_gen/simdgen":    true,
+	"simd/archsimd/_gen/unify":      true,
 }
 
 // printPackageMu synchronizes the printing of type-checked package files in
@@ -457,7 +462,7 @@ func pkgFilenames(dir string, includeTest bool) ([]string, error) {
 	return filenames, nil
 }
 
-func walkPkgDirs(dir string, pkgh func(dir string, filenames []string), errh func(args ...interface{})) {
+func walkPkgDirs(dir string, pkgh func(dir string, filenames []string), errh func(args ...any)) {
 	w := walker{pkgh, errh}
 	w.walk(dir)
 }

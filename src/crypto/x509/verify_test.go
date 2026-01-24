@@ -1378,45 +1378,6 @@ func TestUnknownAuthorityError(t *testing.T) {
 	}
 }
 
-var nameConstraintTests = []struct {
-	constraint, domain string
-	expectError        bool
-	shouldMatch        bool
-}{
-	{"", "anything.com", false, true},
-	{"example.com", "example.com", false, true},
-	{"example.com.", "example.com", true, false},
-	{"example.com", "example.com.", true, false},
-	{"example.com", "ExAmPle.coM", false, true},
-	{"example.com", "exampl1.com", false, false},
-	{"example.com", "www.ExAmPle.coM", false, true},
-	{"example.com", "sub.www.ExAmPle.coM", false, true},
-	{"example.com", "notexample.com", false, false},
-	{".example.com", "example.com", false, false},
-	{".example.com", "www.example.com", false, true},
-	{".example.com", "www..example.com", true, false},
-}
-
-func TestNameConstraints(t *testing.T) {
-	for i, test := range nameConstraintTests {
-		result, err := matchDomainConstraint(test.domain, test.constraint, false, map[string][]string{}, map[string][]string{})
-
-		if err != nil && !test.expectError {
-			t.Errorf("unexpected error for test #%d: domain=%s, constraint=%s, err=%s", i, test.domain, test.constraint, err)
-			continue
-		}
-
-		if err == nil && test.expectError {
-			t.Errorf("unexpected success for test #%d: domain=%s, constraint=%s", i, test.domain, test.constraint)
-			continue
-		}
-
-		if result != test.shouldMatch {
-			t.Errorf("unexpected result for test #%d: domain=%s, constraint=%s, result=%t", i, test.domain, test.constraint, result)
-		}
-	}
-}
-
 const selfSignedWithCommonName = `-----BEGIN CERTIFICATE-----
 MIIDCjCCAfKgAwIBAgIBADANBgkqhkiG9w0BAQsFADAaMQswCQYDVQQKEwJjYTEL
 MAkGA1UEAxMCY2EwHhcNMTYwODI4MTcwOTE4WhcNMjEwODI3MTcwOTE4WjAcMQsw
@@ -3078,7 +3039,7 @@ func TestInvalidPolicyWithAnyKeyUsage(t *testing.T) {
 	testOID3 := mustNewOIDFromInts([]uint64{1, 2, 840, 113554, 4, 1, 72585, 2, 3})
 	root, intermediate, leaf := loadTestCert(t, "testdata/policy_root.pem"), loadTestCert(t, "testdata/policy_intermediate_require.pem"), loadTestCert(t, "testdata/policy_leaf.pem")
 
-	expectedErr := "x509: no valid chains built: all candidate chains have invalid policies"
+	expectedErr := "x509: no valid chains built: 1 candidate chains with invalid policies"
 
 	roots, intermediates := NewCertPool(), NewCertPool()
 	roots.AddCert(root)

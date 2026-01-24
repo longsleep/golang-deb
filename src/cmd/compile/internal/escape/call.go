@@ -45,6 +45,20 @@ func (e *escape) call(ks []hole, call ir.Node) {
 			fn = ir.StaticCalleeName(v)
 		}
 
+		// argumentParam handles escape analysis of assigning a call
+		// argument to its corresponding parameter.
+		argumentParam := func(param *types.Field, arg ir.Node) {
+			e.rewriteArgument(arg, call, fn)
+			argument(e.tagHole(ks, fn, param), arg)
+		}
+
+		if call.IsCompilerVarLive {
+			// Don't escape compiler-inserted KeepAlive.
+			argumentParam = func(param *types.Field, arg ir.Node) {
+				argument(e.discardHole(), arg)
+			}
+		}
+
 		fntype := call.Fun.Type()
 		if fn != nil {
 			fntype = fn.Type()
@@ -75,13 +89,6 @@ func (e *escape) call(ks []hole, call ir.Node) {
 			e.expr(calleeK, call.Fun)
 		} else {
 			recvArg = call.Fun.(*ir.SelectorExpr).X
-		}
-
-		// argumentParam handles escape analysis of assigning a call
-		// argument to its corresponding parameter.
-		argumentParam := func(param *types.Field, arg ir.Node) {
-			e.rewriteArgument(arg, call, fn)
-			argument(e.tagHole(ks, fn, param), arg)
 		}
 
 		// internal/abi.EscapeNonString forces its argument to be on
@@ -192,7 +199,7 @@ func (e *escape) call(ks []hole, call ir.Node) {
 		e.discard(call.X)
 		e.discard(call.Y)
 
-	case ir.ODELETE, ir.OPRINT, ir.OPRINTLN, ir.ORECOVERFP:
+	case ir.ODELETE, ir.OPRINT, ir.OPRINTLN, ir.ORECOVER:
 		call := call.(*ir.CallExpr)
 		for _, arg := range call.Args {
 			e.discard(arg)

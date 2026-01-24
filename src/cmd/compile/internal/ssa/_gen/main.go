@@ -32,6 +32,7 @@ type arch struct {
 	name               string
 	pkg                string // obj package to import for this arch.
 	genfile            string // source file containing opcode code generation.
+	genSIMDfile        string // source file containing opcode code generation for SIMD.
 	ops                []opData
 	blocks             []blockData
 	regnames           []string
@@ -87,6 +88,10 @@ type regInfo struct {
 	// clobbers encodes the set of registers that are overwritten by
 	// the instruction (other than the output registers).
 	clobbers regMask
+	// Instruction clobbers the register containing input 0.
+	clobbersArg0 bool
+	// Instruction clobbers the register containing input 1.
+	clobbersArg1 bool
 	// outputs[i] encodes the set of registers allowed for the i'th output.
 	outputs []regMask
 }
@@ -293,7 +298,7 @@ func genOp() {
 			fmt.Fprintf(w, "argLen: %d,\n", v.argLength)
 
 			if v.rematerializeable {
-				if v.reg.clobbers != 0 {
+				if v.reg.clobbers != 0 || v.reg.clobbersArg0 || v.reg.clobbersArg1 {
 					log.Fatalf("%s is rematerializeable and clobbers registers", v.name)
 				}
 				if v.clobberFlags {
@@ -401,6 +406,12 @@ func genOp() {
 
 			if v.reg.clobbers > 0 {
 				fmt.Fprintf(w, "clobbers: %d,%s\n", v.reg.clobbers, a.regMaskComment(v.reg.clobbers))
+			}
+			if v.reg.clobbersArg0 {
+				fmt.Fprintf(w, "clobbersArg0: true,\n")
+			}
+			if v.reg.clobbersArg1 {
+				fmt.Fprintf(w, "clobbersArg1: true,\n")
 			}
 
 			// reg outputs
@@ -537,6 +548,15 @@ func genOp() {
 		if err != nil {
 			log.Fatalf("can't read %s: %v", a.genfile, err)
 		}
+		// Append the file of simd operations, too
+		if a.genSIMDfile != "" {
+			simdSrc, err := os.ReadFile(a.genSIMDfile)
+			if err != nil {
+				log.Fatalf("can't read %s: %v", a.genSIMDfile, err)
+			}
+			src = append(src, simdSrc...)
+		}
+
 		seen := make(map[string]bool, len(a.ops))
 		for _, m := range rxOp.FindAllSubmatch(src, -1) {
 			seen[string(m[1])] = true

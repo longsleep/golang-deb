@@ -32,6 +32,12 @@ func init() {
 func Supported() error {
 	// Keep this in sync with fipsSupported in cmd/dist/test.go.
 
+	// The purego tag changes too much of the implementation to claim the
+	// validation still applies.
+	if puregoEnabled {
+		return errors.New("FIPS 140-3 mode is incompatible with the purego build tag")
+	}
+
 	// ASAN disapproves of reading swaths of global memory in fips140/check.
 	// One option would be to expose runtime.asanunpoison through
 	// crypto/internal/fips140deps and then call it to unpoison the range
@@ -42,10 +48,11 @@ func Supported() error {
 	}
 
 	// See EnableFIPS in cmd/internal/obj/fips.go for commentary.
+	// Also, js/wasm and windows/386 don't have good enough timers
+	// for the CPU jitter entropy source.
 	switch {
 	case runtime.GOARCH == "wasm",
 		runtime.GOOS == "windows" && runtime.GOARCH == "386",
-		runtime.GOOS == "windows" && runtime.GOARCH == "arm",
 		runtime.GOOS == "openbsd", // due to -fexecute-only, see #70880
 		runtime.GOOS == "aix":
 		return errors.New("FIPS 140-3 mode is not supported on " + runtime.GOOS + "-" + runtime.GOARCH)
