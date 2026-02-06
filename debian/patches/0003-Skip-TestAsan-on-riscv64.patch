@@ -1,16 +1,39 @@
-Description: skip tsan tests on riscv64
- Race detector on riscv64 is not support yet, this is usually no problem on Debian
- building because it will be skipped automatically. But others package updated
- recently lead to the test failed.
-Author: Bo YU <vimer@debian.org>
+From: Bo YU <vimer@debian.org>
+Date: Fri, 6 Feb 2026 14:04:34 +0100
+Subject: skip tsan tests on riscv64
+
 Bug: https://github.com/golang/go/issues/75553
 Bug-Debian: https://bugs.debian.org/1115478
 Last-Update: 2025-09-19
+
+Race detector on riscv64 is not support yet, this is usually no problem on Debian
+building because it will be skipped automatically. But others package updated
+recently lead to the test failed.
+Last-Update: 2025-09-19
 ---
-This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+ src/cmd/cgo/internal/testsanitizers/cshared_test.go | 3 +++
+ src/cmd/cgo/internal/testsanitizers/tsan_test.go    | 4 ++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/src/cmd/cgo/internal/testsanitizers/cshared_test.go b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
+index 0cf094e..f42cfd4 100644
+--- a/src/cmd/cgo/internal/testsanitizers/cshared_test.go
++++ b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
+@@ -65,6 +65,9 @@ func TestShared(t *testing.T) {
+ 			t.Logf("skipping %s test on %s/%s; compiler version too old for -tsan.", name, GOOS, GOARCH)
+ 			continue
+ 		}
++		if GOARCH == "riscv64" {
++			t.Skipf("skipping %s test on %s (see https://github.com/golang/go/issues/75553)", name, GOARCH)
++		}
+ 
+ 		t.Run(name, func(t *testing.T) {
+ 			t.Parallel()
+diff --git a/src/cmd/cgo/internal/testsanitizers/tsan_test.go b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
+index 265c5e3..58a1058 100644
 --- a/src/cmd/cgo/internal/testsanitizers/tsan_test.go
 +++ b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
-@@ -29,6 +29,10 @@
+@@ -29,6 +29,10 @@ func TestTSAN(t *testing.T) {
  	if !compilerRequiredTsanVersion(goos, goarch) {
  		t.Skipf("skipping on %s/%s; compiler version for -tsan option is too old.", goos, goarch)
  	}
@@ -21,15 +44,3 @@ This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
  
  	t.Parallel()
  	requireOvercommit(t)
---- a/src/cmd/cgo/internal/testsanitizers/cshared_test.go
-+++ b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
-@@ -65,6 +65,9 @@
- 			t.Logf("skipping %s test on %s/%s; compiler version too old for -tsan.", name, GOOS, GOARCH)
- 			continue
- 		}
-+		if GOARCH == "riscv64" {
-+			t.Skipf("skipping %s test on %s (see https://github.com/golang/go/issues/75553)", name, GOARCH)
-+		}
- 
- 		t.Run(name, func(t *testing.T) {
- 			t.Parallel()

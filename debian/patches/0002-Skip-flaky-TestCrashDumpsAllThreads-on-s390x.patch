@@ -8,7 +8,7 @@ Bug: https://github.com/golang/go/issues/64650
  1 file changed, 4 insertions(+)
 
 diff --git a/src/runtime/crash_unix_test.go b/src/runtime/crash_unix_test.go
-index 20a7ca6..23cc273 100644
+index 65fdea4..2c21bfa 100644
 --- a/src/runtime/crash_unix_test.go
 +++ b/src/runtime/crash_unix_test.go
 @@ -63,6 +63,10 @@ func TestCrashDumpsAllThreads(t *testing.T) {
