@@ -1,3 +1,16 @@
+golang-1.25 (1.25.7-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.25.7
+    - Refresh patches
+    - New patch: Replace localhostCert and localhostKey. New they are
+      valid until 2084, so that this package will not FTBFS during
+      the forky release. (Closes: #1127117)
+    - CVE-2025-61732: https://go.dev/issue/76697
+      cmd/go: potential code smuggling using doc comments
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 06 Feb 2026 14:15:13 +0100
+
 golang-1.25 (1.25.6-1) unstable; urgency=medium
 
   [ Anshul Singh ]
