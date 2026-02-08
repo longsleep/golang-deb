@@ -10,7 +10,6 @@ Uploaders: Michael Stapelberg <stapelberg@debian.org>,
            Michael Hudson-Doyle <mwhudson@debian.org>,
            Anthony Fok <foka@debian.org>
 Section: golang
-Priority: optional
 Build-Depends: debhelper-compat (= 13),
                binutils-gold [arm64],
                golang-1.24-go:native | golang-1.23-go:native | golang-1.22-go:native,
