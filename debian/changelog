@@ -1,3 +1,21 @@
+golang-1.24 (1.24.13-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.24.13
+
+    - CVE-2025-61732: https://go.dev/issue/77128
+      cmd/go: potential code smuggling using doc comments
+
+    - CVE-2025-68119: https://go.dev/issue/77103
+      cmd/go: unexpected code execution when invoking toolchain
+      (Closes: #1126770)
+
+  * Remove Rules-Requires-Root from d/control
+  * Remove Priority: optional from d/control
+  * Update Standards-Version to 4.7.3
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 08 Feb 2026 15:21:06 +0100
+
 golang-1.24 (1.24.12-1) unstable; urgency=medium
 
   * Update to 1.24.12 upstream release
