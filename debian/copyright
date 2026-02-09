@@ -83,11 +83,12 @@ Files:
  src/runtime/vlop_386.s
  src/runtime/vlop_arm.s
  src/runtime/vlrt.go
-Origin: Plan 9 from User Space include/, src/lib9/, src/libmach/
-        Inferno utils/include/, utils/libmach/, utils/6c/, utils/iar/,
-                utils/6l/, utils/6a/, utils/5c/, utils/8c/, utils/iyacc/,
-                utils/5l/, utils/6c/, utils/8l/, utils/nm/, utils/cc/,
-                utils/5a/, utils/8a/, lib9/, libkern/, libbio/
+Comment:
+ Origin: Plan 9 from User Space include/, src/lib9/, src/libmach/
+ Origin: Inferno utils/include/, utils/libmach/, utils/6c/,
+ utils/iar/, utils/6l/, utils/6a/, utils/5c/, utils/8c/,
+ utils/iyacc/, utils/5l/, utils/6c/, utils/8l/, utils/nm/,
+ utils/cc/, utils/5a/, utils/8a/, lib9/, libkern/, libbio/
 Copyright: © 1994-1999 Lucent Technologies Inc.  All rights reserved.
            Portions © 1997-1999 Vita Nuova Limited
            Portions © 2000-2007 Vita Nuova Holdings Limited (www.vitanuova.com)
@@ -100,7 +101,7 @@ License: X11
 
 Files: src/debug/dwarf/testdata/typedef.macho
  src/debug/dwarf/testdata/typedef.elf
-Source: src/debug/dwarf/testdata/typedef.c
+Comment: Source: src/debug/dwarf/testdata/typedef.c
 Copyright: © 2009, The Go Authors.  All rights reserved.
 License: Go
 
@@ -108,7 +109,7 @@ Files:
  src/debug/macho/testdata/fat-gcc*
  src/debug/macho/testdata/clang*
  src/debug/macho/testdata/gcc*
-Source: src/debug/macho/testdata/hello.c
+Comment: Source: src/debug/macho/testdata/hello.c
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
@@ -116,13 +117,14 @@ Files:
  src/debug/elf/testdata/*-exec
  src/debug/elf/testdata/*.obj
  src/debug/elf/testdata/hello-world-core.gz
-Source: src/debug/elf/testdata/hello.c
+Comment: Source: src/debug/elf/testdata/hello.c
 Copyright: © 2009, 2010, The Go Authors.  All rights reserved.
 License: Go
 
 Files: src/debug/elf/elf.go
  src/cmd/link/internal/ld/elf.go
-Origin: FreeBSD src/sys/sys/elf{32,64,_common}.h, src/sys/*/include/elf.h
+Comment: Origin: FreeBSD src/sys/sys/elf{32,64,_common}.h,
+         src/sys/*/include/elf.h
 Copyright: © 1996-1998 John D. Polstra.  All rights reserved.
            © 2001 David E. O'Brien
            Portions © 2009 The Go Authors.  All rights reserved.
@@ -171,14 +173,14 @@ Comment:
  is preserved.
 
 Files: src/image/jpeg/idct.go
-Origin: Translated from idct.c in the MPEG-2 (ISO/IEC 13818-4)
+Comment: Origin: Translated from idct.c in the MPEG-2 (ISO/IEC 13818-4)
          technical report video software verifier (mpeg2decode)
          version 960109
 Copyright: © 1996, MPEG Software Simulation Group. All Rights Reserved.
 License: MPEG
 
 Files: src/image/png/testdata/pngsuite/*
-Origin: libpng 1.2.40, contrib/pngsuite/*
+Comment: Origin: libpng 1.2.40, contrib/pngsuite/*
 Copyright: © Willem van Schaik, 1999
 License: noderivs
  Permission to use, copy, and distribute these images for any purpose and
