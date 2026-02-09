@@ -34,8 +34,6 @@ Recommends:
  gcc,
  libc6-dev,
  pkgconf,
-Breaks:
- dh-golang (<< 1.43~),
 Suggests:
  bzr | brz,
  ca-certificates,
