@@ -1,5 +1,5 @@
-VERSION /usr/lib/go-X.Y/
-bin /usr/lib/go-X.Y/
-go.env /usr/lib/go-X.Y/
-pkg/include /usr/share/go-X.Y/pkg/
-pkg/tool /usr/lib/go-X.Y/pkg/
+VERSION usr/lib/go-X.Y/
+bin usr/lib/go-X.Y/
+go.env usr/lib/go-X.Y/
+pkg/include usr/share/go-X.Y/pkg/
+pkg/tool usr/lib/go-X.Y/pkg/
