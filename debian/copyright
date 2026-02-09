@@ -59,6 +59,8 @@ Files:
  src/cmd/link/internal/ld/main.go
  src/cmd/link/internal/ld/sym.go
  src/cmd/link/internal/ld/symtab.go
+ src/cmd/link/internal/loadelf/ldelf.go
+ src/cmd/link/internal/loadmacho/ldmacho.go
  src/cmd/link/internal/mips/asm.go
  src/cmd/link/internal/mips/l.go
  src/cmd/link/internal/mips/obj.go
@@ -182,15 +184,20 @@ License: noderivs
  without fee is hereby granted.
 
 Files: src/cmd/vendor/github.com/google/pprof/*
+ src/internal/profile/graph.go
 Copyright: 2014, 2016 Google Inc.
 License: Apache-2.0
 
-Files: src/cmd/vendor/github.com/google/pprof/third_party/svgpan/svgpan.go
-Copyright: 2009-2017 Andrea Leofreddi <a.leofreddi@itcharm.com>
-License: BSD-3-clause-svgpan
+Files: src/cmd/vendor/github.com/google/pprof/third_party/svgpan/*
+Copyright: 2009-2019 Andrea Leofreddi <a.leofreddi@itcharm.com>
+License: BSD-3-Clause-svgpan
 
-Files: src/cmd/trace/static/*
+Files: src/internal/trace/traceviewer/static/*
 Copyright: 2012 The Chromium Authors
+License: BSD-3-clause
+
+Files: src/internal/trace/traceviewer/static/webcomponents.min.js
+Copyright: 2014 The Polymer Project Authors. All rights reserved.
 License: BSD-3-clause
 
 Files: debian/*
@@ -337,7 +344,7 @@ License: BSD-2-Clause
  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  SUCH DAMAGE.
 
-License: BSD-3-clause-svgpan
+License: BSD-3-Clause-svgpan
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
  .
