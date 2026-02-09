@@ -97,7 +97,7 @@ Copyright: © 1994-1999 Lucent Technologies Inc.  All rights reserved.
            Portions © 1995-2007 C H Forsyth (forsyth@terzarima.net)
            Revisions © 2000-2007 Lucent Technologies Inc. and others
            Portions © 2009 The Go Authors.  All rights reserved.
-License: X11
+License: Expat
 
 Files: src/debug/dwarf/testdata/typedef.macho
  src/debug/dwarf/testdata/typedef.elf
@@ -290,7 +290,7 @@ License: Apache-2.0
  On Debian systems, the Apache License, Version 2.0 can be found at
  /usr/share/common-licenses/Apache-2.0.
 
-License: X11
+License: Expat
  Permission is hereby granted, free of charge, to any person obtaining a copy
  of this software and associated documentation files (the "Software"), to deal
  in the Software without restriction, including without limitation the rights
