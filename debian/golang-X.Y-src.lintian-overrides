@@ -4,7 +4,6 @@ unpack-message-for-deb-data
 
 arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
 arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso]
-arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/debug/buildinfo/testdata/*]
 arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
 arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/debug/elf/testdata/*]
 arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
@@ -13,17 +12,14 @@ arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
 arch-dependent-file-in-usr-share [usr/share/go-X.Y/src/runtime/race/*.syso]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso]
-arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/debug/buildinfo/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/debug/elf/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
 arch-independent-package-contains-binary-or-object [usr/share/go-X.Y/src/runtime/race/*.syso]
-binary-with-bad-dynamic-table [usr/share/go-X.Y/src/debug/elf/testdata/*]
 broken-bz2 [usr/share/go-X.Y/src/compress/bzip2/testdata/*]
 broken-zip [usr/share/go-X.Y/src/archive/zip/testdata/*]
-executable-not-elf-or-script [usr/share/go-X.Y/src/cmd/vendor/github.com/google/pprof/third_party/d3flamegraph/update.sh]
 national-encoding [usr/share/go-X.Y/src/fmt/fmt_test.go]
 no-code-sections [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
 no-code-sections [usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*]
@@ -36,11 +32,9 @@ shared-library-lacks-prerequisites [usr/share/go-X.Y/src/debug/elf/testdata/*]
 statically-linked-binary [usr/share/go-X.Y/src/debug/buildinfo/testdata/*]
 statically-linked-binary [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
 statically-linked-binary [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
-undeclared-elf-prerequisites * [usr/share/go-X.Y/src/debug/buildinfo/testdata/*]
 undeclared-elf-prerequisites * [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
 undeclared-elf-prerequisites * [usr/share/go-X.Y/src/debug/elf/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso]
-unstripped-binary-or-object [usr/share/go-X.Y/src/debug/buildinfo/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/debug/elf/testdata/*]
 unstripped-binary-or-object [usr/share/go-X.Y/src/runtime/pprof/testdata/*]
@@ -49,25 +43,6 @@ unstripped-static-library (_go_.o) [usr/share/go-X.Y/src/go/internal/gccgoimport
 package-contains-eslint-config-file [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/telemetry/.eslintrc.json]
 
 # old syntax for ftp-master
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/cmd/objdump/testdata/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/crypto/internal/boring/syso/
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/debug/buildinfo/testdata/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/debug/dwarf/testdata/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/debug/elf/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/runtime/pprof/testdata/*
-arch-dependent-file-in-usr-share usr/share/go-X.Y/src/runtime/race/*.syso
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/cmd/objdump/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/crypto/internal/boring/syso/*.syso
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/buildinfo/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/dwarf/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/debug/elf/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gccgoimporter/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/runtime/pprof/testdata/*
-arch-independent-package-contains-binary-or-object usr/share/go-X.Y/src/runtime/race/*.syso
 binary-with-bad-dynamic-table usr/share/go-X.Y/src/debug/elf/testdata/*
 statically-linked-binary usr/share/go-X.Y/src/debug/buildinfo/testdata/*
 statically-linked-binary usr/share/go-X.Y/src/debug/dwarf/testdata/*
