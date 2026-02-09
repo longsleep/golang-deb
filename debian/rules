@@ -1,6 +1,4 @@
 #!/usr/bin/make -f
-# This file is in the public domain.
-# You may freely use, modify, distribute, and relicense it.
 
 # We need DEB_HOST_ARCH, so include the needed makefile snippet
 include /usr/share/dpkg/architecture.mk
