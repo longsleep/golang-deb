@@ -1,3 +1,16 @@
+golang-1.24 (1.24.13-2) unstable; urgency=medium
+
+  * Team upload.
+  * Skip TestTSAN test on s390x.
+    The test consistently fails, and is probably a real bug.
+    It's currently being investigated, but until that is
+    resolved, we disable the test to be able to build the
+    golang package, so it can migrate to testing and
+    fix lots of other bugs and CVEs.
+    See https://github.com/golang/go/issues/77289
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 09 Feb 2026 20:59:44 +0100
+
 golang-1.24 (1.24.13-1) unstable; urgency=medium
 
   * Team upload.
