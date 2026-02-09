@@ -130,7 +130,7 @@ Comment: Origin: FreeBSD src/sys/sys/elf{32,64,_common}.h,
 Copyright: © 1996-1998 John D. Polstra.  All rights reserved.
            © 2001 David E. O'Brien
            Portions © 2009 The Go Authors.  All rights reserved.
-License: FreeBSD
+License: BSD-2-Clause
 
 Files: src/math/cmplx/asin.go
  src/math/cmplx/exp.go
@@ -311,7 +311,7 @@ License: Expat
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE.
 
-License: FreeBSD
+License: BSD-2-Clause
  Copyright (c) 1996-1998 John D. Polstra.  All rights reserved.
  Copyright (c) 2001 David E. O'Brien
  Portions Copyright 2009 The Go Authors.  All rights reserved.
