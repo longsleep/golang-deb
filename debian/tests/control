@@ -1,7 +1,13 @@
-Tests: hello-world
-Depends: @, build-essential
-Restrictions: allow-stderr, superficial
+Tests:
+ hello-world
+Restrictions: allow-stderr,superficial
+Depends:
+ build-essential,
+ @,
 
-Tests: regression-test
-Depends: @, build-essential
-Restrictions: allow-stderr, needs-root
+Tests:
+ regression-test
+Restrictions: allow-stderr,needs-root
+Depends:
+ build-essential,
+ @,
