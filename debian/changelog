@@ -1,3 +1,31 @@
+golang-1.26 (1.26~rc3-2) unstable; urgency=medium
+
+  * Skip TestTSAN test on s390x.
+    The test consistently fails, and is probably a real bug.
+    It's currently being investigated, but until that is
+    resolved, we disable the test to be able to build the
+    golang package, so it can migrate to testing.
+    See https://github.com/golang/go/issues/77289
+    and Debian BTS #1126312
+  * Update d/copyright
+    - Use Comment: as field name in d/copyright
+    - Remove src/image/jpeg/idct.go from d/copyright, has been
+      removed upstream
+    - Remove MPEG license terms, no longer needed
+    - Update d/copyright with correct license name.
+    - Use Go license for d/rules, just like all other files
+      in that directory
+    - Update license name from FreeBSD to BSD-2-Clause
+    - Add d/lrc.config as license hints for lrc
+  * Run wrap-and-sort -astkb
+  * Remove Breaks: dh-golang (<< 1.43~), o-o-stable is at 1.51
+  * Remove leading '/' from .install files
+  * Remove unused lintian overrides
+  * Add lintian overrides for golang-X.Y-src
+  * Add myself as uploader, somehow I got involved again. :-)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Tue, 10 Feb 2026 00:00:48 +0100
+
 golang-1.26 (1.26~rc3-1) unstable; urgency=medium
 
   * Team upload.
