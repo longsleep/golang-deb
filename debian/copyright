@@ -172,13 +172,6 @@ Comment:
  software is freely granted, provided that this notice
  is preserved.
 
-Files: src/image/jpeg/idct.go
-Comment: Origin: Translated from idct.c in the MPEG-2 (ISO/IEC 13818-4)
-         technical report video software verifier (mpeg2decode)
-         version 960109
-Copyright: © 1996, MPEG Software Simulation Group. All Rights Reserved.
-License: MPEG
-
 Files: src/image/png/testdata/pngsuite/*
 Comment: Origin: libpng 1.2.40, contrib/pngsuite/*
 Copyright: © Willem van Schaik, 1999
