@@ -8,7 +8,7 @@ crash_unix_test.go:145: found 3 instances of main.crashDumpsAllThreadsLoop; expe
  1 file changed, 4 insertions(+)
 
 diff --git a/src/runtime/crash_unix_test.go b/src/runtime/crash_unix_test.go
-index 123a462..20a7ca6 100644
+index f9c12d5..2143444 100644
 --- a/src/runtime/crash_unix_test.go
 +++ b/src/runtime/crash_unix_test.go
 @@ -59,6 +59,10 @@ func TestCrashDumpsAllThreads(t *testing.T) {
