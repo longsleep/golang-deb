@@ -1,3 +1,13 @@
+golang-1.26 (1.26~rc3-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream version 1.26~rc3
+  * Remove Priority: optional from d/control
+  * Remove Rules-Requires-Root from d/control
+  * Update Standards-Version to 4.7.3
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Mon, 09 Feb 2026 10:15:40 +0100
+
 golang-1.26 (1.26~rc2-1) unstable; urgency=medium
 
   * Initial upload of Go 1.26 (rc2)
