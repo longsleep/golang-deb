@@ -1,3 +1,10 @@
+golang-1.26 (1.26.0-1) unstable; urgency=medium
+
+  * New upstream version 1.26.0
+    - Refresh patch
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 11 Feb 2026 16:43:25 +0100
+
 golang-1.26 (1.26~rc3-2) unstable; urgency=medium
 
   * Skip TestTSAN test on s390x.
