@@ -1,3 +1,11 @@
+golang-1.26 (1.26.0-1longsleep1+jammy) jammy; urgency=medium
+
+  * Change packaging for Ubuntu backports
+  * Switch backport to recommend pkg-config as well
+  * Run debian/rules gencontrol
+
+ -- Simon Eisenmann <simon@longsleep.org>  Sun, 15 Feb 2026 19:33:01 +0100
+
 golang-1.26 (1.26.0-1) unstable; urgency=medium
 
   * New upstream version 1.26.0
