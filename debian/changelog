@@ -1,3 +1,10 @@
+golang-1.25 (1.25.8-1longsleep1+focal) focal; urgency=medium
+
+  * Update upstream signing key
+  * New upstream version 1.25.8
+
+ -- Simon Eisenmann <simon@longsleep.org>  Fri, 06 Mar 2026 18:48:15 +0100
+
 golang-1.25 (1.25.7-1longsleep1+focal) focal; urgency=medium
 
   * New upstream version 1.25.7
