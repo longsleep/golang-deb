@@ -1,4 +1,4 @@
-golang-1.25 (1.25.8-1) UNRELEASED; urgency=medium
+golang-1.25 (1.25.8-1) unstable; urgency=medium
 
   * Update to 1.25.8 upstream release
     https://groups.google.com/g/golang-announce/c/EdhZqrQ98hk/m/41DopX_WAAAJ
@@ -10,7 +10,7 @@ golang-1.25 (1.25.8-1) UNRELEASED; urgency=medium
   * Drop 0004-Replace-localhostCert-and-localhostKey.patch (obsolete via
     https://github.com/golang/go/commit/0c56fa28180c1281bb4934bb6779a72a3fb43f52)
 
- -- Tianon Gravi <tianon@debian.org>  Sat, 07 Mar 2026 09:05:53 -0800
+ -- Tianon Gravi <tianon@debian.org>  Sat, 07 Mar 2026 09:12:47 -0800
 
 golang-1.25 (1.25.7-2) unstable; urgency=medium
 
