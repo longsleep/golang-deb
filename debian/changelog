@@ -7,6 +7,8 @@ golang-1.25 (1.25.8-1) UNRELEASED; urgency=medium
     - CVE-2026-25679: net/url: reject IPv6 literal not at start of host
     - CVE-2026-27139: os: FileInfo can escape from a Root
     (notably, CVE-2026-27137 and CVE-2026-27138 apply only to 1.26+)
+  * Drop 0004-Replace-localhostCert-and-localhostKey.patch (obsolete via
+    https://github.com/golang/go/commit/0c56fa28180c1281bb4934bb6779a72a3fb43f52)
 
  -- Tianon Gravi <tianon@debian.org>  Sat, 07 Mar 2026 09:05:53 -0800
 
