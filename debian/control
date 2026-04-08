@@ -14,7 +14,7 @@ Build-Depends: debhelper-compat (= 13),
                binutils-gold [arm64],
                golang-1.25-go:native | golang-1.24-go:native
                netbase
-Standards-Version: 4.6.2
+Standards-Version: 4.7.4
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.25
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.25
 Homepage: https://go.dev/
