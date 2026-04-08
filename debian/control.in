@@ -6,6 +6,7 @@ Uploaders:
  Tianon Gravi <tianon@debian.org>,
  Michael Hudson-Doyle <mwhudson@debian.org>,
  Anthony Fok <foka@debian.org>,
+ Dr. Tobias Quathamer <toddy@debian.org>,
 Section: golang
 Build-Depends:
  debhelper-compat (= 13),
