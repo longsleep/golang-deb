@@ -1,3 +1,29 @@
+golang-1.25 (1.25.9-1) unstable; urgency=medium
+
+  * New upstream version 1.25.9
+    - Update Build-Depends on golang 1.25 or 1.24
+    - CVE-2026-32280
+      During chain building, the amount of work that is done is not
+      correctly limited when a large number of intermediate certificates
+      are passed in VerifyOptions.Intermediates, which can lead to a
+      denial of service. This affects both direct users of crypto/x509
+      and users of crypto/tls.
+    - CVE-2026-32281
+      Validating certificate chains which use policies is unexpectedly
+      inefficient when certificates in the chain contain a very large
+      number of policy mappings, possibly causing denial of service.
+      This only affects validation of otherwise trusted certificate
+      chains, issued by a root CA in the VerifyOptions.Roots CertPool,
+      or in the system certificate pool.
+  * Set Forwarded in patch headers
+  * Remove Priority: optional from d/control
+  * Remove Rules-Requires-Root from d/control
+  * Update Standards-Version to 4.7.4
+  * Use wrap-and-sort -astkb
+  * Add myself as uploader, somehow I got involved again. :-)
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 08 Apr 2026 11:31:44 +0200
+
 golang-1.25 (1.25.8-1) unstable; urgency=medium
 
   * Update to 1.25.8 upstream release
