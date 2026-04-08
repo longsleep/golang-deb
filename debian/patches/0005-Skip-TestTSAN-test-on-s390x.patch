@@ -7,8 +7,8 @@ It's currently being investigated, but until that is
 resolved, we disable the test to be able to build the
 golang package, so it can migrate to testing.
 
-See https://github.com/golang/go/issues/77289
-and Debian BTS #1126312
+Forwarded: https://github.com/golang/go/issues/77289
+Bug-Debian: https://bugs.debian.org/1126312
 ---
  src/cmd/cgo/internal/testsanitizers/tsan_test.go | 4 +++-
  1 file changed, 3 insertions(+), 1 deletion(-)
