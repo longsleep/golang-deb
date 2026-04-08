@@ -4,16 +4,18 @@
 
 Source: golang-1.25
 Maintainer: Debian Go Compiler Team <team+go-compiler@tracker.debian.org>
-Uploaders: Michael Stapelberg <stapelberg@debian.org>,
-           Paul Tagliamonte <paultag@debian.org>,
-           Tianon Gravi <tianon@debian.org>,
-           Michael Hudson-Doyle <mwhudson@debian.org>,
-           Anthony Fok <foka@debian.org>
+Uploaders:
+ Michael Stapelberg <stapelberg@debian.org>,
+ Paul Tagliamonte <paultag@debian.org>,
+ Tianon Gravi <tianon@debian.org>,
+ Michael Hudson-Doyle <mwhudson@debian.org>,
+ Anthony Fok <foka@debian.org>,
 Section: golang
-Build-Depends: debhelper-compat (= 13),
-               binutils-gold [arm64],
-               golang-1.25-go:native | golang-1.24-go:native
-               netbase
+Build-Depends:
+ debhelper-compat (= 13),
+ binutils-gold [arm64],
+ golang-1.25-go:native | golang-1.24-go:native,
+ netbase,
 Standards-Version: 4.7.4
 Vcs-Browser: https://salsa.debian.org/go-team/compiler/golang/tree/golang-1.25
 Vcs-Git: https://salsa.debian.org/go-team/compiler/golang.git -b golang-1.25
@@ -21,14 +23,25 @@ Homepage: https://go.dev/
 
 Package: golang-1.25-go
 Architecture: amd64 arm64 armel armhf i386 loong64 mips mips64el mipsel ppc64 ppc64el riscv64 s390x
-Depends: binutils-gold [arm64],
-         golang-1.25-src (>= ${source:Version}),
-         ${misc:Depends},
-         ${perl:Depends},
-         ${shlibs:Depends}
-Recommends: g++, gcc, libc6-dev, pkgconf
-Breaks: dh-golang (<< 1.43~)
-Suggests: bzr | brz, ca-certificates, git, mercurial, subversion
+Depends:
+ binutils-gold [arm64],
+ golang-1.25-src (>= ${source:Version}),
+ ${misc:Depends},
+ ${perl:Depends},
+ ${shlibs:Depends},
+Recommends:
+ g++,
+ gcc,
+ libc6-dev,
+ pkgconf,
+Breaks:
+ dh-golang (<< 1.43~),
+Suggests:
+ bzr | brz,
+ ca-certificates,
+ git,
+ mercurial,
+ subversion,
 Description: Go programming language compiler, linker, compiled stdlib
  The Go programming language is an open source project to make programmers more
  productive. Go is expressive, concise, clean, and efficient. Its concurrency
@@ -45,47 +58,12 @@ Description: Go programming language compiler, linker, compiled stdlib
  To use this version, instead of the default one provided by golang-go package,
  add /usr/lib/go-1.25/bin/ to PATH, or invoke /usr/lib/go-1.25/bin/go directly.
 
-Package: golang-1.25-src
-Architecture: all
-Multi-Arch: foreign
-Depends: ${misc:Depends}, ${shlibs:Depends}
-Description: Go programming language - source files
- The Go programming language is an open source project to make programmers more
- productive. Go is expressive, concise, clean, and efficient. Its concurrency
- mechanisms make it easy to write programs that get the most out of multicore
- and networked machines, while its novel type system enables flexible and
- modular program construction. Go compiles quickly to machine code yet has the
- convenience of garbage collection and the power of run-time reflection. It's a
- fast, statically typed, compiled language that feels like a dynamically typed,
- interpreted language.
- .
- This package provides the Go programming language source files needed for
- compilation.
-
-Package: golang-1.25-doc
-Depends: ${misc:Depends}
-Architecture: all
-Multi-Arch: foreign
-Section: doc
-Description: Go programming language - documentation
- The Go programming language is an open source project to make
- programmers more productive. Go is expressive, concise, clean, and
- efficient. Its concurrency mechanisms make it easy to write programs
- that get the most out of multicore and networked machines, while its
- novel type system enables flexible and modular program construction.
- Go compiles quickly to machine code yet has the convenience of
- garbage collection and the power of run-time reflection. It's a fast,
- statically typed, compiled language that feels like a dynamically
- typed, interpreted language.
- .
- This package provides the documentation for the Go programming
- language.
-
 Package: golang-1.25
-Depends: golang-1.25-doc (>= ${source:Version}),
-         golang-1.25-go (>= ${source:Version}),
-         golang-1.25-src (>= ${source:Version}),
-         ${misc:Depends}
+Depends:
+ golang-1.25-doc (>= ${source:Version}),
+ golang-1.25-go (>= ${source:Version}),
+ golang-1.25-src (>= ${source:Version}),
+ ${misc:Depends},
 Architecture: all
 Description: Go programming language compiler - metapackage
  The Go programming language is an open source project to make
@@ -104,3 +82,42 @@ Description: Go programming language compiler - metapackage
  To use this version, instead of the default one provided by golang-go
  package, add /usr/lib/go-1.25/bin/ to PATH, or invoke /usr/lib/go-1.25/bin/go
  directly.
+
+Package: golang-1.25-doc
+Depends:
+ ${misc:Depends},
+Architecture: all
+Multi-Arch: foreign
+Section: doc
+Description: Go programming language - documentation
+ The Go programming language is an open source project to make
+ programmers more productive. Go is expressive, concise, clean, and
+ efficient. Its concurrency mechanisms make it easy to write programs
+ that get the most out of multicore and networked machines, while its
+ novel type system enables flexible and modular program construction.
+ Go compiles quickly to machine code yet has the convenience of
+ garbage collection and the power of run-time reflection. It's a fast,
+ statically typed, compiled language that feels like a dynamically
+ typed, interpreted language.
+ .
+ This package provides the documentation for the Go programming
+ language.
+
+Package: golang-1.25-src
+Architecture: all
+Multi-Arch: foreign
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Go programming language - source files
+ The Go programming language is an open source project to make programmers more
+ productive. Go is expressive, concise, clean, and efficient. Its concurrency
+ mechanisms make it easy to write programs that get the most out of multicore
+ and networked machines, while its novel type system enables flexible and
+ modular program construction. Go compiles quickly to machine code yet has the
+ convenience of garbage collection and the power of run-time reflection. It's a
+ fast, statically typed, compiled language that feels like a dynamically typed,
+ interpreted language.
+ .
+ This package provides the Go programming language source files needed for
+ compilation.
