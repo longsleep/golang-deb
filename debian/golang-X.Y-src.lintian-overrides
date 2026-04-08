@@ -23,7 +23,6 @@ broken-bz2 [usr/share/go-X.Y/src/compress/bzip2/testdata/*]
 broken-zip [usr/share/go-X.Y/src/archive/zip/testdata/*]
 executable-not-elf-or-script [usr/share/go-X.Y/src/cmd/compile/profile.sh]
 national-encoding [usr/share/go-X.Y/src/cmd/go/testdata/script/get_panic_issue75251.txt]
-national-encoding [usr/share/go-X.Y/src/fmt/fmt_test.go]
 no-code-sections [usr/share/go-X.Y/src/cmd/objdump/testdata/*]
 no-code-sections [usr/share/go-X.Y/src/go/internal/gcimporter/testdata/*]
 package-contains-documentation-outside-usr-share-doc
