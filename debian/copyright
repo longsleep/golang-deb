@@ -192,10 +192,6 @@ Files: src/cmd/vendor/github.com/google/pprof/third_party/svgpan/svgpan.go
 Copyright: 2009-2017 Andrea Leofreddi <a.leofreddi@itcharm.com>
 License: BSD-3-clause-svgpan
 
-Files: src/cmd/trace/static/*
-Copyright: 2012 The Chromium Authors
-License: BSD-3-clause
-
 Files: debian/*
 Copyright: 2010 Ivan Wong <ivanwyc@gmail.com>
            2010 Ondřej Surý <ondrej@debian.org>
