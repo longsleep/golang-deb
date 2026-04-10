@@ -1,3 +1,9 @@
+golang-1.26 (1.26.2-1longsleep1+jammy) jammy; urgency=medium
+
+  * New upstream version 1.26.2
+
+ -- Simon Eisenmann <simon@longsleep.org>  Fri, 10 Apr 2026 23:09:06 +0200
+
 golang-1.26 (1.26.1-1longsleep2+jammy) jammy; urgency=medium
 
   * Remove patch 0004 as it's already applied upstream
