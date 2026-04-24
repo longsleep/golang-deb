@@ -31,8 +31,6 @@ package-contains-vcs-control-file [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/
 package-contains-vcs-control-file [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/telemetry/.gitignore]
 package-contains-vcs-control-file [usr/share/go-X.Y/src/cmd/vendor/github.com/ianlancetaylor/demangle/.gitignore]
 package-contains-vcs-control-file [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/sys/unix/.gitignore]
-portable-executable-missing-security-features ASLR DEP/NX [usr/share/go-X.Y/src/debug/dwarf/testdata/*]
-portable-executable-missing-security-features ASLR DEP/NX [usr/share/go-X.Y/src/debug/pe/testdata/*]
 script-not-executable [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/telemetry/npm]
 script-not-executable [usr/share/go-X.Y/src/cmd/vendor/golang.org/x/telemetry/npx]
 shared-library-lacks-prerequisites [usr/share/go-X.Y/src/debug/elf/testdata/*]
