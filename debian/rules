@@ -88,8 +88,18 @@ override_dh_strip:
 # Do not run dh_dwz, as there is no debug information currently.
 override_dh_dwz:
 
+# Some test files cannot be parsed correctly by dh_strip_nondeterminism,
+# because they are corrupted on purpose to test the go library.
+# However, the previous approach of excluding all "testdata" file
+# paths from dh_strip_nondeterminism resulted in a package which
+# cannot be built reproducibly, because some timestamps of directories
+# were different. Therefore, we exclude only the specific test files
+# which would result in a parsing error of dh_strip_nondeterminism.
 override_dh_strip_nondeterminism:
-	dh_strip_nondeterminism -Xtestdata
+	dh_strip_nondeterminism \
+	--exclude=usr/share/go-$(GOVER)/src/image/png/testdata/invalid-trunc.png \
+	--exclude=usr/share/go-$(GOVER)/src/archive/zip/testdata/test-baddirsz.zip \
+	--exclude=usr/share/go-$(GOVER)/src/archive/zip/testdata/comment-truncated.zip
 
 override_dh_shlibdeps:
 	dh_shlibdeps -Xtestdata -Xtest
