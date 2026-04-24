@@ -1,3 +1,19 @@
+golang-1.26 (1.26.2-2) unstable; urgency=medium
+
+  * Make package reproducible.
+    Some test files cannot be parsed correctly by dh_strip_nondeterminism,
+    because they are corrupted on purpose to test the go library.
+    However, the previous approach of excluding all "testdata" file
+    paths from dh_strip_nondeterminism resulted in a package which
+    cannot be built reproducibly, because some timestamps of directories
+    were different. Therefore, we exclude only the specific test files
+    which would result in a parsing error of dh_strip_nondeterminism.
+  * Remove two alien tags from lintian overrides
+  * Remove debian/golang-X.Y-go.lintian-overrides, no longer needed
+  * Remove unused lintian overrides
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 24 Apr 2026 17:23:37 +0200
+
 golang-1.26 (1.26.2-1) unstable; urgency=medium
 
   * New upstream version 1.26.2
