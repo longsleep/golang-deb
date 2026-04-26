@@ -81,6 +81,11 @@ execute_after_dh_install-indep:
 	# Make scripts executable which have been missed by upstream
 	find debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/src/ \
 		\( -name '*.sh' -o -name '*.bash' \) \( -not -executable \) -exec chmod a+x {} \;
+	# Change timestamp of "test" directory to one of the files in it,
+	# because the differing timestamp is the last bit which prevents
+	# the golang package from being reproducible.
+	touch --reference=$(CURDIR)/debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/test/README.md \
+		$(CURDIR)/debian/golang-$(GOVER)-src/usr/share/go-$(GOVER)/test
 
 override_dh_strip:
 	dh_strip -Xtestdata
