@@ -1,3 +1,44 @@
+golang-1.26 (1.26.3-1) unstable; urgency=medium
+
+  * New upstream version 1.26.3
+    - CVE-2026-42501
+      cmd/go: malicious module proxy can bypass checksum database
+    - CVE-2026-39820
+      Well-crafted inputs reaching ParseAddress, ParseAddressList, and
+      ParseDate were able to trigger excessive CPU exhaustion and memory
+      allocations.
+    - CVE-2026-39823
+      Vulnerability in which URLs were not correctly escaped inside of a
+      <meta> tag's <content> attribute.
+    - CVE-2026-33811
+      When using LookupCNAME with the cgo DNS resolver, a very long
+      CNAME response can trigger a double-free of C memory and a crash.
+    - CVE-2026-39826
+      If a trusted template author were to write a <script> tag
+      containing an empty 'type' attribute or a 'type' attribute with an
+      ASCII whitespace, the execution of the template would incorrectly
+      escape any data passed into the <script> block.
+    - CVE-2026-39817
+      The "go tool pack" subcommand (usually used only by the compiler
+      as an internal tool with known-good inputs) does not sanitize
+      output filenames. Extracting a malicious archive file with the
+      "pack" subcommand can write files to arbitrary locations on the
+      filesystem.
+    - CVE-2026-39819
+      The "go bug" command writes to two files with predictable names in
+      the system temporary directory (for example, "/tmp"). An attacker
+      with access to the temporary directory can create a symlink in one
+      of these names, causing "go bug" to overwrite the target of the
+      symlink.
+    - CVE-2026-42499
+      Pathological inputs could cause DoS through consumePhrase when
+      parsing an email address according to RFC 5322.
+    - CVE-2026-39825
+      ReverseProxy can forward queries containing parameters not visible
+      to Rewrite functions.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 07 May 2026 22:46:34 +0200
+
 golang-1.26 (1.26.2-3) unstable; urgency=medium
 
   * Next attempt at making the package reproducible:
