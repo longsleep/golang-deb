@@ -144,6 +144,12 @@ func findIndVar(f *Func) []indVar {
 		if step == 0 {
 			continue
 		}
+		// step == minInt64 cannot be safely negated below, because -step
+		// overflows back to minInt64. The later underflow checks need a
+		// positive magnitude, so reject this case here.
+		if step == minSignedValue(ind.Type) {
+			continue
+		}
 
 		// Increment sign must match comparison direction.
 		// When incrementing, the termination comparison must be ind </<= limit.
