@@ -1,3 +1,10 @@
+golang-1.26 (1.26.3-1~bpo13+1) trixie-backports; urgency=medium
+
+  * Team upload
+  * Rebuild for trixie-backports.
+
+ -- Mathias Gibbens <gibmat@debian.org>  Sun, 17 May 2026 20:41:31 +0000
+
 golang-1.26 (1.26.3-1) unstable; urgency=medium
 
   * New upstream version 1.26.3
