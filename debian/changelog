@@ -1,3 +1,11 @@
+golang-1.26 (1.26.3-2) unstable; urgency=medium
+
+  * Support forcing a minimum go compatibility version for
+    GODEBUG via DEB_GOMINCOMPAT.
+    Thanks to Helmut Grohne <helmut@subdivi.de>
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 21 May 2026 12:16:31 +0200
+
 golang-1.26 (1.26.3-1) unstable; urgency=medium
 
   * New upstream version 1.26.3
