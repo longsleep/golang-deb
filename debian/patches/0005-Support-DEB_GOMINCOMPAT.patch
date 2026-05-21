@@ -1,0 +1,33 @@
+From: Helmut Grohne <helmut@subdivi.de>
+Date: Fri, 8 May 2026 11:20:27 +0200
+Subject: Support DEB_GOMINCOMPAT
+
+Support forcing a minimum go compatibility version for GODEBUG via
+DEB_GOMINCOMPAT.
+---
+ src/cmd/go/internal/load/godebug.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/cmd/go/internal/load/godebug.go b/src/cmd/go/internal/load/godebug.go
+index 8ea8ffa..63e6cad 100644
+--- a/src/cmd/go/internal/load/godebug.go
++++ b/src/cmd/go/internal/load/godebug.go
+@@ -10,6 +10,7 @@ import (
+ 	"go/build"
+ 	"internal/godebugs"
+ 	"maps"
++	"os"
+ 	"sort"
+ 	"strconv"
+ 	"strings"
+@@ -60,6 +61,10 @@ func defaultGODEBUG(p *Package, directives, testDirectives, xtestDirectives []bu
+ 			goVersion = "1.20"
+ 		}
+ 	}
++	debGoMinVer := os.Getenv("DEB_GOMINCOMPAT")
++	if debGoMinVer != "" && gover.Compare(goVersion, debGoMinVer) < 0 {
++		goVersion = debGoMinVer
++	}
+ 
+ 	var m map[string]string
+ 
