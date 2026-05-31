@@ -1,9 +1,10 @@
-golang-1.25 (1.25.10-1~bpo13+1) trixie-backports; urgency=medium
+golang-1.25 (1.25.10-2) unstable; urgency=medium
 
-  * Team upload
-  * Rebuild for trixie-backports.
+  * Support forcing a minimum go compatibility version for
+    GODEBUG via DEB_GOMINCOMPAT.
+    Thanks to Helmut Grohne <helmut@subdivi.de>
 
- -- Mathias Gibbens <gibmat@debian.org>  Sun, 17 May 2026 00:09:57 +0000
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 21 May 2026 11:57:39 +0200
 
 golang-1.25 (1.25.10-1) unstable; urgency=medium
 

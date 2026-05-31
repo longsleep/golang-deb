@@ -2,3 +2,4 @@
 0002-Skip-flaky-TestCrashDumpsAllThreads-on-s390x.patch
 0003-Skip-TestAsan-on-riscv64.patch
 0005-Skip-TestTSAN-test-on-s390x.patch
+0005-Support-DEB_GOMINCOMPAT.patch
