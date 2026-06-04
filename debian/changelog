@@ -1,3 +1,15 @@
+golang-1.26 (1.26.4-1) unstable; urgency=medium
+
+  * New upstream version 1.26.4
+    - CVE-2026-27145
+      crypto/x509: split candidate hostname only once
+    - CVE-2026-42507
+      net/textproto: escape arbitrary input when including them in errors
+    - CVE-2026-42504
+      mime: avoid quadratic complexity in WordDecoder.DecodeHeader
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 04 Jun 2026 14:35:47 +0200
+
 golang-1.26 (1.26.3-2) unstable; urgency=medium
 
   * Support forcing a minimum go compatibility version for
