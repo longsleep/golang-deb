@@ -1,3 +1,10 @@
+golang-1.25 (1.25.11-1~bpo13+1) trixie-backports; urgency=medium
+
+  * Team upload
+  * Rebuild for trixie-backports.
+
+ -- Mathias Gibbens <gibmat@debian.org>  Sun, 07 Jun 2026 19:05:08 +0000
+
 golang-1.25 (1.25.11-1) unstable; urgency=medium
 
   * New upstream version 1.25.11
