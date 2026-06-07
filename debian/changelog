@@ -1,9 +1,14 @@
-golang-1.25 (1.25.10-2~bpo13+1) trixie-backports; urgency=medium
+golang-1.25 (1.25.11-1) unstable; urgency=medium
 
-  * Team upload
-  * Rebuild for trixie-backports.
+  * New upstream version 1.25.11
+    - CVE-2026-27145
+      crypto/x509: split candidate hostname only once
+    - CVE-2026-42507
+      net/textproto: escape arbitrary input when including them in errors
+    - CVE-2026-42504
+      mime: avoid quadratic complexity in WordDecoder.DecodeHeader
 
- -- Mathias Gibbens <gibmat@debian.org>  Sun, 31 May 2026 19:24:30 +0000
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 04 Jun 2026 14:23:02 +0200
 
 golang-1.25 (1.25.10-2) unstable; urgency=medium
 
