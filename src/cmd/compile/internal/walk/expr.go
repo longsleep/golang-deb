@@ -13,6 +13,7 @@ import (
 
 	"cmd/compile/internal/base"
 	"cmd/compile/internal/ir"
+	"cmd/compile/internal/noder"
 	"cmd/compile/internal/objw"
 	"cmd/compile/internal/reflectdata"
 	"cmd/compile/internal/rttype"
@@ -293,7 +294,7 @@ func walkExpr1(n ir.Node, init *ir.Nodes) ir.Node {
 
 	case ir.OCLEAR:
 		n := n.(*ir.UnaryExpr)
-		return walkClear(n)
+		return walkClear(n, init)
 
 	case ir.OCLOSE:
 		n := n.(*ir.UnaryExpr)
@@ -762,6 +763,51 @@ func walkDotType(n *ir.TypeAssertExpr, init *ir.Nodes) ir.Node {
 	return n
 }
 
+// shapeTypeAssertImpossible reports whether a type assertion from src
+// to concrete type dst can never succeed because they have
+// incompatible shape types.
+func shapeTypeAssertImpossible(src ir.Node, dst *types.Type) bool {
+	if dst.IsInterface() {
+		return false
+	}
+	srcShape := convIfaceShapeType(src)
+	if srcShape == nil {
+		return false
+	}
+	return !types.Identical(srcShape, noder.Shapify(dst, false)) &&
+		!types.Identical(srcShape, noder.Shapify(dst, true))
+}
+
+// convIfaceShapeType returns the shape type from which src was
+// created via OCONVIFACE, or nil.
+func convIfaceShapeType(src ir.Node) *types.Type {
+	for {
+		switch s := src.(type) {
+		case *ir.ParenExpr:
+			src = s.X
+			continue
+		case *ir.ConvExpr:
+			if s.Op() == ir.OCONVNOP {
+				src = s.X
+				continue
+			}
+			if s.Op() == ir.OCONVIFACE {
+				srcType := s.X.Type()
+				if srcType != nil && !srcType.IsInterface() && srcType.IsShape() {
+					return srcType
+				}
+				return nil
+			}
+		}
+		break
+	}
+
+	if name, ok := src.(*ir.Name); ok && shapeConvSources != nil {
+		return shapeConvSources[name.Canonical()]
+	}
+	return nil
+}
+
 func makeTypeAssertDescriptor(target *types.Type, canFail bool) *obj.LSym {
 	// When converting from an interface to a non-empty interface. Needs a runtime call.
 	// Allocate an internal/abi.TypeAssert descriptor for that call.
@@ -868,20 +914,43 @@ func walkIndexMap(n *ir.IndexExpr, init *ir.Nodes) ir.Node {
 	key := mapKeyArg(fast, n, n.Index, n.Assigned)
 	args := []ir.Node{reflectdata.IndexMapRType(base.Pos, n), map_, key}
 
-	var mapFn ir.Node
-	switch {
-	case n.Assigned:
-		mapFn = mapfn(mapassign[fast], t, false)
-	case t.Elem().Size() > abi.ZeroValSize:
-		args = append(args, reflectdata.ZeroAddr(t.Elem().Size()))
-		mapFn = mapfn("mapaccess1_fat", t, true)
-	default:
-		mapFn = mapfn(mapaccess1[fast], t, false)
+	if n.Assigned {
+		mapFn := mapfn(mapassign[fast], t, false)
+		call := mkcall1(mapFn, nil, init, args...)
+		call.SetType(types.NewPtr(t.Elem()))
+		call.MarkNonNil() // mapassign always return non-nil pointers.
+		star := ir.NewStarExpr(base.Pos, call)
+		star.SetType(t.Elem())
+		star.SetTypecheck(1)
+		return star
 	}
-	call := mkcall1(mapFn, nil, init, args...)
-	call.SetType(types.NewPtr(t.Elem()))
-	call.MarkNonNil() // mapaccess1* and mapassign always return non-nil pointers.
-	star := ir.NewStarExpr(base.Pos, call)
+
+	// from:
+	//   m[i]
+	// to:
+	//   var, _ = mapaccess2*(t, m, i)
+	//   *var
+	var mapFn ir.Node
+	if t.Elem().Size() > abi.ZeroValSize {
+		args = append(args, reflectdata.ZeroAddr(t.Elem().Size()))
+		mapFn = mapfn("mapaccess2_fat", t, true)
+	} else {
+		mapFn = mapfn(mapaccess[fast], t, false)
+	}
+	call := mkcall1(mapFn, mapFn.Type().ResultsTuple(), init, args...)
+
+	var_ := typecheck.TempAt(base.Pos, ir.CurFunc, types.NewPtr(t.Elem()))
+	var_.SetTypecheck(1)
+	var_.MarkNonNil() // mapaccess always returns a non-nill pointer
+
+	bool_ := typecheck.TempAt(base.Pos, ir.CurFunc, types.Types[types.TBOOL])
+	bool_.SetTypecheck(1)
+
+	r := ir.NewAssignListStmt(base.Pos, ir.OAS2FUNC, []ir.Node{var_, bool_}, []ir.Node{call})
+	r.SetTypecheck(1)
+	init.Append(walkExpr(r, init))
+
+	star := ir.NewStarExpr(base.Pos, var_)
 	star.SetType(t.Elem())
 	star.SetTypecheck(1)
 	return star
@@ -946,7 +1015,7 @@ func walkStringHeader(n *ir.StringHeaderExpr, init *ir.Nodes) ir.Node {
 	return n
 }
 
-// return 1 if integer n must be in range [0, max), 0 otherwise.
+// bounded reports whether integer n must be in range [0, max).
 func bounded(n ir.Node, max int64) bool {
 	if n.Type() == nil || !n.Type().IsInteger() {
 		return false
@@ -1004,7 +1073,7 @@ func bounded(n ir.Node, max int64) bool {
 		if !sign && ir.IsSmallIntConst(n.Y) {
 			v := ir.Int64Val(n.Y)
 			if v > int64(bits) {
-				return true
+				return max > 0
 			}
 			bits -= int32(v)
 		}

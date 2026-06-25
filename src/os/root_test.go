@@ -91,6 +91,18 @@ func makefs(t *testing.T, fs []string) string {
 	return root
 }
 
+// hasLink reports whether the test filesystem layout fs
+// contains at least a single symlink.
+func hasLink(fs []string) bool {
+	for _, ent := range fs {
+		isLink := strings.Contains(ent, " => ")
+		if isLink {
+			return true
+		}
+	}
+	return false
+}
+
 // A rootTest is a test case for os.Root.
 type rootTest struct {
 	name string
@@ -128,6 +140,9 @@ type rootTest struct {
 // run sets up the test filesystem layout, os.OpenDirs the root, and calls f.
 func (test *rootTest) run(t *testing.T, f func(t *testing.T, target string, d *os.Root)) {
 	t.Run(test.name, func(t *testing.T) {
+		if hasLink(test.fs) {
+			testenv.MustHaveSymlink(t)
+		}
 		root := makefs(t, test.fs)
 		d, err := os.OpenRoot(root)
 		if err != nil {
@@ -1211,15 +1226,7 @@ var rootConsistencyTestCases = []rootConsistencyTest{{
 }}
 
 func tempDirWithUnixSocket(t *testing.T, name string) string {
-	dir, err := os.MkdirTemp("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Error(err)
-		}
-	})
+	dir := t.TempDir()
 	addr, err := net.ResolveUnixAddr("unix", filepath.Join(dir, name))
 	if err != nil {
 		t.Skipf("net.ResolveUnixAddr: %v", err)
@@ -1245,6 +1252,10 @@ func (test rootConsistencyTest) run(t *testing.T, f func(t *testing.T, path stri
 	t.Run(test.name, func(t *testing.T) {
 		if test.check != nil {
 			test.check(t)
+		}
+
+		if hasLink(test.fs) {
+			testenv.MustHaveSymlink(t)
 		}
 
 		dir1 := makefs(t, test.fs)
@@ -1833,6 +1844,7 @@ func TestRootRaceRenameDir(t *testing.T) {
 }
 
 func TestRootSymlinkToRoot(t *testing.T) {
+	testenv.MustHaveSymlink(t)
 	dir := makefs(t, []string{
 		"d/d => ..",
 	})
@@ -1860,6 +1872,7 @@ func TestRootSymlinkToRoot(t *testing.T) {
 }
 
 func TestOpenInRoot(t *testing.T) {
+	testenv.MustHaveSymlink(t)
 	dir := makefs(t, []string{
 		"file",
 		"link => ../ROOT/file",

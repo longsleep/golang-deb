@@ -279,6 +279,10 @@ type Request struct {
 	// the request body is read. Once the body returns EOF, the caller must
 	// not mutate Trailer.
 	//
+	// Writing a request whose Trailer contains a key with invalid bytes
+	// (such as CR or LF), or such a value present when Write begins,
+	// returns an error.
+	//
 	// Few HTTP clients, servers, or proxies support HTTP trailers.
 	Trailer Header
 
@@ -558,6 +562,11 @@ const defaultUserAgent = "Go-http-client/1.1"
 // If Body is present, Content-Length is <= 0 and [Request.TransferEncoding]
 // hasn't been set to "identity", Write adds "Transfer-Encoding:
 // chunked" to the header. Body is closed after it is sent.
+//
+// Header values for Host, Content-Length, Transfer-Encoding,
+// and Trailer are not used; these are derived from other Request fields.
+// If the Header does not contain a User-Agent value, Write uses
+// "Go-http-client/1.1".
 func (r *Request) Write(w io.Writer) error {
 	return r.write(w, false, nil, nil)
 }
@@ -908,7 +917,7 @@ func NewRequestWithContext(ctx context.Context, method, url string, body io.Read
 		rc = io.NopCloser(body)
 	}
 	// The host's colon:port should be normalized. See Issue 14836.
-	u.Host = removeEmptyPort(u.Host)
+	u.Host = strings.TrimSuffix(u.Host, ":")
 	req := &Request{
 		ctx:        ctx,
 		Method:     method,
@@ -1466,6 +1475,9 @@ func (r *Request) FormFile(key string) (multipart.File, *multipart.FileHeader, e
 // that matched the request.
 // It returns the empty string if the request was not matched against a pattern
 // or there is no such wildcard in the pattern.
+//
+// The value is unescaped. For example, if the pattern "/b/{bucket}" matches
+// the path "/b/a%2fb", PathValue("bucket") returns "a/b".
 func (r *Request) PathValue(name string) string {
 	if i := r.patIndex(name); i >= 0 {
 		return r.matches[i]
@@ -1475,6 +1487,7 @@ func (r *Request) PathValue(name string) string {
 
 // SetPathValue sets name to value, so that subsequent calls to r.PathValue(name)
 // return value.
+// It does not unescape value.
 func (r *Request) SetPathValue(name, value string) {
 	if i := r.patIndex(name); i >= 0 {
 		r.matches[i] = value
