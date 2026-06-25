@@ -11,7 +11,6 @@ import (
 	"internal/godebug"
 	"internal/lazyregexp"
 	"internal/singleflight"
-	"io/fs"
 	"log"
 	urlpkg "net/url"
 	"os"
@@ -28,6 +27,7 @@ import (
 	"cmd/go/internal/str"
 	"cmd/go/internal/web"
 	"cmd/internal/pathcache"
+	"cmd/internal/telemetry/counter"
 
 	"golang.org/x/mod/module"
 )
@@ -35,10 +35,10 @@ import (
 // A Cmd describes how to use a version control system
 // like Mercurial, Git, or Subversion.
 type Cmd struct {
-	Name      string
-	Cmd       string     // name of binary to invoke command
-	Env       []string   // any environment values to set/override
-	RootNames []rootName // filename and mode indicating the root of a checkout directory
+	Name  string
+	Cmd   string      // name of binary to invoke command
+	Env   []string    // any environment values to set/override
+	Roots []isVCSRoot // filters to identify repository root directories
 
 	Scheme  []string
 	PingCmd string
@@ -72,7 +72,6 @@ var (
 var defaultSecureScheme = map[string]bool{
 	"https":   true,
 	"git+ssh": true,
-	"bzr+ssh": true,
 	"svn+ssh": true,
 	"ssh":     true,
 }
@@ -122,16 +121,15 @@ var vcsList = []*Cmd{
 	vcsHg,
 	vcsGit,
 	vcsSvn,
-	vcsBzr,
 	vcsFossil,
 }
 
 // vcsMod is a stub for the "mod" scheme. It's returned by
-// repoRootForImportPathDynamic, but is otherwise not treated as a VCS command.
+// repoRootForImportDynamic, but is otherwise not treated as a VCS command.
 var vcsMod = &Cmd{Name: "mod"}
 
 // vcsByCmd returns the version control system for the given
-// command name (hg, git, svn, bzr).
+// command name (hg, git, svn).
 func vcsByCmd(cmd string) *Cmd {
 	for _, vcs := range vcsList {
 		if vcs.Cmd == cmd {
@@ -149,8 +147,8 @@ var vcsHg = &Cmd{
 	// HGPLAIN=+strictflags turns off additional output that a user may have
 	// enabled via config options or certain extensions.
 	Env: []string{"HGPLAIN=+strictflags"},
-	RootNames: []rootName{
-		{filename: ".hg", isDir: true},
+	Roots: []isVCSRoot{
+		vcsDirRoot(".hg"),
 	},
 
 	Scheme:  []string{"https", "http", "ssh"},
@@ -214,8 +212,8 @@ func parseRevTime(out []byte) (string, time.Time, error) {
 var vcsGit = &Cmd{
 	Name: "Git",
 	Cmd:  "git",
-	RootNames: []rootName{
-		{filename: ".git", isDir: true},
+	Roots: []isVCSRoot{
+		vcsGitRoot{},
 	},
 
 	Scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
@@ -258,82 +256,12 @@ func gitStatus(vcsGit *Cmd, rootDir string) (Status, error) {
 	}, nil
 }
 
-// vcsBzr describes how to use Bazaar.
-var vcsBzr = &Cmd{
-	Name: "Bazaar",
-	Cmd:  "bzr",
-	RootNames: []rootName{
-		{filename: ".bzr", isDir: true},
-	},
-
-	Scheme:  []string{"https", "http", "bzr", "bzr+ssh"},
-	PingCmd: "info -- {scheme}://{repo}",
-	Status:  bzrStatus,
-}
-
-func bzrStatus(vcsBzr *Cmd, rootDir string) (Status, error) {
-	outb, err := vcsBzr.runOutputVerboseOnly(rootDir, "version-info")
-	if err != nil {
-		return Status{}, err
-	}
-	out := string(outb)
-
-	// Expect (non-empty repositories only):
-	//
-	// revision-id: gopher@gopher.net-20211021072330-qshok76wfypw9lpm
-	// date: 2021-09-21 12:00:00 +1000
-	// ...
-	var rev string
-	var commitTime time.Time
-
-	for line := range strings.SplitSeq(out, "\n") {
-		i := strings.IndexByte(line, ':')
-		if i < 0 {
-			continue
-		}
-		key := line[:i]
-		value := strings.TrimSpace(line[i+1:])
-
-		switch key {
-		case "revision-id":
-			rev = value
-		case "date":
-			var err error
-			commitTime, err = time.Parse("2006-01-02 15:04:05 -0700", value)
-			if err != nil {
-				return Status{}, errors.New("unable to parse output of bzr version-info")
-			}
-		}
-	}
-
-	outb, err = vcsBzr.runOutputVerboseOnly(rootDir, "status")
-	if err != nil {
-		return Status{}, err
-	}
-
-	// Skip warning when working directory is set to an older revision.
-	if bytes.HasPrefix(outb, []byte("working tree is out of date")) {
-		i := bytes.IndexByte(outb, '\n')
-		if i < 0 {
-			i = len(outb)
-		}
-		outb = outb[:i]
-	}
-	uncommitted := len(outb) > 0
-
-	return Status{
-		Revision:    rev,
-		CommitTime:  commitTime,
-		Uncommitted: uncommitted,
-	}, nil
-}
-
 // vcsSvn describes how to use Subversion.
 var vcsSvn = &Cmd{
 	Name: "Subversion",
 	Cmd:  "svn",
-	RootNames: []rootName{
-		{filename: ".svn", isDir: true},
+	Roots: []isVCSRoot{
+		vcsDirRoot(".svn"),
 	},
 
 	// There is no tag command in subversion.
@@ -381,9 +309,9 @@ const fossilRepoName = ".fossil"
 var vcsFossil = &Cmd{
 	Name: "Fossil",
 	Cmd:  "fossil",
-	RootNames: []rootName{
-		{filename: ".fslckout", isDir: false},
-		{filename: "_FOSSIL_", isDir: false},
+	Roots: []isVCSRoot{
+		vcsFileRoot(".fslckout"),
+		vcsFileRoot("_FOSSIL_"),
 	},
 
 	Scheme: []string{"https", "http"},
@@ -488,32 +416,10 @@ func (v *Cmd) run1(dir string, cmdline string, keyval []string, verbose bool) ([
 		args[i] = expand(m, arg)
 	}
 
-	if len(args) >= 2 && args[0] == "--go-internal-mkdir" {
-		var err error
-		if filepath.IsAbs(args[1]) {
-			err = os.Mkdir(args[1], fs.ModePerm)
-		} else {
-			err = os.Mkdir(filepath.Join(dir, args[1]), fs.ModePerm)
-		}
-		if err != nil {
-			return nil, err
-		}
-		args = args[2:]
-	}
-
-	if len(args) >= 2 && args[0] == "--go-internal-cd" {
-		if filepath.IsAbs(args[1]) {
-			dir = args[1]
-		} else {
-			dir = filepath.Join(dir, args[1])
-		}
-		args = args[2:]
-	}
-
 	_, err := pathcache.LookPath(v.Cmd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr,
-			"go: missing %s command. See https://golang.org/s/gogetcmd\n",
+			"go: missing %s command. See https://go.dev/s/gogetcmd\n",
 			v.Name)
 		return nil, err
 	}
@@ -551,7 +457,7 @@ func (v *Cmd) Ping(scheme, repo string) error {
 	if !cfg.ModulesEnabled {
 		dir = filepath.Join(cfg.BuildContext.GOPATH, "src")
 	}
-	os.MkdirAll(dir, 0777) // Ignore errors — if unsuccessful, the command will likely fail.
+	os.MkdirAll(dir, 0o777) // Ignore errors — if unsuccessful, the command will likely fail.
 
 	release, err := base.AcquireNet()
 	if err != nil {
@@ -592,7 +498,7 @@ func FromDir(dir, srcRoot string) (repoDir string, vcsCmd *Cmd, err error) {
 	origDir := dir
 	for len(dir) > len(srcRoot) {
 		for _, vcs := range vcsList {
-			if isVCSRoot(dir, vcs.RootNames) {
+			if isVCSRootDir(dir, vcs.Roots) {
 				if vcsCmd == nil {
 					// Record first VCS we find.
 					vcsCmd = vcs
@@ -631,22 +537,71 @@ func FromDir(dir, srcRoot string) (repoDir string, vcsCmd *Cmd, err error) {
 	return repoDir, vcsCmd, nil
 }
 
-// isVCSRoot identifies a VCS root by checking whether the directory contains
-// any of the listed root names.
-func isVCSRoot(dir string, rootNames []rootName) bool {
-	for _, root := range rootNames {
-		fi, err := os.Stat(filepath.Join(dir, root.filename))
-		if err == nil && fi.IsDir() == root.isDir {
+// isVCSRootDir reports whether dir is a VCS root according to roots.
+func isVCSRootDir(dir string, roots []isVCSRoot) bool {
+	for _, root := range roots {
+		if root.isRoot(dir) {
 			return true
 		}
 	}
-
 	return false
 }
 
-type rootName struct {
-	filename string
-	isDir    bool
+type isVCSRoot interface {
+	isRoot(dir string) bool
+}
+
+// vcsFileRoot identifies a VCS root by the presence of a regular file.
+type vcsFileRoot string
+
+func (vfr vcsFileRoot) isRoot(dir string) bool {
+	fi, err := os.Stat(filepath.Join(dir, string(vfr)))
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// vcsDirRoot identifies a VCS root by the presence of a directory.
+type vcsDirRoot string
+
+func (vdr vcsDirRoot) isRoot(dir string) bool {
+	fi, err := os.Stat(filepath.Join(dir, string(vdr)))
+	return err == nil && fi.IsDir()
+}
+
+// vcsGitRoot identifies a Git root by the presence of a .git directory or a .git worktree file.
+// See https://go.dev/issue/58218.
+type vcsGitRoot struct{}
+
+func (vcsGitRoot) isRoot(dir string) bool {
+	path := filepath.Join(dir, ".git")
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if fi.IsDir() {
+		return true
+	}
+	// Is it a git worktree file?
+	// The format is "gitdir: <path>\n".
+	if !fi.Mode().IsRegular() || fi.Size() == 0 || fi.Size() > 4096 {
+		return false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	rest, ok := strings.CutPrefix(string(raw), "gitdir:")
+	if !ok {
+		return false
+	}
+	gitdir := strings.TrimSpace(rest)
+	if gitdir == "" {
+		return false
+	}
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(dir, gitdir)
+	}
+	fi, err = os.Stat(gitdir)
+	return err == nil && fi.IsDir()
 }
 
 type vcsNotFoundError struct {
@@ -832,13 +787,6 @@ func RepoRootForImportPath(importPath string, mod ModuleMode, security web.Secur
 			err = importErrorf(importPath, "unrecognized import path %q: %v", importPath, err)
 		}
 	}
-	if err != nil {
-		rr1, err1 := repoRootFromVCSPaths(importPath, security, vcsPathsAfterDynamic)
-		if err1 == nil {
-			rr = rr1
-			err = nil
-		}
-	}
 
 	// Should have been taken care of above, but make sure.
 	if err == nil && strings.Contains(importPath, "...") && strings.Contains(rr.Root, "...") {
@@ -846,6 +794,16 @@ func RepoRootForImportPath(importPath string, mod ModuleMode, security web.Secur
 		rr = nil
 		err = importErrorf(importPath, "cannot expand ... in %q", importPath)
 	}
+
+	// Record telemetry about which VCS was found.
+	if err == nil {
+		if rr.VCS == vcsMod {
+			counter.Inc("go/vcs:mod")
+		} else {
+			counter.Inc("go/vcs:" + rr.VCS.Cmd)
+		}
+	}
+
 	return rr, err
 }
 
@@ -1344,23 +1302,8 @@ var vcsPaths = []*vcsPath{
 	// General syntax for any server.
 	// Must be last.
 	{
-		regexp:         lazyregexp.New(`(?P<root>(?P<repo>([a-z0-9.\-]+\.)+[a-z0-9.\-]+(:[0-9]+)?(/~?[\w.\-]+)+?)\.(?P<vcs>bzr|fossil|git|hg|svn))(/~?[\w.\-]+)*$`),
+		regexp:         lazyregexp.New(`(?P<root>(?P<repo>([a-z0-9.\-]+\.)+[a-z0-9.\-]+(:[0-9]+)?(/~?[\w.\-]+)+?)\.(?P<vcs>fossil|git|hg|svn))(/~?[\w.\-]+)*$`),
 		schemelessRepo: true,
-	},
-}
-
-// vcsPathsAfterDynamic gives additional vcsPaths entries
-// to try after the dynamic HTML check.
-// This gives those sites a chance to introduce <meta> tags
-// as part of a graceful transition away from the hard-coded logic.
-var vcsPathsAfterDynamic = []*vcsPath{
-	// Launchpad. See golang.org/issue/11436.
-	{
-		pathPrefix: "launchpad.net",
-		regexp:     lazyregexp.New(`^(?P<root>launchpad\.net/((?P<project>[\w.\-]+)(?P<series>/[\w.\-]+)?|~[\w.\-]+/(\+junk|[\w.\-]+)/[\w.\-]+))(/[\w.\-]+)*$`),
-		vcs:        "bzr",
-		repo:       "https://{root}",
-		check:      launchpadVCS,
 	},
 }
 
@@ -1373,27 +1316,6 @@ func noVCSSuffix(match map[string]string) error {
 		if strings.HasSuffix(repo, "."+vcs.Cmd) {
 			return fmt.Errorf("invalid version control suffix in %s path", match["prefix"])
 		}
-	}
-	return nil
-}
-
-// launchpadVCS solves the ambiguity for "lp.net/project/foo". In this case,
-// "foo" could be a series name registered in Launchpad with its own branch,
-// and it could also be the name of a directory within the main project
-// branch one level up.
-func launchpadVCS(match map[string]string) error {
-	if match["project"] == "" || match["series"] == "" {
-		return nil
-	}
-	url := &urlpkg.URL{
-		Scheme: "https",
-		Host:   "code.launchpad.net",
-		Path:   expand(match, "/{project}{series}/.bzr/branch-format"),
-	}
-	_, err := web.GetBytes(url)
-	if err != nil {
-		match["root"] = expand(match, "launchpad.net/{project}")
-		match["repo"] = expand(match, "https://{root}")
 	}
 	return nil
 }
