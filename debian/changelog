@@ -1,8 +1,9 @@
-golang-1.27 (1.27~rc0-1) UNRELEASED; urgency=medium
+golang-1.27 (1.27~rc1-1) unstable; urgency=medium
 
-  * New upstream version 1.26~rc1
+  * New upstream version 1.27~rc1
+    - Refresh patches
 
- -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 25 Jun 2026 10:21:59 +0200
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 25 Jun 2026 10:48:30 +0200
 
 golang-1.26 (1.26.4-1) unstable; urgency=medium
 
