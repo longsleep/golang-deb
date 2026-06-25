@@ -9,7 +9,7 @@ DEB_GOMINCOMPAT.
  1 file changed, 5 insertions(+)
 
 diff --git a/src/cmd/go/internal/load/godebug.go b/src/cmd/go/internal/load/godebug.go
-index 817cc4f..6b0019c 100644
+index 9f8182b..753877c 100644
 --- a/src/cmd/go/internal/load/godebug.go
 +++ b/src/cmd/go/internal/load/godebug.go
 @@ -10,6 +10,7 @@ import (
@@ -20,10 +20,10 @@ index 817cc4f..6b0019c 100644
  	"sort"
  	"strconv"
  	"strings"
-@@ -60,6 +61,10 @@ func defaultGODEBUG(loaderstate *modload.State, p *Package, directives, testDire
- 			goVersion = "1.20"
- 		}
+@@ -69,6 +70,10 @@ func defaultGODEBUG(ld *modload.Loader, p *Package, directives, testDirectives,
  	}
+ 
+ 	goVersion := defaultGODEBUGGoVersion(ld, p)
 +	debGoMinVer := os.Getenv("DEB_GOMINCOMPAT")
 +	if debGoMinVer != "" && gover.Compare(goVersion, debGoMinVer) < 0 {
 +		goVersion = debGoMinVer

@@ -14,7 +14,7 @@ Bug-Debian: https://bugs.debian.org/1126312
  1 file changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/src/cmd/cgo/internal/testsanitizers/tsan_test.go b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
-index 243e396..d124077 100644
+index 7f3b0c8..692a57d 100644
 --- a/src/cmd/cgo/internal/testsanitizers/tsan_test.go
 +++ b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
 @@ -32,7 +32,9 @@ func TestTSAN(t *testing.T) {

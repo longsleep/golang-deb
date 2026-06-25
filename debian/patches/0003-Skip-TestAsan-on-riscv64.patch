@@ -15,10 +15,10 @@ Last-Update: 2025-09-19
  2 files changed, 7 insertions(+)
 
 diff --git a/src/cmd/cgo/internal/testsanitizers/cshared_test.go b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
-index 0cf094e..f42cfd4 100644
+index 7655967..e3a46b3 100644
 --- a/src/cmd/cgo/internal/testsanitizers/cshared_test.go
 +++ b/src/cmd/cgo/internal/testsanitizers/cshared_test.go
-@@ -65,6 +65,9 @@ func TestShared(t *testing.T) {
+@@ -64,6 +64,9 @@ func TestShared(t *testing.T) {
  			t.Logf("skipping %s test on %s/%s; compiler version too old for -tsan.", name, GOOS, GOARCH)
  			continue
  		}
@@ -29,7 +29,7 @@ index 0cf094e..f42cfd4 100644
  		t.Run(name, func(t *testing.T) {
  			t.Parallel()
 diff --git a/src/cmd/cgo/internal/testsanitizers/tsan_test.go b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
-index 589db2e..243e396 100644
+index 81fc009..7f3b0c8 100644
 --- a/src/cmd/cgo/internal/testsanitizers/tsan_test.go
 +++ b/src/cmd/cgo/internal/testsanitizers/tsan_test.go
 @@ -29,6 +29,10 @@ func TestTSAN(t *testing.T) {
