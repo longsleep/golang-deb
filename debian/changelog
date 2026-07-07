@@ -1,3 +1,14 @@
+golang-1.26 (1.26.5-1) unstable; urgency=medium
+
+  * New upstream version 1.26.5
+    - CVE-2026-39822
+      os: properly handle trailing slashes in paths in Root
+    - CVE-2026-42505
+      crypto/tls: omit PSK in ECH outer client hello
+  * Mark patch as Forwarded: not-needed
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Tue, 07 Jul 2026 22:40:49 +0200
+
 golang-1.26 (1.26.4-1) unstable; urgency=medium
 
   * New upstream version 1.26.4
