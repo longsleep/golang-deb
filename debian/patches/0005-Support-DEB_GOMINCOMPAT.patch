@@ -4,6 +4,8 @@ Subject: Support DEB_GOMINCOMPAT
 
 Support forcing a minimum go compatibility version for GODEBUG via
 DEB_GOMINCOMPAT.
+
+Forwarded: not-needed
 ---
  src/cmd/go/internal/load/godebug.go | 5 +++++
  1 file changed, 5 insertions(+)
