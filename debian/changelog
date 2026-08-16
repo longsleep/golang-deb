@@ -1,3 +1,53 @@
+golang-1.27 (1.27~rc3-1) unstable; urgency=medium
+
+  * New upstream version 1.27~rc3 (Closes: #1144340)
+    - CVE-2026-56865
+      A malicious GOPROXY was previously capable of forging up to two sumdb
+      tiles that allow for a requested module to bypass the GOSUMDB check and
+      persist attacker-controlled module content to a local Go module cache.
+      This attack allows for a malicious GOPROXY to serve malicious module
+      content that cannot be detected by evaluating the transparency log. All
+      tiles are now correctly verified against their parents. In order to
+      determine if you have been affected: rm -r go.sum go.work.sum vendor/ &&
+      go mod tidy
+    - CVE-2026-56864
+      A malicious GOSUMDB was capable of serving arbitrary module content not
+      contained within the transparency log. This attack allows for a
+      coordinating GOPROXY and GOSUMDB to serve a client malicious module
+      content that cannot be detected by evaluating the transparency log. In
+      order to determine if you have been affected: rm -r go.sum go.work.sum
+      vendor/ && go mod tidy
+    - CVE-2026-56862
+      Handshake messages, such as KeyUpdate, are always considered as
+      state-advancing, regardless of whether a handshake has been completed or
+      not. As a result, a malicious client can keep sending KeyUpdate messages
+      to force the server to keep performing key derivation operations
+      indefinitely.
+    - CVE-2026-56860
+      Previously, resolving relative paths containing parent directory ('..')
+      segments performed string conversions and buffer rewrites on each step,
+      resulting in quadratic time complexity and high memory allocation
+      overhead. Now, path resolution operates on a byte buffer using
+      index-based backtracking for '..' segments, eliminating the quadratic
+      time complexity and significantly reducing memory allocations.
+    - CVE-2026-56859
+      Previously, DecodeElement would reset the depth counter causing it to
+      never fire; this could lead to stack exhaustion.
+    - CVE-2026-56858
+      Previously, pathological inputs could close an unescaped '/' early,
+      allowing for attack-controlled data to inject arbitrary content,
+      potentially leading to XSS.
+    - CVE-2026-56853
+      When a server is configured to support unencrypted HTTP/2, it reads a
+      few bytes from each new connection to see if they contain the HTTP/2
+      client preface. ReadHeaderTimeout is unexpectedly not being applied when
+      doing this.
+    - CVE-2026-33818
+      Enforce a recursion limit in Unmarshal to prevent stack exhaustion when
+      parsing deeply-nested, recursive structures.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Sun, 16 Aug 2026 22:47:51 +0200
+
 golang-1.27 (1.27~rc2-1) unstable; urgency=medium
 
   * New upstream version 1.27~rc2
