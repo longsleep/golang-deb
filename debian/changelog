@@ -1,3 +1,9 @@
+golang-1.26 (1.26.6-2) unstable; urgency=medium
+
+  * New patch: skip flaky TestMergeLocalsIntegration on s390x and arm
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Wed, 19 Aug 2026 10:54:46 +0200
+
 golang-1.26 (1.26.6-1) unstable; urgency=medium
 
   * New upstream version 1.26.6 (Closes: #1144341)
