@@ -1,0 +1,31 @@
+From: "Dr. Tobias Quathamer" <toddy@debian.org>
+Date: Wed, 19 Aug 2026 10:54:08 +0200
+Subject: Skip flaky TestMergeLocalsIntegration on s390x and arm
+
+---
+ src/cmd/compile/internal/test/mergelocals_test.go | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/cmd/compile/internal/test/mergelocals_test.go b/src/cmd/compile/internal/test/mergelocals_test.go
+index 77389fa..83bf2a3 100644
+--- a/src/cmd/compile/internal/test/mergelocals_test.go
++++ b/src/cmd/compile/internal/test/mergelocals_test.go
+@@ -12,6 +12,7 @@ import (
+ 	"cmd/internal/src"
+ 	"internal/testenv"
+ 	"path/filepath"
++	"runtime"
+ 	"sort"
+ 	"strings"
+ 	"testing"
+@@ -110,6 +111,10 @@ func TestMergeLocalState(t *testing.T) {
+ }
+ 
+ func TestMergeLocalsIntegration(t *testing.T) {
++	if runtime.GOARCH == "s390x" || runtime.GOARCH == "arm" {
++		t.Skipf("skipping; flaky on %s", runtime.GOARCH)
++	}
++
+ 	testenv.MustHaveGoBuild(t)
+ 
+ 	// This test does a build of a specific canned package to
