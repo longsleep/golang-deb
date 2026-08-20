@@ -23,8 +23,8 @@ Auto-Submit: Keith Randall <khr@golang.org>
  src/cmd/compile/internal/liveness/mergelocals.go | 19 ++++++++++++++++---
  src/cmd/compile/internal/ssa/_gen/ARMOps.go      |  2 ++
  src/cmd/compile/internal/ssa/_gen/S390XOps.go    |  2 ++
- src/cmd/compile/internal/ssa/opGen.go            |  1 +
- 4 files changed, 21 insertions(+), 3 deletions(-)
+ src/cmd/compile/internal/ssa/opGen.go            |  2 ++
+ 4 files changed, 22 insertions(+), 3 deletions(-)
 
 diff --git a/src/cmd/compile/internal/liveness/mergelocals.go b/src/cmd/compile/internal/liveness/mergelocals.go
 index 28d034a..b9be0dd 100644
@@ -97,10 +97,18 @@ index 7774ac1..76e5d86 100644
  	}
  
 diff --git a/src/cmd/compile/internal/ssa/opGen.go b/src/cmd/compile/internal/ssa/opGen.go
-index e54be43..8f908cf 100644
+index e54be43..25a6db9 100644
 --- a/src/cmd/compile/internal/ssa/opGen.go
 +++ b/src/cmd/compile/internal/ssa/opGen.go
 @@ -65242,6 +65242,7 @@ var opcodeTable = [...]opInfo{
+ 		clobberFlags:   true,
+ 		faultOnNilArg0: true,
+ 		addrSinkArg0:   true,
++		addrSinkArg1:   true,
+ 		reg: regInfo{
+ 			inputs: []inputInfo{
+ 				{0, 2},     // R1
+@@ -85725,6 +85726,7 @@ var opcodeTable = [...]opInfo{
  		clobberFlags:   true,
  		faultOnNilArg0: true,
  		addrSinkArg0:   true,
