@@ -1,3 +1,10 @@
+golang-1.27 (1.27.0-1) unstable; urgency=medium
+
+  * New upstream version 1.27.0
+  * Remove support for DEB_GOMINCOMPAT.
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 20 Aug 2026 11:43:55 +0200
+
 golang-1.27 (1.27~rc3-1) unstable; urgency=medium
 
   * New upstream version 1.27~rc3 (Closes: #1144340)
