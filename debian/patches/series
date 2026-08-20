@@ -3,4 +3,3 @@
 0003-Skip-TestAsan-on-riscv64.patch
 0005-Skip-TestTSAN-test-on-s390x.patch
 0005-Support-DEB_GOMINCOMPAT.patch
-0006-Skip-flaky-TestMergeLocalsIntegration-on-s390x-and-a.patch
