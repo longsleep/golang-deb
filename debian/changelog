@@ -4,7 +4,7 @@ golang-1.26 (1.26.7-1) unstable; urgency=medium
     - Remove patch for failing TestMergeLocalsIntegration
     - Cherry-pick fix from upstream. Closes: #1144887
 
- -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 20 Aug 2026 11:41:07 +0200
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Thu, 20 Aug 2026 12:00:26 +0200
 
 golang-1.26 (1.26.6-2) unstable; urgency=medium
 
