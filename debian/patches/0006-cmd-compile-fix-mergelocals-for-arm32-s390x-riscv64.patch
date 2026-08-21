@@ -1,0 +1,120 @@
+From: "Dr. Tobias Quathamer" <toddy@debian.org>
+Date: Fri, 21 Aug 2026 17:57:28 +0200
+Subject: cmd/compile: fix mergelocals for arm32/s390x/riscv64
+
+This is a cherry-pick from https://go-review.googlesource.com/c/go/+/812920
+---
+ src/cmd/compile/internal/liveness/mergelocals.go | 19 ++++++++++++++++---
+ src/cmd/compile/internal/ssa/_gen/ARMOps.go      |  2 ++
+ src/cmd/compile/internal/ssa/_gen/RISCV64Ops.go  |  4 ++++
+ src/cmd/compile/internal/ssa/opGen.go            |  4 ++++
+ 4 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/src/cmd/compile/internal/liveness/mergelocals.go b/src/cmd/compile/internal/liveness/mergelocals.go
+index 28d034a..b9be0dd 100644
+--- a/src/cmd/compile/internal/liveness/mergelocals.go
++++ b/src/cmd/compile/internal/liveness/mergelocals.go
+@@ -516,9 +516,22 @@ func (cs *cstate) populateIndirectUseTable(cands []*ir.Name) ([]*ir.Name, []cand
+ 			for idx, arg := range v.Args {
+ 				if nc, ok := pendingUses[arg.ID]; ok {
+ 					if !v.AddrSinkArg(idx) {
+-						// If this op may propagate the argument address to its output,
+-						// then give up. See issue 80127.
+-						continue
++						// If this op may propagate its input address
++						// to somewhere else, we must track where that
++						// somewhere else might be. See issue 80127.
++						if v.Type.IsMemory() {
++							// Might be stored to memory. Give up.
++							continue
++						}
++						// Some sort of address arithmetic.
++						if _, ok := pendingUses[v.ID]; ok {
++							// v has used multiple addresses, which is something
++							// we can't keep track of. Give up.
++							continue
++						}
++						// Treat this op as producing the address of the same variable
++						// that its argument was the address of.
++						pendingUses[v.ID] = nameCount{n: nc.n, count: v.Uses}
+ 					}
+ 					// We found a use of some value that took the
+ 					// address of nc.n. Record this inst as a
+diff --git a/src/cmd/compile/internal/ssa/_gen/ARMOps.go b/src/cmd/compile/internal/ssa/_gen/ARMOps.go
+index f21f2cb..7a392db 100644
+--- a/src/cmd/compile/internal/ssa/_gen/ARMOps.go
++++ b/src/cmd/compile/internal/ssa/_gen/ARMOps.go
+@@ -505,6 +505,7 @@ func init() {
+ 			clobberFlags:   true,
+ 			faultOnNilArg0: true,
+ 			addrSinkArg0:   true,
++			addrSinkArg1:   true,
+ 		},
+ 
+ 		// large or unaligned move
+@@ -530,6 +531,7 @@ func init() {
+ 			faultOnNilArg1: true,
+ 			addrSinkArg0:   true,
+ 			addrSinkArg1:   true,
++			// TODO: could use addrSinkArg2 here.
+ 		},
+ 
+ 		// Scheduler ensures LoweredGetClosurePtr occurs only in entry block,
+diff --git a/src/cmd/compile/internal/ssa/_gen/RISCV64Ops.go b/src/cmd/compile/internal/ssa/_gen/RISCV64Ops.go
+index a72a6f5..49f54b9 100644
+--- a/src/cmd/compile/internal/ssa/_gen/RISCV64Ops.go
++++ b/src/cmd/compile/internal/ssa/_gen/RISCV64Ops.go
+@@ -290,6 +290,7 @@ func init() {
+ 			},
+ 			typ:            "Mem",
+ 			faultOnNilArg0: true,
++			addrSinkArg0:   true,
+ 		},
+ 
+ 		// duffcopy
+@@ -335,6 +336,8 @@ func init() {
+ 			},
+ 			typ:            "Mem",
+ 			faultOnNilArg0: true,
++			addrSinkArg0:   true,
++			addrSinkArg1:   true,
+ 		},
+ 
+ 		// general unaligned move
+@@ -363,6 +366,7 @@ func init() {
+ 			faultOnNilArg1: true,
+ 			addrSinkArg0:   true,
+ 			addrSinkArg1:   true,
++			// TODO: could use addrSinkArg2 here.
+ 		},
+ 
+ 		// Atomic loads.
+diff --git a/src/cmd/compile/internal/ssa/opGen.go b/src/cmd/compile/internal/ssa/opGen.go
+index 442ac71..b7c9050 100644
+--- a/src/cmd/compile/internal/ssa/opGen.go
++++ b/src/cmd/compile/internal/ssa/opGen.go
+@@ -19480,6 +19480,7 @@ var opcodeTable = [...]opInfo{
+ 		clobberFlags:   true,
+ 		faultOnNilArg0: true,
+ 		addrSinkArg0:   true,
++		addrSinkArg1:   true,
+ 		reg: regInfo{
+ 			inputs: []inputInfo{
+ 				{0, 2},     // R1
+@@ -35125,6 +35126,7 @@ var opcodeTable = [...]opInfo{
+ 		auxType:        auxInt64,
+ 		argLen:         2,
+ 		faultOnNilArg0: true,
++		addrSinkArg0:   true,
+ 		reg: regInfo{
+ 			inputs: []inputInfo{
+ 				{0, 16777216}, // X25
+@@ -35153,6 +35155,8 @@ var opcodeTable = [...]opInfo{
+ 		auxType:        auxInt64,
+ 		argLen:         3,
+ 		faultOnNilArg0: true,
++		addrSinkArg0:   true,
++		addrSinkArg1:   true,
+ 		reg: regInfo{
+ 			inputs: []inputInfo{
+ 				{0, 16},         // X5
