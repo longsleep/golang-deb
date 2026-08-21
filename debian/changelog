@@ -1,3 +1,10 @@
+golang-1.25 (1.25.14-1) unstable; urgency=medium
+
+  * New upstream version 1.25.14
+    - Add patch to fix mergelocals for arm32/s390x/riscv64
+
+ -- Dr. Tobias Quathamer <toddy@debian.org>  Fri, 21 Aug 2026 18:00:54 +0200
+
 golang-1.25 (1.25.13-1) unstable; urgency=medium
 
   * New upstream version 1.25.13 (Closes: #1144342)
