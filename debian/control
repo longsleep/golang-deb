@@ -13,7 +13,7 @@ Uploaders:
  Dr. Tobias Quathamer <toddy@debian.org>,
 Section: golang
 Build-Depends:
- debhelper-compat (= 13),
+ debhelper (>= 11),
  binutils-gold [arm64],
  golang-1.26-go:native | golang-1.25-go:native,
  netbase,
@@ -34,7 +34,7 @@ Recommends:
  g++,
  gcc,
  libc6-dev,
- pkgconf,
+ pkg-config | pkgconf,
 Suggests:
  bzr | brz,
  ca-certificates,
