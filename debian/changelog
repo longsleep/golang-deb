@@ -1,3 +1,9 @@
+golang-1.27 (1.27.3-1longsleep1+jammy) jammy; urgency=high
+
+  * New upstream version 1.27.3
+
+ -- Simon Eisenmann <simon@longsleep.org>  Tue, 20 Oct 2026 20:46:33 +0200
+
 golang-1.27 (1.27.2-1longsleep1+jammy) jammy; urgency=medium
 
   * New upstream version 1.27.2
